@@ -88,7 +88,10 @@ document.addEventListener('search', (e) => {
   if (!fuse) return;
 
   const results = fuse.search(query);
-  currentResults = results.map(r => r.item);
+  // Build currentResults in the same order as rendered: bookmarks first, then tabs
+  const bookmarkResults = results.filter(r => r.item.type === 'bookmark');
+  const tabResults = results.filter(r => r.item.type === 'tab');
+  currentResults = [...bookmarkResults, ...tabResults].map(r => r.item);
   selectedIndex = 0;
 
   renderResults(results);

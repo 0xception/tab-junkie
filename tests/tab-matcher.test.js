@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeUrl, matchTabsToBookmarks } from '../background/tab-matcher.js';
+import { normalizeUrl, matchTabsToBookmarks, resolveTabGroup } from '../background/tab-matcher.js';
 
 describe('normalizeUrl', () => {
   it('normalizes trailing slashes on bare domains', () => {
@@ -119,5 +119,149 @@ describe('matchTabsToBookmarks', () => {
     assert.equal(aws.isOpen, true);
     assert.equal(aws.tabId, 201);
     assert.equal(result.unbookmarkedTabs.length, 0);
+  });
+
+  it('returns floatingTabsByGroup as empty object when no opener chains', () => {
+    const result = matchTabsToBookmarks(bookmarks, tabs);
+    assert.deepEqual(result.floatingTabsByGroup, {});
+  });
+
+  it('places tab with openerTabId pointing to matched bookmark in correct group', () => {
+    const bms = [
+      { id: 'bm1', title: 'GitHub', url: 'https://github.com', groupId: 'g1', sortOrder: 0 },
+    ];
+    const openTabs = [
+      { id: 101, url: 'https://github.com/', title: 'GitHub', index: 0 },
+      { id: 102, url: 'https://github.com/some/repo', title: 'Repo', openerTabId: 101, index: 1 },
+    ];
+
+    const result = matchTabsToBookmarks(bms, openTabs);
+    assert.equal(result.unbookmarkedTabs.length, 0);
+    assert.equal(result.floatingTabsByGroup['g1'].length, 1);
+    assert.equal(result.floatingTabsByGroup['g1'][0].id, 102);
+  });
+
+  it('resolves transitive opener chain: tab → tab → bookmark', () => {
+    const bms = [
+      { id: 'bm1', title: 'GitHub', url: 'https://github.com', groupId: 'g1', sortOrder: 0 },
+    ];
+    const openTabs = [
+      { id: 101, url: 'https://github.com/', title: 'GitHub', index: 0 },
+      { id: 102, url: 'https://github.com/org', title: 'Org', openerTabId: 101, index: 1 },
+      { id: 103, url: 'https://github.com/org/repo', title: 'Repo', openerTabId: 102, index: 2 },
+    ];
+
+    const result = matchTabsToBookmarks(bms, openTabs);
+    assert.equal(result.floatingTabsByGroup['g1'].length, 2);
+    assert.deepEqual(
+      result.floatingTabsByGroup['g1'].map(t => t.id),
+      [102, 103]
+    );
+  });
+
+  it('tab with no openerTabId stays in unbookmarkedTabs', () => {
+    const bms = [
+      { id: 'bm1', title: 'GitHub', url: 'https://github.com', groupId: 'g1', sortOrder: 0 },
+    ];
+    const openTabs = [
+      { id: 101, url: 'https://github.com/', title: 'GitHub', index: 0 },
+      { id: 102, url: 'https://stackoverflow.com', title: 'SO', index: 1 },
+    ];
+
+    const result = matchTabsToBookmarks(bms, openTabs);
+    assert.equal(result.unbookmarkedTabs.length, 1);
+    assert.equal(result.unbookmarkedTabs[0].id, 102);
+    assert.equal(result.floatingTabsByGroup['g1'], undefined);
+  });
+
+  it('openerTabId pointing to closed/missing tab stays in unbookmarkedTabs', () => {
+    const bms = [
+      { id: 'bm1', title: 'GitHub', url: 'https://github.com', groupId: 'g1', sortOrder: 0 },
+    ];
+    const openTabs = [
+      { id: 101, url: 'https://github.com/', title: 'GitHub', index: 0 },
+      { id: 102, url: 'https://example.com', title: 'Example', openerTabId: 999, index: 1 },
+    ];
+
+    const result = matchTabsToBookmarks(bms, openTabs);
+    assert.equal(result.unbookmarkedTabs.length, 1);
+    assert.equal(result.unbookmarkedTabs[0].id, 102);
+  });
+
+  it('respects max depth limit on unresolved chains', () => {
+    // maxDepth limits hops walked per tab. With memoization, once a tab is resolved,
+    // its children resolve in 1 hop. So maxDepth protects against long UNRESOLVED chains.
+    // Test: chain where opener leads to a non-bookmark tab with no further opener
+    const bms = [
+      { id: 'bm1', title: 'Root', url: 'https://root.com', groupId: 'g1', sortOrder: 0 },
+    ];
+    // Tab 102 opened from 101 (bookmark) → resolves
+    // Tab 200 has no opener → orphan
+    // Build a chain of 6 tabs hanging off 200 (non-bookmark, no opener)
+    const openTabs = [
+      { id: 101, url: 'https://root.com/', title: 'Root', index: 0 },
+      { id: 102, url: 'https://page.com', title: 'Page', openerTabId: 101, index: 1 },
+      { id: 200, url: 'https://other.com', title: 'Other', index: 2 },
+    ];
+    for (let i = 201; i <= 206; i++) {
+      openTabs.push({ id: i, url: `https://other${i}.com`, title: `Other ${i}`, openerTabId: i - 1, index: i - 198 });
+    }
+
+    const result = matchTabsToBookmarks(bms, openTabs);
+    // Tab 102 resolves to g1
+    assert.equal(result.floatingTabsByGroup['g1'].length, 1);
+    assert.equal(result.floatingTabsByGroup['g1'][0].id, 102);
+    // All the 200-chain tabs are orphans (chain dead-ends at 200 which has no opener)
+    assert.equal(result.unbookmarkedTabs.length, 7); // 200-206
+  });
+
+  it('pinnedTabGroups places tab in correct group as fallback', () => {
+    const bms = [
+      { id: 'bm1', title: 'GitHub', url: 'https://github.com', groupId: 'g1', sortOrder: 0 },
+    ];
+    // Tab 102 has no openerTabId but is pinned to g1
+    const openTabs = [
+      { id: 101, url: 'https://github.com/', title: 'GitHub', index: 0 },
+      { id: 102, url: 'https://example.com', title: 'Example', index: 1 },
+    ];
+    const pinned = new Map([[102, 'g1']]);
+
+    const result = matchTabsToBookmarks(bms, openTabs, new Map(), pinned);
+    assert.equal(result.unbookmarkedTabs.length, 0);
+    assert.equal(result.floatingTabsByGroup['g1'].length, 1);
+    assert.equal(result.floatingTabsByGroup['g1'][0].id, 102);
+  });
+
+  it('opener chain takes precedence over pinnedTabGroups', () => {
+    const bms = [
+      { id: 'bm1', title: 'GitHub', url: 'https://github.com', groupId: 'g1', sortOrder: 0 },
+    ];
+    // Tab 102 has openerTabId pointing to bookmark in g1, but is pinned to g2
+    const openTabs = [
+      { id: 101, url: 'https://github.com/', title: 'GitHub', index: 0 },
+      { id: 102, url: 'https://example.com', title: 'Example', openerTabId: 101, index: 1 },
+    ];
+    const pinned = new Map([[102, 'g2']]);
+
+    const result = matchTabsToBookmarks(bms, openTabs, new Map(), pinned);
+    // Should be in g1 (from opener chain), not g2 (from pin)
+    assert.equal(result.floatingTabsByGroup['g1'].length, 1);
+    assert.equal(result.floatingTabsByGroup['g2'], undefined);
+  });
+
+  it('floating tabs are sorted by tab.index within a group', () => {
+    const bms = [
+      { id: 'bm1', title: 'GitHub', url: 'https://github.com', groupId: 'g1', sortOrder: 0 },
+    ];
+    const openTabs = [
+      { id: 101, url: 'https://github.com/', title: 'GitHub', index: 0 },
+      { id: 103, url: 'https://github.com/c', title: 'C', openerTabId: 101, index: 5 },
+      { id: 102, url: 'https://github.com/a', title: 'A', openerTabId: 101, index: 2 },
+    ];
+
+    const result = matchTabsToBookmarks(bms, openTabs);
+    const floating = result.floatingTabsByGroup['g1'];
+    assert.equal(floating[0].id, 102); // index 2
+    assert.equal(floating[1].id, 103); // index 5
   });
 });

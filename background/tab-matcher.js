@@ -33,14 +33,65 @@ export function normalizeUrl(url) {
 }
 
 /**
+ * Walk a tab's openerTabId chain to find a group assignment.
+ * Returns the groupId if an ancestor is a matched bookmark tab or already-resolved floating tab.
+ *
+ * @param {object} tab - The tab to resolve
+ * @param {Map} tabsById - Map of tabId → tab object
+ * @param {Map} matchedTabToGroup - Map of tabId → groupId for bookmark-matched tabs
+ * @param {Map} resolved - Memoization map of tabId → groupId|null
+ * @param {number} [maxDepth=5] - Maximum hops to walk
+ * @returns {string|null} groupId or null
+ */
+export function resolveTabGroup(tab, tabsById, matchedTabToGroup, resolved, maxDepth = 5) {
+  if (resolved.has(tab.id)) return resolved.get(tab.id);
+
+  let current = tab;
+  const visited = [];
+
+  for (let depth = 0; depth < maxDepth; depth++) {
+    const openerId = current.openerTabId;
+    if (openerId == null) break;
+
+    // Check memo first
+    if (resolved.has(openerId)) {
+      const groupId = resolved.get(openerId);
+      // Memoize all visited tabs along the way
+      for (const visitedId of visited) resolved.set(visitedId, groupId);
+      resolved.set(tab.id, groupId);
+      return groupId;
+    }
+
+    // Check if opener is a matched bookmark tab
+    if (matchedTabToGroup.has(openerId)) {
+      const groupId = matchedTabToGroup.get(openerId);
+      for (const visitedId of visited) resolved.set(visitedId, groupId);
+      resolved.set(tab.id, groupId);
+      return groupId;
+    }
+
+    // Move up the chain
+    const opener = tabsById.get(openerId);
+    if (!opener) break;
+
+    visited.push(openerId);
+    current = opener;
+  }
+
+  resolved.set(tab.id, null);
+  return null;
+}
+
+/**
  * Match open tabs against stored bookmarks.
- * Returns enriched bookmarks (with isOpen/tabId) and unbookmarked tabs.
+ * Returns enriched bookmarks, unbookmarked orphan tabs, and floating tabs grouped by parent bookmark's group.
  *
  * @param {Array} bookmarks - Stored bookmarks
  * @param {Array} tabs - Open browser tabs
  * @param {Map} [trackedTabs] - Map of tabId → bookmark URL for tabs opened via extension (survives redirects)
+ * @param {Map} [pinnedTabGroups] - Map of tabId → groupId for tabs pinned to groups (e.g., after bookmark removal)
  */
-export function matchTabsToBookmarks(bookmarks, tabs, trackedTabs = new Map()) {
+export function matchTabsToBookmarks(bookmarks, tabs, trackedTabs = new Map(), pinnedTabGroups = new Map()) {
   // Build a map of normalized URL → tab for quick lookup
   const tabsByUrl = new Map();
   for (const tab of tabs) {
@@ -78,8 +129,37 @@ export function matchTabsToBookmarks(bookmarks, tabs, trackedTabs = new Map()) {
     return { ...bookmark, isOpen: false, tabId: null };
   });
 
-  // Collect unbookmarked tabs
-  const unbookmarkedTabs = tabs.filter(tab => !matchedTabIds.has(tab.id));
+  // Build matchedTabToGroup: tabId → groupId for bookmark-matched tabs
+  const matchedTabToGroup = new Map();
+  for (const bookmark of enrichedBookmarks) {
+    if (bookmark.isOpen && bookmark.tabId != null && bookmark.groupId != null) {
+      matchedTabToGroup.set(bookmark.tabId, bookmark.groupId);
+    }
+  }
 
-  return { bookmarks: enrichedBookmarks, unbookmarkedTabs };
+  // Resolve floating tabs via opener chain
+  const resolved = new Map();
+  const floatingTabsByGroup = {};
+  const unbookmarkedTabs = [];
+
+  for (const tab of tabs) {
+    if (matchedTabIds.has(tab.id)) continue;
+
+    const groupId = resolveTabGroup(tab, tabsById, matchedTabToGroup, resolved)
+      ?? pinnedTabGroups.get(tab.id)
+      ?? null;
+    if (groupId != null) {
+      if (!floatingTabsByGroup[groupId]) floatingTabsByGroup[groupId] = [];
+      floatingTabsByGroup[groupId].push(tab);
+    } else {
+      unbookmarkedTabs.push(tab);
+    }
+  }
+
+  // Sort each group's floating tabs by tab.index
+  for (const groupId of Object.keys(floatingTabsByGroup)) {
+    floatingTabsByGroup[groupId].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+  }
+
+  return { bookmarks: enrichedBookmarks, unbookmarkedTabs, floatingTabsByGroup };
 }

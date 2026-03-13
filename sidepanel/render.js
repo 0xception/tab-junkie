@@ -6,7 +6,7 @@
 export function renderBookmarkTree(container, state, { initDragAndDrop, selectedIds }) {
   container.innerHTML = '';
 
-  const { bookmarks, groups, unbookmarkedTabs, preferences, activeTabId } = state;
+  const { bookmarks, groups, unbookmarkedTabs, floatingTabsByGroup, preferences, activeTabId } = state;
   const collapsedGroups = preferences?.collapsedGroups || [];
 
   const topLevelGroups = groups
@@ -21,7 +21,7 @@ export function renderBookmarkTree(container, state, { initDragAndDrop, selected
   const hasSelection = selectedIds && selectedIds.size > 0;
 
   for (const group of topLevelGroups) {
-    const section = renderGroup(group, bookmarks, groups, collapsedGroups, selectedIds, activeTabId);
+    const section = renderGroup(group, bookmarks, groups, collapsedGroups, selectedIds, activeTabId, floatingTabsByGroup);
     section.setAttribute('data-draggable', '');
     // Add drag handle for group reordering
     const handle = document.createElement('div');
@@ -108,7 +108,7 @@ function applySelection(item, id, selectedIds, hasSelection) {
   if (selectedIds && selectedIds.has(id)) item.selected = true;
 }
 
-function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, activeTabId) {
+function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, activeTabId, floatingTabsByGroup = {}) {
   const section = document.createElement('div');
   section.className = 'group-section';
   section.dataset.groupId = group.id;
@@ -118,12 +118,15 @@ function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, 
     .filter(b => b.groupId === group.id)
     .sort((a, b) => a.sortOrder - b.sortOrder);
 
+  const groupFloatingTabs = floatingTabsByGroup[group.id] || [];
+
   const subGroups = allGroups
     .filter(g => g.parentId === group.id)
     .sort((a, b) => a.sortOrder - b.sortOrder);
 
-  const totalCount = groupBookmarks.length + subGroups.reduce((sum, sg) => {
-    return sum + bookmarks.filter(b => b.groupId === sg.id).length;
+  const totalCount = groupBookmarks.length + groupFloatingTabs.length + subGroups.reduce((sum, sg) => {
+    const subFloating = floatingTabsByGroup[sg.id] || [];
+    return sum + bookmarks.filter(b => b.groupId === sg.id).length + subFloating.length;
   }, 0);
 
   const header = document.createElement('group-header');
@@ -142,11 +145,58 @@ function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, 
   items.dataset.groupId = group.id;
 
   const hasSelection = selectedIds && selectedIds.size > 0;
+
+  // Build opener → children map for interleaving floating tabs after their parent
+  const childrenByOpener = new Map();
+  for (const tab of groupFloatingTabs) {
+    const openerId = tab.openerTabId;
+    if (!childrenByOpener.has(openerId)) childrenByOpener.set(openerId, []);
+    childrenByOpener.get(openerId).push(tab);
+  }
+
+  function renderFloatingTab(tab) {
+    const itemId = `tab-${tab.id}`;
+    const item = document.createElement('bookmark-item');
+    item.data = {
+      id: itemId,
+      title: tab.title || tab.url,
+      url: tab.url,
+      favicon: tab.favIconUrl || null,
+      isOpen: true,
+      tabId: tab.id,
+      isBookmarked: false,
+      isActive: tab.id === activeTabId,
+    };
+    applySelection(item, itemId, selectedIds, hasSelection);
+    items.appendChild(item);
+    // Recursively render floating tabs spawned from this floating tab
+    renderFloatingChildren(tab.id);
+  }
+
+  function renderFloatingChildren(tabId) {
+    const children = childrenByOpener.get(tabId);
+    if (!children) return;
+    for (const child of children) renderFloatingTab(child);
+  }
+
   for (const bookmark of groupBookmarks) {
     const item = document.createElement('bookmark-item');
     item.data = { ...bookmark, isBookmarked: true, isActive: bookmark.tabId === activeTabId };
     applySelection(item, bookmark.id, selectedIds, hasSelection);
     items.appendChild(item);
+    // Render any floating tabs spawned from this bookmark's tab
+    if (bookmark.tabId != null) renderFloatingChildren(bookmark.tabId);
+  }
+
+  // Render any remaining floating tabs whose opener isn't in this group
+  // (e.g., opener is a floating tab in another group that got resolved here)
+  const rendered = new Set();
+  for (const child of items.querySelectorAll('bookmark-item')) {
+    const data = child.data;
+    if (data && !data.isBookmarked) rendered.add(data.tabId);
+  }
+  for (const tab of groupFloatingTabs) {
+    if (!rendered.has(tab.id)) renderFloatingTab(tab);
   }
 
   section.appendChild(items);
@@ -157,7 +207,7 @@ function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, 
     subGroupsContainer.className = 'sub-groups';
     subGroupsContainer.dataset.parentGroupId = group.id;
     for (const subGroup of subGroups) {
-      const subSection = renderGroup(subGroup, bookmarks, allGroups, collapsedGroups, selectedIds, activeTabId);
+      const subSection = renderGroup(subGroup, bookmarks, allGroups, collapsedGroups, selectedIds, activeTabId, floatingTabsByGroup);
       subSection.setAttribute('data-draggable', '');
       const handle = document.createElement('div');
       handle.className = 'group-drag-handle';

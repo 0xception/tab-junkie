@@ -64,6 +64,7 @@ export class SearchBar extends HTMLElement {
     this._input.addEventListener('input', () => {
       this.dispatchEvent(new CustomEvent('search', {
         bubbles: true,
+        composed: true,
         detail: { query: this._input.value },
       }));
     });
@@ -78,13 +79,12 @@ export class SearchBar extends HTMLElement {
 
     this._input.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === 'Escape') {
+        e.preventDefault();
         this.dispatchEvent(new CustomEvent('search-key', {
           bubbles: true,
+          composed: true,
           detail: { key: e.key },
         }));
-        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-          e.preventDefault();
-        }
       }
     });
   }
@@ -105,6 +105,7 @@ export class SearchBar extends HTMLElement {
     this._input.value = '';
     this.dispatchEvent(new CustomEvent('search', {
       bubbles: true,
+      composed: true,
       detail: { query: '' },
     }));
   }

@@ -29,12 +29,27 @@ export function createStorage(chrome) {
     return (await _get(KEYS.BOOKMARKS)) || [];
   }
 
-  async function addBookmark({ title, url, groupId, favicon = null }) {
+  async function addBookmark({ title, url, groupId, favicon = null, afterBookmarkId }) {
     const bookmarks = await getBookmarks();
 
-    // Compute sortOrder: last in the group
     const groupBookmarks = bookmarks.filter(b => b.groupId === groupId);
-    const sortOrder = groupBookmarks.length;
+    let sortOrder;
+
+    if (afterBookmarkId) {
+      // Insert right after the referenced bookmark
+      const afterBookmark = groupBookmarks.find(b => b.id === afterBookmarkId);
+      if (afterBookmark) {
+        sortOrder = afterBookmark.sortOrder + 1;
+        for (const b of groupBookmarks) {
+          if (b.sortOrder >= sortOrder) b.sortOrder++;
+        }
+      } else {
+        sortOrder = groupBookmarks.length;
+      }
+    } else {
+      // Append to end of group
+      sortOrder = groupBookmarks.length;
+    }
 
     const bookmark = {
       id: generateId(),

@@ -12,12 +12,24 @@ export function createBroadcaster(chrome, storage) {
   // Maps tabId → normalized bookmark URL
   const trackedTabs = new Map();
 
+  // Pin tabs to groups (when a bookmark is removed but the tab stays open)
+  // Maps tabId → groupId
+  const pinnedTabGroups = new Map();
+
   /**
    * Register a tab that was opened from a bookmark.
    * This allows matching even after the tab URL changes due to redirects.
    */
   function trackTab(tabId, bookmarkUrl) {
     trackedTabs.set(tabId, bookmarkUrl);
+  }
+
+  /**
+   * Pin a tab to a group (e.g., when its bookmark is removed but the tab stays open).
+   * The tab will appear as a floating tab in that group until closed.
+   */
+  function pinTabToGroup(tabId, groupId) {
+    pinnedTabGroups.set(tabId, groupId);
   }
 
   /**
@@ -31,16 +43,21 @@ export function createBroadcaster(chrome, storage) {
       chrome.tabs.query({}),
     ]);
 
-    // Clean up tracked tabs that no longer exist
+    // Clean up tracked/pinned tabs that no longer exist
     const currentTabIds = new Set(tabs.map(t => t.id));
     for (const tabId of trackedTabs.keys()) {
       if (!currentTabIds.has(tabId)) {
         trackedTabs.delete(tabId);
       }
     }
+    for (const tabId of pinnedTabGroups.keys()) {
+      if (!currentTabIds.has(tabId)) {
+        pinnedTabGroups.delete(tabId);
+      }
+    }
 
-    const { bookmarks: enrichedBookmarks, unbookmarkedTabs } =
-      matchTabsToBookmarks(bookmarks, tabs, trackedTabs);
+    const { bookmarks: enrichedBookmarks, unbookmarkedTabs, floatingTabsByGroup } =
+      matchTabsToBookmarks(bookmarks, tabs, trackedTabs, pinnedTabGroups);
 
     // Find the active tab in the last-focused window
     let currentActiveTab = null;
@@ -59,6 +76,7 @@ export function createBroadcaster(chrome, storage) {
       bookmarks: enrichedBookmarks,
       groups,
       unbookmarkedTabs,
+      floatingTabsByGroup,
       preferences,
       activeTabId: currentActiveTab?.id ?? null,
     };
@@ -110,5 +128,6 @@ export function createBroadcaster(chrome, storage) {
     broadcastState,
     invalidateAndBroadcast,
     trackTab,
+    pinTabToGroup,
   };
 }
