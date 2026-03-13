@@ -1,0 +1,276 @@
+// components/bookmark-item.js
+
+const template = document.createElement('template');
+template.innerHTML = `
+  <style>
+    :host {
+      display: block;
+    }
+    .bookmark {
+      padding: 6px 16px 6px var(--indent, 32px);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      border-left: 2px solid transparent;
+      transition: background 0.1s;
+    }
+    .bookmark:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .bookmark.open {
+      background: var(--open-bg, rgba(91, 207, 130, 0.04));
+    }
+    .bookmark.closed {
+      opacity: var(--closed-opacity, 0.6);
+    }
+    .bookmark.unbookmarked {
+      border-left: 2px dashed var(--unbookmarked-color, #cfa35b);
+    }
+    .bookmark.selected {
+      background: rgba(91, 145, 207, 0.15);
+    }
+    .checkbox {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      border: 1.5px solid #555;
+      flex-shrink: 0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      opacity: 0;
+      transition: opacity 0.1s;
+      background: none;
+      color: #fff;
+    }
+    .bookmark:hover .checkbox,
+    :host([selectable]) .checkbox {
+      opacity: 1;
+    }
+    .checkbox.checked {
+      background: #5b91cf;
+      border-color: #5b91cf;
+      opacity: 1;
+    }
+    .favicon {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .favicon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .favicon.placeholder {
+      background: #2a2a3e;
+      color: #555;
+    }
+    .favicon.unbookmarked-placeholder {
+      background: #2e2a1e;
+      color: var(--unbookmarked-color, #cfa35b);
+    }
+    .title {
+      font-size: 12px;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .title.unbookmarked {
+      color: var(--unbookmarked-color, #cfa35b);
+    }
+    .open-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--open-color, #5bcf72);
+      flex-shrink: 0;
+    }
+    .close-btn {
+      font-size: 10px;
+      color: #555;
+      cursor: pointer;
+      flex-shrink: 0;
+      padding: 2px 4px;
+      border-radius: 3px;
+      border: none;
+      background: none;
+      line-height: 1;
+    }
+    .close-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #aaa;
+    }
+    .hidden {
+      display: none;
+    }
+  </style>
+  <div class="bookmark" part="bookmark">
+    <div class="checkbox"></div>
+    <div class="favicon">
+      <img class="favicon-img hidden" />
+      <span class="favicon-letter"></span>
+    </div>
+    <span class="title"></span>
+    <span class="open-dot hidden"></span>
+    <button class="close-btn hidden" title="Close tab">✕</button>
+  </div>
+`;
+
+export class BookmarkItem extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: 'open' });
+    this.shadowRoot.appendChild(template.content.cloneNode(true));
+
+    this._data = null;
+    this._selected = false;
+
+    const checkboxEl = this.shadowRoot.querySelector('.checkbox');
+
+    // Checkbox click always toggles without clearing other selections
+    checkboxEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._emitSelect(e, true);
+    });
+
+    // Bind event handlers
+    this.shadowRoot.querySelector('.bookmark').addEventListener('click', (e) => {
+      if (e.target.closest('.close-btn')) return;
+      // Modifier keys or selectable mode → selection behavior
+      if (this.hasAttribute('selectable') || e.shiftKey || e.ctrlKey || e.metaKey) {
+        this._emitSelect(e);
+      } else {
+        this._handleClick();
+      }
+    });
+
+    this.shadowRoot.querySelector('.close-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._handleClose();
+    });
+  }
+
+  set data(value) {
+    this._data = value;
+    this._render();
+  }
+
+  get data() {
+    return this._data;
+  }
+
+  set selected(value) {
+    this._selected = value;
+    const bookmarkEl = this.shadowRoot.querySelector('.bookmark');
+    const checkboxEl = this.shadowRoot.querySelector('.checkbox');
+    bookmarkEl.classList.toggle('selected', value);
+    checkboxEl.classList.toggle('checked', value);
+    checkboxEl.textContent = value ? '✓' : '';
+  }
+
+  get selected() {
+    return this._selected;
+  }
+
+  _render() {
+    if (!this._data) return;
+
+    const { title, favicon, isOpen, isBookmarked } = this._data;
+    const el = this.shadowRoot;
+
+    const bookmarkEl = el.querySelector('.bookmark');
+    const titleEl = el.querySelector('.title');
+    const faviconImg = el.querySelector('.favicon-img');
+    const faviconLetter = el.querySelector('.favicon-letter');
+    const faviconContainer = el.querySelector('.favicon');
+    const openDot = el.querySelector('.open-dot');
+    const closeBtn = el.querySelector('.close-btn');
+
+    // Set title
+    titleEl.textContent = title;
+
+    // Visual state classes
+    bookmarkEl.classList.toggle('open', isOpen && isBookmarked !== false);
+    bookmarkEl.classList.toggle('closed', !isOpen && isBookmarked !== false);
+    bookmarkEl.classList.toggle('unbookmarked', isBookmarked === false);
+    bookmarkEl.classList.toggle('selected', this._selected);
+    titleEl.classList.toggle('unbookmarked', isBookmarked === false);
+
+    // Checkbox
+    const checkboxEl = el.querySelector('.checkbox');
+    checkboxEl.classList.toggle('checked', this._selected);
+    checkboxEl.textContent = this._selected ? '✓' : '';
+
+    // Favicon
+    if (favicon) {
+      faviconImg.src = favicon;
+      faviconImg.classList.remove('hidden');
+      faviconLetter.classList.add('hidden');
+      faviconContainer.classList.remove('placeholder', 'unbookmarked-placeholder');
+
+      faviconImg.onerror = () => {
+        faviconImg.classList.add('hidden');
+        faviconLetter.classList.remove('hidden');
+        faviconLetter.textContent = title.charAt(0).toUpperCase();
+        faviconContainer.classList.add(
+          isBookmarked === false ? 'unbookmarked-placeholder' : 'placeholder'
+        );
+      };
+    } else {
+      faviconImg.classList.add('hidden');
+      faviconLetter.classList.remove('hidden');
+      faviconLetter.textContent = title.charAt(0).toUpperCase();
+      faviconContainer.classList.add(
+        isBookmarked === false ? 'unbookmarked-placeholder' : 'placeholder'
+      );
+    }
+
+    // Open indicator and close button
+    openDot.classList.toggle('hidden', !isOpen || isBookmarked === false);
+    closeBtn.classList.toggle('hidden', !isOpen);
+  }
+
+  _emitSelect(e, forceToggle = false) {
+    if (!this._data) return;
+    this.dispatchEvent(new CustomEvent('select-item', {
+      bubbles: true,
+      detail: {
+        data: this._data,
+        shiftKey: e.shiftKey,
+        ctrlKey: forceToggle || e.ctrlKey || e.metaKey,
+      },
+    }));
+  }
+
+  _handleClick() {
+    if (!this._data) return;
+    this.dispatchEvent(new CustomEvent('navigate', {
+      bubbles: true,
+      detail: {
+        tabId: this._data.tabId || null,
+        url: this._data.url,
+      },
+    }));
+  }
+
+  _handleClose() {
+    if (!this._data || !this._data.tabId) return;
+    this.dispatchEvent(new CustomEvent('close-tab', {
+      bubbles: true,
+      detail: { tabId: this._data.tabId },
+    }));
+  }
+}
+
+customElements.define('bookmark-item', BookmarkItem);

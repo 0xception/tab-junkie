@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="../shared/styles.css" />
+  <link rel="stylesheet" href="sidepanel.css" />
+  <title>Junkie</title>
+</head>
+<body>
+  <header class="header">
+    <div class="header-title">Junkie</div>
+    <div class="header-actions">
+      <button class="header-btn" id="add-group-btn" title="Add group">+</button>
+      <button class="header-btn" id="settings-btn" title="Settings">&#x2699;</button>
+    </div>
+  </header>
+
+  <main id="bookmark-list"></main>
+
+  <!-- Add Group Dialog -->
+  <dialog id="add-group-dialog">
+    <form method="dialog">
+      <h3>New Group</h3>
+      <label>
+        Name
+        <input type="text" id="group-name-input" required />
+      </label>
+      <label id="group-parent-label">
+        Parent (optional)
+        <select id="group-parent-select">
+          <option value="">None (top-level)</option>
+        </select>
+      </label>
+      <div class="color-picker" id="color-picker"></div>
+      <div class="dialog-actions">
+        <button type="button" class="btn-cancel">Cancel</button>
+        <button type="submit" class="btn-primary">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Bulk Action Bar -->
+  <div id="bulk-action-bar" class="bulk-action-bar hidden">
+    <span class="bulk-count"></span>
+    <div class="bulk-actions">
+      <select id="bulk-group-select" class="bulk-select">
+        <option value="" disabled selected>Add to group...</option>
+      </select>
+      <button class="bulk-btn bulk-btn-close" id="bulk-close-btn" title="Close selected tabs">Close Tabs</button>
+      <button class="bulk-btn bulk-btn-clear" id="bulk-clear-btn">Clear</button>
+    </div>
+  </div>
+
+  <script type="module" src="../components/bookmark-item.js"></script>
+  <script type="module" src="../components/group-header.js"></script>
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>
