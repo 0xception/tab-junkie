@@ -19,6 +19,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 chrome.tabs.onActivated.addListener(() => broadcaster.invalidateAndBroadcast());
 
+// --- Keyboard shortcut commands ---
+
+
 // --- Message handler ---
 // Receives requests from side panel and popup
 

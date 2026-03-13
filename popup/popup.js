@@ -99,6 +99,14 @@ document.addEventListener('search', (e) => {
 
 // --- Keyboard Navigation ---
 
+// Tab key opens the side panel (must be handled at document level before search-bar)
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    openSidePanel();
+  }
+});
+
 document.addEventListener('search-key', (e) => {
   const { key } = e.detail;
   const items = document.querySelectorAll('.result-item');
@@ -312,6 +320,21 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+// --- Side Panel ---
+
+async function openSidePanel() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tab) {
+      await chrome.sidePanel.open({ tabId: tab.id });
+    }
+  } catch {
+    // Fallback: send message to service worker
+    await sendMessage('open-side-panel');
+  }
+  window.close();
 }
 
 // --- Navigation ---
