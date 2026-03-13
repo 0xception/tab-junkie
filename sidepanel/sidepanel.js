@@ -134,6 +134,12 @@ function syncSelectionToDOM() {
 }
 
 function clearSelection() {
+  // Deselect from SortableJS MultiDrag internal state
+  for (const el of getAllBookmarkItems()) {
+    if (el.classList.contains('multi-drag-selected')) {
+      Sortable.utils.deselect(el);
+    }
+  }
   selectedItems.clear();
   lastSelectedId = null;
   syncSelectionToDOM();
@@ -349,11 +355,13 @@ async function handleDragEnd(evt) {
   const targetGroupId = evt.to.dataset.groupId;
   const newIndex = evt.newIndex;
 
+  // Deselect all items from SortableJS MultiDrag state immediately
+  for (const el of items) {
+    Sortable.utils.deselect(el);
+  }
+
   if (items.length > 1) {
     // Multi-item drop
-    const validTarget = targetGroupId && targetGroupId !== '__open_tabs__';
-    if (!validTarget) return;
-
     const unbookmarked = [];
     const bookmarked = [];
 
@@ -367,24 +375,31 @@ async function handleDragEnd(evt) {
       }
     }
 
-    if (unbookmarked.length > 0) {
-      await sendMessage(MSG.BULK_ADD_BOOKMARKS, {
-        items: unbookmarked.map(item => ({
-          title: item.title,
-          url: item.url,
-          favicon: item.favicon || null,
-        })),
-        groupId: targetGroupId,
-      });
-    }
+    if (targetGroupId === '__open_tabs__') {
+      // Dragging bookmarks to Open Tabs removes them
+      for (const item of bookmarked) {
+        await sendMessage(MSG.REMOVE_BOOKMARK, { id: item.id });
+      }
+    } else if (targetGroupId) {
+      if (unbookmarked.length > 0) {
+        await sendMessage(MSG.BULK_ADD_BOOKMARKS, {
+          items: unbookmarked.map(item => ({
+            title: item.title,
+            url: item.url,
+            favicon: item.favicon || null,
+          })),
+          groupId: targetGroupId,
+        });
+      }
 
-    let sortOrder = newIndex;
-    for (const item of bookmarked) {
-      await sendMessage(MSG.MOVE_BOOKMARK, {
-        id: item.id,
-        groupId: targetGroupId,
-        sortOrder: sortOrder++,
-      });
+      let sortOrder = newIndex;
+      for (const item of bookmarked) {
+        await sendMessage(MSG.MOVE_BOOKMARK, {
+          id: item.id,
+          groupId: targetGroupId,
+          sortOrder: sortOrder++,
+        });
+      }
     }
 
     clearSelection();
@@ -404,6 +419,9 @@ async function handleDragEnd(evt) {
         favicon: draggedData.favicon,
       });
     }
+  } else if (targetGroupId === '__open_tabs__') {
+    // Dragging a bookmark to Open Tabs removes the bookmark
+    await sendMessage(MSG.REMOVE_BOOKMARK, { id: draggedData.id });
   } else {
     await sendMessage(MSG.MOVE_BOOKMARK, {
       id: draggedData.id,

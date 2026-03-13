@@ -18,14 +18,12 @@ template.innerHTML = `
     .bookmark:hover {
       background: rgba(255, 255, 255, 0.04);
     }
-    .bookmark.open {
-      background: var(--open-bg, rgba(91, 207, 130, 0.04));
-    }
-    .bookmark.closed {
-      opacity: var(--closed-opacity, 0.6);
-    }
     .bookmark.unbookmarked {
       border-left: 2px dashed var(--unbookmarked-color, #cfa35b);
+    }
+    .bookmark.active {
+      border-left: 2px solid #5bcf72;
+      background: rgba(91, 207, 130, 0.18);
     }
     .bookmark.selected {
       background: rgba(91, 145, 207, 0.15);
@@ -93,8 +91,9 @@ template.innerHTML = `
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: var(--open-color, #5bcf72);
+      background: #5bcf72;
       flex-shrink: 0;
+      box-shadow: 0 0 4px #5bcf72;
     }
     .close-btn {
       font-size: 10px;
@@ -123,7 +122,7 @@ template.innerHTML = `
     </div>
     <span class="title"></span>
     <span class="open-dot hidden"></span>
-    <button class="close-btn hidden" title="Close tab">✕</button>
+    <button class="close-btn hidden" title="Close tab">&#x2715;</button>
   </div>
 `;
 
@@ -176,7 +175,7 @@ export class BookmarkItem extends HTMLElement {
     const checkboxEl = this.shadowRoot.querySelector('.checkbox');
     bookmarkEl.classList.toggle('selected', value);
     checkboxEl.classList.toggle('checked', value);
-    checkboxEl.textContent = value ? '✓' : '';
+    checkboxEl.textContent = value ? '\u2713' : '';
   }
 
   get selected() {
@@ -186,7 +185,8 @@ export class BookmarkItem extends HTMLElement {
   _render() {
     if (!this._data) return;
 
-    const { title, favicon, isOpen, isBookmarked } = this._data;
+    const { title, favicon, isOpen, isBookmarked, isActive } = this._data;
+
     const el = this.shadowRoot;
 
     const bookmarkEl = el.querySelector('.bookmark');
@@ -200,17 +200,16 @@ export class BookmarkItem extends HTMLElement {
     // Set title
     titleEl.textContent = title;
 
-    // Visual state classes
-    bookmarkEl.classList.toggle('open', isOpen && isBookmarked !== false);
-    bookmarkEl.classList.toggle('closed', !isOpen && isBookmarked !== false);
+    // Visual state: only active tab and unbookmarked get special styling
     bookmarkEl.classList.toggle('unbookmarked', isBookmarked === false);
+    bookmarkEl.classList.toggle('active', !!isActive);
     bookmarkEl.classList.toggle('selected', this._selected);
     titleEl.classList.toggle('unbookmarked', isBookmarked === false);
 
     // Checkbox
     const checkboxEl = el.querySelector('.checkbox');
     checkboxEl.classList.toggle('checked', this._selected);
-    checkboxEl.textContent = this._selected ? '✓' : '';
+    checkboxEl.textContent = this._selected ? '\u2713' : '';
 
     // Favicon
     if (favicon) {
@@ -236,7 +235,7 @@ export class BookmarkItem extends HTMLElement {
       );
     }
 
-    // Open indicator and close button
+    // Green dot for open bookmarks, close button for any open tab
     openDot.classList.toggle('hidden', !isOpen || isBookmarked === false);
     closeBtn.classList.toggle('hidden', !isOpen);
   }

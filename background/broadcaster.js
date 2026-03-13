@@ -8,6 +8,18 @@ import { matchTabsToBookmarks } from './tab-matcher.js';
 export function createBroadcaster(chrome, storage) {
   let cachedState = null;
 
+  // Track tabs we opened from bookmarks (survives redirects)
+  // Maps tabId → normalized bookmark URL
+  const trackedTabs = new Map();
+
+  /**
+   * Register a tab that was opened from a bookmark.
+   * This allows matching even after the tab URL changes due to redirects.
+   */
+  function trackTab(tabId, bookmarkUrl) {
+    trackedTabs.set(tabId, bookmarkUrl);
+  }
+
   /**
    * Recompute full state by merging stored bookmarks with current tabs.
    */
@@ -19,14 +31,36 @@ export function createBroadcaster(chrome, storage) {
       chrome.tabs.query({}),
     ]);
 
+    // Clean up tracked tabs that no longer exist
+    const currentTabIds = new Set(tabs.map(t => t.id));
+    for (const tabId of trackedTabs.keys()) {
+      if (!currentTabIds.has(tabId)) {
+        trackedTabs.delete(tabId);
+      }
+    }
+
     const { bookmarks: enrichedBookmarks, unbookmarkedTabs } =
-      matchTabsToBookmarks(bookmarks, tabs);
+      matchTabsToBookmarks(bookmarks, tabs, trackedTabs);
+
+    // Find the active tab in the last-focused window
+    let currentActiveTab = null;
+    try {
+      const [focusedTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      currentActiveTab = focusedTab || null;
+    } catch {
+      // Fallback: most recently accessed active tab
+      const activeTabs = tabs.filter(t => t.active);
+      currentActiveTab = activeTabs.length > 0
+        ? activeTabs.reduce((a, b) => (b.lastAccessed || 0) > (a.lastAccessed || 0) ? b : a)
+        : null;
+    }
 
     cachedState = {
       bookmarks: enrichedBookmarks,
       groups,
       unbookmarkedTabs,
       preferences,
+      activeTabId: currentActiveTab?.id ?? null,
     };
 
     return cachedState;
@@ -75,5 +109,6 @@ export function createBroadcaster(chrome, storage) {
     getState,
     broadcastState,
     invalidateAndBroadcast,
+    trackTab,
   };
 }

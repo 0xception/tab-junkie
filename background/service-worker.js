@@ -9,14 +9,15 @@ const broadcaster = createBroadcaster(chrome, storage);
 // --- Tab event listeners ---
 // Re-broadcast state whenever tabs change
 
-chrome.tabs.onCreated.addListener(() => broadcaster.broadcastState());
-chrome.tabs.onRemoved.addListener(() => broadcaster.broadcastState());
+chrome.tabs.onCreated.addListener(() => broadcaster.invalidateAndBroadcast());
+chrome.tabs.onRemoved.addListener(() => broadcaster.invalidateAndBroadcast());
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  // Only rebroadcast on URL changes, not every tab update
-  if (changeInfo.url || changeInfo.status === 'complete') {
-    broadcaster.broadcastState();
+  // Rebroadcast on URL changes, loading start, or load complete
+  if (changeInfo.url || changeInfo.status) {
+    broadcaster.invalidateAndBroadcast();
   }
 });
+chrome.tabs.onActivated.addListener(() => broadcaster.invalidateAndBroadcast());
 
 // --- Message handler ---
 // Receives requests from side panel and popup
@@ -112,9 +113,12 @@ async function handleMessage(message) {
         await chrome.windows.update(tab.windowId, { focused: true });
       } else {
         // Tab is closed — open new tab
-        await chrome.tabs.create({ url });
+        const newTab = await chrome.tabs.create({ url });
+        // Track this tab so we can match it even after redirects (SSO, etc.)
+        broadcaster.trackTab(newTab.id, url);
       }
-      return { success: true };
+      // Broadcast so the green dot and active tab highlight update immediately
+      return broadcaster.invalidateAndBroadcast();
     }
 
     case MSG.CLOSE_TAB: {

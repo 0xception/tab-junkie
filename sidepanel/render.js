@@ -6,7 +6,7 @@
 export function renderBookmarkTree(container, state, { initDragAndDrop, selectedIds }) {
   container.innerHTML = '';
 
-  const { bookmarks, groups, unbookmarkedTabs, preferences } = state;
+  const { bookmarks, groups, unbookmarkedTabs, preferences, activeTabId } = state;
   const collapsedGroups = preferences?.collapsedGroups || [];
 
   const topLevelGroups = groups
@@ -21,7 +21,7 @@ export function renderBookmarkTree(container, state, { initDragAndDrop, selected
   const hasSelection = selectedIds && selectedIds.size > 0;
 
   for (const group of topLevelGroups) {
-    const section = renderGroup(group, bookmarks, groups, collapsedGroups, selectedIds);
+    const section = renderGroup(group, bookmarks, groups, collapsedGroups, selectedIds, activeTabId);
     section.setAttribute('data-draggable', '');
     // Add drag handle for group reordering
     const handle = document.createElement('div');
@@ -50,7 +50,7 @@ export function renderBookmarkTree(container, state, { initDragAndDrop, selected
 
     for (const bookmark of ungrouped) {
       const item = document.createElement('bookmark-item');
-      item.data = { ...bookmark, isBookmarked: true };
+      item.data = { ...bookmark, isBookmarked: true, isActive: bookmark.tabId === activeTabId };
       applySelection(item, bookmark.id, selectedIds, hasSelection);
       items.appendChild(item);
     }
@@ -90,6 +90,7 @@ export function renderBookmarkTree(container, state, { initDragAndDrop, selected
         isOpen: true,
         tabId: tab.id,
         isBookmarked: false,
+        isActive: tab.id === activeTabId,
       };
       applySelection(item, itemId, selectedIds, hasSelection);
       items.appendChild(item);
@@ -107,7 +108,7 @@ function applySelection(item, id, selectedIds, hasSelection) {
   if (selectedIds && selectedIds.has(id)) item.selected = true;
 }
 
-function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds) {
+function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, activeTabId) {
   const section = document.createElement('div');
   section.className = 'group-section';
   section.dataset.groupId = group.id;
@@ -143,7 +144,7 @@ function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds) 
   const hasSelection = selectedIds && selectedIds.size > 0;
   for (const bookmark of groupBookmarks) {
     const item = document.createElement('bookmark-item');
-    item.data = { ...bookmark, isBookmarked: true };
+    item.data = { ...bookmark, isBookmarked: true, isActive: bookmark.tabId === activeTabId };
     applySelection(item, bookmark.id, selectedIds, hasSelection);
     items.appendChild(item);
   }
@@ -156,7 +157,7 @@ function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds) 
     subGroupsContainer.className = 'sub-groups';
     subGroupsContainer.dataset.parentGroupId = group.id;
     for (const subGroup of subGroups) {
-      const subSection = renderGroup(subGroup, bookmarks, allGroups, collapsedGroups, selectedIds);
+      const subSection = renderGroup(subGroup, bookmarks, allGroups, collapsedGroups, selectedIds, activeTabId);
       subSection.setAttribute('data-draggable', '');
       const handle = document.createElement('div');
       handle.className = 'group-drag-handle';
