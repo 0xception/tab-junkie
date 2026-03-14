@@ -152,7 +152,7 @@ function walkDL(dl, parentGroupId, depth, groups, bookmarks) {
       const a = child.querySelector(':scope > a');
       if (a) {
         const url = a.getAttribute('href');
-        if (!url || url.startsWith('javascript:')) continue;
+        if (!url || !isValidUrl(url)) continue;
         const addDate = a.getAttribute('add_date');
         const createdAt = addDate ? parseInt(addDate, 10) * 1000 : Date.now();
 
@@ -186,8 +186,65 @@ export function parseJunkieJSON(jsonString) {
   if (!data.version || !Array.isArray(data.bookmarks)) {
     throw new Error('Invalid Junkie export file');
   }
-  return {
-    bookmarks: data.bookmarks,
-    groups: data.groups || [],
-  };
+  const groups = Array.isArray(data.groups) ? data.groups : [];
+  const bookmarks = data.bookmarks;
+  validateImportData(bookmarks, groups);
+  return { bookmarks, groups };
+}
+
+// --- Validation ---
+
+function isValidUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' || u.protocol === 'http:' || u.protocol === 'file:';
+  } catch { return false; }
+}
+
+function validateImportData(bookmarks, groups) {
+  const groupIds = new Set(groups.map(g => g.id));
+
+  // Validate groups: required fields, no circular parentId
+  for (const g of groups) {
+    if (!g.id || typeof g.id !== 'string') throw new Error('Group missing id');
+    if (typeof g.name !== 'string') throw new Error('Group missing name');
+    if (g.parentId !== null && g.parentId !== undefined && !groupIds.has(g.parentId)) {
+      // Orphaned sub-group — reparent to top level
+      g.parentId = null;
+    }
+    if (typeof g.sortOrder !== 'number') g.sortOrder = 0;
+  }
+
+  // Detect circular parent references
+  for (const g of groups) {
+    const visited = new Set();
+    let current = g;
+    while (current?.parentId) {
+      if (visited.has(current.id)) {
+        // Break the cycle
+        g.parentId = null;
+        break;
+      }
+      visited.add(current.id);
+      current = groups.find(p => p.id === current.parentId);
+    }
+  }
+
+  // Validate bookmarks: required fields, safe URLs, valid groupIds
+  for (const b of bookmarks) {
+    if (!b.id || typeof b.id !== 'string') throw new Error('Bookmark missing id');
+    if (!b.url || !isValidUrl(b.url)) throw new Error(`Invalid bookmark URL: ${b.url}`);
+    if (typeof b.title !== 'string') b.title = b.url;
+    if (typeof b.sortOrder !== 'number') b.sortOrder = 0;
+    if (b.groupId && !groupIds.has(b.groupId)) b.groupId = null;
+  }
+
+  // Check for duplicate IDs
+  const bookmarkIds = bookmarks.map(b => b.id);
+  if (new Set(bookmarkIds).size !== bookmarkIds.length) {
+    throw new Error('Duplicate bookmark IDs in import');
+  }
+  if (groupIds.size !== groups.length) {
+    throw new Error('Duplicate group IDs in import');
+  }
 }

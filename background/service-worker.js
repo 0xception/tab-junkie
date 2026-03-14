@@ -13,16 +13,16 @@ const broadcaster = createBroadcaster(chrome, storage);
 chrome.tabs.onCreated.addListener(() => broadcaster.invalidateAndBroadcast());
 chrome.tabs.onRemoved.addListener(() => broadcaster.invalidateAndBroadcast());
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  // Rebroadcast on URL changes, loading start, or load complete
-  if (changeInfo.url || changeInfo.status) {
+  // Rebroadcast on URL changes or load complete (skip 'loading' to halve broadcasts)
+  if (changeInfo.url || changeInfo.status === 'complete') {
     broadcaster.invalidateAndBroadcast();
   }
 });
 chrome.tabs.onActivated.addListener(() => broadcaster.invalidateAndBroadcast());
 
-let isSyncingTabOrder = false;
+let syncingTabOrderCount = 0;
 chrome.tabs.onMoved.addListener(() => {
-  if (!isSyncingTabOrder) broadcaster.invalidateAndBroadcast();
+  if (syncingTabOrderCount === 0) broadcaster.invalidateAndBroadcast();
 });
 
 // --- Keyboard shortcut commands ---
@@ -106,15 +106,26 @@ async function handleMessage(message) {
     }
 
     case MSG.REMOVE_GROUP: {
-      await storage.removeGroup(message.payload.id);
-      // Move orphaned bookmarks to ungrouped with incrementing sort orders
+      const removedId = message.payload.id;
+      await storage.removeGroup(removedId);
+      // Move orphaned bookmarks to ungrouped in a single write
       const bookmarks = await storage.getBookmarks();
-      const ungrouped = bookmarks.filter(b => b.groupId === null);
-      let nextSort = ungrouped.length;
+      const ungroupedCount = bookmarks.filter(b => b.groupId === null).length;
+      let nextSort = ungroupedCount;
+      let changed = false;
       for (const bm of bookmarks) {
-        if (bm.groupId === message.payload.id) {
-          await storage.moveBookmark(bm.id, null, nextSort++);
+        if (bm.groupId === removedId) {
+          bm.groupId = null;
+          bm.sortOrder = nextSort++;
+          changed = true;
         }
+      }
+      if (changed) await storage.setBookmarks(bookmarks);
+      // Prune deleted group from collapsedGroups preference
+      const prefs = await storage.getPreferences();
+      const collapsed = prefs.collapsedGroups || [];
+      if (collapsed.includes(removedId)) {
+        await storage.setPreference('collapsedGroups', collapsed.filter(id => id !== removedId));
       }
       return broadcaster.invalidateAndBroadcast();
     }
@@ -139,14 +150,20 @@ async function handleMessage(message) {
 
     case MSG.BULK_ADD_BOOKMARKS: {
       const { items, groupId } = message.payload;
-      for (const item of items) {
-        await storage.addBookmark({
-          title: item.title,
-          url: item.url,
-          groupId,
-          favicon: item.favicon || null,
+      const allBookmarks = await storage.getBookmarks();
+      const groupCount = allBookmarks.filter(b => b.groupId === groupId).length;
+      for (let i = 0; i < items.length; i++) {
+        allBookmarks.push({
+          id: crypto.randomUUID(),
+          title: items[i].title,
+          url: items[i].url,
+          groupId: groupId || null,
+          sortOrder: groupCount + i,
+          favicon: items[i].favicon || null,
+          createdAt: Date.now(),
         });
       }
+      await storage.setBookmarks(allBookmarks);
       return broadcaster.invalidateAndBroadcast();
     }
 
@@ -188,7 +205,7 @@ async function handleMessage(message) {
 
     case MSG.SYNC_ALL_TAB_ORDER: {
       try {
-        isSyncingTabOrder = true;
+        syncingTabOrderCount++;
 
         // Step 1: Ungroup all existing Chrome tab groups (clean slate)
         const allTabs = await chrome.tabs.query({});
@@ -258,7 +275,7 @@ async function handleMessage(message) {
       } catch (e) {
         return { success: false, error: e.message };
       } finally {
-        isSyncingTabOrder = false;
+        syncingTabOrderCount--;
         broadcaster.invalidateAndBroadcast();
       }
     }
@@ -268,10 +285,25 @@ async function handleMessage(message) {
       return { success: true };
     }
 
+    case MSG.NORMALIZE_GROUP_SORT: {
+      // Receives { groupId, bookmarkIds: [...] } — the bookmarkIds are in DOM order
+      const { groupId, bookmarkIds } = message.payload;
+      const bookmarks = await storage.getBookmarks();
+      for (let i = 0; i < bookmarkIds.length; i++) {
+        const bm = bookmarks.find(b => b.id === bookmarkIds[i]);
+        if (bm) {
+          bm.groupId = groupId || null;
+          bm.sortOrder = i;
+        }
+      }
+      await storage.setBookmarks(bookmarks);
+      return broadcaster.invalidateAndBroadcast();
+    }
+
     case MSG.IMPORT_REPLACE: {
       const { bookmarks, groups } = message.payload;
-      await storage.setBookmarks(bookmarks);
-      await storage.setGroups(groups);
+      await storage.replaceAll(bookmarks, groups);
+      broadcaster.resetPinnedTabs();
       return broadcaster.invalidateAndBroadcast();
     }
 
@@ -302,7 +334,7 @@ async function syncTabOrderInChrome(tabOrder, { skipFlagManagement = false } = {
     byWindow.get(tab.windowId).push(tab);
   }
 
-  if (!skipFlagManagement) isSyncingTabOrder = true;
+  if (!skipFlagManagement) syncingTabOrderCount++;
   try {
     for (const [, windowTabs] of byWindow) {
       // Preserve Junkie's order within each window
@@ -314,7 +346,7 @@ async function syncTabOrderInChrome(tabOrder, { skipFlagManagement = false } = {
     }
   } finally {
     if (!skipFlagManagement) {
-      isSyncingTabOrder = false;
+      syncingTabOrderCount--;
       broadcaster.invalidateAndBroadcast();
     }
   }

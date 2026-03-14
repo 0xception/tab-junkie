@@ -11,6 +11,9 @@ let settingsOpen = false;
 let syncFeedbackTimer = null;
 let fuse = null;
 let filterQuery = '';
+let lastFuseBookmarkCount = -1;
+let lastFuseTabCount = -1;
+let lastFuseGroupCount = -1;
 
 function sendMessage(type, payload) {
   return chrome.runtime.sendMessage({ type, payload });
@@ -244,6 +247,18 @@ function setupFilter() {
 
 function buildFuseIndex() {
   if (!currentState) return;
+
+  // Skip rebuild when bookmark/group/tab counts haven't changed
+  const bmCount = currentState.bookmarks.length;
+  const tabCount = currentState.unbookmarkedTabs.length;
+  const grpCount = currentState.groups.length;
+  if (fuse && bmCount === lastFuseBookmarkCount && tabCount === lastFuseTabCount && grpCount === lastFuseGroupCount) {
+    return;
+  }
+  lastFuseBookmarkCount = bmCount;
+  lastFuseTabCount = tabCount;
+  lastFuseGroupCount = grpCount;
+
   const items = [];
 
   for (const bookmark of currentState.bookmarks) {
@@ -801,6 +816,8 @@ function syncSelectionToSortable() {
 }
 
 function handleDragStart(evt) {
+  // Clear any stale drag-expand state from interrupted drags
+  dragExpandedGroups.length = 0;
   // If dragging a selected item with others selected, make sure
   // SortableJS knows about all our selections
   const draggedData = evt.item.data;
@@ -811,7 +828,6 @@ function handleDragStart(evt) {
 
 async function handleDragEnd(evt) {
   const targetGroupId = evt.to.dataset.groupId;
-  const newIndex = evt.newIndex;
 
   // Use our selectedItems as source of truth for multi-drag, not SortableJS's evt.items
   // (SortableJS can have stale internal selections that diverge from our state)
@@ -853,34 +869,26 @@ async function handleDragEnd(evt) {
       }
     }
 
-    // Bookmarks: move to target group
-    let sortOrder = newIndex;
-    for (const item of bookmarked) {
-      await sendMessage(MSG.MOVE_BOOKMARK, {
-        id: item.id,
-        groupId: targetGroupId,
-        sortOrder: sortOrder++,
-      });
+    // Normalize sort orders for the target group based on final DOM order
+    // This handles both moved items and existing items in one write
+    const targetContainer = evt.to;
+    const bookmarkIds = [];
+    const tabOrder = [];
+    for (const el of targetContainer.querySelectorAll('bookmark-item')) {
+      if (el.data?.id && el.data.isBookmarked !== false) bookmarkIds.push(el.data.id);
+      if (el.data?.tabId != null) tabOrder.push(el.data.tabId);
+    }
+    if (bookmarkIds.length > 0) {
+      await sendMessage(MSG.NORMALIZE_GROUP_SORT, { groupId: targetGroupId, bookmarkIds });
+    }
+    // Sync Chrome tab order to match Junkie's visual order
+    if (tabOrder.length > 1) {
+      await sendMessage(MSG.SYNC_TAB_ORDER, { tabOrder });
     }
   }
 
   if (itemsToMove.length > 1) {
     clearSelection();
-  }
-
-  // Sync Chrome tab order to match Junkie's visual order for the affected group
-  if (targetGroupId && targetGroupId !== '__open_tabs__') {
-    const container = document.querySelector(`.group-items[data-group-id="${targetGroupId}"]`);
-    if (container) {
-      const tabOrder = [];
-      for (const el of container.querySelectorAll('bookmark-item')) {
-        const tabId = el.data?.tabId;
-        if (tabId != null) tabOrder.push(tabId);
-      }
-      if (tabOrder.length > 1) {
-        await sendMessage(MSG.SYNC_TAB_ORDER, { tabOrder });
-      }
-    }
   }
 
   clearDragExpandTimer();

@@ -15,16 +15,23 @@ export function createBroadcaster(chrome, storage) {
   // Pin tabs to groups (when a bookmark is removed but the tab stays open)
   // Maps tabId → groupId — persisted to storage so it survives extension reloads
   let pinnedTabGroups = new Map();
-  let pinnedTabsLoaded = false;
+  let pinnedTabsLoadPromise = null;
 
   async function loadPinnedTabs() {
-    if (pinnedTabsLoaded) return;
-    const stored = await storage.getPinnedTabs();
-    // stored is { "tabId": "groupId", ... } with string keys
-    for (const [tabId, groupId] of Object.entries(stored)) {
-      pinnedTabGroups.set(Number(tabId), groupId);
+    if (!pinnedTabsLoadPromise) {
+      pinnedTabsLoadPromise = storage.getPinnedTabs().then(stored => {
+        // stored is { "tabId": "groupId", ... } with string keys
+        for (const [tabId, groupId] of Object.entries(stored)) {
+          pinnedTabGroups.set(Number(tabId), groupId);
+        }
+      });
     }
-    pinnedTabsLoaded = true;
+    return pinnedTabsLoadPromise;
+  }
+
+  function resetPinnedTabs() {
+    pinnedTabGroups = new Map();
+    pinnedTabsLoadPromise = null;
   }
 
   async function savePinnedTabs() {
@@ -138,8 +145,11 @@ export function createBroadcaster(chrome, storage) {
         type: 'state-updated',
         payload: state,
       });
-    } catch {
-      // No listeners connected — that's fine
+    } catch (e) {
+      // "Could not establish connection" is expected when no UI pages are open
+      if (!e.message?.includes('Could not establish connection')) {
+        console.error('[Junkie] Broadcast failed:', e);
+      }
     }
 
     return state;
@@ -170,5 +180,6 @@ export function createBroadcaster(chrome, storage) {
     invalidateAndBroadcast,
     trackTab,
     pinTabToGroup,
+    resetPinnedTabs,
   };
 }

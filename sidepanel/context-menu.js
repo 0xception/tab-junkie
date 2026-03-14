@@ -53,19 +53,31 @@ export function setupContextMenu(sendMessage, getState, dialogs, selection) {
   });
 }
 
+function addMenuItem(action, label, destructive) {
+  const item = document.createElement('div');
+  item.className = 'context-menu-item';
+  item.dataset.action = action;
+  item.textContent = label;
+  if (destructive) item.style.color = '#cf5b5b';
+  contextMenu.appendChild(item);
+}
+
+function addDivider() {
+  const div = document.createElement('div');
+  div.className = 'context-menu-divider';
+  contextMenu.appendChild(div);
+}
+
 function buildGroupHeaderMenu(group, getState) {
   if (group.isUnbookmarked) {
     const state = getState();
     const tabIds = (state?.unbookmarkedTabs || []).map(t => t.id);
     if (tabIds.length > 0) {
-      contextMenu.innerHTML = `
-        <div class="context-menu-item" data-action="close-all-tabs">Close All Tabs (${tabIds.length})</div>
-      `;
+      addMenuItem('close-all-tabs', `Close All Tabs (${tabIds.length})`);
       contextMenu.dataset.tabIds = JSON.stringify(tabIds);
     }
   } else {
     const state = getState();
-    const menuItems = [];
 
     const groupTabIds = [];
     if (state) {
@@ -89,31 +101,29 @@ function buildGroupHeaderMenu(group, getState) {
     }
 
     if (closedBookmarkUrls.length > 0) {
-      menuItems.push(`<div class="context-menu-item" data-action="open-all-bookmarks">Open All Bookmarks (${closedBookmarkUrls.length})</div>`);
+      addMenuItem('open-all-bookmarks', `Open All Bookmarks (${closedBookmarkUrls.length})`);
       contextMenu.dataset.bookmarkUrls = JSON.stringify(closedBookmarkUrls);
     }
 
     if (groupTabIds.length > 0) {
-      menuItems.push(`<div class="context-menu-item" data-action="close-all-tabs">Close All Tabs (${groupTabIds.length})</div>`);
+      addMenuItem('close-all-tabs', `Close All Tabs (${groupTabIds.length})`);
       contextMenu.dataset.tabIds = JSON.stringify(groupTabIds);
     }
 
     if (closedBookmarkUrls.length > 0 || groupTabIds.length > 0) {
-      menuItems.push('<div class="context-menu-divider"></div>');
+      addDivider();
     }
 
-    menuItems.push('<div class="context-menu-item" data-action="edit-group">Edit Group</div>');
-    menuItems.push('<div class="context-menu-divider"></div>');
-    menuItems.push('<div class="context-menu-item" data-action="delete-group" style="color: #cf5b5b;">Delete Group</div>');
+    addMenuItem('edit-group', 'Edit Group');
+    addDivider();
+    addMenuItem('delete-group', 'Delete Group', true);
 
-    contextMenu.innerHTML = menuItems.join('');
     contextMenu.dataset.groupId = group.id;
   }
 }
 
 function buildSelectionMenu(items) {
   selectionData = items;
-  const menuItems = [];
   const count = items.length;
 
   const hasOpenTabs = items.some(item => item.tabId);
@@ -122,29 +132,26 @@ function buildSelectionMenu(items) {
   const hasFloatingTabs = items.some(item => item.isBookmarked === false);
 
   if (hasClosedBookmarks) {
-    menuItems.push(`<div class="context-menu-item" data-action="selection-open-tabs">Open Tabs (${count})</div>`);
+    addMenuItem('selection-open-tabs', `Open Tabs (${count})`);
   }
 
   if (hasFloatingTabs) {
-    menuItems.push(`<div class="context-menu-item" data-action="selection-save-to-group">Save Bookmarks (${count})</div>`);
+    addMenuItem('selection-save-to-group', `Save Bookmarks (${count})`);
   }
 
-  menuItems.push('<div class="context-menu-divider"></div>');
+  addDivider();
 
   if (hasOpenTabs) {
-    menuItems.push(`<div class="context-menu-item" data-action="selection-close-tabs">Close Tabs (${count})</div>`);
+    addMenuItem('selection-close-tabs', `Close Tabs (${count})`);
   }
 
   if (hasBookmarks) {
-    menuItems.push(`<div class="context-menu-item" data-action="selection-remove-bookmarks" style="color: #cf5b5b;">Remove Bookmarks (${count})</div>`);
+    addMenuItem('selection-remove-bookmarks', `Remove Bookmarks (${count})`, true);
   }
-
-  contextMenu.innerHTML = menuItems.join('');
 }
 
 function buildSingleItemMenu(data, bookmarkItem) {
   selectionData = null;
-  const menuItems = [];
 
   if (data.isBookmarked === false) {
     // Floating tab
@@ -158,35 +165,33 @@ function buildSingleItemMenu(data, bookmarkItem) {
         if (sib.data?.isBookmarked !== false) afterBookmarkId = sib.data.id;
       }
 
-      menuItems.push('<div class="context-menu-item" data-action="save-to-group">Save Bookmark</div>');
+      addMenuItem('save-to-group', 'Save Bookmark');
       contextMenu.dataset.tabTitle = data.title;
       contextMenu.dataset.tabUrl = data.url;
       contextMenu.dataset.tabFavicon = data.favicon || '';
       contextMenu.dataset.groupId = groupId;
       if (afterBookmarkId) contextMenu.dataset.afterBookmarkId = afterBookmarkId;
     }
-    menuItems.push('<div class="context-menu-divider"></div>');
-    menuItems.push('<div class="context-menu-item" data-action="close-tab" style="color: #cf5b5b;">Close Tab</div>');
+    addDivider();
+    addMenuItem('close-tab', 'Close Tab', true);
     contextMenu.dataset.tabId = data.tabId;
   } else {
     // Bookmarked item
     if (!data.isOpen) {
-      menuItems.push('<div class="context-menu-item" data-action="open-tab">Open Tab</div>');
+      addMenuItem('open-tab', 'Open Tab');
     }
-    menuItems.push('<div class="context-menu-item" data-action="edit-bookmark">Edit Bookmark</div>');
-    menuItems.push('<div class="context-menu-divider"></div>');
+    addMenuItem('edit-bookmark', 'Edit Bookmark');
+    addDivider();
     if (data.isOpen) {
-      menuItems.push('<div class="context-menu-item" data-action="close-tab">Close Tab</div>');
+      addMenuItem('close-tab', 'Close Tab');
       contextMenu.dataset.tabId = data.tabId;
     }
-    menuItems.push('<div class="context-menu-item" data-action="remove-bookmark" style="color: #cf5b5b;">Remove Bookmark</div>');
+    addMenuItem('remove-bookmark', 'Remove Bookmark', true);
     contextMenu.dataset.bookmarkId = data.id;
     contextMenu.dataset.bookmarkUrl = data.url;
     if (data.isOpen && data.tabId) contextMenu.dataset.pinTabId = data.tabId;
     if (data.groupId) contextMenu.dataset.pinGroupId = data.groupId;
   }
-
-  contextMenu.innerHTML = menuItems.join('');
 }
 
 async function handleContextAction(action, sendMessage, dialogs, selection) {

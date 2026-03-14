@@ -19,6 +19,7 @@ export const MSG = {
   SYNC_ALL_TAB_ORDER: 'sync-all-tab-order',
   OPEN_JUNKIE_WINDOW: 'open-junkie-window',
   IMPORT_REPLACE: 'import-replace',
+  NORMALIZE_GROUP_SORT: 'normalize-group-sort',
 
   // Broadcasts from background → UI
   STATE_UPDATED: 'state-updated',

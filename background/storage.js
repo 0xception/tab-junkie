@@ -30,7 +30,15 @@ export function createStorage(chrome) {
     return (await _get(KEYS.BOOKMARKS)) || [];
   }
 
+  function isValidUrl(url) {
+    try {
+      const u = new URL(url);
+      return u.protocol === 'https:' || u.protocol === 'http:' || u.protocol === 'file:';
+    } catch { return false; }
+  }
+
   async function addBookmark({ title, url, groupId, favicon = null, afterBookmarkId }) {
+    if (!isValidUrl(url)) throw new Error(`Invalid URL: ${url}`);
     const bookmarks = await getBookmarks();
 
     const groupBookmarks = bookmarks.filter(b => b.groupId === groupId);
@@ -78,7 +86,9 @@ export function createStorage(chrome) {
     const index = bookmarks.findIndex(b => b.id === id);
     if (index === -1) return;
 
-    // Only allow updating specific fields
+    if ('url' in updates && !isValidUrl(updates.url)) {
+      throw new Error(`Invalid URL: ${updates.url}`);
+    }
     const allowed = ['title', 'url', 'favicon', 'lastAccessedAt'];
     for (const key of allowed) {
       if (key in updates) {
@@ -233,5 +243,9 @@ export function createStorage(chrome) {
     setPinnedTabs,
     setBookmarks: (bookmarks) => _set(KEYS.BOOKMARKS, bookmarks),
     setGroups: (groups) => _set(KEYS.GROUPS, groups),
+    replaceAll: (bookmarks, groups) => chrome.storage.local.set({
+      [KEYS.BOOKMARKS]: bookmarks,
+      [KEYS.GROUPS]: groups,
+    }),
   };
 }
