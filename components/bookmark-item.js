@@ -110,10 +110,47 @@ template.innerHTML = `
       background: rgba(255, 255, 255, 0.1);
       color: #aaa;
     }
+    .tooltip {
+      display: none;
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: var(--indent, 32px);
+      right: 16px;
+      background: #1e1e2e;
+      border: 1px solid #3a3a4e;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 11px;
+      line-height: 1.4;
+      color: #8899aa;
+      pointer-events: none;
+      z-index: 100;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .tooltip .tooltip-title {
+      color: #ccc;
+      font-weight: 500;
+      margin-bottom: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .tooltip .tooltip-url {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .bookmark-wrap {
+      position: relative;
+    }
     .hidden {
       display: none;
     }
   </style>
+  <div class="bookmark-wrap">
   <div class="bookmark" part="bookmark">
     <div class="checkbox"></div>
     <div class="favicon">
@@ -123,6 +160,11 @@ template.innerHTML = `
     <span class="title"></span>
     <span class="open-dot hidden"></span>
     <button class="close-btn hidden" title="Close tab">&#x2715;</button>
+  </div>
+  <div class="tooltip">
+    <div class="tooltip-title"></div>
+    <div class="tooltip-url"></div>
+  </div>
   </div>
 `;
 
@@ -134,6 +176,21 @@ export class BookmarkItem extends HTMLElement {
 
     this._data = null;
     this._selected = false;
+    this._tooltipTimer = null;
+
+    const wrapEl = this.shadowRoot.querySelector('.bookmark-wrap');
+    const tooltipEl = this.shadowRoot.querySelector('.tooltip');
+
+    wrapEl.addEventListener('mouseenter', () => {
+      this._tooltipTimer = setTimeout(() => {
+        tooltipEl.style.display = 'block';
+      }, 400);
+    });
+
+    wrapEl.addEventListener('mouseleave', () => {
+      clearTimeout(this._tooltipTimer);
+      tooltipEl.style.display = 'none';
+    });
 
     const checkboxEl = this.shadowRoot.querySelector('.checkbox');
 
@@ -197,8 +254,10 @@ export class BookmarkItem extends HTMLElement {
     const openDot = el.querySelector('.open-dot');
     const closeBtn = el.querySelector('.close-btn');
 
-    // Set title
+    // Set title and tooltip
     titleEl.textContent = title;
+    el.querySelector('.tooltip-title').textContent = title;
+    el.querySelector('.tooltip-url').textContent = this._data.url || '';
 
     // Visual state: only active tab and unbookmarked get special styling
     bookmarkEl.classList.toggle('unbookmarked', isBookmarked === false);
