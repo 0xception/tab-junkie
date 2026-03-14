@@ -50,6 +50,40 @@
         </div>
       </div>
     </div>
+
+      <h4 class="settings-section-title">Data</h4>
+      <div class="settings-item">
+        <div class="settings-item-text">
+          <div class="settings-item-label">Export bookmarks (HTML)</div>
+          <div class="settings-item-desc">Browser-compatible bookmark file</div>
+        </div>
+        <div class="settings-item-control">
+          <button class="btn-primary" id="export-html-btn">Export</button>
+          <span id="export-html-feedback" class="settings-feedback"></span>
+        </div>
+      </div>
+      <div class="settings-item">
+        <div class="settings-item-text">
+          <div class="settings-item-label">Export all data (JSON)</div>
+          <div class="settings-item-desc">Full backup including groups &amp; settings</div>
+        </div>
+        <div class="settings-item-control">
+          <button class="btn-primary" id="export-json-btn">Export</button>
+          <span id="export-json-feedback" class="settings-feedback"></span>
+        </div>
+      </div>
+      <div class="settings-item">
+        <div class="settings-item-text">
+          <div class="settings-item-label">Import</div>
+          <div class="settings-item-desc">Restore from HTML or JSON file</div>
+        </div>
+        <div class="settings-item-control">
+          <button class="btn-primary" id="import-btn">Import</button>
+          <input type="file" id="import-file-input" accept=".html,.htm,.json" style="display:none" />
+          <span id="import-feedback" class="settings-feedback"></span>
+        </div>
+      </div>
+    </div>
   </section>
 
   <main id="bookmark-list"></main>
@@ -107,6 +141,19 @@
       <div class="dialog-actions">
         <button type="button" class="btn-cancel" id="sync-cancel-btn">Cancel</button>
         <button type="button" class="btn-primary" id="sync-confirm-btn">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Import Confirmation Dialog -->
+  <dialog id="import-confirm-dialog">
+    <form method="dialog">
+      <h3>Import Data</h3>
+      <p class="dialog-text" id="import-confirm-text"></p>
+      <p class="dialog-text dialog-warning">This will replace all existing bookmarks and groups.</p>
+      <div class="dialog-actions">
+        <button type="button" class="btn-cancel" id="import-cancel-btn">Cancel</button>
+        <button type="button" class="btn-primary" id="import-confirm-btn">Import</button>
       </div>
     </form>
   </dialog>

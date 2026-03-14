@@ -268,6 +268,13 @@ async function handleMessage(message) {
       return { success: true };
     }
 
+    case MSG.IMPORT_REPLACE: {
+      const { bookmarks, groups } = message.payload;
+      await storage.setBookmarks(bookmarks);
+      await storage.setGroups(groups);
+      return broadcaster.invalidateAndBroadcast();
+    }
+
     case MSG.CLOSE_TAB: {
       const { tabId } = message.payload;
       if (tabId) {

@@ -641,6 +641,11 @@ bookmark-item.sortable-ghost {
   line-height: 1.4;
 }
 
+.dialog-warning {
+  color: var(--text-error, #cf5b5b);
+  font-weight: 500;
+}
+
 #bookmark-list.hidden {
   display: none;
 }

@@ -3,6 +3,7 @@ import { MSG } from '../shared/messages.js';
 import { renderBookmarkTree } from './render.js';
 import { setupDialogs } from './dialogs.js';
 import { setupContextMenu } from './context-menu.js';
+import { generateNetscapeHTML, generateJunkieJSON, detectFormat, parseNetscapeHTML, parseJunkieJSON } from '../shared/import-export.js';
 
 let currentState = null;
 const selectedItems = new Map(); // id → item data
@@ -67,6 +68,9 @@ async function init() {
   document.getElementById('sync-cancel-btn').addEventListener('click', () => {
     syncDialog.close();
   });
+
+  // Import/Export
+  setupImportExport();
 
   document.getElementById('sync-confirm-btn').addEventListener('click', async () => {
     syncDialog.close();
@@ -442,6 +446,105 @@ function clearSyncFeedback() {
     el.textContent = '';
     el.className = 'settings-feedback';
   }
+}
+
+// --- Import/Export ---
+
+function downloadFile(filename, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function showFeedback(elementId, type, text, duration = 2000) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  el.textContent = text;
+  el.className = `settings-feedback ${type}`;
+  setTimeout(() => {
+    el.textContent = '';
+    el.className = 'settings-feedback';
+  }, duration);
+}
+
+function setupImportExport() {
+  // Export HTML
+  document.getElementById('export-html-btn').addEventListener('click', () => {
+    if (!currentState) return;
+    const html = generateNetscapeHTML(currentState.bookmarks, currentState.groups);
+    downloadFile('junkie-bookmarks.html', html, 'text/html');
+    showFeedback('export-html-feedback', 'success', '\u2713 Exported');
+  });
+
+  // Export JSON
+  document.getElementById('export-json-btn').addEventListener('click', () => {
+    if (!currentState) return;
+    const json = generateJunkieJSON(currentState.bookmarks, currentState.groups);
+    downloadFile('junkie-backup.json', json, 'application/json');
+    showFeedback('export-json-feedback', 'success', '\u2713 Exported');
+  });
+
+  // Import
+  const importBtn = document.getElementById('import-btn');
+  const fileInput = document.getElementById('import-file-input');
+  const importDialog = document.getElementById('import-confirm-dialog');
+  let pendingImport = null;
+
+  importBtn.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    fileInput.value = '';
+
+    try {
+      const content = await file.text();
+      const format = detectFormat(content);
+
+      if (format === 'unknown') {
+        showFeedback('import-feedback', 'error', 'Unrecognized file format', 3000);
+        return;
+      }
+
+      let parsed;
+      if (format === 'html') {
+        parsed = parseNetscapeHTML(content);
+      } else {
+        parsed = parseJunkieJSON(content);
+      }
+
+      pendingImport = parsed;
+      const bmCount = parsed.bookmarks.length;
+      const grpCount = parsed.groups.length;
+      document.getElementById('import-confirm-text').textContent =
+        `Found ${bmCount} bookmark${bmCount !== 1 ? 's' : ''} and ${grpCount} group${grpCount !== 1 ? 's' : ''}.`;
+      importDialog.showModal();
+    } catch (err) {
+      showFeedback('import-feedback', 'error', err.message || 'Import failed', 3000);
+    }
+  });
+
+  document.getElementById('import-cancel-btn').addEventListener('click', () => {
+    pendingImport = null;
+    importDialog.close();
+  });
+
+  document.getElementById('import-confirm-btn').addEventListener('click', async () => {
+    importDialog.close();
+    if (!pendingImport) return;
+
+    try {
+      await sendMessage(MSG.IMPORT_REPLACE, pendingImport);
+      showFeedback('import-feedback', 'success', '\u2713 Imported');
+    } catch (err) {
+      showFeedback('import-feedback', 'error', err.message || 'Import failed', 3000);
+    }
+    pendingImport = null;
+  });
 }
 
 // --- Bulk Action Bar ---

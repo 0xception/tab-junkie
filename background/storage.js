@@ -231,5 +231,7 @@ export function createStorage(chrome) {
     setPreference,
     getPinnedTabs,
     setPinnedTabs,
+    setBookmarks: (bookmarks) => _set(KEYS.BOOKMARKS, bookmarks),
+    setGroups: (groups) => _set(KEYS.GROUPS, groups),
   };
 }
