@@ -259,6 +259,7 @@ export class BookmarkItem extends HTMLElement {
       detail: {
         tabId: this._data.tabId || null,
         url: this._data.url,
+        bookmarkId: this._data.id || null,
       },
     }));
   }

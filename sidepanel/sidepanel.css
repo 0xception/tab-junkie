@@ -365,3 +365,91 @@ bookmark-item.sortable-ghost {
   background: rgba(255, 255, 255, 0.1);
   color: var(--text-primary);
 }
+
+/* Settings Panel */
+.settings-panel {
+  padding: 16px;
+}
+
+.settings-panel.hidden {
+  display: none;
+}
+
+.settings-section-title {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+.settings-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.settings-item-label {
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+}
+
+.settings-item-desc {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.settings-item-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.settings-feedback {
+  font-size: var(--font-size-sm);
+  transition: opacity 0.3s;
+}
+
+.settings-feedback.success {
+  color: var(--open-color);
+}
+
+.settings-feedback.error {
+  color: #cf5b5b;
+}
+
+.dialog-text {
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  line-height: 1.4;
+}
+
+#bookmark-list.hidden {
+  display: none;
+}
+
+.header-title.hidden {
+  display: none;
+}
+
+.header-actions.hidden {
+  display: none;
+}
+
+.settings-back-btn {
+  width: auto;
+  padding: 0 8px;
+  gap: 4px;
+  font-size: var(--font-size-base);
+}
+
+.settings-back-btn.hidden {
+  display: none;
+}

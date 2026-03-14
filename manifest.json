@@ -3,7 +3,7 @@
   "name": "Junkie",
   "description": "Unified bookmark and tab manager",
   "version": "0.1.0",
-  "permissions": ["tabs", "storage", "sidePanel"],
+  "permissions": ["tabs", "tabGroups", "storage", "sidePanel"],
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"

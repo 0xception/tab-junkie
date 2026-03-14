@@ -47,6 +47,7 @@ function initFuse() {
 
     items.push({
       type: 'bookmark',
+      bookmarkId: bookmark.id,
       title: bookmark.title,
       url: bookmark.url,
       favicon: bookmark.favicon,
@@ -69,8 +70,9 @@ function initFuse() {
   }
 
   fuse = new Fuse(items, {
-    keys: ['title'],
+    keys: ['title', 'url'],
     threshold: 0.4,
+    ignoreLocation: true,
     includeMatches: true,
   });
 }
@@ -154,12 +156,13 @@ function renderRecent() {
       // Then by createdAt
       return b.createdAt - a.createdAt;
     })
-    .slice(0, 8);
+    .slice(0, 20);
 
   currentResults = openFirst.map(bm => {
     const group = currentState.groups.find(g => g.id === bm.groupId);
     return {
       type: 'bookmark',
+      bookmarkId: bm.id,
       title: bm.title,
       url: bm.url,
       favicon: bm.favicon,
@@ -270,6 +273,15 @@ function createResultItem(item, isSelected, matches) {
 
   info.appendChild(title);
 
+  // Show URL when it matched the search query
+  const urlMatch = matches && matches.find(m => m.key === 'url');
+  if (urlMatch) {
+    const urlEl = document.createElement('div');
+    urlEl.className = 'result-url';
+    urlEl.innerHTML = highlightMatches(item.url, urlMatch.indices);
+    info.appendChild(urlEl);
+  }
+
   if (item.breadcrumb) {
     const breadcrumb = document.createElement('div');
     breadcrumb.className = 'result-breadcrumb';
@@ -343,6 +355,7 @@ async function navigateTo(item) {
   await sendMessage(MSG.NAVIGATE_TO, {
     tabId: item.tabId || null,
     url: item.url,
+    bookmarkId: item.bookmarkId || null,
   });
   window.close();
 }

@@ -35,12 +35,19 @@ export function createBroadcaster(chrome, storage) {
     await storage.setPinnedTabs(obj);
   }
 
+  // Track specific bookmark → tab associations (for duplicate URLs)
+  // Maps bookmarkId → tabId
+  const trackedBookmarkTabs = new Map();
+
   /**
    * Register a tab that was opened from a bookmark.
    * This allows matching even after the tab URL changes due to redirects.
    */
-  function trackTab(tabId, bookmarkUrl) {
+  function trackTab(tabId, bookmarkUrl, bookmarkId = null) {
     trackedTabs.set(tabId, bookmarkUrl);
+    if (bookmarkId) {
+      trackedBookmarkTabs.set(bookmarkId, tabId);
+    }
   }
 
   /**
@@ -72,6 +79,13 @@ export function createBroadcaster(chrome, storage) {
         trackedTabs.delete(tabId);
       }
     }
+    // Clean up bookmark→tab associations where the tab no longer exists
+    for (const [bookmarkId, tabId] of trackedBookmarkTabs) {
+      if (!currentTabIds.has(tabId)) {
+        trackedBookmarkTabs.delete(bookmarkId);
+      }
+    }
+
     let pinnedChanged = false;
     for (const tabId of pinnedTabGroups.keys()) {
       if (!currentTabIds.has(tabId)) {
@@ -84,7 +98,7 @@ export function createBroadcaster(chrome, storage) {
     }
 
     const { bookmarks: enrichedBookmarks, unbookmarkedTabs, floatingTabsByGroup } =
-      matchTabsToBookmarks(bookmarks, tabs, trackedTabs, pinnedTabGroups);
+      matchTabsToBookmarks(bookmarks, tabs, trackedTabs, pinnedTabGroups, trackedBookmarkTabs);
 
     // Find the active tab in the last-focused window
     let currentActiveTab = null;

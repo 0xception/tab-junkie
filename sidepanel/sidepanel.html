@@ -10,11 +10,28 @@
 <body>
   <header class="header">
     <div class="header-title">Junkie</div>
+    <button class="header-btn settings-back-btn hidden" id="settings-back-btn" title="Back">&#x2190; Settings</button>
     <div class="header-actions">
       <button class="header-btn" id="add-group-btn" title="Add group">+</button>
       <button class="header-btn" id="settings-btn" title="Settings">&#x2699;</button>
     </div>
   </header>
+
+  <section id="settings-panel" class="settings-panel hidden">
+    <div class="settings-body">
+      <h4 class="settings-section-title">Tab Sync</h4>
+      <div class="settings-item">
+        <div class="settings-item-text">
+          <div class="settings-item-label">Sync tab order</div>
+          <div class="settings-item-desc">Reorder Chrome tabs to match Junkie</div>
+        </div>
+        <div class="settings-item-control">
+          <button class="btn-primary" id="sync-tabs-btn">Sync now</button>
+          <span id="sync-feedback" class="settings-feedback"></span>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <main id="bookmark-list"></main>
 
@@ -59,6 +76,18 @@
       <div class="dialog-actions">
         <button type="button" class="btn-cancel">Cancel</button>
         <button type="submit" class="btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Sync Confirmation Dialog -->
+  <dialog id="sync-confirm-dialog">
+    <form method="dialog">
+      <h3>Sync Tab Order</h3>
+      <p class="dialog-text">This will reorder your Chrome tabs to match Junkie's group order. Continue?</p>
+      <div class="dialog-actions">
+        <button type="button" class="btn-cancel" id="sync-cancel-btn">Cancel</button>
+        <button type="button" class="btn-primary" id="sync-confirm-btn">Confirm</button>
       </div>
     </form>
   </dialog>

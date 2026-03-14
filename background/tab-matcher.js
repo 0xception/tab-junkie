@@ -99,8 +99,9 @@ export function resolveTabGroup(tab, tabsById, matchedTabToGroup, resolved, maxD
  * @param {Array} tabs - Open browser tabs
  * @param {Map} [trackedTabs] - Map of tabId → bookmark URL for tabs opened via extension (survives redirects)
  * @param {Map} [pinnedTabGroups] - Map of tabId → groupId for tabs pinned to groups (e.g., after bookmark removal)
+ * @param {Map} [trackedBookmarkTabs] - Map of bookmarkId → tabId for explicit bookmark-to-tab associations (duplicate URLs)
  */
-export function matchTabsToBookmarks(bookmarks, tabs, trackedTabs = new Map(), pinnedTabGroups = new Map()) {
+export function matchTabsToBookmarks(bookmarks, tabs, trackedTabs = new Map(), pinnedTabGroups = new Map(), trackedBookmarkTabs = new Map()) {
   // Build a map of normalized URL → tab for quick lookup
   const tabsByUrl = new Map();
   for (const tab of tabs) {
@@ -126,7 +127,16 @@ export function matchTabsToBookmarks(bookmarks, tabs, trackedTabs = new Map(), p
   const matchedTabIds = new Set();
 
   // Enrich bookmarks with open/closed status
+  // First pass: resolve explicit bookmark→tab associations (for duplicate URLs)
   const enrichedBookmarks = bookmarks.map(bookmark => {
+    // Check if this specific bookmark has a tracked tab
+    const trackedTabId = trackedBookmarkTabs.get(bookmark.id);
+    if (trackedTabId != null && tabsById.has(trackedTabId) && !matchedTabIds.has(trackedTabId)) {
+      matchedTabIds.add(trackedTabId);
+      return { ...bookmark, isOpen: true, tabId: trackedTabId };
+    }
+
+    // Fall back to URL-based matching
     const normalized = normalizeUrl(bookmark.url);
     const matchingTab = tabsByUrl.get(normalized);
 

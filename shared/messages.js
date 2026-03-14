@@ -15,6 +15,8 @@ export const MSG = {
   CLOSE_TAB: 'close-tab',
   BULK_ADD_BOOKMARKS: 'bulk-add-bookmarks',
   PIN_TAB: 'pin-tab',
+  SYNC_TAB_ORDER: 'sync-tab-order',
+  SYNC_ALL_TAB_ORDER: 'sync-all-tab-order',
 
   // Broadcasts from background → UI
   STATE_UPDATED: 'state-updated',
@@ -32,3 +34,16 @@ export const GROUP_COLORS = [
   { name: 'Yellow', value: '#cfcf5b' },
   { name: 'Slate', value: '#8899aa' },
 ];
+
+// Map Junkie hex colors → Chrome tab group color names
+export const JUNKIE_TO_CHROME_COLOR = {
+  '#5b91cf': 'blue',
+  '#b45bcf': 'purple',
+  '#5bcfbc': 'cyan',
+  '#cf5b5b': 'red',
+  '#cf8a5b': 'orange',
+  '#cf5b91': 'pink',
+  '#7b5bcf': 'purple',  // Indigo maps to purple (Chrome has no indigo)
+  '#cfcf5b': 'yellow',
+  '#8899aa': 'grey',
+};

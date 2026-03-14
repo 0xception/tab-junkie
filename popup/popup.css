@@ -3,11 +3,16 @@
 body {
   width: 360px;
   max-height: 480px;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 #results {
   padding: 0;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .result-section-label {
@@ -77,6 +82,21 @@ body {
 }
 
 .result-title mark {
+  background: rgba(91, 145, 207, 0.3);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.result-url {
+  font-size: 10px;
+  color: var(--text-dimmed);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-url mark {
   background: rgba(91, 145, 207, 0.3);
   color: inherit;
   border-radius: 2px;

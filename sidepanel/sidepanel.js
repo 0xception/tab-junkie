@@ -6,6 +6,8 @@ import { setupContextMenu } from './context-menu.js';
 
 let currentState = null;
 const selectedItems = new Map(); // id → item data
+let settingsOpen = false;
+let syncFeedbackTimer = null;
 
 function sendMessage(type, payload) {
   return chrome.runtime.sendMessage({ type, payload });
@@ -29,6 +31,47 @@ async function init() {
   const dialogs = setupDialogs(sendMessage, getState);
   setupContextMenu(sendMessage, getState, dialogs, { getSelectedItems: () => selectedItems, clearSelection });
   setupBulkActions();
+
+  // Settings panel
+  document.getElementById('settings-btn').addEventListener('click', openSettings);
+  document.getElementById('settings-back-btn').addEventListener('click', closeSettings);
+
+  // Sync tab order
+  const syncBtn = document.getElementById('sync-tabs-btn');
+  const syncDialog = document.getElementById('sync-confirm-dialog');
+
+  syncBtn.addEventListener('click', () => {
+    syncDialog.showModal();
+  });
+
+  document.getElementById('sync-cancel-btn').addEventListener('click', () => {
+    syncDialog.close();
+  });
+
+  document.getElementById('sync-confirm-btn').addEventListener('click', async () => {
+    syncDialog.close();
+    syncBtn.disabled = true;
+    clearSyncFeedback();
+    const feedback = document.getElementById('sync-feedback');
+    try {
+      const result = await sendMessage(MSG.SYNC_ALL_TAB_ORDER);
+      if (result?.success) {
+        feedback.textContent = '\u2713 Done';
+        feedback.className = 'settings-feedback success';
+        syncFeedbackTimer = setTimeout(clearSyncFeedback, 2000);
+      } else {
+        feedback.textContent = 'Failed';
+        feedback.className = 'settings-feedback error';
+        syncFeedbackTimer = setTimeout(clearSyncFeedback, 3000);
+      }
+    } catch {
+      feedback.textContent = 'Failed';
+      feedback.className = 'settings-feedback error';
+      syncFeedbackTimer = setTimeout(clearSyncFeedback, 3000);
+    } finally {
+      syncBtn.disabled = false;
+    }
+  });
 }
 
 function render() {
@@ -144,6 +187,42 @@ function clearSelection() {
   lastSelectedId = null;
   syncSelectionToDOM();
   updateBulkBar();
+}
+
+// --- Settings Panel ---
+
+function openSettings() {
+  settingsOpen = true;
+  clearSelection();
+  document.getElementById('bookmark-list').classList.add('hidden');
+  document.getElementById('settings-panel').classList.remove('hidden');
+  // Swap header: hide normal title + actions, show back button
+  document.querySelector('.header-title').classList.add('hidden');
+  document.querySelector('.header-actions').classList.add('hidden');
+  document.getElementById('settings-back-btn').classList.remove('hidden');
+}
+
+function closeSettings() {
+  settingsOpen = false;
+  clearSyncFeedback();
+  document.getElementById('settings-panel').classList.add('hidden');
+  document.getElementById('bookmark-list').classList.remove('hidden');
+  // Restore header
+  document.getElementById('settings-back-btn').classList.add('hidden');
+  document.querySelector('.header-title').classList.remove('hidden');
+  document.querySelector('.header-actions').classList.remove('hidden');
+}
+
+function clearSyncFeedback() {
+  if (syncFeedbackTimer) {
+    clearTimeout(syncFeedbackTimer);
+    syncFeedbackTimer = null;
+  }
+  const el = document.getElementById('sync-feedback');
+  if (el) {
+    el.textContent = '';
+    el.className = 'settings-feedback';
+  }
 }
 
 // --- Bulk Action Bar ---
@@ -465,6 +544,21 @@ async function handleDragEnd(evt) {
 
   if (itemsToMove.length > 1) {
     clearSelection();
+  }
+
+  // Sync Chrome tab order to match Junkie's visual order for the affected group
+  if (targetGroupId && targetGroupId !== '__open_tabs__') {
+    const container = document.querySelector(`.group-items[data-group-id="${targetGroupId}"]`);
+    if (container) {
+      const tabOrder = [];
+      for (const el of container.querySelectorAll('bookmark-item')) {
+        const tabId = el.data?.tabId;
+        if (tabId != null) tabOrder.push(tabId);
+      }
+      if (tabOrder.length > 1) {
+        await sendMessage(MSG.SYNC_TAB_ORDER, { tabOrder });
+      }
+    }
   }
 
   clearDragExpandTimer();
