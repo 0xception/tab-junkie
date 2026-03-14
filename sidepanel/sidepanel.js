@@ -8,6 +8,8 @@ let currentState = null;
 const selectedItems = new Map(); // id → item data
 let settingsOpen = false;
 let syncFeedbackTimer = null;
+let fuse = null;
+let filterQuery = '';
 
 function sendMessage(type, payload) {
   return chrome.runtime.sendMessage({ type, payload });
@@ -31,6 +33,24 @@ async function init() {
   const dialogs = setupDialogs(sendMessage, getState);
   setupContextMenu(sendMessage, getState, dialogs, { getSelectedItems: () => selectedItems, clearSelection });
   setupBulkActions();
+
+  // Filter input
+  setupFilter();
+
+  // Close button (only useful in windowed mode, but always wired up)
+  document.getElementById('close-btn').addEventListener('click', () => window.close());
+
+  // View mode toggle
+  const viewModeToggle = document.getElementById('view-mode-toggle');
+  const isWindowMode = currentState?.preferences?.viewMode === 'window';
+  viewModeToggle.checked = isWindowMode;
+  updateCloseButtonVisibility(isWindowMode);
+
+  viewModeToggle.addEventListener('change', async () => {
+    const mode = viewModeToggle.checked ? 'window' : 'sidepanel';
+    await sendMessage(MSG.SET_PREFERENCE, { key: 'viewMode', value: mode });
+    updateCloseButtonVisibility(viewModeToggle.checked);
+  });
 
   // Settings panel
   document.getElementById('settings-btn').addEventListener('click', openSettings);
@@ -76,11 +96,19 @@ async function init() {
 
 function render() {
   if (!currentState) return;
-  const container = document.getElementById('bookmark-list');
-  renderBookmarkTree(container, currentState, {
-    initDragAndDrop,
-    selectedIds: selectedItems,
-  });
+  buildFuseIndex();
+  if (filterQuery) {
+    renderFilterResults(filterQuery);
+  } else {
+    const container = document.getElementById('bookmark-list');
+    container.classList.remove('hidden');
+    const resultsEl = document.getElementById('filter-results');
+    if (resultsEl) resultsEl.remove();
+    renderBookmarkTree(container, currentState, {
+      initDragAndDrop,
+      selectedIds: selectedItems,
+    });
+  }
   updateBulkBar();
 }
 
@@ -189,15 +217,205 @@ function clearSelection() {
   updateBulkBar();
 }
 
+// --- Filter ---
+
+function setupFilter() {
+  const input = document.getElementById('filter-input');
+  const clearBtn = document.getElementById('filter-clear');
+
+  input.addEventListener('input', () => {
+    filterQuery = input.value.trim();
+    clearBtn.classList.toggle('hidden', !filterQuery);
+    render();
+  });
+
+  clearBtn.addEventListener('click', () => {
+    input.value = '';
+    filterQuery = '';
+    clearBtn.classList.add('hidden');
+    render();
+    input.focus();
+  });
+}
+
+function buildFuseIndex() {
+  if (!currentState) return;
+  const items = [];
+
+  for (const bookmark of currentState.bookmarks) {
+    const group = currentState.groups.find(g => g.id === bookmark.groupId);
+    const parentGroup = group?.parentId
+      ? currentState.groups.find(g => g.id === group.parentId)
+      : null;
+    const breadcrumb = parentGroup
+      ? `${parentGroup.name} \u2192 ${group.name}`
+      : group?.name || '';
+
+    items.push({
+      type: 'bookmark',
+      bookmarkId: bookmark.id,
+      title: bookmark.title,
+      url: bookmark.url,
+      favicon: bookmark.favicon,
+      isOpen: bookmark.isOpen,
+      tabId: bookmark.tabId,
+      breadcrumb,
+    });
+  }
+
+  for (const tab of currentState.unbookmarkedTabs) {
+    items.push({
+      type: 'tab',
+      title: tab.title || tab.url,
+      url: tab.url,
+      favicon: tab.favIconUrl || null,
+      isOpen: true,
+      tabId: tab.id,
+      breadcrumb: 'Open Tabs',
+    });
+  }
+
+  fuse = new Fuse(items, {
+    keys: ['title', 'url'],
+    threshold: 0.4,
+    ignoreLocation: true,
+    includeMatches: true,
+  });
+}
+
+function renderFilterResults(query) {
+  if (!fuse) return;
+
+  const container = document.getElementById('bookmark-list');
+  container.classList.add('hidden');
+
+  let resultsEl = document.getElementById('filter-results');
+  if (!resultsEl) {
+    resultsEl = document.createElement('div');
+    resultsEl.id = 'filter-results';
+    resultsEl.className = 'filter-results';
+    container.parentNode.insertBefore(resultsEl, container.nextSibling);
+  }
+  resultsEl.innerHTML = '';
+
+  const results = fuse.search(query);
+
+  if (results.length === 0) {
+    resultsEl.innerHTML = '<div class="filter-empty">No matches</div>';
+    return;
+  }
+
+  for (const result of results) {
+    const item = result.item;
+    const matches = result.matches;
+    const el = document.createElement('div');
+    el.className = 'filter-result-item';
+
+    const isUnbookmarked = item.type === 'tab';
+
+    // Favicon
+    const favicon = document.createElement('div');
+    favicon.className = 'filter-result-favicon' + (item.favicon ? '' : (isUnbookmarked ? ' unbookmarked' : ' placeholder'));
+    if (item.favicon) {
+      const img = document.createElement('img');
+      img.src = item.favicon;
+      img.onerror = () => {
+        img.remove();
+        favicon.textContent = item.title.charAt(0).toUpperCase();
+        favicon.classList.add(isUnbookmarked ? 'unbookmarked' : 'placeholder');
+      };
+      favicon.appendChild(img);
+    } else {
+      favicon.textContent = item.title.charAt(0).toUpperCase();
+    }
+    el.appendChild(favicon);
+
+    // Info
+    const info = document.createElement('div');
+    info.className = 'filter-result-info';
+
+    const title = document.createElement('div');
+    title.className = 'filter-result-title' + (isUnbookmarked ? ' unbookmarked' : '');
+    const titleMatch = matches?.find(m => m.key === 'title');
+    if (titleMatch) {
+      title.innerHTML = highlightMatches(item.title, titleMatch.indices);
+    } else {
+      title.textContent = item.title;
+    }
+    info.appendChild(title);
+
+    if (item.breadcrumb) {
+      const breadcrumb = document.createElement('div');
+      breadcrumb.className = 'filter-result-breadcrumb';
+      breadcrumb.textContent = item.breadcrumb;
+      info.appendChild(breadcrumb);
+    }
+
+    el.appendChild(info);
+
+    // Open dot
+    if (item.isOpen && !isUnbookmarked) {
+      const dot = document.createElement('div');
+      dot.className = 'filter-result-dot';
+      el.appendChild(dot);
+    }
+
+    // Click → navigate
+    el.addEventListener('click', () => {
+      sendMessage(MSG.NAVIGATE_TO, {
+        tabId: item.tabId || null,
+        url: item.url,
+        bookmarkId: item.bookmarkId || null,
+      });
+    });
+
+    resultsEl.appendChild(el);
+  }
+}
+
+function highlightMatches(text, indices) {
+  let result = '';
+  let lastIndex = 0;
+  const merged = [];
+  for (const [start, end] of indices) {
+    if (merged.length > 0 && start <= merged[merged.length - 1][1] + 1) {
+      merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], end);
+    } else {
+      merged.push([start, end]);
+    }
+  }
+  for (const [start, end] of merged) {
+    result += escapeHtml(text.substring(lastIndex, start));
+    result += `<mark>${escapeHtml(text.substring(start, end + 1))}</mark>`;
+    lastIndex = end + 1;
+  }
+  result += escapeHtml(text.substring(lastIndex));
+  return result;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// --- View Mode ---
+
+function updateCloseButtonVisibility(isWindowMode) {
+  document.getElementById('close-btn').classList.toggle('hidden', !isWindowMode);
+}
+
 // --- Settings Panel ---
 
 function openSettings() {
   settingsOpen = true;
   clearSelection();
   document.getElementById('bookmark-list').classList.add('hidden');
+  const filterResults = document.getElementById('filter-results');
+  if (filterResults) filterResults.remove();
   document.getElementById('settings-panel').classList.remove('hidden');
-  // Swap header: hide normal title + actions, show back button
-  document.querySelector('.header-title').classList.add('hidden');
+  // Swap header: hide filter + actions, show back button
+  document.querySelector('.header-filter-wrap').classList.add('hidden');
   document.querySelector('.header-actions').classList.add('hidden');
   document.getElementById('settings-back-btn').classList.remove('hidden');
 }
@@ -209,8 +427,9 @@ function closeSettings() {
   document.getElementById('bookmark-list').classList.remove('hidden');
   // Restore header
   document.getElementById('settings-back-btn').classList.add('hidden');
-  document.querySelector('.header-title').classList.remove('hidden');
+  document.querySelector('.header-filter-wrap').classList.remove('hidden');
   document.querySelector('.header-actions').classList.remove('hidden');
+  render();
 }
 
 function clearSyncFeedback() {

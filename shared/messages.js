@@ -17,6 +17,7 @@ export const MSG = {
   PIN_TAB: 'pin-tab',
   SYNC_TAB_ORDER: 'sync-tab-order',
   SYNC_ALL_TAB_ORDER: 'sync-all-tab-order',
+  OPEN_JUNKIE_WINDOW: 'open-junkie-window',
 
   // Broadcasts from background → UI
   STATE_UPDATED: 'state-updated',

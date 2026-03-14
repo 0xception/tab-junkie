@@ -105,7 +105,7 @@ document.addEventListener('search', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Tab') {
     e.preventDefault();
-    openSidePanel();
+    openJunkie();
   }
 });
 
@@ -358,17 +358,22 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-// --- Side Panel ---
+// --- Open Junkie (side panel or window, per preference) ---
 
-async function openSidePanel() {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tab) {
-      await chrome.sidePanel.open({ tabId: tab.id });
+async function openJunkie() {
+  const viewMode = currentState?.preferences?.viewMode;
+  if (viewMode === 'window') {
+    await sendMessage(MSG.OPEN_JUNKIE_WINDOW);
+  } else {
+    // sidePanel.open() requires user gesture context — the popup has it
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (tab) {
+        await chrome.sidePanel.open({ tabId: tab.id });
+      }
+    } catch {
+      // Fallback silently
     }
-  } catch {
-    // Fallback: send message to service worker
-    await sendMessage('open-side-panel');
   }
   window.close();
 }

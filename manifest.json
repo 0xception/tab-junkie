@@ -27,10 +27,13 @@
       "description": "Open quick search popup"
     },
     "_execute_side_panel": {
+      "description": "Open side panel"
+    },
+    "open-junkie-window": {
       "suggested_key": {
         "default": "Alt+Shift+J"
       },
-      "description": "Open side panel"
+      "description": "Open Junkie window"
     }
   },
   "icons": {

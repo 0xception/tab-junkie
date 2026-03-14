@@ -27,6 +27,39 @@ chrome.tabs.onMoved.addListener(() => {
 
 // --- Keyboard shortcut commands ---
 
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command === 'open-junkie-window') {
+    await openJunkieWindow();
+  }
+});
+
+async function openJunkieWindow() {
+  // Check if a Junkie window is already open — focus it instead of opening a new one
+  const allWindows = await chrome.windows.getAll({ populate: true });
+  for (const win of allWindows) {
+    if (win.type === 'popup' && win.tabs?.length === 1) {
+      const tab = win.tabs[0];
+      if (tab.url?.includes(chrome.runtime.getURL('sidepanel/sidepanel.html'))) {
+        await chrome.windows.update(win.id, { focused: true });
+        return;
+      }
+    }
+  }
+
+  // Get the current window to position the new window on the right side
+  const currentWindow = await chrome.windows.getCurrent();
+  const width = 380;
+  const left = currentWindow.left + currentWindow.width - width;
+
+  await chrome.windows.create({
+    url: 'sidepanel/sidepanel.html',
+    type: 'popup',
+    width,
+    height: currentWindow.height,
+    top: currentWindow.top,
+    left,
+  });
+}
 
 // --- Message handler ---
 // Receives requests from side panel and popup
@@ -228,6 +261,11 @@ async function handleMessage(message) {
         isSyncingTabOrder = false;
         broadcaster.invalidateAndBroadcast();
       }
+    }
+
+    case MSG.OPEN_JUNKIE_WINDOW: {
+      await openJunkieWindow();
+      return { success: true };
     }
 
     case MSG.CLOSE_TAB: {
