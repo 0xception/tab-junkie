@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "exportedAt": "2026-03-14T12:00:00.000Z",
+  "bookmarks": [
+    { "id": "bm-001", "title": "GitHub", "url": "https://github.com", "groupId": "grp-dev", "sortOrder": 0, "favicon": null, "createdAt": 1710000000000 },
+    { "id": "bm-002", "title": "Stack Overflow", "url": "https://stackoverflow.com", "groupId": "grp-dev", "sortOrder": 1, "favicon": null, "createdAt": 1710000100000 },
+    { "id": "bm-003", "title": "MDN Web Docs", "url": "https://developer.mozilla.org", "groupId": "grp-dev", "sortOrder": 2, "favicon": null, "createdAt": 1710000200000 },
+    { "id": "bm-004", "title": "VS Code Docs", "url": "https://code.visualstudio.com/docs", "groupId": "grp-dev", "sortOrder": 3, "favicon": null, "createdAt": 1710000300000 },
+    { "id": "bm-005", "title": "Can I Use", "url": "https://caniuse.com", "groupId": "grp-dev", "sortOrder": 4, "favicon": null, "createdAt": 1710000400000 },
+
+    { "id": "bm-010", "title": "Node.js Docs", "url": "https://nodejs.org/en/docs", "groupId": "grp-node", "sortOrder": 0, "favicon": null, "createdAt": 1710001000000 },
+    { "id": "bm-011", "title": "npm Registry", "url": "https://www.npmjs.com", "groupId": "grp-node", "sortOrder": 1, "favicon": null, "createdAt": 1710001100000 },
+    { "id": "bm-012", "title": "Express.js Guide", "url": "https://expressjs.com/en/guide/routing.html", "groupId": "grp-node", "sortOrder": 2, "favicon": null, "createdAt": 1710001200000 },
+
+    { "id": "bm-020", "title": "React Docs", "url": "https://react.dev", "groupId": "grp-frontend", "sortOrder": 0, "favicon": null, "createdAt": 1710002000000 },
+    { "id": "bm-021", "title": "Tailwind CSS", "url": "https://tailwindcss.com/docs", "groupId": "grp-frontend", "sortOrder": 1, "favicon": null, "createdAt": 1710002100000 },
+    { "id": "bm-022", "title": "TypeScript Handbook", "url": "https://www.typescriptlang.org/docs/handbook", "groupId": "grp-frontend", "sortOrder": 2, "favicon": null, "createdAt": 1710002200000 },
+    { "id": "bm-023", "title": "Vite", "url": "https://vitejs.dev", "groupId": "grp-frontend", "sortOrder": 3, "favicon": null, "createdAt": 1710002300000 },
+
+    { "id": "bm-030", "title": "Chrome Extensions Docs", "url": "https://developer.chrome.com/docs/extensions", "groupId": "grp-chrome", "sortOrder": 0, "favicon": null, "createdAt": 1710003000000 },
+    { "id": "bm-031", "title": "Chrome APIs Reference", "url": "https://developer.chrome.com/docs/extensions/reference", "groupId": "grp-chrome", "sortOrder": 1, "favicon": null, "createdAt": 1710003100000 },
+    { "id": "bm-032", "title": "Web Store Dashboard", "url": "https://chrome.google.com/webstore/devconsole", "groupId": "grp-chrome", "sortOrder": 2, "favicon": null, "createdAt": 1710003200000 },
+
+    { "id": "bm-040", "title": "AWS Console", "url": "https://console.aws.amazon.com", "groupId": "grp-infra", "sortOrder": 0, "favicon": null, "createdAt": 1710004000000 },
+    { "id": "bm-041", "title": "Terraform Docs", "url": "https://developer.hashicorp.com/terraform/docs", "groupId": "grp-infra", "sortOrder": 1, "favicon": null, "createdAt": 1710004100000 },
+    { "id": "bm-042", "title": "Docker Hub", "url": "https://hub.docker.com", "groupId": "grp-infra", "sortOrder": 2, "favicon": null, "createdAt": 1710004200000 },
+
+    { "id": "bm-050", "title": "Jira Board", "url": "https://myteam.atlassian.net/jira/board", "groupId": "grp-work", "sortOrder": 0, "favicon": null, "createdAt": 1710005000000 },
+    { "id": "bm-051", "title": "Confluence Wiki", "url": "https://myteam.atlassian.net/wiki", "groupId": "grp-work", "sortOrder": 1, "favicon": null, "createdAt": 1710005100000 },
+    { "id": "bm-052", "title": "Slack", "url": "https://app.slack.com", "groupId": "grp-work", "sortOrder": 2, "favicon": null, "createdAt": 1710005200000 },
+    { "id": "bm-053", "title": "Figma", "url": "https://www.figma.com", "groupId": "grp-work", "sortOrder": 3, "favicon": null, "createdAt": 1710005300000 },
+    { "id": "bm-054", "title": "Notion", "url": "https://www.notion.so", "groupId": "grp-work", "sortOrder": 4, "favicon": null, "createdAt": 1710005400000 },
+
+    { "id": "bm-060", "title": "Hacker News", "url": "https://news.ycombinator.com", "groupId": "grp-reading", "sortOrder": 0, "favicon": null, "createdAt": 1710006000000 },
+    { "id": "bm-061", "title": "Lobsters", "url": "https://lobste.rs", "groupId": "grp-reading", "sortOrder": 1, "favicon": null, "createdAt": 1710006100000 },
+    { "id": "bm-062", "title": "Dev.to", "url": "https://dev.to", "groupId": "grp-reading", "sortOrder": 2, "favicon": null, "createdAt": 1710006200000 },
+    { "id": "bm-063", "title": "CSS-Tricks", "url": "https://css-tricks.com", "groupId": "grp-reading", "sortOrder": 3, "favicon": null, "createdAt": 1710006300000 },
+
+    { "id": "bm-070", "title": "YouTube", "url": "https://www.youtube.com", "groupId": null, "sortOrder": 0, "favicon": null, "createdAt": 1710007000000 },
+    { "id": "bm-071", "title": "Reddit", "url": "https://www.reddit.com", "groupId": null, "sortOrder": 1, "favicon": null, "createdAt": 1710007100000 },
+    { "id": "bm-072", "title": "Wikipedia", "url": "https://en.wikipedia.org", "groupId": null, "sortOrder": 2, "favicon": null, "createdAt": 1710007200000 }
+  ],
+  "groups": [
+    { "id": "grp-dev", "name": "Dev Tools", "parentId": null, "sortOrder": 0, "color": "blue" },
+    { "id": "grp-node", "name": "Node.js", "parentId": "grp-dev", "sortOrder": 0, "color": "teal" },
+    { "id": "grp-frontend", "name": "Frontend", "parentId": null, "sortOrder": 1, "color": "purple" },
+    { "id": "grp-chrome", "name": "Chrome Extension", "parentId": null, "sortOrder": 2, "color": "orange" },
+    { "id": "grp-infra", "name": "Infrastructure", "parentId": null, "sortOrder": 3, "color": "red" },
+    { "id": "grp-work", "name": "Work", "parentId": null, "sortOrder": 4, "color": "indigo" },
+    { "id": "grp-reading", "name": "Reading", "parentId": null, "sortOrder": 5, "color": "yellow" }
+  ]
+}
