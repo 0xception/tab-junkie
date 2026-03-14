@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Junkie",
+  "name": "Tab Junkie",
   "description": "Unified bookmark and tab manager",
   "version": "0.1.0",
   "permissions": ["tabs", "tabGroups", "storage", "sidePanel", "search"],
@@ -36,8 +36,11 @@
       "suggested_key": {
         "default": "Alt+Shift+J"
       },
-      "description": "Open Junkie window"
+      "description": "Open Tab Junkie window"
     }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
   },
   "icons": {
     "16": "icons/icon-16.png",

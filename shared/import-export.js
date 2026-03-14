@@ -184,7 +184,7 @@ function findTopAncestor(groupId, groups) {
 export function parseJunkieJSON(jsonString) {
   const data = JSON.parse(jsonString);
   if (!data.version || !Array.isArray(data.bookmarks)) {
-    throw new Error('Invalid Junkie export file');
+    throw new Error('Invalid Tab Junkie export file');
   }
   const groups = Array.isArray(data.groups) ? data.groups : [];
   const bookmarks = data.bookmarks;

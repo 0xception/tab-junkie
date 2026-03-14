@@ -145,11 +145,8 @@ export function createBroadcaster(chrome, storage) {
         type: 'state-updated',
         payload: state,
       });
-    } catch (e) {
-      // "Could not establish connection" is expected when no UI pages are open
-      if (!e.message?.includes('Could not establish connection')) {
-        console.error('[Junkie] Broadcast failed:', e);
-      }
+    } catch {
+      // Expected when no UI pages are open ("Could not establish connection")
     }
 
     return state;

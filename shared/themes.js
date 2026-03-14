@@ -1,7 +1,7 @@
 // shared/themes.js — Theme metadata and application logic
 
 export const THEMES = [
-  { id: 'default', name: 'Junkie Default', type: 'dark' },
+  { id: 'default', name: 'Tab Junkie Default', type: 'dark' },
   { id: 'monokai', name: 'Monokai', type: 'dark' },
   { id: 'dracula', name: 'Dracula', type: 'dark' },
   { id: 'one-dark', name: 'One Dark (Atom)', type: 'dark' },

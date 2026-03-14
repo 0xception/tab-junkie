@@ -1,4 +1,4 @@
-# Junkie
+# Tab Junkie
 
 A Chrome/Edge extension that unifies bookmark and tab management into a single organized view. Bookmarks are first-class objects — their open/closed status is derived in real time from your browser tabs.
 
@@ -39,7 +39,7 @@ A Chrome/Edge extension that unifies bookmark and tab management into a single o
 - Context menus for single items and selections
 
 ### Chrome Tab Sync
-- Reorder Chrome tabs to match Junkie's group order
+- Reorder Chrome tabs to match Tab Junkie's group order
 - Creates Chrome tab groups with matching names and colors
 - Works across multiple windows
 
@@ -57,7 +57,7 @@ A Chrome/Edge extension that unifies bookmark and tab management into a single o
 | Shortcut | Action |
 |---|---|
 | Alt+J | Open quick search popup |
-| Alt+Shift+J | Open Junkie as standalone window |
+| Alt+Shift+J | Open Tab Junkie as standalone window |
 | Ctrl+A | Select all visible items |
 | Escape | Clear selection |
 
