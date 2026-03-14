@@ -136,6 +136,10 @@ async function handleMessage(message) {
         // Track this tab so we can match it to this specific bookmark
         broadcaster.trackTab(newTab.id, url, bookmarkId);
       }
+      // Record access time for this bookmark
+      if (bookmarkId) {
+        await storage.touchBookmark(bookmarkId);
+      }
       // Broadcast so the green dot and active tab highlight update immediately
       return broadcaster.invalidateAndBroadcast();
     }

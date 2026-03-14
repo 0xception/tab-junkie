@@ -79,13 +79,21 @@ export function createStorage(chrome) {
     if (index === -1) return;
 
     // Only allow updating specific fields
-    const allowed = ['title', 'url', 'favicon'];
+    const allowed = ['title', 'url', 'favicon', 'lastAccessedAt'];
     for (const key of allowed) {
       if (key in updates) {
         bookmarks[index][key] = updates[key];
       }
     }
 
+    await _set(KEYS.BOOKMARKS, bookmarks);
+  }
+
+  async function touchBookmark(id) {
+    const bookmarks = await getBookmarks();
+    const index = bookmarks.findIndex(b => b.id === id);
+    if (index === -1) return;
+    bookmarks[index].lastAccessedAt = Date.now();
     await _set(KEYS.BOOKMARKS, bookmarks);
   }
 
@@ -211,6 +219,7 @@ export function createStorage(chrome) {
     addBookmark,
     removeBookmark,
     updateBookmark,
+    touchBookmark,
     moveBookmark,
     getGroups,
     addGroup,

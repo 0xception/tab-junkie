@@ -142,25 +142,26 @@ function updateSelection(items) {
 function renderRecent() {
   const container = document.getElementById('results');
 
-  if (!currentState || currentState.bookmarks.length === 0) {
-    container.innerHTML = '<div class="empty-recent">No bookmarks yet</div>';
+  if (!currentState) {
+    container.innerHTML = '<div class="empty-recent">No tabs or bookmarks</div>';
     return;
   }
 
-  // Show bookmarks that are currently open first, then most recently created
-  const openFirst = [...currentState.bookmarks]
-    .sort((a, b) => {
-      // Open tabs first
-      if (a.isOpen && !b.isOpen) return -1;
-      if (!a.isOpen && b.isOpen) return 1;
-      // Then by createdAt
-      return b.createdAt - a.createdAt;
-    })
-    .slice(0, 20);
+  // Build a unified list of bookmarks and unbookmarked tabs, sorted by recency.
+  // Chrome tabs have lastAccessed (ms timestamp). For open bookmarks, use the
+  // tab's lastAccessed so we match Chrome's sense of recency. For closed
+  // bookmarks, fall back to our own lastAccessedAt, then createdAt.
+  const items = [];
 
-  currentResults = openFirst.map(bm => {
+  for (const bm of currentState.bookmarks) {
     const group = currentState.groups.find(g => g.id === bm.groupId);
-    return {
+    // Use Chrome's tab lastAccessed for open bookmarks, our lastAccessedAt for closed ones
+    let recency = bm.lastAccessedAt || bm.createdAt || 0;
+    if (bm.isOpen && bm.tabLastAccessed) {
+      recency = Math.max(recency, bm.tabLastAccessed);
+    }
+
+    items.push({
       type: 'bookmark',
       bookmarkId: bm.id,
       title: bm.title,
@@ -169,10 +170,33 @@ function renderRecent() {
       isOpen: bm.isOpen,
       tabId: bm.tabId,
       breadcrumb: group?.name || '',
-    };
-  });
+      recency,
+    });
+  }
 
+  for (const tab of currentState.unbookmarkedTabs) {
+    items.push({
+      type: 'tab',
+      title: tab.title || tab.url,
+      url: tab.url,
+      favicon: tab.favIconUrl || null,
+      isOpen: true,
+      tabId: tab.id,
+      breadcrumb: 'Not bookmarked',
+      recency: tab.lastAccessed || 0,
+    });
+  }
+
+  // Sort by most recently accessed
+  items.sort((a, b) => b.recency - a.recency);
+
+  currentResults = items.slice(0, 20);
   selectedIndex = 0;
+
+  if (currentResults.length === 0) {
+    container.innerHTML = '<div class="empty-recent">No tabs or bookmarks</div>';
+    return;
+  }
 
   container.innerHTML = '';
 
