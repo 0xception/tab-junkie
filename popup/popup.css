@@ -34,7 +34,7 @@ body {
 
 .result-item:hover,
 .result-item.selected {
-  background: rgba(91, 145, 207, 0.12);
+  background: color-mix(in srgb, var(--group-blue) 12%, transparent);
 }
 
 .result-favicon {
@@ -56,12 +56,12 @@ body {
 }
 
 .result-favicon.placeholder {
-  background: #2a2a3e;
+  background: var(--bg-secondary);
   color: var(--text-dimmed);
 }
 
 .result-favicon.unbookmarked {
-  background: #2e2a1e;
+  background: color-mix(in srgb, var(--unbookmarked-color) 12%, transparent);
   color: var(--unbookmarked-color);
 }
 
@@ -82,7 +82,7 @@ body {
 }
 
 .result-title mark {
-  background: rgba(91, 145, 207, 0.3);
+  background: color-mix(in srgb, var(--group-blue) 30%, transparent);
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;
@@ -97,7 +97,7 @@ body {
 }
 
 .result-url mark {
-  background: rgba(91, 145, 207, 0.3);
+  background: color-mix(in srgb, var(--group-blue) 30%, transparent);
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;
@@ -130,7 +130,7 @@ body {
 }
 
 kbd {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-hover);
   padding: 1px 4px;
   border-radius: 2px;
   font-size: 9px;

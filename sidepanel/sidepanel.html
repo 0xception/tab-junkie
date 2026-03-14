@@ -4,7 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="../shared/styles.css" />
+  <link rel="stylesheet" href="../shared/themes.css" />
   <link rel="stylesheet" href="sidepanel.css" />
+  <link rel="stylesheet" href="../shared/theme-ready.css" />
+  <script src="../shared/theme-init.js"></script>
   <title>Junkie</title>
 </head>
 <body>
@@ -25,6 +28,32 @@
   <section id="settings-panel" class="settings-panel hidden">
     <div class="settings-body">
       <h4 class="settings-section-title">Display</h4>
+      <div class="settings-item">
+        <div class="settings-item-text">
+          <div class="settings-item-label">Theme</div>
+          <div class="settings-item-desc">Color scheme for the extension</div>
+        </div>
+        <div class="settings-item-control">
+          <select id="theme-select" class="theme-select">
+            <optgroup label="Dark">
+              <option value="default">Junkie Default</option>
+              <option value="monokai">Monokai</option>
+              <option value="dracula">Dracula</option>
+              <option value="one-dark">One Dark (Atom)</option>
+              <option value="solarized-dark">Solarized Dark</option>
+              <option value="nord">Nord</option>
+              <option value="gruvbox-dark">Gruvbox Dark</option>
+              <option value="tokyo-night">Tokyo Night</option>
+            </optgroup>
+            <optgroup label="Light">
+              <option value="solarized-light">Solarized Light</option>
+              <option value="github-light">GitHub Light</option>
+              <option value="one-light">One Light (Atom)</option>
+              <option value="gruvbox-light">Gruvbox Light</option>
+            </optgroup>
+          </select>
+        </div>
+      </div>
       <div class="settings-item">
         <div class="settings-item-text">
           <div class="settings-item-label">Open as window</div>

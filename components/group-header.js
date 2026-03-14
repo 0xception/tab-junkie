@@ -17,7 +17,7 @@ template.innerHTML = `
       user-select: none;
     }
     .group-header:hover {
-      background: rgba(255, 255, 255, 0.04);
+      background: var(--bg-hover, rgba(255, 255, 255, 0.04));
     }
     .group-header.sub-group {
       padding-left: 32px;
@@ -98,12 +98,13 @@ export class GroupHeader extends HTMLElement {
 
     // Set group color via CSS custom properties
     if (color && !isUnbookmarked) {
-      headerEl.style.setProperty('--group-color', color);
-      headerEl.style.setProperty('--group-bg', `${color}12`);
-      headerEl.style.setProperty('--group-color-dimmed', `${color}66`);
-      nameEl.style.color = color;
-      collapseEl.style.color = color;
-      countEl.style.color = `${color}88`;
+      const cssColor = color.startsWith('#') ? color : `var(--group-${color})`;
+      headerEl.style.setProperty('--group-color', cssColor);
+      headerEl.style.setProperty('--group-bg', `color-mix(in srgb, ${cssColor} 7%, transparent)`);
+      headerEl.style.setProperty('--group-color-dimmed', `color-mix(in srgb, ${cssColor} 40%, transparent)`);
+      nameEl.style.color = cssColor;
+      collapseEl.style.color = cssColor;
+      countEl.style.color = `color-mix(in srgb, ${cssColor} 53%, transparent)`;
     }
 
     // Sub-group styling

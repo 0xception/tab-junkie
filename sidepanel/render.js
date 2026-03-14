@@ -41,7 +41,7 @@ export function renderBookmarkTree(container, state, { initDragAndDrop, selected
     section.className = 'group-section';
 
     const header = document.createElement('group-header');
-    header.data = { id: null, name: 'Ungrouped', color: '#888', count: ungrouped.length, collapsed: false };
+    header.data = { id: null, name: 'Ungrouped', color: 'slate', count: ungrouped.length, collapsed: false };
     section.appendChild(header);
 
     const items = document.createElement('div');

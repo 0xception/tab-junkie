@@ -2,10 +2,13 @@
 import { createStorage } from './storage.js';
 import { createBroadcaster } from './broadcaster.js';
 import { normalizeUrl } from './tab-matcher.js';
-import { MSG, JUNKIE_TO_CHROME_COLOR } from '../shared/messages.js';
+import { MSG, JUNKIE_TO_CHROME_COLOR, HEX_TO_SEMANTIC_COLOR } from '../shared/messages.js';
 
 const storage = createStorage(chrome);
 const broadcaster = createBroadcaster(chrome, storage);
+
+// Migrate hex group colors to semantic names (one-time, idempotent)
+storage.migrateGroupColors(HEX_TO_SEMANTIC_COLOR);
 
 // --- Tab event listeners ---
 // Re-broadcast state whenever tabs change
@@ -303,6 +306,7 @@ async function handleMessage(message) {
     case MSG.IMPORT_REPLACE: {
       const { bookmarks, groups } = message.payload;
       await storage.replaceAll(bookmarks, groups);
+      await storage.migrateGroupColors(HEX_TO_SEMANTIC_COLOR);
       broadcaster.resetPinnedTabs();
       return broadcaster.invalidateAndBroadcast();
     }

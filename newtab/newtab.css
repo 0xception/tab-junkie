@@ -37,7 +37,7 @@ body {
   width: 100%;
   font-size: 18px;
   padding: 14px 20px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-hover);
   border: 1px solid var(--border-subtle);
   border-radius: 24px;
   color: var(--text-primary);
@@ -51,8 +51,8 @@ body {
 }
 
 .search-input:focus {
-  border-color: rgba(91, 145, 207, 0.5);
-  box-shadow: 0 0 0 3px rgba(91, 145, 207, 0.12);
+  border-color: color-mix(in srgb, var(--group-blue) 50%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--group-blue) 12%, transparent);
 }
 
 /* --- Bookmarks Section --- */
@@ -69,7 +69,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-hover);
   border-radius: 8px;
   padding: 8px 14px;
   border: 1px solid transparent;
@@ -77,7 +77,7 @@ body {
 }
 
 .newtab-filter-wrap:focus-within {
-  border-color: rgba(91, 145, 207, 0.4);
+  border-color: color-mix(in srgb, var(--group-blue) 40%, transparent);
 }
 
 .newtab-filter-icon {
@@ -87,7 +87,7 @@ body {
 }
 
 .newtab-filter-wrap:focus-within .newtab-filter-icon {
-  color: #5b91cf;
+  color: var(--group-blue);
 }
 
 .newtab-filter {
@@ -188,7 +188,7 @@ body {
 }
 
 .newtab-filter-result:hover {
-  background: rgba(91, 145, 207, 0.12);
+  background: color-mix(in srgb, var(--group-blue) 12%, transparent);
 }
 
 .newtab-filter-result-favicon {
@@ -210,7 +210,7 @@ body {
 }
 
 .newtab-filter-result-favicon.placeholder {
-  background: #2a2a3e;
+  background: var(--bg-secondary);
   color: var(--text-dimmed);
 }
 
@@ -227,7 +227,7 @@ body {
 }
 
 .newtab-filter-result-title mark {
-  background: rgba(91, 145, 207, 0.3);
+  background: color-mix(in srgb, var(--group-blue) 30%, transparent);
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;

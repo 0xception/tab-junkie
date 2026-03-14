@@ -12,6 +12,15 @@
   --unbookmarked-color: #cfa35b;
   --unbookmarked-bg: rgba(207, 163, 91, 0.06);
   --closed-opacity: 0.6;
+  --group-blue: #5b91cf;
+  --group-purple: #b45bcf;
+  --group-teal: #5bcfbc;
+  --group-red: #cf5b5b;
+  --group-orange: #cf8a5b;
+  --group-pink: #cf5b91;
+  --group-indigo: #7b5bcf;
+  --group-yellow: #cfcf5b;
+  --group-slate: #8899aa;
   --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --font-size-sm: 10px;
   --font-size-base: 12px;

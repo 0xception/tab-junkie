@@ -1,5 +1,6 @@
 // sidepanel/sidepanel.js
 import { MSG } from '../shared/messages.js';
+import { applyTheme } from '../shared/themes.js';
 import { renderBookmarkTree } from './render.js';
 import { setupDialogs } from './dialogs.js';
 import { setupContextMenu } from './context-menu.js';
@@ -56,6 +57,18 @@ async function init() {
     updateCloseButtonVisibility(viewModeToggle.checked);
   });
 
+  // Theme selector
+  const themeSelect = document.getElementById('theme-select');
+  const currentTheme = currentState?.preferences?.theme || 'default';
+  themeSelect.value = currentTheme;
+  applyTheme(currentTheme);
+
+  themeSelect.addEventListener('change', async () => {
+    const themeId = themeSelect.value;
+    applyTheme(themeId);
+    await sendMessage(MSG.SET_PREFERENCE, { key: 'theme', value: themeId });
+  });
+
   // New tab toggle
   const newtabToggle = document.getElementById('newtab-toggle');
   newtabToggle.checked = currentState?.preferences?.newTabEnabled ?? true;
@@ -110,6 +123,13 @@ async function init() {
 
 function render() {
   if (!currentState) return;
+  // Keep theme in sync across windows
+  const themeSelect = document.getElementById('theme-select');
+  const currentTheme = currentState.preferences?.theme || 'default';
+  if (themeSelect && themeSelect.value !== currentTheme) {
+    themeSelect.value = currentTheme;
+    applyTheme(currentTheme);
+  }
   // Keep newtab toggle in sync
   const newtabToggle = document.getElementById('newtab-toggle');
   if (newtabToggle) newtabToggle.checked = currentState.preferences?.newTabEnabled ?? true;

@@ -21,7 +21,7 @@ export function setupDialogs(sendMessage, getState) {
   for (const color of GROUP_COLORS) {
     const swatch = document.createElement('div');
     swatch.className = 'color-swatch';
-    swatch.style.background = color.value;
+    swatch.style.background = `var(--group-${color.value})`;
     swatch.title = color.name;
     swatch.dataset.color = color.value;
     swatch.addEventListener('click', () => {

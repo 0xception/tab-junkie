@@ -58,7 +58,7 @@ function addMenuItem(action, label, destructive) {
   item.className = 'context-menu-item';
   item.dataset.action = action;
   item.textContent = label;
-  if (destructive) item.style.color = '#cf5b5b';
+  if (destructive) item.style.color = 'var(--group-red, #cf5b5b)';
   contextMenu.appendChild(item);
 }
 

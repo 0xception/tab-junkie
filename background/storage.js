@@ -224,6 +224,21 @@ export function createStorage(chrome) {
     await _set(KEYS.PINNED_TABS, pinnedMap);
   }
 
+  async function migrateGroupColors(hexToSemanticMap) {
+    const groups = await getGroups();
+    let changed = false;
+    for (const group of groups) {
+      if (group.color && group.color.startsWith('#')) {
+        const semantic = hexToSemanticMap[group.color];
+        group.color = semantic || 'blue';
+        changed = true;
+      }
+    }
+    if (changed) {
+      await _set(KEYS.GROUPS, groups);
+    }
+  }
+
   return {
     getBookmarks,
     addBookmark,
@@ -243,6 +258,7 @@ export function createStorage(chrome) {
     setPinnedTabs,
     setBookmarks: (bookmarks) => _set(KEYS.BOOKMARKS, bookmarks),
     setGroups: (groups) => _set(KEYS.GROUPS, groups),
+    migrateGroupColors,
     replaceAll: (bookmarks, groups) => chrome.storage.local.set({
       [KEYS.BOOKMARKS]: bookmarks,
       [KEYS.GROUPS]: groups,

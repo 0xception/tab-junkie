@@ -16,23 +16,23 @@ template.innerHTML = `
       transition: background 0.1s;
     }
     .bookmark:hover {
-      background: rgba(255, 255, 255, 0.04);
+      background: var(--bg-hover, rgba(255, 255, 255, 0.04));
     }
     .bookmark.unbookmarked {
       border-left: 2px dashed var(--unbookmarked-color, #cfa35b);
     }
     .bookmark.active {
-      border-left: 2px solid #5bcf72;
-      background: rgba(91, 207, 130, 0.18);
+      border-left: 2px solid var(--open-color, #5bcf72);
+      background: color-mix(in srgb, var(--open-color, #5bcf72) 18%, transparent);
     }
     .bookmark.selected {
-      background: rgba(91, 145, 207, 0.15);
+      background: color-mix(in srgb, var(--group-blue, #5b91cf) 15%, transparent);
     }
     .checkbox {
       width: 14px;
       height: 14px;
       border-radius: 3px;
-      border: 1.5px solid #555;
+      border: 1.5px solid var(--text-dimmed, #555);
       flex-shrink: 0;
       cursor: pointer;
       display: flex;
@@ -42,15 +42,15 @@ template.innerHTML = `
       opacity: 0;
       transition: opacity 0.1s;
       background: none;
-      color: #fff;
+      color: var(--text-primary, #fff);
     }
     .bookmark:hover .checkbox,
     :host([selectable]) .checkbox {
       opacity: 1;
     }
     .checkbox.checked {
-      background: #5b91cf;
-      border-color: #5b91cf;
+      background: var(--group-blue, #5b91cf);
+      border-color: var(--group-blue, #5b91cf);
       opacity: 1;
     }
     .favicon {
@@ -70,11 +70,11 @@ template.innerHTML = `
       object-fit: contain;
     }
     .favicon.placeholder {
-      background: #2a2a3e;
-      color: #555;
+      background: var(--bg-secondary, #2a2a3e);
+      color: var(--text-dimmed, #555);
     }
     .favicon.unbookmarked-placeholder {
-      background: #2e2a1e;
+      background: color-mix(in srgb, var(--unbookmarked-color, #cfa35b) 12%, transparent);
       color: var(--unbookmarked-color, #cfa35b);
     }
     .title {
@@ -91,13 +91,13 @@ template.innerHTML = `
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: #5bcf72;
+      background: var(--open-color, #5bcf72);
       flex-shrink: 0;
-      box-shadow: 0 0 4px #5bcf72;
+      box-shadow: 0 0 4px var(--open-color, #5bcf72);
     }
     .close-btn {
       font-size: 10px;
-      color: #555;
+      color: var(--text-dimmed, #555);
       cursor: pointer;
       flex-shrink: 0;
       padding: 2px 4px;
@@ -107,8 +107,8 @@ template.innerHTML = `
       line-height: 1;
     }
     .close-btn:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: #aaa;
+      background: var(--bg-hover, rgba(255, 255, 255, 0.1));
+      color: var(--text-secondary, #aaa);
     }
     .tooltip {
       display: none;
@@ -116,13 +116,13 @@ template.innerHTML = `
       bottom: calc(100% + 6px);
       left: var(--indent, 32px);
       right: 16px;
-      background: #1e1e2e;
-      border: 1px solid #3a3a4e;
+      background: var(--bg-secondary, #1e1e2e);
+      border: 1px solid var(--border-subtle, #3a3a4e);
       border-radius: 6px;
       padding: 6px 10px;
       font-size: 11px;
       line-height: 1.4;
-      color: #8899aa;
+      color: var(--text-secondary, #8899aa);
       pointer-events: none;
       z-index: 100;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
@@ -131,7 +131,7 @@ template.innerHTML = `
       white-space: nowrap;
     }
     .tooltip .tooltip-title {
-      color: #ccc;
+      color: var(--text-primary, #ccc);
       font-weight: 500;
       margin-bottom: 2px;
       overflow: hidden;

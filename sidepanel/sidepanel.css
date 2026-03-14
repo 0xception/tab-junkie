@@ -17,7 +17,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-hover);
   border-radius: 6px;
   padding: 4px 8px;
   border: 1px solid transparent;
@@ -27,7 +27,7 @@
 }
 
 .header-filter-wrap:focus-within {
-  border-color: rgba(91, 145, 207, 0.4);
+  border-color: color-mix(in srgb, var(--group-blue) 40%, transparent);
 }
 
 .header-filter-icon {
@@ -37,7 +37,7 @@
 }
 
 .header-filter-wrap:focus-within .header-filter-icon {
-  color: #5b91cf;
+  color: var(--group-blue);
 }
 
 .header-filter {
@@ -87,7 +87,7 @@
   width: 28px;
   height: 28px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-hover);
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
@@ -98,7 +98,7 @@
 }
 
 .header-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
   color: var(--text-primary);
 }
 
@@ -112,8 +112,8 @@
 }
 
 .header-close-btn:hover {
-  background: rgba(207, 91, 91, 0.25);
-  color: #cf5b5b;
+  background: color-mix(in srgb, var(--group-red) 25%, transparent);
+  color: var(--group-red);
 }
 
 #bookmark-list {
@@ -135,7 +135,7 @@
 }
 
 .filter-result-item:hover {
-  background: rgba(91, 145, 207, 0.12);
+  background: color-mix(in srgb, var(--group-blue) 12%, transparent);
 }
 
 .filter-result-favicon {
@@ -157,12 +157,12 @@
 }
 
 .filter-result-favicon.placeholder {
-  background: #2a2a3e;
+  background: var(--bg-secondary);
   color: var(--text-dimmed);
 }
 
 .filter-result-favicon.unbookmarked {
-  background: #2e2a1e;
+  background: color-mix(in srgb, var(--unbookmarked-color) 12%, transparent);
   color: var(--unbookmarked-color);
 }
 
@@ -183,7 +183,7 @@
 }
 
 .filter-result-title mark {
-  background: rgba(91, 145, 207, 0.3);
+  background: color-mix(in srgb, var(--group-blue) 30%, transparent);
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;
@@ -360,7 +360,7 @@ dialog select {
   width: 100%;
   margin-top: 4px;
   padding: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-hover);
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
   color: var(--text-primary);
@@ -371,7 +371,7 @@ dialog select {
 dialog input:focus,
 dialog select:focus {
   outline: none;
-  border-color: rgba(91, 145, 207, 0.4);
+  border-color: color-mix(in srgb, var(--group-blue) 40%, transparent);
 }
 
 .color-picker {
@@ -391,7 +391,7 @@ dialog select:focus {
 }
 
 .color-swatch.selected {
-  border-color: #fff;
+  border-color: var(--text-primary);
 }
 
 .dialog-actions {
@@ -412,7 +412,7 @@ dialog select:focus {
 
 .btn-primary {
   padding: 6px 14px;
-  background: #5b91cf;
+  background: var(--group-blue);
   border: none;
   border-radius: 4px;
   color: #fff;
@@ -440,7 +440,7 @@ dialog select:focus {
 }
 
 .context-menu-item:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-hover);
 }
 
 .context-menu-divider {
@@ -479,7 +479,7 @@ bookmark-item.sortable-ghost {
 
 .bulk-count {
   font-size: var(--font-size-md);
-  color: #5b91cf;
+  color: var(--group-blue);
   font-weight: 500;
 }
 
@@ -491,7 +491,7 @@ bookmark-item.sortable-ghost {
 
 .bulk-select {
   padding: 5px 8px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-hover);
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
   color: var(--text-primary);
@@ -502,7 +502,7 @@ bookmark-item.sortable-ghost {
 
 .bulk-select:focus {
   outline: none;
-  border-color: rgba(91, 145, 207, 0.4);
+  border-color: color-mix(in srgb, var(--group-blue) 40%, transparent);
 }
 
 .bulk-btn {
@@ -515,21 +515,21 @@ bookmark-item.sortable-ghost {
 }
 
 .bulk-btn-close {
-  background: rgba(207, 91, 91, 0.15);
-  color: #cf5b5b;
+  background: color-mix(in srgb, var(--group-red) 15%, transparent);
+  color: var(--group-red);
 }
 
 .bulk-btn-close:hover {
-  background: rgba(207, 91, 91, 0.25);
+  background: color-mix(in srgb, var(--group-red) 25%, transparent);
 }
 
 .bulk-btn-clear {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-hover);
   color: var(--text-secondary);
 }
 
 .bulk-btn-clear:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
   color: var(--text-primary);
 }
 
@@ -555,7 +555,7 @@ bookmark-item.sortable-ghost {
   align-items: center;
   justify-content: space-between;
   padding: 12px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-hover);
   border-radius: 6px;
   margin-bottom: 8px;
 }
@@ -596,7 +596,7 @@ bookmark-item.sortable-ghost {
 .toggle-slider {
   position: absolute;
   inset: 0;
-  background: rgba(255, 255, 255, 0.15);
+  background: color-mix(in srgb, var(--text-primary) 15%, transparent);
   border-radius: 10px;
   transition: background 0.2s;
 }
@@ -614,7 +614,7 @@ bookmark-item.sortable-ghost {
 }
 
 .toggle-switch input:checked + .toggle-slider {
-  background: #5b91cf;
+  background: var(--group-blue);
 }
 
 .toggle-switch input:checked + .toggle-slider::before {
@@ -631,7 +631,7 @@ bookmark-item.sortable-ghost {
 }
 
 .settings-feedback.error {
-  color: #cf5b5b;
+  color: var(--group-red);
 }
 
 .dialog-text {
@@ -642,7 +642,7 @@ bookmark-item.sortable-ghost {
 }
 
 .dialog-warning {
-  color: var(--text-error, #cf5b5b);
+  color: var(--group-red);
   font-weight: 500;
 }
 
@@ -663,4 +663,22 @@ bookmark-item.sortable-ghost {
 
 .settings-back-btn.hidden {
   display: none;
+}
+
+/* Theme selector */
+.theme-select {
+  padding: 5px 8px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  cursor: pointer;
+  min-width: 140px;
+}
+
+.theme-select:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--group-blue) 40%, transparent);
 }

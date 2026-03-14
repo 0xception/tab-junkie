@@ -140,7 +140,7 @@ function walkDL(dl, parentGroupId, depth, groups, bookmarks) {
         name: h3.textContent.trim(),
         parentId: effectiveParentId,
         sortOrder: groups.filter(g => g.parentId === effectiveParentId).length,
-        color: null,
+        color: 'blue',
       };
       groups.push(group);
 

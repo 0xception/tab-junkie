@@ -1,5 +1,6 @@
 // newtab/newtab.js
 import { MSG } from '../shared/messages.js';
+import { applyTheme } from '../shared/themes.js';
 import { renderBookmarkTree } from '../sidepanel/render.js';
 
 let currentState = null;
@@ -40,6 +41,7 @@ async function init() {
 
   // Fetch state and render
   currentState = await sendMessage(MSG.GET_STATE);
+  applyTheme(currentState?.preferences?.theme || 'default');
   render();
 
   // Filter
@@ -49,6 +51,7 @@ async function init() {
   chrome.runtime.onMessage.addListener((message) => {
     if (message.type === MSG.STATE_UPDATED) {
       currentState = message.payload;
+      applyTheme(currentState.preferences?.theme || 'default');
       render();
     }
   });
@@ -82,7 +85,8 @@ function applyGroupColors() {
     const groupId = section.dataset.groupId;
     const group = currentState.groups.find(g => g.id === groupId);
     if (group?.color) {
-      section.style.setProperty('--group-color', group.color);
+      const cssColor = group.color.startsWith('#') ? group.color : `var(--group-${group.color})`;
+      section.style.setProperty('--group-color', cssColor);
     }
   }
 }
