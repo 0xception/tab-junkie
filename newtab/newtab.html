@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="../shared/styles.css" />
+  <link rel="stylesheet" href="newtab.css" />
+  <title>New Tab</title>
+</head>
+<body>
+  <!-- Search Section (always visible) -->
+  <section id="search-section" class="search-section">
+    <div class="search-wordmark">Junkie</div>
+    <form id="search-form" class="search-form">
+      <input type="text" id="search-input" class="search-input" placeholder="Search the web..." autocomplete="off" autofocus />
+    </form>
+  </section>
+
+  <!-- Bookmarks Section (visible when enabled) -->
+  <section id="bookmarks-section" class="bookmarks-section hidden">
+    <div class="newtab-filter-wrap">
+      <span class="newtab-filter-icon">&#x1F50D;</span>
+      <input type="text" id="filter-input" class="newtab-filter" placeholder="Filter bookmarks..." />
+      <button class="newtab-filter-clear hidden" id="filter-clear" title="Clear">&times;</button>
+    </div>
+    <div id="bookmark-grid" class="bookmark-grid"></div>
+  </section>
+
+  <!-- Minimal Footer (visible when disabled) -->
+  <footer id="disabled-footer" class="disabled-footer hidden">
+    <span>Enable bookmarks on new tab in extension settings</span>
+  </footer>
+
+  <script src="../lib/fuse.min.js"></script>
+  <script type="module" src="../components/bookmark-item.js"></script>
+  <script type="module" src="../components/group-header.js"></script>
+  <script type="module" src="newtab.js"></script>
+</body>
+</html>

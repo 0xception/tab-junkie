@@ -56,6 +56,13 @@ async function init() {
     updateCloseButtonVisibility(viewModeToggle.checked);
   });
 
+  // New tab toggle
+  const newtabToggle = document.getElementById('newtab-toggle');
+  newtabToggle.checked = currentState?.preferences?.newTabEnabled ?? true;
+  newtabToggle.addEventListener('change', async () => {
+    await sendMessage(MSG.SET_PREFERENCE, { key: 'newTabEnabled', value: newtabToggle.checked });
+  });
+
   // Settings panel
   document.getElementById('settings-btn').addEventListener('click', openSettings);
   document.getElementById('settings-back-btn').addEventListener('click', closeSettings);
@@ -103,6 +110,11 @@ async function init() {
 
 function render() {
   if (!currentState) return;
+  // Keep newtab toggle in sync
+  const newtabToggle = document.getElementById('newtab-toggle');
+  if (newtabToggle) newtabToggle.checked = currentState.preferences?.newTabEnabled ?? true;
+  // Don't touch DOM visibility while settings panel is open
+  if (settingsOpen) return;
   buildFuseIndex();
   if (filterQuery) {
     renderFilterResults(filterQuery);

@@ -3,13 +3,16 @@
   "name": "Junkie",
   "description": "Unified bookmark and tab manager",
   "version": "0.1.0",
-  "permissions": ["tabs", "tabGroups", "storage", "sidePanel"],
+  "permissions": ["tabs", "tabGroups", "storage", "sidePanel", "search"],
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"
   },
   "side_panel": {
     "default_path": "sidepanel/sidepanel.html"
+  },
+  "chrome_url_overrides": {
+    "newtab": "newtab/newtab.html"
   },
   "action": {
     "default_popup": "popup/popup.html",
