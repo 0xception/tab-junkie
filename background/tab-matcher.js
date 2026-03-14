@@ -41,9 +41,10 @@ export function normalizeUrl(url) {
  * @param {Map} matchedTabToGroup - Map of tabId → groupId for bookmark-matched tabs
  * @param {Map} resolved - Memoization map of tabId → groupId|null
  * @param {number} [maxDepth=5] - Maximum hops to walk
+ * @param {Map} [pinnedTabGroups] - Map of tabId → groupId for pinned floating tabs
  * @returns {string|null} groupId or null
  */
-export function resolveTabGroup(tab, tabsById, matchedTabToGroup, resolved, maxDepth = 5) {
+export function resolveTabGroup(tab, tabsById, matchedTabToGroup, resolved, maxDepth = 5, pinnedTabGroups = new Map()) {
   if (resolved.has(tab.id)) return resolved.get(tab.id);
 
   let current = tab;
@@ -65,6 +66,14 @@ export function resolveTabGroup(tab, tabsById, matchedTabToGroup, resolved, maxD
     // Check if opener is a matched bookmark tab
     if (matchedTabToGroup.has(openerId)) {
       const groupId = matchedTabToGroup.get(openerId);
+      for (const visitedId of visited) resolved.set(visitedId, groupId);
+      resolved.set(tab.id, groupId);
+      return groupId;
+    }
+
+    // Check if opener is a pinned floating tab (e.g., bookmark was removed but tab stayed)
+    if (pinnedTabGroups.has(openerId)) {
+      const groupId = pinnedTabGroups.get(openerId);
       for (const visitedId of visited) resolved.set(visitedId, groupId);
       resolved.set(tab.id, groupId);
       return groupId;
@@ -145,10 +154,12 @@ export function matchTabsToBookmarks(bookmarks, tabs, trackedTabs = new Map(), p
   for (const tab of tabs) {
     if (matchedTabIds.has(tab.id)) continue;
 
-    const groupId = resolveTabGroup(tab, tabsById, matchedTabToGroup, resolved)
+    let groupId = resolveTabGroup(tab, tabsById, matchedTabToGroup, resolved, 5, pinnedTabGroups)
       ?? pinnedTabGroups.get(tab.id)
       ?? null;
     if (groupId != null) {
+      // Update resolved map so future opener chain lookups find this tab's group
+      resolved.set(tab.id, groupId);
       if (!floatingTabsByGroup[groupId]) floatingTabsByGroup[groupId] = [];
       floatingTabsByGroup[groupId].push(tab);
     } else {

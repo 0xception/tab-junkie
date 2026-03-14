@@ -249,6 +249,23 @@ describe('matchTabsToBookmarks', () => {
     assert.equal(result.floatingTabsByGroup['g2'], undefined);
   });
 
+  it('floating tab resolves group via pinned opener (bookmark removed but tab stayed)', () => {
+    // Scenario: bookmark was removed, its tab got pinned to the group.
+    // A child floating tab whose openerTabId points to the pinned tab should still resolve.
+    const bms = []; // No bookmarks — the bookmark was removed
+    const openTabs = [
+      { id: 101, url: 'https://github.com/', title: 'GitHub', index: 0 }, // was a bookmark, now pinned
+      { id: 102, url: 'https://github.com/repo', title: 'Repo', openerTabId: 101, index: 1 }, // child tab
+    ];
+    const pinned = new Map([[101, 'g1']]); // tab 101 pinned to g1 after bookmark removal
+
+    const result = matchTabsToBookmarks(bms, openTabs, new Map(), pinned);
+    // Tab 101 is pinned → floating in g1
+    // Tab 102's opener (101) is pinned → should also resolve to g1
+    assert.equal(result.floatingTabsByGroup['g1'].length, 2);
+    assert.equal(result.unbookmarkedTabs.length, 0);
+  });
+
   it('floating tabs are sorted by tab.index within a group', () => {
     const bms = [
       { id: 'bm1', title: 'GitHub', url: 'https://github.com', groupId: 'g1', sortOrder: 0 },

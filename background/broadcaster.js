@@ -13,8 +13,27 @@ export function createBroadcaster(chrome, storage) {
   const trackedTabs = new Map();
 
   // Pin tabs to groups (when a bookmark is removed but the tab stays open)
-  // Maps tabId → groupId
-  const pinnedTabGroups = new Map();
+  // Maps tabId → groupId — persisted to storage so it survives extension reloads
+  let pinnedTabGroups = new Map();
+  let pinnedTabsLoaded = false;
+
+  async function loadPinnedTabs() {
+    if (pinnedTabsLoaded) return;
+    const stored = await storage.getPinnedTabs();
+    // stored is { "tabId": "groupId", ... } with string keys
+    for (const [tabId, groupId] of Object.entries(stored)) {
+      pinnedTabGroups.set(Number(tabId), groupId);
+    }
+    pinnedTabsLoaded = true;
+  }
+
+  async function savePinnedTabs() {
+    const obj = {};
+    for (const [tabId, groupId] of pinnedTabGroups) {
+      obj[tabId] = groupId;
+    }
+    await storage.setPinnedTabs(obj);
+  }
 
   /**
    * Register a tab that was opened from a bookmark.
@@ -28,14 +47,17 @@ export function createBroadcaster(chrome, storage) {
    * Pin a tab to a group (e.g., when its bookmark is removed but the tab stays open).
    * The tab will appear as a floating tab in that group until closed.
    */
-  function pinTabToGroup(tabId, groupId) {
+  async function pinTabToGroup(tabId, groupId) {
     pinnedTabGroups.set(tabId, groupId);
+    await savePinnedTabs();
   }
 
   /**
    * Recompute full state by merging stored bookmarks with current tabs.
    */
   async function computeState() {
+    await loadPinnedTabs();
+
     const [bookmarks, groups, preferences, tabs] = await Promise.all([
       storage.getBookmarks(),
       storage.getGroups(),
@@ -50,10 +72,15 @@ export function createBroadcaster(chrome, storage) {
         trackedTabs.delete(tabId);
       }
     }
+    let pinnedChanged = false;
     for (const tabId of pinnedTabGroups.keys()) {
       if (!currentTabIds.has(tabId)) {
         pinnedTabGroups.delete(tabId);
+        pinnedChanged = true;
       }
+    }
+    if (pinnedChanged) {
+      await savePinnedTabs();
     }
 
     const { bookmarks: enrichedBookmarks, unbookmarkedTabs, floatingTabsByGroup } =

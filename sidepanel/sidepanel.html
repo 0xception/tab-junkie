@@ -40,6 +40,29 @@
     </form>
   </dialog>
 
+  <!-- Edit Bookmark Dialog -->
+  <dialog id="edit-bookmark-dialog">
+    <form method="dialog">
+      <h3>Edit Bookmark</h3>
+      <label>
+        Name
+        <input type="text" id="bookmark-name-input" required />
+      </label>
+      <label>
+        URL
+        <input type="url" id="bookmark-url-input" required />
+      </label>
+      <label>
+        Group
+        <select id="bookmark-group-select"></select>
+      </label>
+      <div class="dialog-actions">
+        <button type="button" class="btn-cancel">Cancel</button>
+        <button type="submit" class="btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Bulk Action Bar -->
   <div id="bulk-action-bar" class="bulk-action-bar hidden">
     <span class="bulk-count"></span>

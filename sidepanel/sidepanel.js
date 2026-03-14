@@ -27,7 +27,7 @@ async function init() {
   currentState = await sendMessage(MSG.GET_STATE);
   render();
   const dialogs = setupDialogs(sendMessage, getState);
-  setupContextMenu(sendMessage, getState, dialogs);
+  setupContextMenu(sendMessage, getState, dialogs, { getSelectedItems: () => selectedItems, clearSelection });
   setupBulkActions();
 }
 
@@ -170,14 +170,16 @@ function setupBulkActions() {
     const groupId = groupSelect.value;
     if (!groupId) return;
 
-    const items = [...selectedItems.values()].map(item => ({
-      title: item.title,
-      url: item.url,
-      favicon: item.favicon || null,
-    }));
-
-    if (items.length > 0) {
-      await sendMessage(MSG.BULK_ADD_BOOKMARKS, { items, groupId });
+    for (const item of selectedItems.values()) {
+      if (item.isBookmarked === false) {
+        // Floating tab: pin to group (don't auto-bookmark)
+        if (item.tabId) {
+          await sendMessage(MSG.PIN_TAB, { tabId: item.tabId, groupId });
+        }
+      } else {
+        // Bookmark: move to group
+        await sendMessage(MSG.MOVE_BOOKMARK, { id: item.id, groupId, sortOrder: 0 });
+      }
     }
 
     clearSelection();
@@ -350,84 +352,62 @@ function handleDragStart(evt) {
 }
 
 async function handleDragEnd(evt) {
-  // MultiDrag provides evt.items (array) when multiple items are dragged
-  const items = evt.items && evt.items.length > 1 ? evt.items : [evt.item];
   const targetGroupId = evt.to.dataset.groupId;
   const newIndex = evt.newIndex;
 
-  // Deselect all items from SortableJS MultiDrag state immediately
-  for (const el of items) {
+  // Use our selectedItems as source of truth for multi-drag, not SortableJS's evt.items
+  // (SortableJS can have stale internal selections that diverge from our state)
+  const draggedData = evt.item.data;
+  let itemsToMove = [];
+
+  if (selectedItems.size > 1 && draggedData && selectedItems.has(draggedData.id)) {
+    itemsToMove = [...selectedItems.values()];
+  } else {
+    itemsToMove = draggedData ? [draggedData] : [];
+  }
+
+  // Deselect all items from SortableJS MultiDrag state
+  const sortableItems = evt.items && evt.items.length > 0 ? evt.items : [evt.item];
+  for (const el of sortableItems) {
     Sortable.utils.deselect(el);
   }
 
-  if (items.length > 1) {
-    // Multi-item drop
-    const unbookmarked = [];
-    const bookmarked = [];
+  if (itemsToMove.length === 0) return;
 
-    for (const el of items) {
-      const data = el.data;
-      if (!data) continue;
-      if (data.isBookmarked === false) {
-        unbookmarked.push(data);
-      } else {
-        bookmarked.push(data);
+  const unbookmarked = itemsToMove.filter(d => d.isBookmarked === false);
+  const bookmarked = itemsToMove.filter(d => d.isBookmarked !== false);
+
+  if (targetGroupId === '__open_tabs__') {
+    // Dragging bookmarks to Open Tabs removes them (converts to floating)
+    for (const item of bookmarked) {
+      const payload = { id: item.id };
+      if (item.isOpen && item.tabId && item.groupId) {
+        payload.pinTabId = item.tabId;
+        payload.pinGroupId = item.groupId;
+      }
+      await sendMessage(MSG.REMOVE_BOOKMARK, payload);
+    }
+  } else if (targetGroupId) {
+    // Floating tabs: pin to the target group (don't auto-bookmark)
+    for (const item of unbookmarked) {
+      if (item.tabId) {
+        await sendMessage(MSG.PIN_TAB, { tabId: item.tabId, groupId: targetGroupId });
       }
     }
 
-    if (targetGroupId === '__open_tabs__') {
-      // Dragging bookmarks to Open Tabs removes them
-      for (const item of bookmarked) {
-        await sendMessage(MSG.REMOVE_BOOKMARK, { id: item.id });
-      }
-    } else if (targetGroupId) {
-      if (unbookmarked.length > 0) {
-        await sendMessage(MSG.BULK_ADD_BOOKMARKS, {
-          items: unbookmarked.map(item => ({
-            title: item.title,
-            url: item.url,
-            favicon: item.favicon || null,
-          })),
-          groupId: targetGroupId,
-        });
-      }
-
-      let sortOrder = newIndex;
-      for (const item of bookmarked) {
-        await sendMessage(MSG.MOVE_BOOKMARK, {
-          id: item.id,
-          groupId: targetGroupId,
-          sortOrder: sortOrder++,
-        });
-      }
-    }
-
-    clearSelection();
-    return;
-  }
-
-  // Single item drag
-  const draggedData = evt.item.data;
-  if (!draggedData) return;
-
-  if (draggedData.isBookmarked === false) {
-    if (targetGroupId && targetGroupId !== '__open_tabs__') {
-      await sendMessage(MSG.ADD_BOOKMARK, {
-        title: draggedData.title,
-        url: draggedData.url,
+    // Bookmarks: move to target group
+    let sortOrder = newIndex;
+    for (const item of bookmarked) {
+      await sendMessage(MSG.MOVE_BOOKMARK, {
+        id: item.id,
         groupId: targetGroupId,
-        favicon: draggedData.favicon,
+        sortOrder: sortOrder++,
       });
     }
-  } else if (targetGroupId === '__open_tabs__') {
-    // Dragging a bookmark to Open Tabs removes the bookmark
-    await sendMessage(MSG.REMOVE_BOOKMARK, { id: draggedData.id });
-  } else {
-    await sendMessage(MSG.MOVE_BOOKMARK, {
-      id: draggedData.id,
-      groupId: targetGroupId || null,
-      sortOrder: newIndex,
-    });
+  }
+
+  if (itemsToMove.length > 1) {
+    clearSelection();
   }
 }
 

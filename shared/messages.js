@@ -14,6 +14,7 @@ export const MSG = {
   NAVIGATE_TO: 'navigate-to',
   CLOSE_TAB: 'close-tab',
   BULK_ADD_BOOKMARKS: 'bulk-add-bookmarks',
+  PIN_TAB: 'pin-tab',
 
   // Broadcasts from background → UI
   STATE_UPDATED: 'state-updated',

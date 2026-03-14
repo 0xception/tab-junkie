@@ -43,7 +43,7 @@ async function handleMessage(message) {
     case MSG.REMOVE_BOOKMARK: {
       // If the tab is open, pin it to the group so it stays as a floating tab
       if (message.payload.pinTabId && message.payload.pinGroupId) {
-        broadcaster.pinTabToGroup(message.payload.pinTabId, message.payload.pinGroupId);
+        await broadcaster.pinTabToGroup(message.payload.pinTabId, message.payload.pinGroupId);
       }
       await storage.removeBookmark(message.payload.id);
       return broadcaster.invalidateAndBroadcast();
@@ -108,6 +108,12 @@ async function handleMessage(message) {
           favicon: item.favicon || null,
         });
       }
+      return broadcaster.invalidateAndBroadcast();
+    }
+
+    case MSG.PIN_TAB: {
+      const { tabId, groupId } = message.payload;
+      await broadcaster.pinTabToGroup(tabId, groupId);
       return broadcaster.invalidateAndBroadcast();
     }
 

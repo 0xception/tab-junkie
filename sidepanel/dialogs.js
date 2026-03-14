@@ -90,7 +90,37 @@ export function setupDialogs(sendMessage, getState) {
     dialog.close();
   });
 
-  // Expose a function to open the dialog in edit mode
+  // --- Edit Bookmark Dialog ---
+  const bmDialog = document.getElementById('edit-bookmark-dialog');
+  const bmNameInput = document.getElementById('bookmark-name-input');
+  const bmUrlInput = document.getElementById('bookmark-url-input');
+  const bmGroupSelect = document.getElementById('bookmark-group-select');
+  let editingBookmarkId = null;
+  let editingBookmarkGroupId = null;
+
+  bmDialog.querySelector('.btn-cancel').addEventListener('click', () => bmDialog.close());
+
+  bmDialog.querySelector('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const title = bmNameInput.value.trim();
+    const url = bmUrlInput.value.trim();
+    if (!title || !url || !editingBookmarkId) return;
+
+    await sendMessage(MSG.UPDATE_BOOKMARK, { id: editingBookmarkId, title, url });
+
+    const newGroupId = bmGroupSelect.value;
+    if (newGroupId && newGroupId !== editingBookmarkGroupId) {
+      await sendMessage(MSG.MOVE_BOOKMARK, {
+        id: editingBookmarkId,
+        groupId: newGroupId,
+        sortOrder: 0,
+      });
+    }
+
+    bmDialog.close();
+  });
+
+  // Expose functions to open dialogs
   return {
     openEditDialog(groupId) {
       const state = getState();
@@ -104,6 +134,32 @@ export function setupDialogs(sendMessage, getState) {
       parentLabel.classList.add('hidden');
       selectColor(group.color);
       dialog.showModal();
+    },
+
+    openEditBookmarkDialog(bookmarkId) {
+      const state = getState();
+      const bookmark = state?.bookmarks.find(b => b.id === bookmarkId);
+      if (!bookmark) return;
+
+      editingBookmarkId = bookmarkId;
+      editingBookmarkGroupId = bookmark.groupId;
+      bmNameInput.value = bookmark.title;
+      bmUrlInput.value = bookmark.url;
+
+      // Populate group dropdown
+      bmGroupSelect.innerHTML = '';
+      if (state) {
+        for (const group of state.groups) {
+          const option = document.createElement('option');
+          option.value = group.id;
+          const indent = group.parentId ? '  ' : '';
+          option.textContent = indent + group.name;
+          if (group.id === bookmark.groupId) option.selected = true;
+          bmGroupSelect.appendChild(option);
+        }
+      }
+
+      bmDialog.showModal();
     },
   };
 }

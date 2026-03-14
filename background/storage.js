@@ -8,6 +8,7 @@ export function createStorage(chrome) {
     BOOKMARKS: 'junkie_bookmarks',
     GROUPS: 'junkie_groups',
     PREFERENCES: 'junkie_preferences',
+    PINNED_TABS: 'junkie_pinned_tabs',
   };
 
   function generateId() {
@@ -194,6 +195,17 @@ export function createStorage(chrome) {
     await _set(KEYS.PREFERENCES, prefs);
   }
 
+  // --- Pinned Tabs ---
+  // Stores tabId → groupId mappings so floating tabs survive extension reloads
+
+  async function getPinnedTabs() {
+    return (await _get(KEYS.PINNED_TABS)) || {};
+  }
+
+  async function setPinnedTabs(pinnedMap) {
+    await _set(KEYS.PINNED_TABS, pinnedMap);
+  }
+
   return {
     getBookmarks,
     addBookmark,
@@ -208,5 +220,7 @@ export function createStorage(chrome) {
     getPreferences,
     getPreference,
     setPreference,
+    getPinnedTabs,
+    setPinnedTabs,
   };
 }
