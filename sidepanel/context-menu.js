@@ -125,16 +125,17 @@ function buildSelectionMenu(items) {
     menuItems.push(`<div class="context-menu-item" data-action="selection-open-tabs">Open Tabs (${count})</div>`);
   }
 
+  if (hasFloatingTabs) {
+    menuItems.push(`<div class="context-menu-item" data-action="selection-save-to-group">Save Bookmarks (${count})</div>`);
+  }
+
+  menuItems.push('<div class="context-menu-divider"></div>');
+
   if (hasOpenTabs) {
     menuItems.push(`<div class="context-menu-item" data-action="selection-close-tabs">Close Tabs (${count})</div>`);
   }
 
-  if (hasFloatingTabs) {
-    menuItems.push(`<div class="context-menu-item" data-action="selection-save-to-group">Save to Group (${count})</div>`);
-  }
-
   if (hasBookmarks) {
-    menuItems.push('<div class="context-menu-divider"></div>');
     menuItems.push(`<div class="context-menu-item" data-action="selection-remove-bookmarks" style="color: #cf5b5b;">Remove Bookmarks (${count})</div>`);
   }
 
@@ -157,25 +158,27 @@ function buildSingleItemMenu(data, bookmarkItem) {
         if (sib.data?.isBookmarked !== false) afterBookmarkId = sib.data.id;
       }
 
-      menuItems.push('<div class="context-menu-item" data-action="save-to-group">Save to Group</div>');
+      menuItems.push('<div class="context-menu-item" data-action="save-to-group">Save Bookmark</div>');
       contextMenu.dataset.tabTitle = data.title;
       contextMenu.dataset.tabUrl = data.url;
       contextMenu.dataset.tabFavicon = data.favicon || '';
       contextMenu.dataset.groupId = groupId;
       if (afterBookmarkId) contextMenu.dataset.afterBookmarkId = afterBookmarkId;
     }
-    menuItems.push('<div class="context-menu-item" data-action="close-tab">Close Tab</div>');
+    menuItems.push('<div class="context-menu-divider"></div>');
+    menuItems.push('<div class="context-menu-item" data-action="close-tab" style="color: #cf5b5b;">Close Tab</div>');
     contextMenu.dataset.tabId = data.tabId;
   } else {
     // Bookmarked item
-    if (data.isOpen) {
-      menuItems.push('<div class="context-menu-item" data-action="close-tab">Close Tab</div>');
-      contextMenu.dataset.tabId = data.tabId;
-    } else {
+    if (!data.isOpen) {
       menuItems.push('<div class="context-menu-item" data-action="open-tab">Open Tab</div>');
     }
     menuItems.push('<div class="context-menu-item" data-action="edit-bookmark">Edit Bookmark</div>');
     menuItems.push('<div class="context-menu-divider"></div>');
+    if (data.isOpen) {
+      menuItems.push('<div class="context-menu-item" data-action="close-tab">Close Tab</div>');
+      contextMenu.dataset.tabId = data.tabId;
+    }
     menuItems.push('<div class="context-menu-item" data-action="remove-bookmark" style="color: #cf5b5b;">Remove Bookmark</div>');
     contextMenu.dataset.bookmarkId = data.id;
     contextMenu.dataset.bookmarkUrl = data.url;

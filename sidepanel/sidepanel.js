@@ -241,8 +241,65 @@ function initDragAndDrop() {
   // After SortableJS init, sync our selection into MultiDrag's selection
   syncSelectionToSortable();
 
+  // --- Drag-to-expand collapsed groups ---
+  initDragToExpand();
+
   // --- Group drag-and-drop ---
   initGroupDragAndDrop();
+}
+
+let dragExpandTimer = null;
+let dragExpandTarget = null;
+const dragExpandedGroups = []; // groups expanded during this drag, persist on drag end
+
+function initDragToExpand() {
+  const headers = document.querySelectorAll('group-header');
+  for (const header of headers) {
+    if (!header.data?.collapsed) continue;
+
+    header.addEventListener('dragenter', () => {
+      if (dragExpandTarget === header) return;
+      clearDragExpandTimer();
+      dragExpandTarget = header;
+      dragExpandTimer = setTimeout(() => {
+        // Expand the group visually without triggering a full re-render
+        // (a re-render would destroy the in-progress drag operation)
+        const section = header.closest('.group-section');
+        const items = section?.querySelector('.group-items');
+        if (items) items.classList.remove('collapsed');
+        // Update the collapse icon inside the shadow DOM
+        const collapseIcon = header.shadowRoot?.querySelector('.collapse-icon');
+        if (collapseIcon) collapseIcon.classList.remove('collapsed');
+        // Track for deferred preference save
+        const groupId = header.data?.id;
+        if (groupId) dragExpandedGroups.push(groupId);
+        dragExpandTarget = null;
+      }, 800);
+    });
+
+    header.addEventListener('dragleave', (e) => {
+      if (!header.contains(e.relatedTarget)) {
+        if (dragExpandTarget === header) clearDragExpandTimer();
+      }
+    });
+  }
+}
+
+function clearDragExpandTimer() {
+  if (dragExpandTimer) {
+    clearTimeout(dragExpandTimer);
+    dragExpandTimer = null;
+  }
+  dragExpandTarget = null;
+}
+
+async function persistDragExpandedGroups() {
+  if (dragExpandedGroups.length === 0) return;
+  const collapsed = currentState?.preferences?.collapsedGroups || [];
+  const expandedSet = new Set(dragExpandedGroups);
+  const newCollapsed = collapsed.filter(id => !expandedSet.has(id));
+  dragExpandedGroups.length = 0;
+  await sendMessage(MSG.SET_PREFERENCE, { key: 'collapsedGroups', value: newCollapsed });
 }
 
 function initGroupDragAndDrop() {
@@ -409,6 +466,9 @@ async function handleDragEnd(evt) {
   if (itemsToMove.length > 1) {
     clearSelection();
   }
+
+  clearDragExpandTimer();
+  await persistDragExpandedGroups();
 }
 
 // --- Event Handlers ---
