@@ -2,7 +2,6 @@
 import { MSG } from '../shared/messages.js';
 
 let contextMenu = null;
-let selectionData = null; // Stores selection items for batch actions
 
 /**
  * Set up context menu event handlers.
@@ -68,6 +67,43 @@ function addDivider() {
   contextMenu.appendChild(div);
 }
 
+function getGroupIds(groupId, state) {
+  // Returns groupId + all descendant sub-group IDs
+  const ids = [groupId];
+  for (const g of (state?.groups || [])) {
+    if (g.parentId === groupId) ids.push(g.id);
+  }
+  return ids;
+}
+
+function collectGroupItemIds(groupId, state, { includeSubGroups = true } = {}) {
+  if (!state) return { allIds: [], bookmarkIds: [], openTabIds: [] };
+
+  const groupIds = includeSubGroups ? getGroupIds(groupId, state) : [groupId];
+  const groupIdSet = new Set(groupIds);
+
+  const allIds = [];
+  const bookmarkIds = [];
+  const openTabIds = [];
+
+  for (const bm of state.bookmarks) {
+    if (!groupIdSet.has(bm.groupId)) continue;
+    allIds.push(bm.id);
+    bookmarkIds.push(bm.id);
+    if (bm.isOpen && bm.tabId) openTabIds.push(bm.id);
+  }
+
+  for (const gid of groupIds) {
+    for (const tab of (state.floatingTabsByGroup?.[gid] || [])) {
+      const tabItemId = `tab-${tab.id}`;
+      allIds.push(tabItemId);
+      openTabIds.push(tabItemId);
+    }
+  }
+
+  return { allIds, bookmarkIds, openTabIds };
+}
+
 function buildGroupHeaderMenu(group, getState) {
   if (group.isUnbookmarked) {
     const state = getState();
@@ -75,6 +111,10 @@ function buildGroupHeaderMenu(group, getState) {
     if (tabIds.length > 0) {
       addMenuItem('close-all-tabs', `Close All Tabs (${tabIds.length})`);
       contextMenu.dataset.tabIds = JSON.stringify(tabIds);
+      addDivider();
+      const selectIds = tabIds.map(id => `tab-${id}`);
+      addMenuItem('select-group-all', `Select All (${selectIds.length})`);
+      contextMenu.dataset.selectIds = JSON.stringify(selectIds);
     }
   } else {
     const state = getState();
@@ -114,6 +154,22 @@ function buildGroupHeaderMenu(group, getState) {
       addDivider();
     }
 
+    // Select actions
+    const { allIds, bookmarkIds, openTabIds } = collectGroupItemIds(group.id, state);
+    if (allIds.length > 0) {
+      addMenuItem('select-group-all', `Select All (${allIds.length})`);
+      contextMenu.dataset.selectIds = JSON.stringify(allIds);
+    }
+    if (openTabIds.length > 0 && openTabIds.length !== allIds.length) {
+      addMenuItem('select-group-open', `Select Open Tabs (${openTabIds.length})`);
+      contextMenu.dataset.selectOpenIds = JSON.stringify(openTabIds);
+    }
+    if (bookmarkIds.length > 0 && bookmarkIds.length !== allIds.length) {
+      addMenuItem('select-group-bookmarks', `Select Bookmarks (${bookmarkIds.length})`);
+      contextMenu.dataset.selectBookmarkIds = JSON.stringify(bookmarkIds);
+    }
+
+    addDivider();
     addMenuItem('edit-group', 'Edit Group');
     addDivider();
     addMenuItem('delete-group', 'Delete Group', true);
@@ -123,7 +179,6 @@ function buildGroupHeaderMenu(group, getState) {
 }
 
 function buildSelectionMenu(items) {
-  selectionData = items;
   const count = items.length;
 
   const hasOpenTabs = items.some(item => item.tabId);
@@ -151,8 +206,6 @@ function buildSelectionMenu(items) {
 }
 
 function buildSingleItemMenu(data, bookmarkItem) {
-  selectionData = null;
-
   if (data.isBookmarked === false) {
     // Floating tab
     const groupItems = bookmarkItem.closest('.group-items');
@@ -208,6 +261,15 @@ async function handleContextAction(action, sendMessage, dialogs, selection) {
     for (const tabId of tabIds) {
       await sendMessage(MSG.CLOSE_TAB, { tabId });
     }
+  } else if (action === 'select-group-all') {
+    const ids = JSON.parse(contextMenu.dataset.selectIds || '[]');
+    selection.setSelection(ids);
+  } else if (action === 'select-group-open') {
+    const ids = JSON.parse(contextMenu.dataset.selectOpenIds || '[]');
+    selection.setSelection(ids);
+  } else if (action === 'select-group-bookmarks') {
+    const ids = JSON.parse(contextMenu.dataset.selectBookmarkIds || '[]');
+    selection.setSelection(ids);
   } else if (action === 'edit-group') {
     dialogs.openEditDialog(contextMenu.dataset.groupId);
 
@@ -235,38 +297,28 @@ async function handleContextAction(action, sendMessage, dialogs, selection) {
       afterBookmarkId: contextMenu.dataset.afterBookmarkId || null,
     });
 
-  // --- Selection actions (idempotent across mixed types) ---
-  } else if (action === 'selection-close-tabs' && selectionData) {
-    for (const item of selectionData) {
+  // --- Selection actions (resolve fresh data from state via selection.getSelectedItemData) ---
+  } else if (action === 'selection-close-tabs') {
+    const items = selection.getSelectedItemData();
+    for (const item of items) {
       if (item.tabId) {
         await sendMessage(MSG.CLOSE_TAB, { tabId: item.tabId });
       }
     }
     selection.clearSelection();
-  } else if (action === 'selection-open-tabs' && selectionData) {
-    for (const item of selectionData) {
+  } else if (action === 'selection-open-tabs') {
+    const items = selection.getSelectedItemData();
+    for (const item of items) {
       if (item.isBookmarked !== false && !item.isOpen && item.url) {
         await sendMessage(MSG.NAVIGATE_TO, { url: item.url });
       }
     }
     selection.clearSelection();
-  } else if (action === 'selection-remove-bookmarks' && selectionData) {
-    // Collect all floating tab IDs in the selection so we can pin them to their groups
-    // (removing a bookmark may break the opener chain for sibling floating tabs)
-    const floatingTabPins = [];
-    for (const item of selectionData) {
-      if (item.isBookmarked === false && item.tabId) {
-        // Find the group this floating tab is in from the DOM
-        const el = document.querySelector(`bookmark-item[data-id="tab-${item.tabId}"]`);
-        const groupId = el?.closest('.group-items')?.dataset?.groupId;
-        if (groupId && groupId !== '__open_tabs__') {
-          floatingTabPins.push({ tabId: item.tabId, groupId });
-        }
-      }
-    }
+  } else if (action === 'selection-remove-bookmarks') {
+    const items = selection.getSelectedItemData();
 
     // Remove only actual bookmarks, pin their open tabs to stay as floating
-    for (const item of selectionData) {
+    for (const item of items) {
       if (item.isBookmarked === false) continue; // Skip floating tabs entirely
       if (!item.id || item.id.startsWith('tab-')) continue; // Extra safety
 
@@ -278,11 +330,14 @@ async function handleContextAction(action, sendMessage, dialogs, selection) {
       await sendMessage(MSG.REMOVE_BOOKMARK, payload);
     }
     selection.clearSelection();
-  } else if (action === 'selection-save-to-group' && selectionData) {
-    for (const item of selectionData) {
+  } else if (action === 'selection-save-to-group') {
+    const items = selection.getSelectedItemData();
+    // Determine target group: prefer a bookmarked item's group, fall back to any item's group
+    const targetGroupId = items.find(i => i.isBookmarked !== false && i.groupId)?.groupId
+      || items.find(i => i.groupId)?.groupId;
+    for (const item of items) {
       if (item.isBookmarked === false && item.url) {
-        // Find groupId from a bookmarked item in the selection, or from the item's DOM context
-        const groupId = selectionData.find(i => i.isBookmarked !== false && i.groupId)?.groupId;
+        const groupId = item.groupId || targetGroupId;
         if (groupId) {
           await sendMessage(MSG.ADD_BOOKMARK, {
             title: item.title,
