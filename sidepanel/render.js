@@ -3,11 +3,20 @@
 /**
  * Render the full bookmark tree into the given container.
  */
-export function renderBookmarkTree(container, state, { initDragAndDrop, selectedIds }) {
+export function renderBookmarkTree(container, state, { initDragAndDrop, selectedIds, myWindowId, windowFilter }) {
   container.innerHTML = '';
 
-  const { bookmarks, groups, unbookmarkedTabs, floatingTabsByGroup, preferences, activeTabId } = state;
+  const { bookmarks, groups, unbookmarkedTabs, floatingTabsByGroup, preferences, activeTabId, windows } = state;
   const collapsedGroups = preferences?.collapsedGroups || [];
+
+  // Build windowId → label number map for badge rendering
+  const windowLabelMap = new Map();
+  const multipleWindows = windows && windows.length > 1;
+  if (multipleWindows) {
+    for (const w of windows) {
+      windowLabelMap.set(w.id, w.label.replace('Window ', ''));
+    }
+  }
 
   const topLevelGroups = groups
     .filter(g => g.parentId === null)
@@ -21,7 +30,7 @@ export function renderBookmarkTree(container, state, { initDragAndDrop, selected
   const hasSelection = selectedIds && selectedIds.size > 0;
 
   for (const group of topLevelGroups) {
-    const section = renderGroup(group, bookmarks, groups, collapsedGroups, selectedIds, activeTabId, floatingTabsByGroup);
+    const section = renderGroup(group, bookmarks, groups, collapsedGroups, selectedIds, activeTabId, floatingTabsByGroup, windowLabelMap, myWindowId, windowFilter);
     section.setAttribute('data-draggable', '');
     // Add drag handle for group reordering
     const handle = document.createElement('div');
@@ -50,7 +59,8 @@ export function renderBookmarkTree(container, state, { initDragAndDrop, selected
 
     for (const bookmark of ungrouped) {
       const item = document.createElement('bookmark-item');
-      item.data = { ...bookmark, isBookmarked: true, isActive: bookmark.tabId === activeTabId };
+      const wLabel = (windowLabelMap.size > 0 && bookmark.windowId && bookmark.windowId !== myWindowId) ? windowLabelMap.get(bookmark.windowId) : null;
+      item.data = { ...bookmark, isBookmarked: true, isActive: bookmark.tabId === activeTabId, windowLabel: wLabel };
       applySelection(item, bookmark.id, selectedIds, hasSelection);
       items.appendChild(item);
     }
@@ -60,7 +70,11 @@ export function renderBookmarkTree(container, state, { initDragAndDrop, selected
   }
 
   // Unbookmarked open tabs
-  if (unbookmarkedTabs.length > 0) {
+  const filteredUnbookmarkedTabs = windowFilter
+    ? unbookmarkedTabs.filter(t => t.windowId === windowFilter)
+    : unbookmarkedTabs;
+
+  if (filteredUnbookmarkedTabs.length > 0) {
     const section = document.createElement('div');
     section.className = 'group-section';
 
@@ -69,7 +83,7 @@ export function renderBookmarkTree(container, state, { initDragAndDrop, selected
     header.data = {
       id: '__open_tabs__',
       name: 'Open Tabs',
-      count: unbookmarkedTabs.length,
+      count: filteredUnbookmarkedTabs.length,
       collapsed: isCollapsed,
       isUnbookmarked: true,
     };
@@ -79,9 +93,10 @@ export function renderBookmarkTree(container, state, { initDragAndDrop, selected
     items.className = 'group-items' + (isCollapsed ? ' collapsed' : '');
     items.dataset.groupId = '__open_tabs__';
 
-    for (const tab of unbookmarkedTabs) {
+    for (const tab of filteredUnbookmarkedTabs) {
       const itemId = `tab-${tab.id}`;
       const item = document.createElement('bookmark-item');
+      const wLabel = (windowLabelMap.size > 0 && tab.windowId !== myWindowId) ? windowLabelMap.get(tab.windowId) : null;
       item.data = {
         id: itemId,
         title: tab.title || tab.url,
@@ -91,6 +106,7 @@ export function renderBookmarkTree(container, state, { initDragAndDrop, selected
         tabId: tab.id,
         isBookmarked: false,
         isActive: tab.id === activeTabId,
+        windowLabel: wLabel,
       };
       applySelection(item, itemId, selectedIds, hasSelection);
       items.appendChild(item);
@@ -108,7 +124,7 @@ function applySelection(item, id, selectedIds, hasSelection) {
   if (selectedIds && selectedIds.has(id)) item.selected = true;
 }
 
-function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, activeTabId, floatingTabsByGroup = {}) {
+function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, activeTabId, floatingTabsByGroup = {}, windowLabelMap = new Map(), myWindowId = null, windowFilter = null) {
   const section = document.createElement('div');
   section.className = 'group-section';
   section.dataset.groupId = group.id;
@@ -118,7 +134,10 @@ function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, 
     .filter(b => b.groupId === group.id)
     .sort((a, b) => a.sortOrder - b.sortOrder);
 
-  const groupFloatingTabs = floatingTabsByGroup[group.id] || [];
+  const allGroupFloatingTabs = floatingTabsByGroup[group.id] || [];
+  const groupFloatingTabs = windowFilter
+    ? allGroupFloatingTabs.filter(t => t.windowId === windowFilter)
+    : allGroupFloatingTabs;
 
   const subGroups = allGroups
     .filter(g => g.parentId === group.id)
@@ -126,7 +145,8 @@ function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, 
 
   const totalCount = groupBookmarks.length + groupFloatingTabs.length + subGroups.reduce((sum, sg) => {
     const subFloating = floatingTabsByGroup[sg.id] || [];
-    return sum + bookmarks.filter(b => b.groupId === sg.id).length + subFloating.length;
+    const filteredSubFloating = windowFilter ? subFloating.filter(t => t.windowId === windowFilter) : subFloating;
+    return sum + bookmarks.filter(b => b.groupId === sg.id).length + filteredSubFloating.length;
   }, 0);
 
   const header = document.createElement('group-header');
@@ -157,6 +177,7 @@ function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, 
   function renderFloatingTab(tab) {
     const itemId = `tab-${tab.id}`;
     const item = document.createElement('bookmark-item');
+    const wLabel = (windowLabelMap.size > 0 && tab.windowId !== myWindowId) ? windowLabelMap.get(tab.windowId) : null;
     item.data = {
       id: itemId,
       title: tab.title || tab.url,
@@ -166,6 +187,7 @@ function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, 
       tabId: tab.id,
       isBookmarked: false,
       isActive: tab.id === activeTabId,
+      windowLabel: wLabel,
     };
     applySelection(item, itemId, selectedIds, hasSelection);
     items.appendChild(item);
@@ -181,7 +203,8 @@ function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, 
 
   for (const bookmark of groupBookmarks) {
     const item = document.createElement('bookmark-item');
-    item.data = { ...bookmark, isBookmarked: true, isActive: bookmark.tabId === activeTabId };
+    const wLabel = (windowLabelMap.size > 0 && bookmark.windowId && bookmark.windowId !== myWindowId) ? windowLabelMap.get(bookmark.windowId) : null;
+    item.data = { ...bookmark, isBookmarked: true, isActive: bookmark.tabId === activeTabId, windowLabel: wLabel };
     applySelection(item, bookmark.id, selectedIds, hasSelection);
     items.appendChild(item);
     // Render any floating tabs spawned from this bookmark's tab
@@ -207,7 +230,7 @@ function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, 
     subGroupsContainer.className = 'sub-groups';
     subGroupsContainer.dataset.parentGroupId = group.id;
     for (const subGroup of subGroups) {
-      const subSection = renderGroup(subGroup, bookmarks, allGroups, collapsedGroups, selectedIds, activeTabId, floatingTabsByGroup);
+      const subSection = renderGroup(subGroup, bookmarks, allGroups, collapsedGroups, selectedIds, activeTabId, floatingTabsByGroup, windowLabelMap, myWindowId, windowFilter);
       subSection.setAttribute('data-draggable', '');
       const handle = document.createElement('div');
       handle.className = 'group-drag-handle';

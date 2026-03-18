@@ -95,6 +95,15 @@ template.innerHTML = `
       flex-shrink: 0;
       box-shadow: 0 0 4px var(--open-color, #5bcf72);
     }
+    .window-badge {
+      font-size: 9px;
+      color: var(--text-dimmed, #555);
+      background: color-mix(in srgb, var(--text-dimmed, #555) 15%, transparent);
+      padding: 1px 4px;
+      border-radius: 6px;
+      flex-shrink: 0;
+      line-height: 1.2;
+    }
     .close-btn {
       font-size: 10px;
       color: var(--text-dimmed, #555);
@@ -159,6 +168,7 @@ template.innerHTML = `
     </div>
     <span class="title"></span>
     <span class="open-dot hidden"></span>
+    <span class="window-badge hidden"></span>
     <button class="close-btn hidden" title="Close tab">&#x2715;</button>
   </div>
   <div class="tooltip">
@@ -297,6 +307,15 @@ export class BookmarkItem extends HTMLElement {
     // Green dot for open bookmarks, close button for any open tab
     openDot.classList.toggle('hidden', !isOpen || isBookmarked === false);
     closeBtn.classList.toggle('hidden', !isOpen);
+
+    // Window badge — shows which window a tab is in (multi-window only)
+    const windowBadge = el.querySelector('.window-badge');
+    if (this._data.windowLabel) {
+      windowBadge.textContent = this._data.windowLabel;
+      windowBadge.classList.remove('hidden');
+    } else {
+      windowBadge.classList.add('hidden');
+    }
   }
 
   _emitSelect(e, forceToggle = false) {

@@ -682,3 +682,47 @@ bookmark-item.sortable-ghost {
   outline: none;
   border-color: color-mix(in srgb, var(--group-blue) 40%, transparent);
 }
+
+/* Window filter row */
+.window-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-faint);
+}
+
+.window-filter.hidden {
+  display: none;
+}
+
+.window-filter-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+}
+
+.window-filter-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.window-filter-btn.active {
+  background: color-mix(in srgb, var(--group-blue) 20%, transparent);
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--group-blue) 40%, transparent);
+}
+
+.window-filter-btn.current {
+  border-color: color-mix(in srgb, var(--open-color) 40%, transparent);
+}
+
+.window-filter-btn.current.active {
+  border-color: color-mix(in srgb, var(--group-blue) 40%, transparent);
+}

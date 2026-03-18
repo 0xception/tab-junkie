@@ -7,6 +7,8 @@ import { setupContextMenu } from './context-menu.js';
 import { generateNetscapeHTML, generateJunkieJSON, detectFormat, parseNetscapeHTML, parseJunkieJSON } from '../shared/import-export.js';
 
 let currentState = null;
+let myWindowId = null;
+let windowFilter = null; // null = show all, or a window ID to filter to
 const selectedItems = new Set(); // set of selected item IDs
 let settingsOpen = false;
 let syncFeedbackTimer = null;
@@ -33,6 +35,10 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 async function init() {
+  // Track which window we're in (set once — side panel is attached to one window)
+  const currentWindow = await chrome.windows.getCurrent();
+  myWindowId = currentWindow.id;
+
   currentState = await sendMessage(MSG.GET_STATE);
   render();
   const dialogs = setupDialogs(sendMessage, getState);
@@ -135,6 +141,8 @@ function render() {
   if (newtabToggle) newtabToggle.checked = currentState.preferences?.newTabEnabled ?? true;
   // Don't touch DOM visibility while settings panel is open
   if (settingsOpen) return;
+  // Window filter row — show when multiple windows exist
+  renderWindowFilter();
   buildFuseIndex();
   if (filterQuery) {
     renderFilterResults(filterQuery);
@@ -146,10 +154,60 @@ function render() {
     renderBookmarkTree(container, currentState, {
       initDragAndDrop,
       selectedIds: selectedItems,
+      myWindowId,
+      windowFilter,
     });
   }
   pruneStaleSelections();
   updateBulkBar();
+}
+
+function renderWindowFilter() {
+  const filterEl = document.getElementById('window-filter');
+  if (!filterEl) return;
+
+  const windows = currentState?.windows || [];
+
+  if (windows.length <= 1) {
+    filterEl.classList.add('hidden');
+    windowFilter = null;
+    return;
+  }
+
+  // Reset filter if the selected window no longer exists
+  if (windowFilter !== null && !windows.some(w => w.id === windowFilter)) {
+    windowFilter = null;
+  }
+
+  filterEl.classList.remove('hidden');
+  filterEl.innerHTML = '';
+
+  // "All" button
+  const allBtn = document.createElement('button');
+  allBtn.className = 'window-filter-btn' + (windowFilter === null ? ' active' : '');
+  allBtn.textContent = 'All';
+  allBtn.addEventListener('click', () => {
+    windowFilter = null;
+    render();
+  });
+  filterEl.appendChild(allBtn);
+
+  // Per-window buttons
+  for (const win of windows) {
+    const btn = document.createElement('button');
+    const num = win.label.replace('Window ', '');
+    const isCurrent = win.id === myWindowId;
+    btn.className = 'window-filter-btn'
+      + (windowFilter === win.id ? ' active' : '')
+      + (isCurrent ? ' current' : '');
+    btn.textContent = num;
+    btn.title = win.label + (isCurrent ? ' (current)' : '');
+    btn.addEventListener('click', () => {
+      windowFilter = win.id;
+      render();
+    });
+    filterEl.appendChild(btn);
+  }
 }
 
 // --- Selection ---
@@ -550,6 +608,7 @@ function openSettings() {
   settingsOpen = true;
   clearSelection();
   document.getElementById('bookmark-list').classList.add('hidden');
+  document.getElementById('window-filter')?.classList.add('hidden');
   const filterResults = document.getElementById('filter-results');
   if (filterResults) filterResults.remove();
   document.getElementById('settings-panel').classList.remove('hidden');

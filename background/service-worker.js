@@ -23,6 +23,13 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 chrome.tabs.onActivated.addListener(() => broadcaster.invalidateAndBroadcast());
 
+chrome.windows.onCreated.addListener(() => broadcaster.invalidateAndBroadcast());
+chrome.windows.onRemoved.addListener(() => broadcaster.invalidateAndBroadcast());
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId !== chrome.windows.WINDOW_ID_NONE) broadcaster.invalidateAndBroadcast();
+});
+chrome.tabs.onAttached.addListener(() => broadcaster.invalidateAndBroadcast());
+
 let syncingTabOrderCount = 0;
 chrome.tabs.onMoved.addListener(() => {
   if (syncingTabOrderCount === 0) broadcaster.invalidateAndBroadcast();

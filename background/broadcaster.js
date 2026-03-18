@@ -72,12 +72,19 @@ export function createBroadcaster(chrome, storage) {
   async function computeState() {
     await loadPinnedTabs();
 
-    const [bookmarks, groups, preferences, tabs] = await Promise.all([
+    const [bookmarks, groups, preferences, tabs, allWindows] = await Promise.all([
       storage.getBookmarks(),
       storage.getGroups(),
       storage.getPreferences(),
       chrome.tabs.query({}),
+      chrome.windows.getAll(),
     ]);
+
+    // Build window metadata — only normal browser windows, sorted by ID for stable labels
+    const normalWindows = allWindows
+      .filter(w => w.type === 'normal')
+      .sort((a, b) => a.id - b.id);
+    const windows = normalWindows.map((w, i) => ({ id: w.id, label: `Window ${i + 1}` }));
 
     // Clean up tracked/pinned tabs that no longer exist
     const currentTabIds = new Set(tabs.map(t => t.id));
@@ -127,6 +134,7 @@ export function createBroadcaster(chrome, storage) {
       floatingTabsByGroup,
       preferences,
       activeTabId: currentActiveTab?.id ?? null,
+      windows,
     };
 
     return cachedState;

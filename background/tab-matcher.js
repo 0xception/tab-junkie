@@ -134,7 +134,7 @@ export function matchTabsToBookmarks(bookmarks, tabs, trackedTabs = new Map(), p
     if (trackedTabId != null && tabsById.has(trackedTabId) && !matchedTabIds.has(trackedTabId)) {
       matchedTabIds.add(trackedTabId);
       const tab = tabsById.get(trackedTabId);
-      return { ...bookmark, isOpen: true, tabId: trackedTabId, tabLastAccessed: tab.lastAccessed || 0 };
+      return { ...bookmark, isOpen: true, tabId: trackedTabId, tabLastAccessed: tab.lastAccessed || 0, windowId: tab.windowId };
     }
 
     // Fall back to URL-based matching
@@ -143,7 +143,7 @@ export function matchTabsToBookmarks(bookmarks, tabs, trackedTabs = new Map(), p
 
     if (matchingTab && !matchedTabIds.has(matchingTab.id)) {
       matchedTabIds.add(matchingTab.id);
-      return { ...bookmark, isOpen: true, tabId: matchingTab.id, tabLastAccessed: matchingTab.lastAccessed || 0 };
+      return { ...bookmark, isOpen: true, tabId: matchingTab.id, tabLastAccessed: matchingTab.lastAccessed || 0, windowId: matchingTab.windowId };
     }
 
     return { ...bookmark, isOpen: false, tabId: null };
