@@ -7,7 +7,7 @@ import { setupContextMenu } from './context-menu.js';
 import { generateNetscapeHTML, generateJunkieJSON, detectFormat, parseNetscapeHTML, parseJunkieJSON } from '../shared/import-export.js';
 
 let currentState = null;
-const selectedItems = new Map(); // id → item data
+const selectedItems = new Set(); // set of selected item IDs
 let settingsOpen = false;
 let syncFeedbackTimer = null;
 let fuse = null;
@@ -36,7 +36,7 @@ async function init() {
   currentState = await sendMessage(MSG.GET_STATE);
   render();
   const dialogs = setupDialogs(sendMessage, getState);
-  setupContextMenu(sendMessage, getState, dialogs, { getSelectedItems: () => selectedItems, clearSelection });
+  setupContextMenu(sendMessage, getState, dialogs, { getSelectedIds: () => selectedItems, getSelectedItemData, clearSelection });
   setupBulkActions();
 
   // Filter input
@@ -148,6 +148,7 @@ function render() {
       selectedIds: selectedItems,
     });
   }
+  pruneStaleSelections();
   updateBulkBar();
 }
 
@@ -180,7 +181,7 @@ document.addEventListener('select-item', (e) => {
 
       for (let i = start; i <= end; i++) {
         const itemData = allItems[i].data;
-        if (itemData) selectedItems.set(itemData.id, itemData);
+        if (itemData) selectedItems.add(itemData.id);
       }
     }
   } else if (ctrlKey) {
@@ -188,7 +189,7 @@ document.addEventListener('select-item', (e) => {
     if (selectedItems.has(data.id)) {
       selectedItems.delete(data.id);
     } else {
-      selectedItems.set(data.id, data);
+      selectedItems.add(data.id);
     }
     lastSelectedId = data.id;
   } else {
@@ -199,7 +200,7 @@ document.addEventListener('select-item', (e) => {
       lastSelectedId = null;
     } else {
       selectedItems.clear();
-      selectedItems.set(data.id, data);
+      selectedItems.add(data.id);
       lastSelectedId = data.id;
     }
   }
@@ -215,7 +216,7 @@ document.addEventListener('keydown', (e) => {
     const allItems = getAllBookmarkItems();
     selectedItems.clear();
     for (const el of allItems) {
-      if (el.data) selectedItems.set(el.data.id, el.data);
+      if (el.data) selectedItems.add(el.data.id);
     }
     syncSelectionToDOM();
     updateBulkBar();
@@ -254,6 +255,93 @@ function clearSelection() {
   lastSelectedId = null;
   syncSelectionToDOM();
   updateBulkBar();
+}
+
+/**
+ * Resolve selected IDs against currentState to get fresh item data.
+ * Automatically excludes IDs that no longer exist in state.
+ */
+function getSelectedItemData() {
+  if (!currentState) return [];
+  const items = [];
+  const validIds = new Set();
+
+  // Build lookup from current state
+  const bookmarkMap = new Map();
+  for (const b of currentState.bookmarks) {
+    bookmarkMap.set(b.id, { ...b, isBookmarked: true });
+  }
+  const tabMap = new Map();
+  for (const t of currentState.unbookmarkedTabs || []) {
+    tabMap.set(`tab-${t.id}`, {
+      id: `tab-${t.id}`,
+      title: t.title || t.url,
+      url: t.url,
+      favicon: t.favIconUrl || null,
+      isOpen: true,
+      tabId: t.id,
+      isBookmarked: false,
+    });
+  }
+  // Also include floating tabs pinned to groups
+  for (const [groupId, tabs] of Object.entries(currentState.floatingTabsByGroup || {})) {
+    for (const t of tabs) {
+      const tabKey = `tab-${t.id}`;
+      if (!tabMap.has(tabKey)) {
+        tabMap.set(tabKey, {
+          id: tabKey,
+          title: t.title || t.url,
+          url: t.url,
+          favicon: t.favIconUrl || null,
+          isOpen: true,
+          tabId: t.id,
+          isBookmarked: false,
+          groupId,
+        });
+      }
+    }
+  }
+
+  for (const id of selectedItems) {
+    const data = bookmarkMap.get(id) || tabMap.get(id);
+    if (data) {
+      items.push(data);
+      validIds.add(id);
+    }
+  }
+
+  // Prune IDs that no longer exist
+  for (const id of selectedItems) {
+    if (!validIds.has(id)) selectedItems.delete(id);
+  }
+
+  return items;
+}
+
+/**
+ * Prune selected IDs that no longer exist in the current state.
+ */
+function pruneStaleSelections() {
+  if (!currentState || selectedItems.size === 0) return;
+
+  const validIds = new Set();
+  for (const b of currentState.bookmarks) validIds.add(b.id);
+  for (const t of currentState.unbookmarkedTabs || []) validIds.add(`tab-${t.id}`);
+  for (const tabs of Object.values(currentState.floatingTabsByGroup || {})) {
+    for (const t of tabs) validIds.add(`tab-${t.id}`);
+  }
+
+  let pruned = false;
+  for (const id of selectedItems) {
+    if (!validIds.has(id)) {
+      selectedItems.delete(id);
+      pruned = true;
+    }
+  }
+  if (pruned) {
+    syncSelectionToDOM();
+    updateBulkBar();
+  }
 }
 
 // --- Filter ---
@@ -604,10 +692,8 @@ function setupBulkActions() {
   clearBtn.addEventListener('click', clearSelection);
 
   closeBtn.addEventListener('click', async () => {
-    const tabIds = [];
-    for (const item of selectedItems.values()) {
-      if (item.tabId) tabIds.push(item.tabId);
-    }
+    const items = getSelectedItemData();
+    const tabIds = items.filter(item => item.tabId).map(item => item.tabId);
     for (const tabId of tabIds) {
       await sendMessage(MSG.CLOSE_TAB, { tabId });
     }
@@ -618,7 +704,7 @@ function setupBulkActions() {
     const groupId = groupSelect.value;
     if (!groupId) return;
 
-    for (const item of selectedItems.values()) {
+    for (const item of getSelectedItemData()) {
       if (item.isBookmarked === false) {
         // Floating tab: pin to group (don't auto-bookmark)
         if (item.tabId) {
@@ -651,7 +737,7 @@ function updateBulkBar() {
   countEl.textContent = `${n} selected`;
 
   // Show close button only if any selected items have open tabs
-  const hasOpenTabs = [...selectedItems.values()].some(item => item.tabId);
+  const hasOpenTabs = getSelectedItemData().some(item => item.tabId);
   closeBtn.classList.toggle('hidden', !hasOpenTabs);
 
   // Populate group dropdown
@@ -867,7 +953,7 @@ async function handleDragEnd(evt) {
   let itemsToMove = [];
 
   if (selectedItems.size > 1 && draggedData && selectedItems.has(draggedData.id)) {
-    itemsToMove = [...selectedItems.values()];
+    itemsToMove = getSelectedItemData();
   } else {
     itemsToMove = draggedData ? [draggedData] : [];
   }
@@ -901,21 +987,43 @@ async function handleDragEnd(evt) {
       }
     }
 
-    // Normalize sort orders for the target group based on final DOM order
-    // This handles both moved items and existing items in one write
-    const targetContainer = evt.to;
-    const bookmarkIds = [];
-    const tabOrder = [];
-    for (const el of targetContainer.querySelectorAll('bookmark-item')) {
-      if (el.data?.id && el.data.isBookmarked !== false) bookmarkIds.push(el.data.id);
-      if (el.data?.tabId != null) tabOrder.push(el.data.tabId);
-    }
-    if (bookmarkIds.length > 0) {
-      await sendMessage(MSG.NORMALIZE_GROUP_SORT, { groupId: targetGroupId, bookmarkIds });
-    }
-    // Sync Chrome tab order to match Junkie's visual order
-    if (tabOrder.length > 1) {
-      await sendMessage(MSG.SYNC_TAB_ORDER, { tabOrder });
+    if (itemsToMove.length > 1) {
+      // Multi-item drop: build correct order from state + drop position.
+      // Don't rely on DOM order — SortableJS multiDrag can leave DOM inconsistent.
+      const movedIds = new Set(bookmarked.map(b => b.id));
+
+      // Get existing bookmarks in this group (excluding the ones being moved)
+      const existingInGroup = (currentState?.bookmarks || [])
+        .filter(b => b.groupId === targetGroupId && !movedIds.has(b.id))
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+
+      // Determine insertion index from the drop position
+      const dropIndex = Math.min(evt.newIndex ?? existingInGroup.length, existingInGroup.length);
+
+      // Splice moved items into the existing order at the drop position
+      const orderedIds = existingInGroup.map(b => b.id);
+      const movedBookmarkIds = bookmarked.map(b => b.id);
+      orderedIds.splice(dropIndex, 0, ...movedBookmarkIds);
+
+      if (orderedIds.length > 0) {
+        await sendMessage(MSG.NORMALIZE_GROUP_SORT, { groupId: targetGroupId, bookmarkIds: orderedIds });
+      }
+    } else {
+      // Single-item drop: DOM order is reliable, normalize from it
+      const targetContainer = evt.to;
+      const bookmarkIds = [];
+      const tabOrder = [];
+      for (const el of targetContainer.querySelectorAll('bookmark-item')) {
+        if (el.data?.id && el.data.isBookmarked !== false) bookmarkIds.push(el.data.id);
+        if (el.data?.tabId != null) tabOrder.push(el.data.tabId);
+      }
+      if (bookmarkIds.length > 0) {
+        await sendMessage(MSG.NORMALIZE_GROUP_SORT, { groupId: targetGroupId, bookmarkIds });
+      }
+      // Sync Chrome tab order to match Junkie's visual order
+      if (tabOrder.length > 1) {
+        await sendMessage(MSG.SYNC_TAB_ORDER, { tabOrder });
+      }
     }
   }
 

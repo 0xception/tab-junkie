@@ -29,11 +29,11 @@ export function setupContextMenu(sendMessage, getState, dialogs, selection) {
       buildGroupHeaderMenu(groupHeader.data, getState);
     } else if (bookmarkItem && bookmarkItem.data) {
       const data = bookmarkItem.data;
-      const selectedItems = selection.getSelectedItems();
+      const selectedIds = selection.getSelectedIds();
 
       // If the right-clicked item is part of a multi-selection, act on the whole selection
-      if (selectedItems.size > 1 && selectedItems.has(data.id)) {
-        buildSelectionMenu([...selectedItems.values()]);
+      if (selectedIds.size > 1 && selectedIds.has(data.id)) {
+        buildSelectionMenu(selection.getSelectedItemData());
       } else {
         buildSingleItemMenu(data, bookmarkItem);
       }
