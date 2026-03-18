@@ -826,6 +826,10 @@ function initDragAndDrop() {
       selectedClass: 'multi-drag-selected',
       ghostClass: 'sortable-ghost',
       dragClass: 'sortable-drag',
+      scroll: document.scrollingElement || document.body,
+      scrollSensitivity: 80,
+      scrollSpeed: 12,
+      bubbleScroll: true,
       onStart: handleDragStart,
       onEnd: handleDragEnd,
     });
