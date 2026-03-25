@@ -40,6 +40,8 @@ chrome.tabs.onMoved.addListener(() => {
 chrome.commands.onCommand.addListener(async (command) => {
   if (command === 'open-junkie-window') {
     await openJunkieWindow();
+  } else if (command === 'group-jump') {
+    await openGroupJumpPopup();
   }
 });
 
@@ -69,6 +71,18 @@ async function openJunkieWindow() {
     top: currentWindow.top,
     left,
   });
+}
+
+async function openGroupJumpPopup() {
+  // Temporarily swap the action popup to group-jump, open it, then restore
+  await chrome.action.setPopup({ popup: 'group-jump/group-jump.html' });
+  try {
+    await chrome.action.openPopup();
+  } catch {
+    // openPopup may fail if popup is already open or no active window
+  }
+  // Restore the default popup — the group-jump page is already loaded
+  await chrome.action.setPopup({ popup: 'popup/popup.html' });
 }
 
 // --- Message handler ---
@@ -316,6 +330,15 @@ async function handleMessage(message) {
       await storage.migrateGroupColors(HEX_TO_SEMANTIC_COLOR);
       broadcaster.resetPinnedTabs();
       return broadcaster.invalidateAndBroadcast();
+    }
+
+    case MSG.SCROLL_TO_GROUP: {
+      // Broadcast to all extension pages (side panel / junkie window)
+      chrome.runtime.sendMessage({
+        type: MSG.SCROLL_TO_GROUP,
+        payload: message.payload,
+      }).catch(() => {});
+      return { success: true };
     }
 
     case MSG.CLOSE_TAB: {

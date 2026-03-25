@@ -37,6 +37,12 @@
         "default": "Alt+Shift+J"
       },
       "description": "Open Tab Junkie window"
+    },
+    "group-jump": {
+      "suggested_key": {
+        "default": "Alt+K"
+      },
+      "description": "Jump to group"
     }
   },
   "content_security_policy": {

@@ -61,6 +61,10 @@ export class SearchBar extends HTMLElement {
     this._input = this.shadowRoot.querySelector('input');
     this._wrapper = this.shadowRoot.querySelector('.search-input-wrapper');
 
+    // Support custom placeholder via attribute
+    const placeholder = this.getAttribute('placeholder');
+    if (placeholder) this._input.placeholder = placeholder;
+
     this._input.addEventListener('input', () => {
       this.dispatchEvent(new CustomEvent('search', {
         bubbles: true,

@@ -20,6 +20,7 @@ export const MSG = {
   OPEN_JUNKIE_WINDOW: 'open-junkie-window',
   IMPORT_REPLACE: 'import-replace',
   NORMALIZE_GROUP_SORT: 'normalize-group-sort',
+  SCROLL_TO_GROUP: 'scroll-to-group',
 
   // Broadcasts from background → UI
   STATE_UPDATED: 'state-updated',

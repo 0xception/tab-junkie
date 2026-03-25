@@ -26,13 +26,53 @@ function getState() {
   return currentState;
 }
 
-// Listen for state broadcasts
-chrome.runtime.onMessage.addListener((message) => {
+// Listen for state broadcasts and scroll-to-group requests
+chrome.runtime.onMessage.addListener(async (message) => {
   if (message.type === MSG.STATE_UPDATED) {
     currentState = message.payload;
     render();
+  } else if (message.type === MSG.SCROLL_TO_GROUP) {
+    await scrollToGroup(message.payload.groupId);
   }
 });
+
+async function scrollToGroup(groupId) {
+  if (!currentState) return;
+
+  const group = currentState.groups.find(g => g.id === groupId);
+  if (!group) return;
+
+  // Uncollapse the group (and its parent if it's a sub-group)
+  const collapsed = currentState.preferences?.collapsedGroups || [];
+  let changed = false;
+  let newCollapsed = [...collapsed];
+
+  // If this is a sub-group, also uncollapse parent
+  if (group.parentId) {
+    if (newCollapsed.includes(group.parentId)) {
+      newCollapsed = newCollapsed.filter(id => id !== group.parentId);
+      changed = true;
+    }
+  }
+
+  if (newCollapsed.includes(groupId)) {
+    newCollapsed = newCollapsed.filter(id => id !== groupId);
+    changed = true;
+  }
+
+  if (changed) {
+    await sendMessage(MSG.SET_PREFERENCE, { key: 'collapsedGroups', value: newCollapsed });
+    // Wait for re-render from state update
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+
+  const section = document.querySelector(`[data-group-id="${groupId}"]`);
+  if (section) {
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    section.classList.add('scroll-highlight');
+    setTimeout(() => section.classList.remove('scroll-highlight'), 1500);
+  }
+}
 
 async function init() {
   // Track which window we're in (set once — side panel is attached to one window)

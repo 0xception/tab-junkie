@@ -1,5 +1,15 @@
 /* sidepanel/sidepanel.css */
 
+/* Scroll-to-group highlight animation */
+@keyframes scroll-highlight-pulse {
+  0% { background: color-mix(in srgb, var(--group-blue) 20%, transparent); }
+  100% { background: transparent; }
+}
+
+.scroll-highlight {
+  animation: scroll-highlight-pulse 1.5s ease-out;
+}
+
 .header {
   padding: 8px 10px;
   border-bottom: 1px solid var(--border-subtle);
