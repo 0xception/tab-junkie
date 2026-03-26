@@ -95,6 +95,9 @@ template.innerHTML = `
       flex-shrink: 0;
       box-shadow: 0 0 4px var(--open-color, #5bcf72);
     }
+    .open-dot.drifted {
+      box-shadow: 0 0 0 2px var(--bg-primary, #1a1a2e), 0 0 0 3.5px var(--unbookmarked-color, #cfa35b);
+    }
     .window-badge {
       font-size: 9px;
       color: var(--text-dimmed, #555);
@@ -306,6 +309,7 @@ export class BookmarkItem extends HTMLElement {
 
     // Green dot for open bookmarks, close button for any open tab
     openDot.classList.toggle('hidden', !isOpen || isBookmarked === false);
+    openDot.classList.toggle('drifted', !!this._data.isDrifted);
     closeBtn.classList.toggle('hidden', !isOpen);
 
     // Window badge — shows which window a tab is in (multi-window only)

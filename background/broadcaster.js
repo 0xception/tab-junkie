@@ -9,8 +9,28 @@ export function createBroadcaster(chrome, storage) {
   let cachedState = null;
 
   // Track tabs we opened from bookmarks (survives redirects)
-  // Maps tabId → normalized bookmark URL
-  const trackedTabs = new Map();
+  // Maps tabId → bookmark URL — persisted to session storage so it survives service worker restarts
+  let trackedTabs = new Map();
+  let trackedTabsLoaded = false;
+
+  async function loadTrackedTabs() {
+    if (trackedTabsLoaded) return;
+    trackedTabsLoaded = true;
+    const { trackedTabsData } = await chrome.storage.session.get('trackedTabsData');
+    if (trackedTabsData) {
+      for (const [tabId, url] of Object.entries(trackedTabsData)) {
+        trackedTabs.set(Number(tabId), url);
+      }
+    }
+  }
+
+  async function saveTrackedTabs() {
+    const obj = {};
+    for (const [tabId, url] of trackedTabs) {
+      obj[tabId] = url;
+    }
+    await chrome.storage.session.set({ trackedTabsData: obj });
+  }
 
   // Pin tabs to groups (when a bookmark is removed but the tab stays open)
   // Maps tabId → groupId — persisted to storage so it survives extension reloads
@@ -43,17 +63,36 @@ export function createBroadcaster(chrome, storage) {
   }
 
   // Track specific bookmark → tab associations (for duplicate URLs)
-  // Maps bookmarkId → tabId
-  const trackedBookmarkTabs = new Map();
+  // Maps bookmarkId → tabId — persisted to session storage
+  let trackedBookmarkTabs = new Map();
+
+  async function loadTrackedBookmarkTabs() {
+    const { trackedBookmarkTabsData } = await chrome.storage.session.get('trackedBookmarkTabsData');
+    if (trackedBookmarkTabsData) {
+      for (const [bookmarkId, tabId] of Object.entries(trackedBookmarkTabsData)) {
+        trackedBookmarkTabs.set(bookmarkId, Number(tabId));
+      }
+    }
+  }
+
+  async function saveTrackedBookmarkTabs() {
+    const obj = {};
+    for (const [bookmarkId, tabId] of trackedBookmarkTabs) {
+      obj[bookmarkId] = tabId;
+    }
+    await chrome.storage.session.set({ trackedBookmarkTabsData: obj });
+  }
 
   /**
    * Register a tab that was opened from a bookmark.
    * This allows matching even after the tab URL changes due to redirects.
    */
-  function trackTab(tabId, bookmarkUrl, bookmarkId = null) {
+  async function trackTab(tabId, bookmarkUrl, bookmarkId = null) {
     trackedTabs.set(tabId, bookmarkUrl);
+    await saveTrackedTabs();
     if (bookmarkId) {
       trackedBookmarkTabs.set(bookmarkId, tabId);
+      await saveTrackedBookmarkTabs();
     }
   }
 
@@ -70,7 +109,7 @@ export function createBroadcaster(chrome, storage) {
    * Recompute full state by merging stored bookmarks with current tabs.
    */
   async function computeState() {
-    await loadPinnedTabs();
+    await Promise.all([loadPinnedTabs(), loadTrackedTabs(), loadTrackedBookmarkTabs()]);
 
     const [bookmarks, groups, preferences, tabs, allWindows] = await Promise.all([
       storage.getBookmarks(),
@@ -88,17 +127,24 @@ export function createBroadcaster(chrome, storage) {
 
     // Clean up tracked/pinned tabs that no longer exist
     const currentTabIds = new Set(tabs.map(t => t.id));
+    let trackedChanged = false;
     for (const tabId of trackedTabs.keys()) {
       if (!currentTabIds.has(tabId)) {
         trackedTabs.delete(tabId);
+        trackedChanged = true;
       }
     }
+    if (trackedChanged) await saveTrackedTabs();
+
     // Clean up bookmark→tab associations where the tab no longer exists
+    let bookmarkTabsChanged = false;
     for (const [bookmarkId, tabId] of trackedBookmarkTabs) {
       if (!currentTabIds.has(tabId)) {
         trackedBookmarkTabs.delete(bookmarkId);
+        bookmarkTabsChanged = true;
       }
     }
+    if (bookmarkTabsChanged) await saveTrackedBookmarkTabs();
 
     let pinnedChanged = false;
     for (const tabId of pinnedTabGroups.keys()) {

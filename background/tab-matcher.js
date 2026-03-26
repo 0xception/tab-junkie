@@ -134,7 +134,8 @@ export function matchTabsToBookmarks(bookmarks, tabs, trackedTabs = new Map(), p
     if (trackedTabId != null && tabsById.has(trackedTabId) && !matchedTabIds.has(trackedTabId)) {
       matchedTabIds.add(trackedTabId);
       const tab = tabsById.get(trackedTabId);
-      return { ...bookmark, isOpen: true, tabId: trackedTabId, tabLastAccessed: tab.lastAccessed || 0, windowId: tab.windowId };
+      const isDrifted = normalizeUrl(bookmark.url) !== normalizeUrl(tab.pendingUrl || tab.url);
+      return { ...bookmark, isOpen: true, isDrifted, tabId: trackedTabId, tabLastAccessed: tab.lastAccessed || 0, windowId: tab.windowId };
     }
 
     // Fall back to URL-based matching
@@ -143,10 +144,10 @@ export function matchTabsToBookmarks(bookmarks, tabs, trackedTabs = new Map(), p
 
     if (matchingTab && !matchedTabIds.has(matchingTab.id)) {
       matchedTabIds.add(matchingTab.id);
-      return { ...bookmark, isOpen: true, tabId: matchingTab.id, tabLastAccessed: matchingTab.lastAccessed || 0, windowId: matchingTab.windowId };
+      return { ...bookmark, isOpen: true, isDrifted: false, tabId: matchingTab.id, tabLastAccessed: matchingTab.lastAccessed || 0, windowId: matchingTab.windowId };
     }
 
-    return { ...bookmark, isOpen: false, tabId: null };
+    return { ...bookmark, isOpen: false, isDrifted: false, tabId: null };
   });
 
   // Build matchedTabToGroup: tabId → groupId for bookmark-matched tabs

@@ -73,16 +73,15 @@ async function openJunkieWindow() {
   });
 }
 
-async function openGroupJumpPopup() {
-  // Temporarily swap the action popup to group-jump, open it, then restore
-  await chrome.action.setPopup({ popup: 'group-jump/group-jump.html' });
-  try {
-    await chrome.action.openPopup();
-  } catch {
-    // openPopup may fail if popup is already open or no active window
-  }
-  // Restore the default popup — the group-jump page is already loaded
-  await chrome.action.setPopup({ popup: 'popup/popup.html' });
+function openGroupJumpPopup() {
+  // Set mode flag (fire-and-forget to preserve user gesture context for openPopup)
+  chrome.storage.session.set({ popupMode: 'groups' });
+  // Must call openPopup synchronously in the user gesture context — no awaits before this
+  chrome.action.openPopup().catch(() => {
+    // If popup is already open, openPopup throws — close it instead
+    chrome.runtime.sendMessage({ type: 'popup-close' }).catch(() => {});
+    chrome.storage.session.remove('popupMode');
+  });
 }
 
 // --- Message handler ---
@@ -208,7 +207,7 @@ async function handleMessage(message) {
         // No tabId — open a new tab for this bookmark
         const newTab = await chrome.tabs.create({ url });
         // Track this tab so we can match it to this specific bookmark
-        broadcaster.trackTab(newTab.id, url, bookmarkId);
+        await broadcaster.trackTab(newTab.id, url, bookmarkId);
       }
       // Record access time for this bookmark
       if (bookmarkId) {

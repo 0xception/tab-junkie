@@ -3,6 +3,7 @@ import { MSG } from '../shared/messages.js';
 import { applyTheme } from '../shared/themes.js';
 import { renderBookmarkTree } from './render.js';
 import { setupDialogs } from './dialogs.js';
+import { openGroupPicker } from './group-picker.js';
 import { setupContextMenu } from './context-menu.js';
 import { generateNetscapeHTML, generateJunkieJSON, detectFormat, parseNetscapeHTML, parseJunkieJSON } from '../shared/import-export.js';
 
@@ -68,7 +69,12 @@ async function scrollToGroup(groupId) {
 
   const section = document.querySelector(`[data-group-id="${groupId}"]`);
   if (section) {
-    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Account for the sticky header so the group isn't hidden behind it
+    const header = document.querySelector('.header');
+    const headerHeight = header ? header.offsetHeight : 0;
+    const top = section.getBoundingClientRect().top + window.scrollY - headerHeight - 8;
+    window.scrollTo({ top, behavior: 'smooth' });
+
     section.classList.add('scroll-highlight');
     setTimeout(() => section.classList.remove('scroll-highlight'), 1500);
   }
@@ -786,7 +792,7 @@ function setupImportExport() {
 function setupBulkActions() {
   const clearBtn = document.getElementById('bulk-clear-btn');
   const closeBtn = document.getElementById('bulk-close-btn');
-  const groupSelect = document.getElementById('bulk-group-select');
+  const moveBtn = document.getElementById('bulk-move-btn');
 
   clearBtn.addEventListener('click', clearSelection);
 
@@ -799,24 +805,20 @@ function setupBulkActions() {
     clearSelection();
   });
 
-  groupSelect.addEventListener('change', async () => {
-    const groupId = groupSelect.value;
-    if (!groupId) return;
-
-    for (const item of getSelectedItemData()) {
-      if (item.isBookmarked === false) {
-        // Floating tab: pin to group (don't auto-bookmark)
-        if (item.tabId) {
-          await sendMessage(MSG.PIN_TAB, { tabId: item.tabId, groupId });
+  moveBtn.addEventListener('click', () => {
+    if (!currentState) return;
+    openGroupPicker(currentState.groups, currentState.bookmarks, currentState.floatingTabsByGroup || {}, null, async (groupId) => {
+      for (const item of getSelectedItemData()) {
+        if (item.isBookmarked === false) {
+          if (item.tabId) {
+            await sendMessage(MSG.PIN_TAB, { tabId: item.tabId, groupId });
+          }
+        } else {
+          await sendMessage(MSG.MOVE_BOOKMARK, { id: item.id, groupId, sortOrder: 0 });
         }
-      } else {
-        // Bookmark: move to group
-        await sendMessage(MSG.MOVE_BOOKMARK, { id: item.id, groupId, sortOrder: 0 });
       }
-    }
-
-    clearSelection();
-    groupSelect.value = '';
+      clearSelection();
+    }, { position: 'bottom' });
   });
 }
 
@@ -824,7 +826,6 @@ function updateBulkBar() {
   const bar = document.getElementById('bulk-action-bar');
   const countEl = bar.querySelector('.bulk-count');
   const closeBtn = document.getElementById('bulk-close-btn');
-  const groupSelect = document.getElementById('bulk-group-select');
 
   if (selectedItems.size === 0) {
     bar.classList.add('hidden');
@@ -832,24 +833,11 @@ function updateBulkBar() {
   }
 
   bar.classList.remove('hidden');
-  const n = selectedItems.size;
-  countEl.textContent = `${n} selected`;
+  countEl.textContent = `${selectedItems.size} selected`;
 
   // Show close button only if any selected items have open tabs
   const hasOpenTabs = getSelectedItemData().some(item => item.tabId);
   closeBtn.classList.toggle('hidden', !hasOpenTabs);
-
-  // Populate group dropdown
-  groupSelect.innerHTML = '<option value="" disabled selected>Add to group...</option>';
-  if (currentState) {
-    for (const group of currentState.groups) {
-      const option = document.createElement('option');
-      option.value = group.id;
-      const indent = group.parentId ? '  ' : '';
-      option.textContent = indent + group.name;
-      groupSelect.appendChild(option);
-    }
-  }
 }
 
 // --- Drag and Drop (MultiDrag) ---

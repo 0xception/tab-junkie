@@ -1,10 +1,14 @@
-// popup/popup.js
+// popup/popup.js — Unified search + group jump popup
 import { MSG } from '../shared/messages.js';
 
 let currentState = null;
-let fuse = null;
+let fuse = null;           // bookmark/tab search index
+let groupFuse = null;      // group search index
 let selectedIndex = 0;
-let currentResults = [];
+let currentResults = [];   // search mode items
+let currentItems = [];     // groups/drill mode items
+let mode = 'search';       // 'search', 'groups', or 'drill'
+let navStack = [];         // drill-in group id stack
 
 // --- Communication ---
 
@@ -17,22 +21,72 @@ function sendMessage(type, payload) {
 async function init() {
   currentState = await sendMessage(MSG.GET_STATE);
 
-  // Initialize Fuse.js for fuzzy search
-  initFuse();
+  // Check if Alt+K opened us in groups mode
+  const { popupMode } = await chrome.storage.session.get('popupMode');
+  if (popupMode === 'groups') {
+    await chrome.storage.session.remove('popupMode');
+    switchToMode('groups');
+  } else {
+    initFuse();
+    renderRecent();
+  }
 
-  // Auto-focus search bar
-  const searchBar = document.querySelector('search-bar');
-  // Small delay to ensure component is ready
+  const searchBar = getActiveSearchBar();
   requestAnimationFrame(() => searchBar.focus());
-
-  // Show recent items initially
-  renderRecent();
 }
+
+function getActiveSearchBar() {
+  if (mode === 'search') return document.querySelector('#search-mode search-bar');
+  if (mode === 'groups') return document.querySelector('#groups-mode search-bar');
+  return document.querySelector('#drill-view search-bar');
+}
+
+// ============================
+// MODE SWITCHING
+// ============================
+
+function switchToMode(newMode) {
+  if (newMode === mode) return;
+
+  // Hide all views
+  document.getElementById('search-mode').classList.add('hidden');
+  document.getElementById('groups-mode').classList.add('hidden');
+  document.getElementById('drill-view').classList.add('hidden');
+
+  // Reset drill state when leaving groups/drill
+  if (newMode === 'search' || newMode === 'groups') {
+    navStack = [];
+  }
+
+  mode = newMode;
+  selectedIndex = 0;
+
+  if (newMode === 'search') {
+    document.getElementById('search-mode').classList.remove('hidden');
+    initFuse();
+    renderRecent();
+  } else if (newMode === 'groups') {
+    document.getElementById('groups-mode').classList.remove('hidden');
+    renderGroupList();
+  }
+
+  const searchBar = getActiveSearchBar();
+  searchBar.clear();
+  requestAnimationFrame(() => searchBar.focus());
+}
+
+// Mode tab click handlers
+document.querySelectorAll('.mode-tab').forEach(tab => {
+  tab.addEventListener('click', () => switchToMode(tab.dataset.mode));
+});
+
+// ============================
+// SEARCH MODE
+// ============================
 
 function initFuse() {
   if (!currentState) return;
 
-  // Build search index from bookmark titles and open tab titles
   const items = [];
 
   for (const bookmark of currentState.bookmarks) {
@@ -69,6 +123,22 @@ function initFuse() {
     });
   }
 
+  // Include floating tabs (open tabs assigned to groups via opener chain but not bookmarked)
+  for (const [groupId, tabs] of Object.entries(currentState.floatingTabsByGroup || {})) {
+    const group = currentState.groups.find(g => g.id === groupId);
+    for (const tab of tabs) {
+      items.push({
+        type: 'tab',
+        title: tab.title || tab.url,
+        url: tab.url,
+        favicon: tab.favIconUrl || null,
+        isOpen: true,
+        tabId: tab.id,
+        breadcrumb: group?.name || '',
+      });
+    }
+  }
+
   fuse = new Fuse(items, {
     keys: ['title', 'url'],
     threshold: 0.4,
@@ -77,41 +147,26 @@ function initFuse() {
   });
 }
 
-// --- Search ---
-
-document.addEventListener('search', (e) => {
+// Search events for search mode
+document.querySelector('#search-mode').addEventListener('search', (e) => {
   const { query } = e.detail;
-
-  if (!query) {
-    renderRecent();
-    return;
-  }
-
+  if (!query) { renderRecent(); return; }
   if (!fuse) return;
 
   const results = fuse.search(query);
-  // Build currentResults in the same order as rendered: bookmarks first, then tabs
   const bookmarkResults = results.filter(r => r.item.type === 'bookmark');
   const tabResults = results.filter(r => r.item.type === 'tab');
   currentResults = [...bookmarkResults, ...tabResults].map(r => r.item);
   selectedIndex = 0;
-
-  renderResults(results);
+  renderSearchResults(results);
 });
 
-// --- Keyboard Navigation ---
-
-// Tab key opens the side panel (must be handled at document level before search-bar)
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Tab') {
-    e.preventDefault();
-    openJunkie();
-  }
+document.querySelector('#search-mode').addEventListener('search-key', (e) => {
+  handleSearchModeKey(e.detail.key);
 });
 
-document.addEventListener('search-key', (e) => {
-  const { key } = e.detail;
-  const items = document.querySelectorAll('.result-item');
+function handleSearchModeKey(key) {
+  const items = document.querySelectorAll('#results .result-item');
 
   if (key === 'ArrowDown') {
     selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
@@ -126,18 +181,7 @@ document.addEventListener('search-key', (e) => {
   } else if (key === 'Escape') {
     window.close();
   }
-});
-
-function updateSelection(items) {
-  items.forEach((item, i) => {
-    item.classList.toggle('selected', i === selectedIndex);
-  });
-
-  // Scroll into view
-  items[selectedIndex]?.scrollIntoView({ block: 'nearest' });
 }
-
-// --- Rendering ---
 
 function renderRecent() {
   const container = document.getElementById('results');
@@ -147,15 +191,10 @@ function renderRecent() {
     return;
   }
 
-  // Build a unified list of bookmarks and unbookmarked tabs, sorted by recency.
-  // Chrome tabs have lastAccessed (ms timestamp). For open bookmarks, use the
-  // tab's lastAccessed so we match Chrome's sense of recency. For closed
-  // bookmarks, fall back to our own lastAccessedAt, then createdAt.
   const items = [];
 
   for (const bm of currentState.bookmarks) {
     const group = currentState.groups.find(g => g.id === bm.groupId);
-    // Use Chrome's tab lastAccessed for open bookmarks, our lastAccessedAt for closed ones
     let recency = bm.lastAccessedAt || bm.createdAt || 0;
     if (bm.isOpen && bm.tabLastAccessed) {
       recency = Math.max(recency, bm.tabLastAccessed);
@@ -187,7 +226,23 @@ function renderRecent() {
     });
   }
 
-  // Sort by most recently accessed
+  // Include floating tabs (open tabs assigned to groups via opener chain)
+  for (const [groupId, tabs] of Object.entries(currentState.floatingTabsByGroup || {})) {
+    const group = currentState.groups.find(g => g.id === groupId);
+    for (const tab of tabs) {
+      items.push({
+        type: 'tab',
+        title: tab.title || tab.url,
+        url: tab.url,
+        favicon: tab.favIconUrl || null,
+        isOpen: true,
+        tabId: tab.id,
+        breadcrumb: group?.name || '',
+        recency: tab.lastAccessed || 0,
+      });
+    }
+  }
+
   items.sort((a, b) => b.recency - a.recency);
 
   currentResults = items.slice(0, 20);
@@ -199,7 +254,6 @@ function renderRecent() {
   }
 
   container.innerHTML = '';
-
   const label = document.createElement('div');
   label.className = 'result-section-label';
   label.textContent = 'Recent';
@@ -210,11 +264,10 @@ function renderRecent() {
   }
 }
 
-function renderResults(fuseResults) {
+function renderSearchResults(fuseResults) {
   const container = document.getElementById('results');
   container.innerHTML = '';
 
-  // Split into bookmarks and tabs
   const bookmarkResults = fuseResults.filter(r => r.item.type === 'bookmark');
   const tabResults = fuseResults.filter(r => r.item.type === 'tab');
 
@@ -227,9 +280,7 @@ function renderResults(fuseResults) {
     container.appendChild(label);
 
     for (const result of bookmarkResults) {
-      container.appendChild(
-        createResultItem(result.item, itemIndex === 0, result.matches)
-      );
+      container.appendChild(createResultItem(result.item, itemIndex === 0, result.matches));
       itemIndex++;
     }
   }
@@ -241,9 +292,7 @@ function renderResults(fuseResults) {
     container.appendChild(label);
 
     for (const result of tabResults) {
-      container.appendChild(
-        createResultItem(result.item, itemIndex === 0, result.matches)
-      );
+      container.appendChild(createResultItem(result.item, itemIndex === 0, result.matches));
       itemIndex++;
     }
   }
@@ -259,7 +308,6 @@ function createResultItem(item, isSelected, matches) {
 
   const isUnbookmarked = item.type === 'tab';
 
-  // Favicon
   const favicon = document.createElement('div');
   favicon.className = 'result-favicon' + (item.favicon ? '' : (isUnbookmarked ? ' unbookmarked' : ' placeholder'));
   if (item.favicon) {
@@ -276,14 +324,12 @@ function createResultItem(item, isSelected, matches) {
   }
   el.appendChild(favicon);
 
-  // Info
   const info = document.createElement('div');
   info.className = 'result-info';
 
   const title = document.createElement('div');
   title.className = 'result-title' + (isUnbookmarked ? ' unbookmarked' : '');
 
-  // Highlight fuzzy matches
   if (matches && matches.length > 0) {
     const titleMatch = matches.find(m => m.key === 'title');
     if (titleMatch) {
@@ -294,10 +340,8 @@ function createResultItem(item, isSelected, matches) {
   } else {
     title.textContent = item.title;
   }
-
   info.appendChild(title);
 
-  // Show URL when it matched the search query
   const urlMatch = matches && matches.find(m => m.key === 'url');
   if (urlMatch) {
     const urlEl = document.createElement('div');
@@ -315,24 +359,554 @@ function createResultItem(item, isSelected, matches) {
 
   el.appendChild(info);
 
-  // Open dot
   if (item.isOpen && !isUnbookmarked) {
     const dot = document.createElement('div');
     dot.className = 'result-dot';
     el.appendChild(dot);
   }
 
-  // Click handler
   el.addEventListener('click', () => navigateTo(item));
+  return el;
+}
+
+// ============================
+// GROUPS MODE
+// ============================
+
+function buildGroupList() {
+  if (!currentState) return [];
+
+  const groups = currentState.groups || [];
+  const bookmarks = currentState.bookmarks || [];
+  const floatingTabsByGroup = currentState.floatingTabsByGroup || {};
+  const items = [];
+
+  const topLevel = groups
+    .filter(g => g.parentId === null)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+
+  for (const group of topLevel) {
+    const counts = getGroupCounts(group.id, bookmarks, floatingTabsByGroup);
+    items.push({ ...group, breadcrumb: null, depth: 0, ...counts });
+
+    const subGroups = groups
+      .filter(g => g.parentId === group.id)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+
+    for (const sub of subGroups) {
+      const subCounts = getGroupCounts(sub.id, bookmarks, floatingTabsByGroup);
+      items.push({ ...sub, breadcrumb: group.name, depth: 1, ...subCounts });
+    }
+  }
+
+  return items;
+}
+
+function getGroupCounts(groupId, bookmarks, floatingTabsByGroup) {
+  const groupBookmarks = bookmarks.filter(b => b.groupId === groupId);
+  const floatingTabs = floatingTabsByGroup[groupId] || [];
+  return {
+    bookmarkCount: groupBookmarks.length,
+    openCount: groupBookmarks.filter(b => b.isOpen).length + floatingTabs.length,
+  };
+}
+
+function renderGroupList(query) {
+  const container = document.getElementById('group-results');
+  const allGroups = buildGroupList();
+
+  if (allGroups.length === 0) {
+    container.innerHTML = '<div class="empty-state">No groups</div>';
+    currentItems = [];
+    return;
+  }
+
+  groupFuse = new Fuse(allGroups, {
+    keys: ['name', 'breadcrumb'],
+    threshold: 0.4,
+    ignoreLocation: true,
+    includeMatches: true,
+  });
+
+  let displayItems;
+  let matchesMap = new Map();
+
+  if (query) {
+    const results = groupFuse.search(query);
+    displayItems = results.map(r => r.item);
+    for (const r of results) matchesMap.set(r.item.id, r.matches);
+  } else {
+    displayItems = allGroups;
+  }
+
+  if (displayItems.length === 0) {
+    container.innerHTML = '<div class="empty-state">No matches</div>';
+    currentItems = [];
+    return;
+  }
+
+  currentItems = displayItems;
+  selectedIndex = 0;
+
+  container.innerHTML = '';
+  for (let i = 0; i < displayItems.length; i++) {
+    const item = displayItems[i];
+    container.appendChild(createGroupItem(item, i === 0, matchesMap.get(item.id) || null));
+  }
+}
+
+function createGroupItem(item, isSelected, matches) {
+  const el = document.createElement('div');
+  el.className = 'group-item' + (isSelected ? ' selected' : '') + (item.depth > 0 ? ' sub-group' : '');
+
+  const dot = document.createElement('span');
+  dot.className = 'group-dot';
+  dot.style.background = `var(--group-${item.color})`;
+  el.appendChild(dot);
+
+  const info = document.createElement('div');
+  info.className = 'group-info';
+
+  const name = document.createElement('div');
+  name.className = 'group-name';
+  if (matches) {
+    const nameMatch = matches.find(m => m.key === 'name');
+    name.innerHTML = nameMatch ? highlightMatches(item.name, nameMatch.indices) : escapeHtml(item.name);
+  } else {
+    name.textContent = item.name;
+  }
+  info.appendChild(name);
+
+  if (item.breadcrumb) {
+    const bc = document.createElement('div');
+    bc.className = 'group-breadcrumb';
+    bc.textContent = item.breadcrumb + ' ›';
+    info.appendChild(bc);
+  }
+
+  el.appendChild(info);
+
+  const counts = document.createElement('div');
+  counts.className = 'group-counts';
+  const parts = [`${item.bookmarkCount} bookmark${item.bookmarkCount !== 1 ? 's' : ''}`];
+  if (item.openCount > 0) parts.push(`${item.openCount} open`);
+  counts.textContent = parts.join(' · ');
+  el.appendChild(counts);
+
+  el.addEventListener('click', () => {
+    selectedIndex = currentItems.indexOf(item);
+    drillInto(item);
+  });
 
   return el;
+}
+
+// Groups mode search events
+document.querySelector('#groups-mode').addEventListener('search', (e) => {
+  renderGroupList(e.detail.query || null);
+});
+
+document.querySelector('#groups-mode').addEventListener('search-key', (e) => {
+  handleGroupsModeKey(e.detail.key);
+});
+
+function handleGroupsModeKey(key) {
+  const items = document.querySelectorAll('#group-results .group-item');
+
+  if (key === 'ArrowDown') {
+    selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+    updateSelection(items);
+  } else if (key === 'ArrowUp') {
+    selectedIndex = Math.max(selectedIndex - 1, 0);
+    updateSelection(items);
+  } else if (key === 'Enter') {
+    const item = currentItems[selectedIndex];
+    if (item) drillInto(item);
+  } else if (key === 'Escape') {
+    window.close();
+  }
+}
+
+// ============================
+// DRILL-IN VIEW
+// ============================
+
+function renderDrillHeader(group, counts) {
+  document.getElementById('drill-dot').style.background = `var(--group-${group.color})`;
+  const nameEl = document.getElementById('drill-group-name');
+  nameEl.textContent = group.name;
+  nameEl.style.color = `var(--group-${group.color})`;
+
+  const parts = [`${counts.bookmarkCount} bookmark${counts.bookmarkCount !== 1 ? 's' : ''}`];
+  if (counts.openCount > 0) parts.push(`${counts.openCount} open`);
+  document.getElementById('drill-counts').textContent = parts.join(' · ');
+}
+
+function drillInto(group) {
+  navStack.push(group.id);
+  mode = 'drill';
+
+  document.getElementById('search-mode').classList.add('hidden');
+  document.getElementById('groups-mode').classList.add('hidden');
+  document.getElementById('drill-view').classList.remove('hidden');
+
+  const counts = getGroupCounts(group.id, currentState.bookmarks, currentState.floatingTabsByGroup || {});
+  renderDrillHeader(group, counts);
+
+  const searchBar = getActiveSearchBar();
+  searchBar.clear();
+  renderDrillView(group.id);
+  requestAnimationFrame(() => searchBar.focus());
+}
+
+function getGroupBookmarks(groupId) {
+  return (currentState?.bookmarks || [])
+    .filter(b => b.groupId === groupId)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function getGroupSubGroups(groupId) {
+  return (currentState?.groups || [])
+    .filter(g => g.parentId === groupId)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function renderDrillView(groupId, query) {
+  const container = document.getElementById('drill-results');
+  const bookmarks = getGroupBookmarks(groupId);
+  const subGroups = getGroupSubGroups(groupId);
+  const floatingTabs = currentState?.floatingTabsByGroup?.[groupId] || [];
+
+  const bookmarkItems = bookmarks.map(bm => ({
+    type: 'bookmark',
+    bookmarkId: bm.id,
+    title: bm.title,
+    url: bm.url,
+    favicon: bm.favicon,
+    isOpen: bm.isOpen,
+    tabId: bm.tabId,
+  }));
+
+  for (const tab of floatingTabs) {
+    bookmarkItems.push({
+      type: 'tab',
+      title: tab.title || tab.url,
+      url: tab.url,
+      favicon: tab.favIconUrl || null,
+      isOpen: true,
+      tabId: tab.id,
+    });
+  }
+
+  const subGroupItems = subGroups.map(sg => {
+    const counts = getGroupCounts(sg.id, currentState.bookmarks, currentState.floatingTabsByGroup || {});
+    return { type: 'subgroup', ...sg, ...counts };
+  });
+
+  let displayBookmarks = bookmarkItems;
+  let matchesMap = new Map();
+  let displaySubGroups = subGroupItems;
+
+  if (query) {
+    const drillFuse = new Fuse(bookmarkItems, {
+      keys: ['title', 'url'],
+      threshold: 0.4,
+      ignoreLocation: true,
+      includeMatches: true,
+    });
+    const results = drillFuse.search(query);
+    displayBookmarks = results.map(r => r.item);
+    for (const r of results) matchesMap.set(r.item.bookmarkId || r.item.tabId, r.matches);
+
+    displaySubGroups = subGroupItems.filter(sg =>
+      sg.name.toLowerCase().includes(query.toLowerCase())
+    );
+  }
+
+  currentItems = [...displayBookmarks, ...displaySubGroups];
+  selectedIndex = 0;
+  container.innerHTML = '';
+
+  if (currentItems.length === 0) {
+    container.innerHTML = '<div class="empty-state">No items</div>';
+    return;
+  }
+
+  for (let i = 0; i < displayBookmarks.length; i++) {
+    const item = displayBookmarks[i];
+    container.appendChild(createDrillBookmarkItem(item, i === 0, matchesMap.get(item.bookmarkId || item.tabId) || null));
+  }
+
+  if (displaySubGroups.length > 0) {
+    const label = document.createElement('div');
+    label.className = 'drill-section-label';
+    label.textContent = 'Sub-groups';
+    container.appendChild(label);
+
+    for (const sg of displaySubGroups) {
+      const el = document.createElement('div');
+      el.className = 'group-item' + (currentItems.indexOf(sg) === 0 && displayBookmarks.length === 0 ? ' selected' : '');
+
+      const dot = document.createElement('span');
+      dot.className = 'group-dot';
+      dot.style.background = `var(--group-${sg.color})`;
+      el.appendChild(dot);
+
+      const info = document.createElement('div');
+      info.className = 'group-info';
+      const name = document.createElement('div');
+      name.className = 'group-name';
+      name.textContent = sg.name;
+      info.appendChild(name);
+      const countsEl = document.createElement('div');
+      countsEl.className = 'group-breadcrumb';
+      const parts = [`${sg.bookmarkCount} bookmark${sg.bookmarkCount !== 1 ? 's' : ''}`];
+      if (sg.openCount > 0) parts.push(`${sg.openCount} open`);
+      countsEl.textContent = parts.join(' · ');
+      info.appendChild(countsEl);
+      el.appendChild(info);
+
+      el.addEventListener('click', () => {
+        const group = currentState.groups.find(g => g.id === sg.id);
+        if (group) drillInto({ ...group, ...getGroupCounts(sg.id, currentState.bookmarks, currentState.floatingTabsByGroup || {}) });
+      });
+
+      container.appendChild(el);
+    }
+  }
+}
+
+function createDrillBookmarkItem(item, isSelected, matches) {
+  const el = document.createElement('div');
+  el.className = 'result-item' + (isSelected ? ' selected' : '');
+
+  const isFloatingTab = item.type === 'tab';
+
+  const favicon = document.createElement('div');
+  favicon.className = 'result-favicon' + (item.favicon ? '' : (isFloatingTab ? ' unbookmarked' : ' placeholder'));
+  if (item.favicon) {
+    const img = document.createElement('img');
+    img.src = item.favicon;
+    img.onerror = () => { img.remove(); favicon.textContent = (item.title || '?').charAt(0).toUpperCase(); favicon.classList.add(isFloatingTab ? 'unbookmarked' : 'placeholder'); };
+    favicon.appendChild(img);
+  } else {
+    favicon.textContent = (item.title || '?').charAt(0).toUpperCase();
+  }
+  el.appendChild(favicon);
+
+  const info = document.createElement('div');
+  info.className = 'result-info';
+
+  const title = document.createElement('div');
+  title.className = 'result-title' + (isFloatingTab ? ' unbookmarked' : '');
+  if (matches) {
+    const titleMatch = matches.find(m => m.key === 'title');
+    title.innerHTML = titleMatch ? highlightMatches(item.title, titleMatch.indices) : escapeHtml(item.title);
+  } else {
+    title.textContent = item.title;
+  }
+  info.appendChild(title);
+
+  const urlEl = document.createElement('div');
+  urlEl.className = 'result-url';
+  if (matches) {
+    const urlMatch = matches.find(m => m.key === 'url');
+    urlEl.innerHTML = urlMatch ? highlightMatches(item.url, urlMatch.indices) : escapeHtml(item.url);
+  } else {
+    urlEl.textContent = item.url;
+  }
+  info.appendChild(urlEl);
+  el.appendChild(info);
+
+  // Open dot only for bookmarked items, not floating tabs
+  if (item.isOpen && !isFloatingTab) {
+    const dot = document.createElement('div');
+    dot.className = 'result-dot';
+    el.appendChild(dot);
+  }
+
+  el.addEventListener('click', () => navigateToDrillItem(item));
+  return el;
+}
+
+// Drill view search events
+document.querySelector('#drill-view').addEventListener('search', (e) => {
+  const groupId = navStack[navStack.length - 1];
+  if (groupId) renderDrillView(groupId, e.detail.query || null);
+});
+
+document.querySelector('#drill-view').addEventListener('search-key', (e) => {
+  handleDrillKey(e.detail.key);
+});
+
+document.getElementById('back-btn').addEventListener('click', goBack);
+
+function handleDrillKey(key) {
+  const items = document.querySelectorAll('#drill-results .result-item, #drill-results .group-item');
+
+  if (key === 'ArrowDown') {
+    selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+    updateSelection(items);
+  } else if (key === 'ArrowUp') {
+    selectedIndex = Math.max(selectedIndex - 1, 0);
+    updateSelection(items);
+  } else if (key === 'Enter') {
+    const item = currentItems[selectedIndex];
+    if (item) navigateToDrillItem(item);
+  } else if (key === 'Escape') {
+    window.close();
+  }
+}
+
+// ============================
+// NAVIGATION
+// ============================
+
+function goBack() {
+  navStack.pop();
+
+  if (navStack.length === 0) {
+    // Return to groups mode
+    mode = 'groups';
+    document.getElementById('drill-view').classList.add('hidden');
+    document.getElementById('groups-mode').classList.remove('hidden');
+
+    const searchBar = getActiveSearchBar();
+    searchBar.clear();
+    renderGroupList();
+    requestAnimationFrame(() => searchBar.focus());
+  } else {
+    const parentGroupId = navStack[navStack.length - 1];
+    const group = currentState.groups.find(g => g.id === parentGroupId);
+    if (group) {
+      const counts = getGroupCounts(group.id, currentState.bookmarks, currentState.floatingTabsByGroup || {});
+      renderDrillHeader(group, counts);
+      const searchBar = getActiveSearchBar();
+      searchBar.clear();
+      renderDrillView(parentGroupId);
+      requestAnimationFrame(() => searchBar.focus());
+    }
+  }
+}
+
+async function navigateTo(item) {
+  await sendMessage(MSG.NAVIGATE_TO, {
+    tabId: item.tabId || null,
+    url: item.url,
+    bookmarkId: item.bookmarkId || null,
+  });
+  window.close();
+}
+
+async function navigateToDrillItem(item) {
+  if (item.type === 'subgroup') {
+    const group = currentState.groups.find(g => g.id === item.id);
+    if (group) drillInto({ ...group, ...getGroupCounts(group.id, currentState.bookmarks, currentState.floatingTabsByGroup || {}) });
+    return;
+  }
+
+  await sendMessage(MSG.NAVIGATE_TO, {
+    tabId: item.tabId || null,
+    url: item.url,
+    bookmarkId: item.bookmarkId || null,
+  });
+  window.close();
+}
+
+async function openJunkie() {
+  // In groups/drill mode, also scroll to the selected group
+  if (mode === 'groups' || mode === 'drill') {
+    const groupId = mode === 'drill'
+      ? navStack[navStack.length - 1]
+      : currentItems[selectedIndex]?.id;
+
+    if (groupId) {
+      // Open side panel first, then scroll
+      await openSidePanel();
+      setTimeout(async () => {
+        await sendMessage(MSG.SCROLL_TO_GROUP, { groupId });
+        window.close();
+      }, 150);
+      return;
+    }
+  }
+
+  await openSidePanel();
+  window.close();
+}
+
+async function openSidePanel() {
+  const viewModePreference = currentState?.preferences?.viewMode;
+  if (viewModePreference === 'window') {
+    await sendMessage(MSG.OPEN_JUNKIE_WINDOW);
+  } else {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (tab) await chrome.sidePanel.open({ tabId: tab.id });
+    } catch {
+      // Fallback silently
+    }
+  }
+}
+
+// ============================
+// KEYBOARD — GLOBAL HANDLERS
+// ============================
+
+document.addEventListener('keydown', (e) => {
+  // Tab → open full view (side panel or scroll to group)
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    openJunkie();
+    return;
+  }
+
+  // Alt+G → switch to groups mode
+  if (e.altKey && (e.key === 'g' || e.key === 'G')) {
+    e.preventDefault();
+    if (mode === 'drill') {
+      // From drill, go back to groups list
+      navStack = [];
+      mode = 'search'; // temp so switchToMode works
+      switchToMode('groups');
+    } else {
+      switchToMode('groups');
+    }
+    return;
+  }
+
+  // Alt+S → switch to search mode
+  if (e.altKey && (e.key === 's' || e.key === 'S')) {
+    e.preventDefault();
+    switchToMode('search');
+    return;
+  }
+
+  // Backspace to go back (only when search is empty and in drill view)
+  if (e.key === 'Backspace' && mode === 'drill') {
+    const searchBar = getActiveSearchBar();
+    if (searchBar.value === '') {
+      e.preventDefault();
+      goBack();
+    }
+  }
+});
+
+// ============================
+// SHARED HELPERS
+// ============================
+
+function updateSelection(items) {
+  items.forEach((item, i) => {
+    item.classList.toggle('selected', i === selectedIndex);
+  });
+  items[selectedIndex]?.scrollIntoView({ block: 'nearest' });
 }
 
 function highlightMatches(text, indices) {
   let result = '';
   let lastIndex = 0;
 
-  // Merge overlapping indices
   const merged = [];
   for (const [start, end] of indices) {
     if (merged.length > 0 && start <= merged[merged.length - 1][1] + 1) {
@@ -358,38 +932,16 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-// --- Open Junkie (side panel or window, per preference) ---
+// ============================
+// BOOTSTRAP
+// ============================
 
-async function openJunkie() {
-  const viewMode = currentState?.preferences?.viewMode;
-  if (viewMode === 'window') {
-    await sendMessage(MSG.OPEN_JUNKIE_WINDOW);
-  } else {
-    // sidePanel.open() requires user gesture context — the popup has it
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      if (tab) {
-        await chrome.sidePanel.open({ tabId: tab.id });
-      }
-    } catch {
-      // Fallback silently
-    }
+// Listen for close message from service worker (Alt+K toggle)
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === 'popup-close') {
+    window.close();
   }
-  window.close();
-}
-
-// --- Navigation ---
-
-async function navigateTo(item) {
-  await sendMessage(MSG.NAVIGATE_TO, {
-    tabId: item.tabId || null,
-    url: item.url,
-    bookmarkId: item.bookmarkId || null,
-  });
-  window.close();
-}
-
-// --- Load Fuse.js then init ---
+});
 
 const script = document.createElement('script');
 script.src = '../lib/fuse.min.js';

@@ -8,12 +8,60 @@ body {
   overflow: hidden;
 }
 
-#results {
+.hidden {
+  display: none !important;
+}
+
+#search-mode,
+#groups-mode,
+#drill-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#results,
+#group-results,
+#drill-results {
   padding: 0;
   flex: 1;
   overflow-y: auto;
   min-height: 0;
 }
+
+/* --- Mode Tabs --- */
+
+.mode-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 12px;
+  gap: 0;
+}
+
+.mode-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dimmed);
+  font-size: 11px;
+  font-family: inherit;
+  padding: 6px 12px 5px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.mode-tab:hover {
+  color: var(--text-secondary);
+}
+
+.mode-tab.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--group-blue);
+}
+
+/* --- Search Result Items --- */
 
 .result-section-label {
   padding: 4px 16px;
@@ -119,6 +167,127 @@ body {
   flex-shrink: 0;
 }
 
+/* --- Group Items --- */
+
+.group-item {
+  padding: 6px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.group-item:hover,
+.group-item.selected {
+  background: color-mix(in srgb, var(--group-blue) 12%, transparent);
+}
+
+.group-item.sub-group {
+  padding-left: 36px;
+}
+
+.group-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.group-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.group-name {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-name mark {
+  background: color-mix(in srgb, var(--group-blue) 30%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.group-breadcrumb {
+  font-size: 10px;
+  color: var(--text-dimmed);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-counts {
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* --- Drill-In View --- */
+
+.drill-header {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.back-btn {
+  background: none;
+  border: none;
+  color: var(--text-dimmed);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: inherit;
+}
+
+.back-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.drill-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.drill-group-name {
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drill-counts {
+  font-size: 10px;
+  color: var(--text-dimmed);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.drill-section-label {
+  padding: 4px 16px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border-faint);
+  font-size: 10px;
+  color: var(--text-dimmed);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* --- Keyboard Hints Footer --- */
+
 .keyboard-hints {
   padding: 8px 16px;
   border-top: 1px solid var(--border-faint);
@@ -126,7 +295,7 @@ body {
   justify-content: center;
   gap: 12px;
   font-size: 10px;
-  color: var(--text-dimmed);
+  color: var(--text-secondary);
 }
 
 kbd {
@@ -137,7 +306,10 @@ kbd {
   font-family: inherit;
 }
 
-.empty-recent {
+/* --- Empty States --- */
+
+.empty-recent,
+.empty-state {
   padding: 24px 16px;
   text-align: center;
   color: var(--text-dimmed);

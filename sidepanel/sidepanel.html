@@ -219,11 +219,20 @@
   <div id="bulk-action-bar" class="bulk-action-bar hidden">
     <span class="bulk-count"></span>
     <div class="bulk-actions">
-      <select id="bulk-group-select" class="bulk-select">
-        <option value="" disabled selected>Add to group...</option>
-      </select>
+      <button class="bulk-btn bulk-btn-move" id="bulk-move-btn">Move to Group</button>
       <button class="bulk-btn bulk-btn-close" id="bulk-close-btn" title="Close selected tabs">Close Tabs</button>
       <button class="bulk-btn bulk-btn-clear" id="bulk-clear-btn">Clear</button>
+    </div>
+  </div>
+
+  <!-- Group Picker Modal -->
+  <div id="group-picker-overlay" class="group-picker-overlay hidden">
+    <div class="group-picker">
+      <div class="group-picker-header">Move to Group</div>
+      <div class="group-picker-search">
+        <input type="text" id="group-picker-input" placeholder="Filter groups..." />
+      </div>
+      <div class="group-picker-list" id="group-picker-list"></div>
     </div>
   </div>
 

@@ -1,5 +1,6 @@
 // sidepanel/context-menu.js
 import { MSG } from '../shared/messages.js';
+import { openGroupPicker } from './group-picker.js';
 
 let contextMenu = null;
 
@@ -23,6 +24,8 @@ export function setupContextMenu(sendMessage, getState, dialogs, selection) {
     contextMenu.className = 'context-menu';
     contextMenu.style.left = `${e.clientX}px`;
     contextMenu.style.top = `${e.clientY}px`;
+    contextMenu._clickX = e.clientX;
+    contextMenu._clickY = e.clientY;
 
     if (groupHeader && groupHeader.data) {
       buildGroupHeaderMenu(groupHeader.data, getState);
@@ -34,22 +37,34 @@ export function setupContextMenu(sendMessage, getState, dialogs, selection) {
       if (selectedIds.size > 1 && selectedIds.has(data.id)) {
         buildSelectionMenu(selection.getSelectedItemData());
       } else {
-        buildSingleItemMenu(data, bookmarkItem);
+        buildSingleItemMenu(data, bookmarkItem, getState);
       }
     }
 
     if (contextMenu.children.length > 0) {
       document.body.appendChild(contextMenu);
+
+      // Clamp position so the menu stays within the viewport
+      const rect = contextMenu.getBoundingClientRect();
+      const maxX = window.innerWidth - rect.width - 4;
+      const maxY = window.innerHeight - rect.height - 4;
+      if (e.clientX > maxX) contextMenu.style.left = `${Math.max(4, maxX)}px`;
+      if (e.clientY > maxY) contextMenu.style.top = `${Math.max(4, maxY)}px`;
     }
   });
 
   document.addEventListener('click', (e) => {
     const menuItem = e.target.closest('.context-menu-item');
     if (menuItem && contextMenu) {
-      handleContextAction(menuItem.dataset.action, sendMessage, dialogs, selection);
+      // Capture dataset values before hideContextMenu nulls the reference
+      const action = menuItem.dataset.action;
+      handleContextAction(action, sendMessage, getState, dialogs, selection);
     }
     hideContextMenu();
   });
+
+  // Close context menu when side panel loses focus (user clicked elsewhere in browser)
+  window.addEventListener('blur', () => hideContextMenu());
 }
 
 function addMenuItem(action, label, destructive) {
@@ -66,6 +81,8 @@ function addDivider() {
   div.className = 'context-menu-divider';
   contextMenu.appendChild(div);
 }
+
+// No-op — submenu functions replaced by group picker modal
 
 function getGroupIds(groupId, state) {
   // Returns groupId + all descendant sub-group IDs
@@ -205,12 +222,12 @@ function buildSelectionMenu(items) {
   }
 }
 
-function buildSingleItemMenu(data, bookmarkItem) {
+function buildSingleItemMenu(data, bookmarkItem, getState) {
   if (data.isBookmarked === false) {
-    // Floating tab
+    // Floating tab or unbookmarked tab
     const groupItems = bookmarkItem.closest('.group-items');
-    const groupId = groupItems?.dataset?.groupId;
-    if (groupId && groupId !== '__open_tabs__') {
+    const currentGroupId = groupItems?.dataset?.groupId;
+    if (currentGroupId && currentGroupId !== '__open_tabs__') {
       const siblings = [...groupItems.querySelectorAll(':scope > bookmark-item')];
       let afterBookmarkId = null;
       for (const sib of siblings) {
@@ -222,9 +239,13 @@ function buildSingleItemMenu(data, bookmarkItem) {
       contextMenu.dataset.tabTitle = data.title;
       contextMenu.dataset.tabUrl = data.url;
       contextMenu.dataset.tabFavicon = data.favicon || '';
-      contextMenu.dataset.groupId = groupId;
+      contextMenu.dataset.groupId = currentGroupId;
       if (afterBookmarkId) contextMenu.dataset.afterBookmarkId = afterBookmarkId;
     }
+    addMenuItem('save-to-group-picker', 'Save to Group...');
+    contextMenu.dataset.tabTitle = data.title;
+    contextMenu.dataset.tabUrl = data.url;
+    contextMenu.dataset.tabFavicon = data.favicon || '';
     addDivider();
     addMenuItem('close-tab', 'Close Tab', true);
     contextMenu.dataset.tabId = data.tabId;
@@ -234,6 +255,11 @@ function buildSingleItemMenu(data, bookmarkItem) {
       addMenuItem('open-tab', 'Open Tab');
     }
     addMenuItem('edit-bookmark', 'Edit Bookmark');
+    if (data.isOpen && data.tabId) {
+      addMenuItem('update-from-tab', 'Update from Tab');
+      contextMenu.dataset.updateTabId = data.tabId;
+    }
+    addMenuItem('move-to-group-picker', 'Move to Group...');
     addDivider();
     if (data.isOpen) {
       addMenuItem('close-tab', 'Close Tab');
@@ -247,9 +273,37 @@ function buildSingleItemMenu(data, bookmarkItem) {
   }
 }
 
-async function handleContextAction(action, sendMessage, dialogs, selection) {
+async function handleContextAction(action, sendMessage, getState, dialogs, selection) {
   // --- Group header actions ---
-  if (action === 'delete-group') {
+  if (action === 'move-to-group-picker') {
+    const bookmarkId = contextMenu?.dataset.bookmarkId;
+    const currentGroupId = contextMenu?.dataset.pinGroupId || null;
+    const clickX = contextMenu?._clickX;
+    const clickY = contextMenu?._clickY;
+    const state = getState();
+    if (bookmarkId && state) {
+      openGroupPicker(state.groups, state.bookmarks, state.floatingTabsByGroup || {}, currentGroupId, async (groupId) => {
+        await sendMessage(MSG.MOVE_BOOKMARK, { id: bookmarkId, groupId, sortOrder: 9999 });
+      }, { position: 'cursor', x: clickX, y: clickY });
+    }
+  } else if (action === 'save-to-group-picker') {
+    const tabTitle = contextMenu?.dataset.tabTitle;
+    const tabUrl = contextMenu?.dataset.tabUrl;
+    const tabFavicon = contextMenu?.dataset.tabFavicon;
+    const clickX = contextMenu?._clickX;
+    const clickY = contextMenu?._clickY;
+    const state = getState();
+    if (tabUrl && state) {
+      openGroupPicker(state.groups, state.bookmarks, state.floatingTabsByGroup || {}, null, async (groupId) => {
+        await sendMessage(MSG.ADD_BOOKMARK, {
+          title: tabTitle || tabUrl,
+          url: tabUrl,
+          groupId,
+          favicon: tabFavicon || null,
+        });
+      }, { position: 'cursor', x: clickX, y: clickY });
+    }
+  } else if (action === 'delete-group') {
     await sendMessage(MSG.REMOVE_GROUP, { id: contextMenu.dataset.groupId });
   } else if (action === 'open-all-bookmarks') {
     const urls = JSON.parse(contextMenu.dataset.bookmarkUrls || '[]');
@@ -279,6 +333,17 @@ async function handleContextAction(action, sendMessage, dialogs, selection) {
     if (tabId) await sendMessage(MSG.CLOSE_TAB, { tabId });
   } else if (action === 'edit-bookmark') {
     dialogs.openEditBookmarkDialog(contextMenu.dataset.bookmarkId);
+  } else if (action === 'update-from-tab') {
+    const tabId = parseInt(contextMenu.dataset.updateTabId, 10);
+    const bookmarkId = contextMenu.dataset.bookmarkId;
+    if (tabId && bookmarkId) {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab) {
+        const updates = { title: tab.title, url: tab.url };
+        if (tab.favIconUrl) updates.favicon = tab.favIconUrl;
+        await sendMessage(MSG.UPDATE_BOOKMARK, { id: bookmarkId, ...updates });
+      }
+    }
   } else if (action === 'open-tab') {
     await sendMessage(MSG.NAVIGATE_TO, { url: contextMenu.dataset.bookmarkUrl });
   } else if (action === 'remove-bookmark') {
