@@ -1,4 +1,5 @@
 // sidepanel/render.js
+import { fromEnrichedBookmark, fromFloatingTab, fromUnbookmarkedTab } from '../shared/display-item.js';
 
 /**
  * Render the full bookmark tree into the given container.
@@ -18,6 +19,9 @@ export function renderBookmarkTree(container, state, { initDragAndDrop, selected
     }
   }
 
+  const groupItemOrders = preferences?.groupItemOrders || {};
+  const uiContext = { activeTabId, windowLabelMap, myWindowId, groupItemOrders };
+
   const topLevelGroups = groups
     .filter(g => g.parentId === null)
     .sort((a, b) => a.sortOrder - b.sortOrder);
@@ -30,7 +34,7 @@ export function renderBookmarkTree(container, state, { initDragAndDrop, selected
   const hasSelection = selectedIds && selectedIds.size > 0;
 
   for (const group of topLevelGroups) {
-    const section = renderGroup(group, bookmarks, groups, collapsedGroups, selectedIds, activeTabId, floatingTabsByGroup, windowLabelMap, myWindowId, windowFilter);
+    const section = renderGroup(group, bookmarks, groups, collapsedGroups, selectedIds, uiContext, floatingTabsByGroup, windowFilter);
     section.setAttribute('data-draggable', '');
     // Add drag handle for group reordering
     const handle = document.createElement('div');
@@ -59,8 +63,7 @@ export function renderBookmarkTree(container, state, { initDragAndDrop, selected
 
     for (const bookmark of ungrouped) {
       const item = document.createElement('bookmark-item');
-      const wLabel = (windowLabelMap.size > 0 && bookmark.windowId && bookmark.windowId !== myWindowId) ? windowLabelMap.get(bookmark.windowId) : null;
-      item.data = { ...bookmark, isBookmarked: true, isActive: bookmark.tabId === activeTabId, windowLabel: wLabel };
+      item.data = fromEnrichedBookmark(bookmark, uiContext);
       applySelection(item, bookmark.id, selectedIds, hasSelection);
       items.appendChild(item);
     }
@@ -94,21 +97,10 @@ export function renderBookmarkTree(container, state, { initDragAndDrop, selected
     items.dataset.groupId = '__open_tabs__';
 
     for (const tab of filteredUnbookmarkedTabs) {
-      const itemId = `tab-${tab.id}`;
+      const displayItem = fromUnbookmarkedTab(tab, uiContext);
       const item = document.createElement('bookmark-item');
-      const wLabel = (windowLabelMap.size > 0 && tab.windowId !== myWindowId) ? windowLabelMap.get(tab.windowId) : null;
-      item.data = {
-        id: itemId,
-        title: tab.title || tab.url,
-        url: tab.url,
-        favicon: tab.favIconUrl || null,
-        isOpen: true,
-        tabId: tab.id,
-        isBookmarked: false,
-        isActive: tab.id === activeTabId,
-        windowLabel: wLabel,
-      };
-      applySelection(item, itemId, selectedIds, hasSelection);
+      item.data = displayItem;
+      applySelection(item, displayItem.id, selectedIds, hasSelection);
       items.appendChild(item);
     }
 
@@ -124,7 +116,7 @@ function applySelection(item, id, selectedIds, hasSelection) {
   if (selectedIds && selectedIds.has(id)) item.selected = true;
 }
 
-function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, activeTabId, floatingTabsByGroup = {}, windowLabelMap = new Map(), myWindowId = null, windowFilter = null) {
+function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, uiContext, floatingTabsByGroup = {}, windowFilter = null) {
   const section = document.createElement('div');
   section.className = 'group-section';
   section.dataset.groupId = group.id;
@@ -166,60 +158,89 @@ function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, 
 
   const hasSelection = selectedIds && selectedIds.size > 0;
 
-  // Build opener → children map for interleaving floating tabs after their parent
-  const childrenByOpener = new Map();
-  for (const tab of groupFloatingTabs) {
-    const openerId = tab.openerTabId;
-    if (!childrenByOpener.has(openerId)) childrenByOpener.set(openerId, []);
-    childrenByOpener.get(openerId).push(tab);
-  }
+  // Check for explicit item order (set by drag-and-drop reordering)
+  const explicitOrder = uiContext.groupItemOrders?.[group.id];
 
-  function renderFloatingTab(tab) {
-    const itemId = `tab-${tab.id}`;
-    const item = document.createElement('bookmark-item');
-    const wLabel = (windowLabelMap.size > 0 && tab.windowId !== myWindowId) ? windowLabelMap.get(tab.windowId) : null;
-    item.data = {
-      id: itemId,
-      title: tab.title || tab.url,
-      url: tab.url,
-      favicon: tab.favIconUrl || null,
-      isOpen: true,
-      tabId: tab.id,
-      isBookmarked: false,
-      isActive: tab.id === activeTabId,
-      windowLabel: wLabel,
-    };
-    applySelection(item, itemId, selectedIds, hasSelection);
-    items.appendChild(item);
-    // Recursively render floating tabs spawned from this floating tab
-    renderFloatingChildren(tab.id);
-  }
+  if (explicitOrder && explicitOrder.length > 0) {
+    // Render in user-defined order (bookmarks and floating tabs interleaved)
+    const bookmarkMap = new Map(groupBookmarks.map(b => [b.id, b]));
+    const floatingMap = new Map(groupFloatingTabs.map(t => [`tab-${t.id}`, t]));
 
-  function renderFloatingChildren(tabId) {
-    const children = childrenByOpener.get(tabId);
-    if (!children) return;
-    for (const child of children) renderFloatingTab(child);
-  }
+    for (const itemId of explicitOrder) {
+      if (bookmarkMap.has(itemId)) {
+        const bookmark = bookmarkMap.get(itemId);
+        const item = document.createElement('bookmark-item');
+        item.data = fromEnrichedBookmark(bookmark, uiContext);
+        applySelection(item, bookmark.id, selectedIds, hasSelection);
+        items.appendChild(item);
+        bookmarkMap.delete(itemId);
+      } else if (floatingMap.has(itemId)) {
+        const tab = floatingMap.get(itemId);
+        const displayItem = fromFloatingTab(tab, uiContext);
+        const item = document.createElement('bookmark-item');
+        item.data = displayItem;
+        applySelection(item, displayItem.id, selectedIds, hasSelection);
+        items.appendChild(item);
+        floatingMap.delete(itemId);
+      }
+      // Stale IDs (closed tabs, removed bookmarks) are silently skipped
+    }
 
-  for (const bookmark of groupBookmarks) {
-    const item = document.createElement('bookmark-item');
-    const wLabel = (windowLabelMap.size > 0 && bookmark.windowId && bookmark.windowId !== myWindowId) ? windowLabelMap.get(bookmark.windowId) : null;
-    item.data = { ...bookmark, isBookmarked: true, isActive: bookmark.tabId === activeTabId, windowLabel: wLabel };
-    applySelection(item, bookmark.id, selectedIds, hasSelection);
-    items.appendChild(item);
-    // Render any floating tabs spawned from this bookmark's tab
-    if (bookmark.tabId != null) renderFloatingChildren(bookmark.tabId);
-  }
+    // Append new items not yet in the explicit order (added after last reorder)
+    for (const bookmark of bookmarkMap.values()) {
+      const item = document.createElement('bookmark-item');
+      item.data = fromEnrichedBookmark(bookmark, uiContext);
+      applySelection(item, bookmark.id, selectedIds, hasSelection);
+      items.appendChild(item);
+    }
+    for (const tab of floatingMap.values()) {
+      const displayItem = fromFloatingTab(tab, uiContext);
+      const item = document.createElement('bookmark-item');
+      item.data = displayItem;
+      applySelection(item, displayItem.id, selectedIds, hasSelection);
+      items.appendChild(item);
+    }
+  } else {
+    // Default ordering: bookmarks by sortOrder, floating tabs after their opener via chain
+    const childrenByOpener = new Map();
+    for (const tab of groupFloatingTabs) {
+      const openerId = tab.openerTabId;
+      if (!childrenByOpener.has(openerId)) childrenByOpener.set(openerId, []);
+      childrenByOpener.get(openerId).push(tab);
+    }
 
-  // Render any remaining floating tabs whose opener isn't in this group
-  // (e.g., opener is a floating tab in another group that got resolved here)
-  const rendered = new Set();
-  for (const child of items.querySelectorAll('bookmark-item')) {
-    const data = child.data;
-    if (data && !data.isBookmarked) rendered.add(data.tabId);
-  }
-  for (const tab of groupFloatingTabs) {
-    if (!rendered.has(tab.id)) renderFloatingTab(tab);
+    function renderFloatingTabEl(tab) {
+      const displayItem = fromFloatingTab(tab, uiContext);
+      const item = document.createElement('bookmark-item');
+      item.data = displayItem;
+      applySelection(item, displayItem.id, selectedIds, hasSelection);
+      items.appendChild(item);
+      renderFloatingChildren(tab.id);
+    }
+
+    function renderFloatingChildren(tabId) {
+      const children = childrenByOpener.get(tabId);
+      if (!children) return;
+      for (const child of children) renderFloatingTabEl(child);
+    }
+
+    for (const bookmark of groupBookmarks) {
+      const item = document.createElement('bookmark-item');
+      item.data = fromEnrichedBookmark(bookmark, uiContext);
+      applySelection(item, bookmark.id, selectedIds, hasSelection);
+      items.appendChild(item);
+      if (bookmark.tabId != null) renderFloatingChildren(bookmark.tabId);
+    }
+
+    // Render remaining floating tabs whose opener isn't in this group
+    const rendered = new Set();
+    for (const child of items.querySelectorAll('bookmark-item')) {
+      const data = child.data;
+      if (data && !data.isBookmarked) rendered.add(data.tabId);
+    }
+    for (const tab of groupFloatingTabs) {
+      if (!rendered.has(tab.id)) renderFloatingTabEl(tab);
+    }
   }
 
   section.appendChild(items);
@@ -230,7 +251,7 @@ function renderGroup(group, bookmarks, allGroups, collapsedGroups, selectedIds, 
     subGroupsContainer.className = 'sub-groups';
     subGroupsContainer.dataset.parentGroupId = group.id;
     for (const subGroup of subGroups) {
-      const subSection = renderGroup(subGroup, bookmarks, allGroups, collapsedGroups, selectedIds, activeTabId, floatingTabsByGroup, windowLabelMap, myWindowId, windowFilter);
+      const subSection = renderGroup(subGroup, bookmarks, allGroups, collapsedGroups, selectedIds, uiContext, floatingTabsByGroup, windowFilter);
       subSection.setAttribute('data-draggable', '');
       const handle = document.createElement('div');
       handle.className = 'group-drag-handle';

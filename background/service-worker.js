@@ -112,7 +112,12 @@ async function handleMessage(message) {
       return broadcaster.getState();
 
     case MSG.ADD_BOOKMARK: {
-      await storage.addBookmark(message.payload);
+      const bookmark = await storage.addBookmark(message.payload);
+      // If saving from an open tab (e.g., floating tab → bookmark), track the association
+      // so the matcher links this specific bookmark to that tab instead of relying on URL lookup
+      if (message.payload.tabId) {
+        await broadcaster.trackTab(message.payload.tabId, bookmark.url, bookmark.id);
+      }
       return broadcaster.invalidateAndBroadcast();
     }
 
@@ -158,11 +163,16 @@ async function handleMessage(message) {
         }
       }
       if (changed) await storage.setBookmarks(bookmarks);
-      // Prune deleted group from collapsedGroups preference
+      // Prune deleted group from preferences
       const prefs = await storage.getPreferences();
       const collapsed = prefs.collapsedGroups || [];
       if (collapsed.includes(removedId)) {
         await storage.setPreference('collapsedGroups', collapsed.filter(id => id !== removedId));
+      }
+      const groupItemOrders = prefs.groupItemOrders || {};
+      if (groupItemOrders[removedId]) {
+        const { [removedId]: _, ...rest } = groupItemOrders;
+        await storage.setPreference('groupItemOrders', rest);
       }
       return broadcaster.invalidateAndBroadcast();
     }

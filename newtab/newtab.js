@@ -1,6 +1,7 @@
 // newtab/newtab.js
 import { MSG } from '../shared/messages.js';
 import { applyTheme } from '../shared/themes.js';
+import { searchItemFromBookmark, searchItemFromTab } from '../shared/display-item.js';
 import { renderBookmarkTree } from '../sidepanel/render.js';
 
 let currentState = null;
@@ -136,28 +137,11 @@ function buildFuseIndex() {
       ? `${parentGroup.name} \u2192 ${group.name}`
       : group?.name || '';
 
-    items.push({
-      type: 'bookmark',
-      bookmarkId: bookmark.id,
-      title: bookmark.title,
-      url: bookmark.url,
-      favicon: bookmark.favicon,
-      isOpen: bookmark.isOpen,
-      tabId: bookmark.tabId,
-      breadcrumb,
-    });
+    items.push(searchItemFromBookmark(bookmark, { breadcrumb }));
   }
 
   for (const tab of currentState.unbookmarkedTabs) {
-    items.push({
-      type: 'tab',
-      title: tab.title || tab.url,
-      url: tab.url,
-      favicon: tab.favIconUrl || null,
-      isOpen: true,
-      tabId: tab.id,
-      breadcrumb: 'Open Tabs',
-    });
+    items.push(searchItemFromTab(tab, { breadcrumb: 'Open Tabs' }));
   }
 
   fuse = new Fuse(items, {

@@ -1,6 +1,7 @@
 // sidepanel/sidepanel.js
 import { MSG } from '../shared/messages.js';
 import { applyTheme } from '../shared/themes.js';
+import { fromFloatingTab, fromUnbookmarkedTab, searchItemFromBookmark, searchItemFromTab } from '../shared/display-item.js';
 import { renderBookmarkTree } from './render.js';
 import { setupDialogs } from './dialogs.js';
 import { openGroupPicker } from './group-picker.js';
@@ -377,31 +378,15 @@ function getSelectedItemData() {
   }
   const tabMap = new Map();
   for (const t of currentState.unbookmarkedTabs || []) {
-    tabMap.set(`tab-${t.id}`, {
-      id: `tab-${t.id}`,
-      title: t.title || t.url,
-      url: t.url,
-      favicon: t.favIconUrl || null,
-      isOpen: true,
-      tabId: t.id,
-      isBookmarked: false,
-    });
+    const displayItem = fromUnbookmarkedTab(t);
+    tabMap.set(displayItem.id, displayItem);
   }
   // Also include floating tabs pinned to groups
   for (const [groupId, tabs] of Object.entries(currentState.floatingTabsByGroup || {})) {
     for (const t of tabs) {
-      const tabKey = `tab-${t.id}`;
-      if (!tabMap.has(tabKey)) {
-        tabMap.set(tabKey, {
-          id: tabKey,
-          title: t.title || t.url,
-          url: t.url,
-          favicon: t.favIconUrl || null,
-          isOpen: true,
-          tabId: t.id,
-          isBookmarked: false,
-          groupId,
-        });
+      const displayItem = fromFloatingTab(t);
+      if (!tabMap.has(displayItem.id)) {
+        tabMap.set(displayItem.id, { ...displayItem, groupId });
       }
     }
   }
@@ -494,28 +479,11 @@ function buildFuseIndex() {
       ? `${parentGroup.name} \u2192 ${group.name}`
       : group?.name || '';
 
-    items.push({
-      type: 'bookmark',
-      bookmarkId: bookmark.id,
-      title: bookmark.title,
-      url: bookmark.url,
-      favicon: bookmark.favicon,
-      isOpen: bookmark.isOpen,
-      tabId: bookmark.tabId,
-      breadcrumb,
-    });
+    items.push(searchItemFromBookmark(bookmark, { breadcrumb }));
   }
 
   for (const tab of currentState.unbookmarkedTabs) {
-    items.push({
-      type: 'tab',
-      title: tab.title || tab.url,
-      url: tab.url,
-      favicon: tab.favIconUrl || null,
-      isOpen: true,
-      tabId: tab.id,
-      breadcrumb: 'Open Tabs',
-    });
+    items.push(searchItemFromTab(tab, { breadcrumb: 'Open Tabs' }));
   }
 
   fuse = new Fuse(items, {
@@ -1115,6 +1083,21 @@ async function handleDragEnd(evt) {
       if (tabOrder.length > 1) {
         await sendMessage(MSG.SYNC_TAB_ORDER, { tabOrder });
       }
+    }
+
+    // Persist the interleaved item order (bookmarks + floating tabs) so
+    // floating tabs can be positioned between bookmarks and survive re-renders
+    const targetContainer = evt.to;
+    const itemOrder = [];
+    for (const el of targetContainer.querySelectorAll('bookmark-item')) {
+      if (el.data?.id) itemOrder.push(el.data.id);
+    }
+    if (itemOrder.length > 0) {
+      const current = currentState?.preferences?.groupItemOrders || {};
+      await sendMessage(MSG.SET_PREFERENCE, {
+        key: 'groupItemOrders',
+        value: { ...current, [targetGroupId]: itemOrder },
+      });
     }
   }
 
