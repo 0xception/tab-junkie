@@ -13,9 +13,21 @@ storage.migrateGroupColors(HEX_TO_SEMANTIC_COLOR);
 // --- Tab event listeners ---
 // Re-broadcast state whenever tabs change
 
-chrome.tabs.onCreated.addListener(() => broadcaster.invalidateAndBroadcast());
+chrome.tabs.onCreated.addListener(() => {
+  if (navigatingCount === 0) broadcaster.invalidateAndBroadcast();
+});
 chrome.tabs.onRemoved.addListener(() => broadcaster.invalidateAndBroadcast());
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  // Skip broadcasts while NAVIGATE_TO is setting up tracking (prevents stale state flash)
+  if (navigatingCount > 0) return;
+  // Clean up stale tracking when a tab navigates to a different page
+  if (changeInfo.url) {
+    broadcaster.cleanupTrackingIfNeeded(tabId, changeInfo.url);
+  }
+  // Mark tab as having completed initial load (used for tracking cleanup heuristic)
+  if (changeInfo.status === 'complete') {
+    broadcaster.markTabLoaded(tabId);
+  }
   // Rebroadcast on URL changes or load complete (skip 'loading' to halve broadcasts)
   if (changeInfo.url || changeInfo.status === 'complete') {
     broadcaster.invalidateAndBroadcast();
@@ -31,6 +43,8 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
 chrome.tabs.onAttached.addListener(() => broadcaster.invalidateAndBroadcast());
 
 let syncingTabOrderCount = 0;
+let navigatingCount = 0;
+
 chrome.tabs.onMoved.addListener(() => {
   if (syncingTabOrderCount === 0) broadcaster.invalidateAndBroadcast();
 });
@@ -204,10 +218,16 @@ async function handleMessage(message) {
         const tab = await chrome.tabs.get(tabId);
         await chrome.windows.update(tab.windowId, { focused: true });
       } else {
-        // No tabId — open a new tab for this bookmark
-        const newTab = await chrome.tabs.create({ url });
-        // Track this tab so we can match it to this specific bookmark
-        await broadcaster.trackTab(newTab.id, url, bookmarkId);
+        // Suppress onCreated/onUpdated broadcasts while we set up tracking,
+        // preventing a stale state flash where the new tab appears as unbookmarked
+        navigatingCount++;
+        try {
+          const newTab = await chrome.tabs.create({ url });
+          // Track this tab so we can match it to this specific bookmark
+          await broadcaster.trackTab(newTab.id, url, bookmarkId);
+        } finally {
+          navigatingCount--;
+        }
       }
       // Record access time for this bookmark
       if (bookmarkId) {

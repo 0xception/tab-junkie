@@ -266,6 +266,48 @@ describe('matchTabsToBookmarks', () => {
     assert.equal(result.unbookmarkedTabs.length, 0);
   });
 
+  it('prefers URL-matched tab over drifted tracked tab', () => {
+    // Scenario: tracked tab navigated away, user opened bookmark URL in a new tab
+    const bms = [
+      { id: 'bm1', title: 'Video 1', url: 'https://youtube.com/watch?v=abc', groupId: 'g1', sortOrder: 0 },
+    ];
+    const openTabs = [
+      { id: 101, url: 'https://youtube.com/watch?v=xyz', title: 'Video 2', index: 0 }, // drifted away
+      { id: 102, url: 'https://youtube.com/watch?v=abc', title: 'Video 1', index: 1 }, // correct URL
+    ];
+    // Tab 101 was originally opened from bookmark but user navigated it to a different video
+    const trackedBookmark = new Map([['bm1', 101]]);
+
+    const result = matchTabsToBookmarks(bms, openTabs, new Map(), new Map(), trackedBookmark);
+    const bm = result.bookmarks.find(b => b.id === 'bm1');
+    // Should match tab 102 (correct URL), not tab 101 (drifted)
+    assert.equal(bm.isOpen, true);
+    assert.equal(bm.tabId, 102);
+    assert.equal(bm.isDrifted, false);
+    // Tab 101 should be unbookmarked (it's on a different page now)
+    assert.equal(result.unbookmarkedTabs.length, 1);
+    assert.equal(result.unbookmarkedTabs[0].id, 101);
+  });
+
+  it('keeps drifted tracked tab when no better URL match exists', () => {
+    // Scenario: tab redirected (e.g., OAuth), no other tab has the original URL
+    const bms = [
+      { id: 'bm1', title: 'AWS Console', url: 'https://console.aws.com/dynamodb', groupId: 'g1', sortOrder: 0 },
+    ];
+    const openTabs = [
+      { id: 201, url: 'https://signin.aws.com/redirect', title: 'Sign In', index: 0 },
+    ];
+    const trackedBookmark = new Map([['bm1', 201]]);
+
+    const result = matchTabsToBookmarks(bms, openTabs, new Map(), new Map(), trackedBookmark);
+    const bm = result.bookmarks.find(b => b.id === 'bm1');
+    // Should keep the drifted tab since there's no better match
+    assert.equal(bm.isOpen, true);
+    assert.equal(bm.tabId, 201);
+    assert.equal(bm.isDrifted, true);
+    assert.equal(result.unbookmarkedTabs.length, 0);
+  });
+
   it('floating tabs are sorted by tab.index within a group', () => {
     const bms = [
       { id: 'bm1', title: 'GitHub', url: 'https://github.com', groupId: 'g1', sortOrder: 0 },
