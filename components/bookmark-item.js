@@ -32,7 +32,7 @@ template.innerHTML = `
       width: 14px;
       height: 14px;
       border-radius: 3px;
-      border: 1.5px solid var(--text-dimmed, #555);
+      border: 1.5px solid var(--text-secondary, #888);
       flex-shrink: 0;
       cursor: pointer;
       display: flex;
@@ -109,7 +109,7 @@ template.innerHTML = `
     }
     .close-btn {
       font-size: 10px;
-      color: var(--text-dimmed, #555);
+      color: var(--text-secondary, #888);
       cursor: pointer;
       flex-shrink: 0;
       padding: 2px 4px;
