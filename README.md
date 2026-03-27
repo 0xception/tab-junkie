@@ -26,8 +26,19 @@ A Chrome/Edge extension that unifies bookmark and tab management into a single o
 ### Quick Search Popup (Alt+J)
 - Fuzzy search across all bookmarks and open tabs
 - Recent items shown by default
+- Group search and drill-in — browse groups and view their contents inline
 - Keyboard navigation: arrows to browse, Enter to open, Tab for full view, Esc to close
 - Breadcrumb paths showing group hierarchy
+
+### Quick Jump to Group (Alt+K)
+- Jump directly to any group from anywhere
+- Fuzzy search across group names
+- Works from side panel, popup, or standalone window
+
+### Multi-Window Mode
+- Open multiple Tab Junkie instances across browser windows
+- State synchronized in real time between all instances
+- Each window reflects the same bookmarks, groups, and tab status
 
 ### Inline Side Panel Search
 - Real-time fuzzy filtering of bookmarks and tabs
@@ -51,6 +62,7 @@ A Chrome/Edge extension that unifies bookmark and tab management into a single o
 ### Display Modes
 - **Side panel** (default) — persistent panel alongside your browsing
 - **Standalone window** (Alt+Shift+J) — popup window, no tab strip
+- **Multi-window** — multiple instances stay synchronized across browser windows
 
 ## Keyboard Shortcuts
 
@@ -58,6 +70,7 @@ A Chrome/Edge extension that unifies bookmark and tab management into a single o
 |---|---|
 | Alt+J | Open quick search popup |
 | Alt+Shift+J | Open Tab Junkie as standalone window |
+| Alt+K | Jump to group |
 | Ctrl+A | Select all visible items |
 | Escape | Clear selection |
 
@@ -84,7 +97,8 @@ junkie/
 │   ├── sidepanel.html/js/css  # Main UI — bookmark tree, settings, import/export
 │   ├── render.js              # Bookmark tree rendering
 │   ├── dialogs.js             # Add/edit dialogs
-│   └── context-menu.js        # Right-click menus
+│   ├── context-menu.js        # Right-click menus
+│   └── group-picker.js        # Group selection modal
 ├── popup/
 │   └── popup.html/js/css    # Quick search launcher
 ├── components/
@@ -93,6 +107,8 @@ junkie/
 │   └── search-bar.js        # <search-bar> web component
 ├── shared/
 │   ├── styles.css           # Global styles
+│   ├── themes.js            # Theme switching logic
+│   ├── themes.css           # 12 IDE color themes
 │   ├── messages.js          # Message types and color palette
 │   └── import-export.js     # Import/export utilities
 └── lib/

@@ -15,6 +15,7 @@ zip -r "$OUTPUT" . \
   -x "docs/*" \
   -x "build.sh" \
   -x "CONTRIBUTING.md" \
+  -x "STORE_LISTING.md" \
   -x "node_modules/*"
 
 echo ""

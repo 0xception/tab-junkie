@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.0 — 2026-03-26
+
+### Features
+
+- **Multi-window mode** — Open multiple Tab Junkie instances across browser windows with synchronized state
+- **Group search and drill-in** — Search and browse groups in the popup with drill-in navigation to view group contents
+- **Quick jump to group (Alt+K)** — Keyboard shortcut to jump directly to any group from anywhere
+
+### Improvements
+
+- **Group picker modal** — New modal for selecting target groups during bulk move and context menu operations
+- **Context menu enhancements** — Improved right-click menus with better organization and new actions
+
+### Fixes
+
+- **Windows drag-and-drop scroll** — Fixed scroll behavior so Windows users can drag items in scrollable areas
+- **Selection state cleanup** — Improved multi-select state handling across operations
+
 ## 0.1.0 — 2026-03-14
 
 Initial release.
