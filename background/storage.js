@@ -9,6 +9,8 @@ export function createStorage(chrome) {
     GROUPS: 'junkie_groups',
     PREFERENCES: 'junkie_preferences',
     PINNED_TABS: 'junkie_pinned_tabs',
+    TRACKED_TABS: 'junkie_tracked_tabs',
+    TRACKED_BOOKMARK_TABS: 'junkie_tracked_bookmark_tabs',
   };
 
   function generateId() {
@@ -256,6 +258,10 @@ export function createStorage(chrome) {
     setPreference,
     getPinnedTabs,
     setPinnedTabs,
+    getTrackedTabs: async () => (await _get(KEYS.TRACKED_TABS)) || {},
+    setTrackedTabs: (data) => _set(KEYS.TRACKED_TABS, data),
+    getTrackedBookmarkTabs: async () => (await _get(KEYS.TRACKED_BOOKMARK_TABS)) || {},
+    setTrackedBookmarkTabs: (data) => _set(KEYS.TRACKED_BOOKMARK_TABS, data),
     setBookmarks: (bookmarks) => _set(KEYS.BOOKMARKS, bookmarks),
     setGroups: (groups) => _set(KEYS.GROUPS, groups),
     migrateGroupColors,

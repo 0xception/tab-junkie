@@ -317,6 +317,8 @@ document.addEventListener('select-item', (e) => {
 // Ctrl/Cmd+A: select all visible items
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     e.preventDefault();
     const allItems = getAllBookmarkItems();
     selectedItems.clear();
@@ -374,7 +376,7 @@ function getSelectedItemData() {
   // Build lookup from current state
   const bookmarkMap = new Map();
   for (const b of currentState.bookmarks) {
-    bookmarkMap.set(b.id, { ...b, isBookmarked: true });
+    bookmarkMap.set(b.id, { ...b, type: 'bookmark', isBookmarked: true });
   }
   const tabMap = new Map();
   for (const t of currentState.unbookmarkedTabs || []) {
