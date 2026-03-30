@@ -1,5 +1,6 @@
 // popup/popup.js — Unified search + group jump popup
 import { MSG } from '../shared/messages.js';
+import { searchItemFromBookmark, searchItemFromTab } from '../shared/display-item.js';
 
 let currentState = null;
 let fuse = null;           // bookmark/tab search index
@@ -99,43 +100,18 @@ function initFuse() {
       ? `${parentGroup.name} \u2192 ${group.name}`
       : group?.name || '';
 
-    items.push({
-      type: 'bookmark',
-      bookmarkId: bookmark.id,
-      title: bookmark.title,
-      url: bookmark.url,
-      favicon: bookmark.favicon,
-      isOpen: bookmark.isOpen,
-      tabId: bookmark.tabId,
-      breadcrumb,
-    });
+    items.push(searchItemFromBookmark(bookmark, { breadcrumb }));
   }
 
   for (const tab of currentState.unbookmarkedTabs) {
-    items.push({
-      type: 'tab',
-      title: tab.title || tab.url,
-      url: tab.url,
-      favicon: tab.favIconUrl || null,
-      isOpen: true,
-      tabId: tab.id,
-      breadcrumb: 'Not bookmarked',
-    });
+    items.push(searchItemFromTab(tab, { breadcrumb: 'Not bookmarked' }));
   }
 
   // Include floating tabs (open tabs assigned to groups via opener chain but not bookmarked)
   for (const [groupId, tabs] of Object.entries(currentState.floatingTabsByGroup || {})) {
     const group = currentState.groups.find(g => g.id === groupId);
     for (const tab of tabs) {
-      items.push({
-        type: 'tab',
-        title: tab.title || tab.url,
-        url: tab.url,
-        favicon: tab.favIconUrl || null,
-        isOpen: true,
-        tabId: tab.id,
-        breadcrumb: group?.name || '',
-      });
+      items.push(searchItemFromTab(tab, { breadcrumb: group?.name || '' }));
     }
   }
 
@@ -200,46 +176,18 @@ function renderRecent() {
       recency = Math.max(recency, bm.tabLastAccessed);
     }
 
-    items.push({
-      type: 'bookmark',
-      bookmarkId: bm.id,
-      title: bm.title,
-      url: bm.url,
-      favicon: bm.favicon,
-      isOpen: bm.isOpen,
-      tabId: bm.tabId,
-      breadcrumb: group?.name || '',
-      recency,
-    });
+    items.push(searchItemFromBookmark(bm, { breadcrumb: group?.name || '', recency }));
   }
 
   for (const tab of currentState.unbookmarkedTabs) {
-    items.push({
-      type: 'tab',
-      title: tab.title || tab.url,
-      url: tab.url,
-      favicon: tab.favIconUrl || null,
-      isOpen: true,
-      tabId: tab.id,
-      breadcrumb: 'Not bookmarked',
-      recency: tab.lastAccessed || 0,
-    });
+    items.push(searchItemFromTab(tab, { breadcrumb: 'Not bookmarked', recency: tab.lastAccessed || 0 }));
   }
 
   // Include floating tabs (open tabs assigned to groups via opener chain)
   for (const [groupId, tabs] of Object.entries(currentState.floatingTabsByGroup || {})) {
     const group = currentState.groups.find(g => g.id === groupId);
     for (const tab of tabs) {
-      items.push({
-        type: 'tab',
-        title: tab.title || tab.url,
-        url: tab.url,
-        favicon: tab.favIconUrl || null,
-        isOpen: true,
-        tabId: tab.id,
-        breadcrumb: group?.name || '',
-        recency: tab.lastAccessed || 0,
-      });
+      items.push(searchItemFromTab(tab, { breadcrumb: group?.name || '', recency: tab.lastAccessed || 0 }));
     }
   }
 
@@ -577,25 +525,10 @@ function renderDrillView(groupId, query) {
   const subGroups = getGroupSubGroups(groupId);
   const floatingTabs = currentState?.floatingTabsByGroup?.[groupId] || [];
 
-  const bookmarkItems = bookmarks.map(bm => ({
-    type: 'bookmark',
-    bookmarkId: bm.id,
-    title: bm.title,
-    url: bm.url,
-    favicon: bm.favicon,
-    isOpen: bm.isOpen,
-    tabId: bm.tabId,
-  }));
+  const bookmarkItems = bookmarks.map(bm => searchItemFromBookmark(bm));
 
   for (const tab of floatingTabs) {
-    bookmarkItems.push({
-      type: 'tab',
-      title: tab.title || tab.url,
-      url: tab.url,
-      favicon: tab.favIconUrl || null,
-      isOpen: true,
-      tabId: tab.id,
-    });
+    bookmarkItems.push(searchItemFromTab(tab));
   }
 
   const subGroupItems = subGroups.map(sg => {

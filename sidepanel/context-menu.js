@@ -1,5 +1,6 @@
 // sidepanel/context-menu.js
 import { MSG } from '../shared/messages.js';
+import { isTabItem, isBookmarkItem, getTabIdFromItemId } from '../shared/display-item.js';
 import { openGroupPicker } from './group-picker.js';
 
 let contextMenu = null;
@@ -199,9 +200,9 @@ function buildSelectionMenu(items) {
   const count = items.length;
 
   const hasOpenTabs = items.some(item => item.tabId);
-  const hasClosedBookmarks = items.some(item => item.isBookmarked !== false && !item.isOpen);
-  const hasBookmarks = items.some(item => item.isBookmarked !== false);
-  const hasFloatingTabs = items.some(item => item.isBookmarked === false);
+  const hasClosedBookmarks = items.some(item => isBookmarkItem(item) && !item.isOpen);
+  const hasBookmarks = items.some(item => isBookmarkItem(item));
+  const hasFloatingTabs = items.some(item => isTabItem(item));
 
   if (hasClosedBookmarks) {
     addMenuItem('selection-open-tabs', `Open Tabs (${count})`);
@@ -223,7 +224,7 @@ function buildSelectionMenu(items) {
 }
 
 function buildSingleItemMenu(data, bookmarkItem, getState) {
-  if (data.isBookmarked === false) {
+  if (isTabItem(data)) {
     // Floating tab or unbookmarked tab
     const groupItems = bookmarkItem.closest('.group-items');
     const currentGroupId = groupItems?.dataset?.groupId;
@@ -232,7 +233,7 @@ function buildSingleItemMenu(data, bookmarkItem, getState) {
       let afterBookmarkId = null;
       for (const sib of siblings) {
         if (sib === bookmarkItem) break;
-        if (sib.data?.isBookmarked !== false) afterBookmarkId = sib.data.id;
+        if (sib.data && isBookmarkItem(sib.data)) afterBookmarkId = sib.data.id;
       }
 
       addMenuItem('save-to-group', 'Save Bookmark');
@@ -240,12 +241,14 @@ function buildSingleItemMenu(data, bookmarkItem, getState) {
       contextMenu.dataset.tabUrl = data.url;
       contextMenu.dataset.tabFavicon = data.favicon || '';
       contextMenu.dataset.groupId = currentGroupId;
+      contextMenu.dataset.saveTabId = data.tabId;
       if (afterBookmarkId) contextMenu.dataset.afterBookmarkId = afterBookmarkId;
     }
     addMenuItem('save-to-group-picker', 'Save to Group...');
     contextMenu.dataset.tabTitle = data.title;
     contextMenu.dataset.tabUrl = data.url;
     contextMenu.dataset.tabFavicon = data.favicon || '';
+    contextMenu.dataset.saveTabId = data.tabId;
     addDivider();
     addMenuItem('close-tab', 'Close Tab', true);
     contextMenu.dataset.tabId = data.tabId;
@@ -290,6 +293,7 @@ async function handleContextAction(action, sendMessage, getState, dialogs, selec
     const tabTitle = contextMenu?.dataset.tabTitle;
     const tabUrl = contextMenu?.dataset.tabUrl;
     const tabFavicon = contextMenu?.dataset.tabFavicon;
+    const saveTabId = contextMenu?.dataset.saveTabId ? parseInt(contextMenu.dataset.saveTabId, 10) : null;
     const clickX = contextMenu?._clickX;
     const clickY = contextMenu?._clickY;
     const state = getState();
@@ -300,6 +304,7 @@ async function handleContextAction(action, sendMessage, getState, dialogs, selec
           url: tabUrl,
           groupId,
           favicon: tabFavicon || null,
+          tabId: saveTabId,
         });
       }, { position: 'cursor', x: clickX, y: clickY });
     }
@@ -354,12 +359,14 @@ async function handleContextAction(action, sendMessage, getState, dialogs, selec
     }
     await sendMessage(MSG.REMOVE_BOOKMARK, payload);
   } else if (action === 'save-to-group') {
+    const saveTabId = contextMenu.dataset.saveTabId ? parseInt(contextMenu.dataset.saveTabId, 10) : null;
     await sendMessage(MSG.ADD_BOOKMARK, {
       title: contextMenu.dataset.tabTitle,
       url: contextMenu.dataset.tabUrl,
       groupId: contextMenu.dataset.groupId,
       favicon: contextMenu.dataset.tabFavicon || null,
       afterBookmarkId: contextMenu.dataset.afterBookmarkId || null,
+      tabId: saveTabId,
     });
 
   // --- Selection actions (resolve fresh data from state via selection.getSelectedItemData) ---
@@ -374,7 +381,7 @@ async function handleContextAction(action, sendMessage, getState, dialogs, selec
   } else if (action === 'selection-open-tabs') {
     const items = selection.getSelectedItemData();
     for (const item of items) {
-      if (item.isBookmarked !== false && !item.isOpen && item.url) {
+      if (isBookmarkItem(item) && !item.isOpen && item.url) {
         await sendMessage(MSG.NAVIGATE_TO, { url: item.url });
       }
     }
@@ -384,8 +391,8 @@ async function handleContextAction(action, sendMessage, getState, dialogs, selec
 
     // Remove only actual bookmarks, pin their open tabs to stay as floating
     for (const item of items) {
-      if (item.isBookmarked === false) continue; // Skip floating tabs entirely
-      if (!item.id || item.id.startsWith('tab-')) continue; // Extra safety
+      if (isTabItem(item)) continue; // Skip floating tabs entirely
+      if (!item.id || getTabIdFromItemId(item.id) !== null) continue; // Extra safety
 
       const payload = { id: item.id };
       if (item.isOpen && item.tabId && item.groupId) {
@@ -398,10 +405,10 @@ async function handleContextAction(action, sendMessage, getState, dialogs, selec
   } else if (action === 'selection-save-to-group') {
     const items = selection.getSelectedItemData();
     // Determine target group: prefer a bookmarked item's group, fall back to any item's group
-    const targetGroupId = items.find(i => i.isBookmarked !== false && i.groupId)?.groupId
+    const targetGroupId = items.find(i => isBookmarkItem(i) && i.groupId)?.groupId
       || items.find(i => i.groupId)?.groupId;
     for (const item of items) {
-      if (item.isBookmarked === false && item.url) {
+      if (isTabItem(item) && item.url) {
         const groupId = item.groupId || targetGroupId;
         if (groupId) {
           await sendMessage(MSG.ADD_BOOKMARK, {
@@ -409,6 +416,7 @@ async function handleContextAction(action, sendMessage, getState, dialogs, selec
             url: item.url,
             groupId,
             favicon: item.favicon || null,
+            tabId: item.tabId || null,
           });
         }
       }

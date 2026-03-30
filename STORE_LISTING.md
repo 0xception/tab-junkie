@@ -13,19 +13,23 @@ KEY FEATURES
 • Unified view — Bookmarks and open tabs in one place, organized by color-coded groups
 • Smart tab tracking — Green dots show which bookmarks are open; active tab is highlighted
 • Floating tabs — Tabs spawned from bookmarks stay with their group automatically
+• Multi-window mode — Multiple instances stay synchronized across browser windows
 • Drag-and-drop — Reorder bookmarks, move between groups, nest sub-groups
 • Multi-select — Shift+click, Ctrl+click, Ctrl+A for bulk move, close, or remove
 • Quick search (Alt+J) — Fuzzy search across all bookmarks and tabs from a popup
+• Group search and drill-in — Browse groups and view their contents inline from the popup
+• Quick jump to group (Alt+K) — Jump directly to any group from anywhere
 • New tab page — Optional replacement with bookmark grid and web search
 • Chrome tab group sync — Mirror your Tab Junkie groups as Chrome tab groups with matching colors
 • Import/export — HTML (browser-compatible) and JSON backup formats
 • 12 IDE color themes — Monokai, Dracula, Nord, Solarized, Gruvbox, Tokyo Night, GitHub Light, and more
 
-THREE WAYS TO ACCESS
+FOUR WAYS TO ACCESS
 
 1. Side panel — Persistent panel alongside your browsing
 2. Standalone window (Alt+Shift+J) — Floating popup window
 3. Quick search (Alt+J) — Fast fuzzy search without leaving your current tab
+4. Quick jump (Alt+K) — Jump directly to any group
 
 BUILT FOR DEVELOPERS
 

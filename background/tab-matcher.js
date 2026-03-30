@@ -132,9 +132,22 @@ export function matchTabsToBookmarks(bookmarks, tabs, trackedTabs = new Map(), p
     // Check if this specific bookmark has a tracked tab
     const trackedTabId = trackedBookmarkTabs.get(bookmark.id);
     if (trackedTabId != null && tabsById.has(trackedTabId) && !matchedTabIds.has(trackedTabId)) {
-      matchedTabIds.add(trackedTabId);
       const tab = tabsById.get(trackedTabId);
       const isDrifted = normalizeUrl(bookmark.url) !== normalizeUrl(tab.pendingUrl || tab.url);
+
+      // If the tracked tab has drifted (user navigated it away), check if there's
+      // a better match by URL. This prevents duplicates: the bookmark matches the
+      // correct tab, and the drifted tab shows as unbookmarked (which it now is).
+      if (isDrifted) {
+        const normalized = normalizeUrl(bookmark.url);
+        const urlMatch = tabsByUrl.get(normalized);
+        if (urlMatch && !matchedTabIds.has(urlMatch.id)) {
+          matchedTabIds.add(urlMatch.id);
+          return { ...bookmark, isOpen: true, isDrifted: false, tabId: urlMatch.id, tabLastAccessed: urlMatch.lastAccessed || 0, windowId: urlMatch.windowId };
+        }
+      }
+
+      matchedTabIds.add(trackedTabId);
       return { ...bookmark, isOpen: true, isDrifted, tabId: trackedTabId, tabLastAccessed: tab.lastAccessed || 0, windowId: tab.windowId };
     }
 

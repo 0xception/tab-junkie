@@ -1,5 +1,5 @@
 // background/broadcaster.js
-import { matchTabsToBookmarks } from './tab-matcher.js';
+import { matchTabsToBookmarks, normalizeUrl } from './tab-matcher.js';
 
 /**
  * State Broadcaster.
@@ -83,6 +83,50 @@ export function createBroadcaster(chrome, storage) {
     await chrome.storage.session.set({ trackedBookmarkTabsData: obj });
   }
 
+  // Track which tabs have completed their initial page load.
+  // Before first 'complete', URL changes are likely redirects and should preserve tracking.
+  // After first 'complete', URL changes are user navigation and should clear tracking.
+  const completedTabs = new Set();
+
+  function markTabLoaded(tabId) {
+    completedTabs.add(tabId);
+  }
+
+  /**
+   * Clean up stale tracking when a tab navigates to a different page.
+   * Only triggers after the tab's initial load completes (to preserve redirect tracking).
+   * Compares origin + pathname — query/fragment changes don't clear tracking.
+   */
+  function cleanupTrackingIfNeeded(tabId, newUrl) {
+    if (!completedTabs.has(tabId)) return; // Still in initial load, could be redirect
+
+    const trackedUrl = trackedTabs.get(tabId);
+    if (!trackedUrl) return;
+
+    try {
+      const trackedParsed = new URL(normalizeUrl(trackedUrl));
+      const newParsed = new URL(normalizeUrl(newUrl));
+      const sameOrigin = trackedParsed.origin === newParsed.origin;
+      const samePath = trackedParsed.pathname === newParsed.pathname;
+
+      if (!sameOrigin || !samePath) {
+        // Tab navigated to a different page — clear stale tracking
+        trackedTabs.delete(tabId);
+        for (const [bookmarkId, tId] of trackedBookmarkTabs) {
+          if (tId === tabId) {
+            trackedBookmarkTabs.delete(bookmarkId);
+            break;
+          }
+        }
+        completedTabs.delete(tabId);
+        saveTrackedTabs();
+        saveTrackedBookmarkTabs();
+      }
+    } catch {
+      // URL parsing failed — leave tracking intact
+    }
+  }
+
   /**
    * Register a tab that was opened from a bookmark.
    * This allows matching even after the tab URL changes due to redirects.
@@ -155,6 +199,11 @@ export function createBroadcaster(chrome, storage) {
     }
     if (pinnedChanged) {
       await savePinnedTabs();
+    }
+
+    // Clean up completedTabs for closed tabs
+    for (const tabId of completedTabs) {
+      if (!currentTabIds.has(tabId)) completedTabs.delete(tabId);
     }
 
     const { bookmarks: enrichedBookmarks, unbookmarkedTabs, floatingTabsByGroup } =
@@ -232,5 +281,7 @@ export function createBroadcaster(chrome, storage) {
     trackTab,
     pinTabToGroup,
     resetPinnedTabs,
+    markTabLoaded,
+    cleanupTrackingIfNeeded,
   };
 }
