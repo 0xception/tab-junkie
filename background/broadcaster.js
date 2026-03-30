@@ -1,5 +1,5 @@
 // background/broadcaster.js
-import { matchTabsToBookmarks, normalizeUrl } from './tab-matcher.js';
+import { matchTabsToBookmarks } from './tab-matcher.js';
 
 /**
  * State Broadcaster.
@@ -83,49 +83,16 @@ export function createBroadcaster(chrome, storage) {
     await chrome.storage.session.set({ trackedBookmarkTabsData: obj });
   }
 
-  // Track which tabs have completed their initial page load.
-  // Before first 'complete', URL changes are likely redirects and should preserve tracking.
-  // After first 'complete', URL changes are user navigation and should clear tracking.
-  const completedTabs = new Set();
-
-  function markTabLoaded(tabId) {
-    completedTabs.add(tabId);
-  }
-
   /**
-   * Clean up stale tracking when a tab navigates to a different page.
-   * Only triggers after the tab's initial load completes (to preserve redirect tracking).
-   * Compares origin + pathname — query/fragment changes don't clear tracking.
+   * No-op — tracking is preserved through navigation so that tab-matcher can
+   * detect drift (bookmark tab navigated away from its original URL) and display
+   * it correctly instead of orphaning the tab into the unbookmarked/open tabs section.
+   * Stale tracking for closed tabs is cleaned up in computeState().
    */
-  function cleanupTrackingIfNeeded(tabId, newUrl) {
-    if (!completedTabs.has(tabId)) return; // Still in initial load, could be redirect
+  function cleanupTrackingIfNeeded(_tabId, _newUrl) {}
 
-    const trackedUrl = trackedTabs.get(tabId);
-    if (!trackedUrl) return;
-
-    try {
-      const trackedParsed = new URL(normalizeUrl(trackedUrl));
-      const newParsed = new URL(normalizeUrl(newUrl));
-      const sameOrigin = trackedParsed.origin === newParsed.origin;
-      const samePath = trackedParsed.pathname === newParsed.pathname;
-
-      if (!sameOrigin || !samePath) {
-        // Tab navigated to a different page — clear stale tracking
-        trackedTabs.delete(tabId);
-        for (const [bookmarkId, tId] of trackedBookmarkTabs) {
-          if (tId === tabId) {
-            trackedBookmarkTabs.delete(bookmarkId);
-            break;
-          }
-        }
-        completedTabs.delete(tabId);
-        saveTrackedTabs();
-        saveTrackedBookmarkTabs();
-      }
-    } catch {
-      // URL parsing failed — leave tracking intact
-    }
-  }
+  // markTabLoaded is no longer needed since cleanupTrackingIfNeeded is a no-op.
+  function markTabLoaded(_tabId) {}
 
   /**
    * Register a tab that was opened from a bookmark.
@@ -201,13 +168,23 @@ export function createBroadcaster(chrome, storage) {
       await savePinnedTabs();
     }
 
-    // Clean up completedTabs for closed tabs
-    for (const tabId of completedTabs) {
-      if (!currentTabIds.has(tabId)) completedTabs.delete(tabId);
-    }
-
     const { bookmarks: enrichedBookmarks, unbookmarkedTabs, floatingTabsByGroup } =
       matchTabsToBookmarks(bookmarks, tabs, trackedTabs, pinnedTabGroups, trackedBookmarkTabs);
+
+    // Promote URL-matched tabs into persistent tracking so drift detection
+    // works even for tabs that weren't opened via Tab Junkie's click handler.
+    let promotedAny = false;
+    for (const bm of enrichedBookmarks) {
+      if (bm.isOpen && bm.tabId != null && !trackedBookmarkTabs.has(bm.id)) {
+        trackedBookmarkTabs.set(bm.id, bm.tabId);
+        trackedTabs.set(bm.tabId, bm.url);
+        promotedAny = true;
+      }
+    }
+    if (promotedAny) {
+      await saveTrackedBookmarkTabs();
+      await saveTrackedTabs();
+    }
 
     // Find the active tab in the last-focused window
     let currentActiveTab = null;

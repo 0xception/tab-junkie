@@ -308,6 +308,27 @@ describe('matchTabsToBookmarks', () => {
     assert.equal(result.unbookmarkedTabs.length, 0);
   });
 
+  it('detects drift when trackedTabs reverse lookup maps bookmark URL back to the same drifted tab', () => {
+    // Scenario: user opens bookmark via Tab Junkie, then clicks a link on the page.
+    // trackedTabs maps tabId → bookmarkUrl, which creates a reverse lookup in tabsByUrl.
+    // The "better URL match" check should NOT match the same drifted tab back to itself.
+    const bms = [
+      { id: 'bm1', title: 'owm-de', url: 'https://gitlab.com/org/owm-de', groupId: 'g1', sortOrder: 0 },
+    ];
+    const openTabs = [
+      { id: 301, url: 'https://gitlab.com/org/owm-de/-/merge_requests/249', title: 'MR !249', index: 0 },
+    ];
+    const tracked = new Map([[301, 'https://gitlab.com/org/owm-de']]);
+    const trackedBookmark = new Map([['bm1', 301]]);
+
+    const result = matchTabsToBookmarks(bms, openTabs, tracked, new Map(), trackedBookmark);
+    const bm = result.bookmarks.find(b => b.id === 'bm1');
+    assert.equal(bm.isOpen, true);
+    assert.equal(bm.tabId, 301);
+    assert.equal(bm.isDrifted, true);
+    assert.equal(result.unbookmarkedTabs.length, 0);
+  });
+
   it('floating tabs are sorted by tab.index within a group', () => {
     const bms = [
       { id: 'bm1', title: 'GitHub', url: 'https://github.com', groupId: 'g1', sortOrder: 0 },
