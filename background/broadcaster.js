@@ -204,6 +204,7 @@ export function createBroadcaster(chrome, storage) {
     // Promote URL-matched tabs into persistent tracking so drift detection
     // works even for tabs that weren't opened via Tab Junkie's click handler.
     // Also update lastTabUrl for drifted tabs so we can re-match after restart.
+    const tabsById = new Map(tabs.map(t => [t.id, t]));
     let trackingUpdated = false;
     for (const bm of enrichedBookmarks) {
       if (!bm.isOpen || bm.tabId == null) continue;
@@ -216,7 +217,7 @@ export function createBroadcaster(chrome, storage) {
       } else {
         // Existing tracked tab — update lastTabUrl if the tab has navigated
         const entry = trackedBookmarkTabs.get(bm.id);
-        const tab = tabs.find(t => t.id === bm.tabId);
+        const tab = tabsById.get(bm.tabId);
         const currentUrl = tab?.pendingUrl || tab?.url;
         if (currentUrl && entry.lastTabUrl !== currentUrl) {
           entry.lastTabUrl = currentUrl;
