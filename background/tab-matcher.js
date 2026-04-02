@@ -141,7 +141,10 @@ export function matchTabsToBookmarks(bookmarks, tabs, trackedTabs = new Map(), p
       if (isDrifted) {
         const normalized = normalizeUrl(bookmark.url);
         const urlMatch = tabsByUrl.get(normalized);
-        if (urlMatch && !matchedTabIds.has(urlMatch.id)) {
+        // Only use the URL match if it's a DIFFERENT tab — the trackedTabs reverse
+        // lookup can map the bookmark URL back to the same drifted tab, which would
+        // incorrectly suppress drift detection.
+        if (urlMatch && urlMatch.id !== trackedTabId && !matchedTabIds.has(urlMatch.id)) {
           matchedTabIds.add(urlMatch.id);
           return { ...bookmark, isOpen: true, isDrifted: false, tabId: urlMatch.id, tabLastAccessed: urlMatch.lastAccessed || 0, windowId: urlMatch.windowId };
         }

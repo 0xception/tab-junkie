@@ -1,5 +1,5 @@
 // background/broadcaster.js
-import { matchTabsToBookmarks, normalizeUrl } from './tab-matcher.js';
+import { matchTabsToBookmarks } from './tab-matcher.js';
 
 /**
  * State Broadcaster.
@@ -9,18 +9,16 @@ export function createBroadcaster(chrome, storage) {
   let cachedState = null;
 
   // Track tabs we opened from bookmarks (survives redirects)
-  // Maps tabId → bookmark URL — persisted to session storage so it survives service worker restarts
+  // Maps tabId → bookmark URL — persisted to local storage so it survives extension reloads
   let trackedTabs = new Map();
   let trackedTabsLoaded = false;
 
   async function loadTrackedTabs() {
     if (trackedTabsLoaded) return;
     trackedTabsLoaded = true;
-    const { trackedTabsData } = await chrome.storage.session.get('trackedTabsData');
-    if (trackedTabsData) {
-      for (const [tabId, url] of Object.entries(trackedTabsData)) {
-        trackedTabs.set(Number(tabId), url);
-      }
+    const stored = await storage.getTrackedTabs();
+    for (const [tabId, url] of Object.entries(stored)) {
+      trackedTabs.set(Number(tabId), url);
     }
   }
 
@@ -29,7 +27,7 @@ export function createBroadcaster(chrome, storage) {
     for (const [tabId, url] of trackedTabs) {
       obj[tabId] = url;
     }
-    await chrome.storage.session.set({ trackedTabsData: obj });
+    await storage.setTrackedTabs(obj);
   }
 
   // Pin tabs to groups (when a bookmark is removed but the tab stays open)
@@ -63,69 +61,43 @@ export function createBroadcaster(chrome, storage) {
   }
 
   // Track specific bookmark → tab associations (for duplicate URLs)
-  // Maps bookmarkId → tabId — persisted to session storage
+  // Maps bookmarkId → { tabId, lastTabUrl } — persisted to local storage
+  // lastTabUrl stores the tab's current URL so we can re-match after browser restart
   let trackedBookmarkTabs = new Map();
+  let trackedBookmarkTabsLoaded = false;
 
   async function loadTrackedBookmarkTabs() {
-    const { trackedBookmarkTabsData } = await chrome.storage.session.get('trackedBookmarkTabsData');
-    if (trackedBookmarkTabsData) {
-      for (const [bookmarkId, tabId] of Object.entries(trackedBookmarkTabsData)) {
-        trackedBookmarkTabs.set(bookmarkId, Number(tabId));
+    if (trackedBookmarkTabsLoaded) return;
+    trackedBookmarkTabsLoaded = true;
+    const stored = await storage.getTrackedBookmarkTabs();
+    for (const [bookmarkId, value] of Object.entries(stored)) {
+      // Support both old format (plain tabId number) and new format ({ tabId, lastTabUrl })
+      if (typeof value === 'number') {
+        trackedBookmarkTabs.set(bookmarkId, { tabId: value, lastTabUrl: null });
+      } else {
+        trackedBookmarkTabs.set(bookmarkId, { tabId: Number(value.tabId), lastTabUrl: value.lastTabUrl || null });
       }
     }
   }
 
   async function saveTrackedBookmarkTabs() {
     const obj = {};
-    for (const [bookmarkId, tabId] of trackedBookmarkTabs) {
-      obj[bookmarkId] = tabId;
+    for (const [bookmarkId, entry] of trackedBookmarkTabs) {
+      obj[bookmarkId] = entry;
     }
-    await chrome.storage.session.set({ trackedBookmarkTabsData: obj });
-  }
-
-  // Track which tabs have completed their initial page load.
-  // Before first 'complete', URL changes are likely redirects and should preserve tracking.
-  // After first 'complete', URL changes are user navigation and should clear tracking.
-  const completedTabs = new Set();
-
-  function markTabLoaded(tabId) {
-    completedTabs.add(tabId);
+    await storage.setTrackedBookmarkTabs(obj);
   }
 
   /**
-   * Clean up stale tracking when a tab navigates to a different page.
-   * Only triggers after the tab's initial load completes (to preserve redirect tracking).
-   * Compares origin + pathname — query/fragment changes don't clear tracking.
+   * No-op — tracking is preserved through navigation so that tab-matcher can
+   * detect drift (bookmark tab navigated away from its original URL) and display
+   * it correctly instead of orphaning the tab into the unbookmarked/open tabs section.
+   * Stale tracking for closed tabs is cleaned up in computeState().
    */
-  function cleanupTrackingIfNeeded(tabId, newUrl) {
-    if (!completedTabs.has(tabId)) return; // Still in initial load, could be redirect
+  function cleanupTrackingIfNeeded(_tabId, _newUrl) {}
 
-    const trackedUrl = trackedTabs.get(tabId);
-    if (!trackedUrl) return;
-
-    try {
-      const trackedParsed = new URL(normalizeUrl(trackedUrl));
-      const newParsed = new URL(normalizeUrl(newUrl));
-      const sameOrigin = trackedParsed.origin === newParsed.origin;
-      const samePath = trackedParsed.pathname === newParsed.pathname;
-
-      if (!sameOrigin || !samePath) {
-        // Tab navigated to a different page — clear stale tracking
-        trackedTabs.delete(tabId);
-        for (const [bookmarkId, tId] of trackedBookmarkTabs) {
-          if (tId === tabId) {
-            trackedBookmarkTabs.delete(bookmarkId);
-            break;
-          }
-        }
-        completedTabs.delete(tabId);
-        saveTrackedTabs();
-        saveTrackedBookmarkTabs();
-      }
-    } catch {
-      // URL parsing failed — leave tracking intact
-    }
-  }
+  // markTabLoaded is no longer needed since cleanupTrackingIfNeeded is a no-op.
+  function markTabLoaded(_tabId) {}
 
   /**
    * Register a tab that was opened from a bookmark.
@@ -135,7 +107,7 @@ export function createBroadcaster(chrome, storage) {
     trackedTabs.set(tabId, bookmarkUrl);
     await saveTrackedTabs();
     if (bookmarkId) {
-      trackedBookmarkTabs.set(bookmarkId, tabId);
+      trackedBookmarkTabs.set(bookmarkId, { tabId, lastTabUrl: bookmarkUrl });
       await saveTrackedBookmarkTabs();
     }
   }
@@ -171,6 +143,12 @@ export function createBroadcaster(chrome, storage) {
 
     // Clean up tracked/pinned tabs that no longer exist
     const currentTabIds = new Set(tabs.map(t => t.id));
+    const tabsByUrl = new Map();
+    for (const t of tabs) {
+      const url = t.pendingUrl || t.url;
+      if (url && !tabsByUrl.has(url)) tabsByUrl.set(url, t);
+    }
+
     let trackedChanged = false;
     for (const tabId of trackedTabs.keys()) {
       if (!currentTabIds.has(tabId)) {
@@ -180,15 +158,28 @@ export function createBroadcaster(chrome, storage) {
     }
     if (trackedChanged) await saveTrackedTabs();
 
-    // Clean up bookmark→tab associations where the tab no longer exists
+    // Clean up bookmark→tab associations where the tab no longer exists.
+    // If a tracked tab is gone (browser restart), try to re-match by lastTabUrl.
+    const bookmarkUrlById = new Map(bookmarks.map(b => [b.id, b.url]));
     let bookmarkTabsChanged = false;
-    for (const [bookmarkId, tabId] of trackedBookmarkTabs) {
-      if (!currentTabIds.has(tabId)) {
-        trackedBookmarkTabs.delete(bookmarkId);
+    for (const [bookmarkId, entry] of trackedBookmarkTabs) {
+      if (!currentTabIds.has(entry.tabId)) {
+        const rematch = entry.lastTabUrl ? tabsByUrl.get(entry.lastTabUrl) : null;
+        if (rematch && !trackedTabs.has(rematch.id)) {
+          // Re-link to the tab that still has the same URL
+          trackedBookmarkTabs.set(bookmarkId, { tabId: rematch.id, lastTabUrl: entry.lastTabUrl });
+          // trackedTabs needs the original bookmark URL (not the drifted URL)
+          trackedTabs.set(rematch.id, bookmarkUrlById.get(bookmarkId) || entry.lastTabUrl);
+        } else {
+          trackedBookmarkTabs.delete(bookmarkId);
+        }
         bookmarkTabsChanged = true;
       }
     }
-    if (bookmarkTabsChanged) await saveTrackedBookmarkTabs();
+    if (bookmarkTabsChanged) {
+      await saveTrackedBookmarkTabs();
+      await saveTrackedTabs();
+    }
 
     let pinnedChanged = false;
     for (const tabId of pinnedTabGroups.keys()) {
@@ -201,13 +192,43 @@ export function createBroadcaster(chrome, storage) {
       await savePinnedTabs();
     }
 
-    // Clean up completedTabs for closed tabs
-    for (const tabId of completedTabs) {
-      if (!currentTabIds.has(tabId)) completedTabs.delete(tabId);
+    // Build simple bookmarkId → tabId map for matchTabsToBookmarks
+    const bookmarkTabIds = new Map();
+    for (const [bookmarkId, entry] of trackedBookmarkTabs) {
+      bookmarkTabIds.set(bookmarkId, entry.tabId);
     }
 
     const { bookmarks: enrichedBookmarks, unbookmarkedTabs, floatingTabsByGroup } =
-      matchTabsToBookmarks(bookmarks, tabs, trackedTabs, pinnedTabGroups, trackedBookmarkTabs);
+      matchTabsToBookmarks(bookmarks, tabs, trackedTabs, pinnedTabGroups, bookmarkTabIds);
+
+    // Promote URL-matched tabs into persistent tracking so drift detection
+    // works even for tabs that weren't opened via Tab Junkie's click handler.
+    // Also update lastTabUrl for drifted tabs so we can re-match after restart.
+    const tabsById = new Map(tabs.map(t => [t.id, t]));
+    let trackingUpdated = false;
+    for (const bm of enrichedBookmarks) {
+      if (!bm.isOpen || bm.tabId == null) continue;
+
+      if (!trackedBookmarkTabs.has(bm.id)) {
+        // New URL-matched tab — promote to persistent tracking
+        trackedBookmarkTabs.set(bm.id, { tabId: bm.tabId, lastTabUrl: bm.url });
+        trackedTabs.set(bm.tabId, bm.url);
+        trackingUpdated = true;
+      } else {
+        // Existing tracked tab — update lastTabUrl if the tab has navigated
+        const entry = trackedBookmarkTabs.get(bm.id);
+        const tab = tabsById.get(bm.tabId);
+        const currentUrl = tab?.pendingUrl || tab?.url;
+        if (currentUrl && entry.lastTabUrl !== currentUrl) {
+          entry.lastTabUrl = currentUrl;
+          trackingUpdated = true;
+        }
+      }
+    }
+    if (trackingUpdated) {
+      await saveTrackedBookmarkTabs();
+      await saveTrackedTabs();
+    }
 
     // Find the active tab in the last-focused window
     let currentActiveTab = null;

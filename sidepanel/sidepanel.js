@@ -19,6 +19,8 @@ let filterQuery = '';
 let lastFuseBookmarkCount = -1;
 let lastFuseTabCount = -1;
 let lastFuseGroupCount = -1;
+let isDragging = false;
+let renderPendingAfterDrag = false;
 
 function sendMessage(type, payload) {
   return chrome.runtime.sendMessage({ type, payload });
@@ -32,7 +34,11 @@ function getState() {
 chrome.runtime.onMessage.addListener(async (message) => {
   if (message.type === MSG.STATE_UPDATED) {
     currentState = message.payload;
-    render();
+    if (isDragging) {
+      renderPendingAfterDrag = true;
+    } else {
+      render();
+    }
   } else if (message.type === MSG.SCROLL_TO_GROUP) {
     await scrollToGroup(message.payload.groupId);
   }
@@ -317,6 +323,8 @@ document.addEventListener('select-item', (e) => {
 // Ctrl/Cmd+A: select all visible items
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     e.preventDefault();
     const allItems = getAllBookmarkItems();
     selectedItems.clear();
@@ -374,7 +382,7 @@ function getSelectedItemData() {
   // Build lookup from current state
   const bookmarkMap = new Map();
   for (const b of currentState.bookmarks) {
-    bookmarkMap.set(b.id, { ...b, isBookmarked: true });
+    bookmarkMap.set(b.id, { ...b, type: 'bookmark', isBookmarked: true });
   }
   const tabMap = new Map();
   for (const t of currentState.unbookmarkedTabs || []) {
@@ -438,14 +446,17 @@ function pruneStaleSelections() {
 function setupFilter() {
   const input = document.getElementById('filter-input');
   const clearBtn = document.getElementById('filter-clear');
+  let filterTimer = null;
 
   input.addEventListener('input', () => {
     filterQuery = input.value.trim();
     clearBtn.classList.toggle('hidden', !filterQuery);
-    render();
+    clearTimeout(filterTimer);
+    filterTimer = setTimeout(() => render(), 150);
   });
 
   clearBtn.addEventListener('click', () => {
+    clearTimeout(filterTimer);
     input.value = '';
     filterQuery = '';
     clearBtn.classList.add('hidden');
@@ -929,6 +940,7 @@ function initGroupDragAndDrop() {
 }
 
 function handleGroupDragStart(evt) {
+  isDragging = true;
   // Show nest drop zones on all eligible groups (not the one being dragged)
   document.body.classList.add('group-dragging');
   const draggedSubGroups = evt.item.querySelector('.sub-groups');
@@ -951,31 +963,39 @@ function handleGroupDragMove(evt) {
 }
 
 async function handleGroupDragEnd(evt) {
-  // Clean up drag state
-  document.body.classList.remove('group-dragging');
-  document.querySelectorAll('.nest-zone-hidden').forEach(el => el.classList.remove('nest-zone-hidden'));
+  try {
+    // Clean up drag state
+    document.body.classList.remove('group-dragging');
+    document.querySelectorAll('.nest-zone-hidden').forEach(el => el.classList.remove('nest-zone-hidden'));
 
-  const draggedSection = evt.item;
-  const groupId = draggedSection.dataset.groupId;
-  if (!groupId) return;
+    const draggedSection = evt.item;
+    const groupId = draggedSection.dataset.groupId;
+    if (!groupId) return;
 
-  const targetContainer = evt.to;
-  let newParentId = null;
+    const targetContainer = evt.to;
+    let newParentId = null;
 
-  if (targetContainer.classList.contains('sub-groups')) {
-    newParentId = targetContainer.dataset.parentGroupId;
-  }
+    if (targetContainer.classList.contains('sub-groups')) {
+      newParentId = targetContainer.dataset.parentGroupId;
+    }
 
-  // Update sort orders for all siblings in this container
-  const siblings = [...targetContainer.querySelectorAll(':scope > .group-section[data-draggable]')];
-  for (let i = 0; i < siblings.length; i++) {
-    const siblingId = siblings[i].dataset.groupId;
-    if (siblingId) {
-      await sendMessage(MSG.MOVE_GROUP, {
-        id: siblingId,
-        parentId: newParentId,
-        sortOrder: i,
-      });
+    // Update sort orders for all siblings in this container
+    const siblings = [...targetContainer.querySelectorAll(':scope > .group-section[data-draggable]')];
+    for (let i = 0; i < siblings.length; i++) {
+      const siblingId = siblings[i].dataset.groupId;
+      if (siblingId) {
+        await sendMessage(MSG.MOVE_GROUP, {
+          id: siblingId,
+          parentId: newParentId,
+          sortOrder: i,
+        });
+      }
+    }
+  } finally {
+    isDragging = false;
+    if (renderPendingAfterDrag) {
+      renderPendingAfterDrag = false;
+      render();
     }
   }
 }
@@ -993,6 +1013,7 @@ function syncSelectionToSortable() {
 }
 
 function handleDragStart(evt) {
+  isDragging = true;
   // Clear any stale drag-expand state from interrupted drags
   dragExpandedGroups.length = 0;
   // If dragging a selected item with others selected, make sure
@@ -1004,6 +1025,7 @@ function handleDragStart(evt) {
 }
 
 async function handleDragEnd(evt) {
+  try {
   const targetGroupId = evt.to.dataset.groupId;
 
   // Use our selectedItems as source of truth for multi-drag, not SortableJS's evt.items
@@ -1107,6 +1129,13 @@ async function handleDragEnd(evt) {
 
   clearDragExpandTimer();
   await persistDragExpandedGroups();
+  } finally {
+    isDragging = false;
+    if (renderPendingAfterDrag) {
+      renderPendingAfterDrag = false;
+      render();
+    }
+  }
 }
 
 // --- Event Handlers ---
