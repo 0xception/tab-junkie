@@ -28,8 +28,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === 'complete') {
     broadcaster.markTabLoaded(tabId);
   }
-  // Rebroadcast on URL changes or load complete (skip 'loading' to halve broadcasts)
-  if (changeInfo.url || changeInfo.status === 'complete') {
+  // Rebroadcast on URL changes, load complete, or audible state change
+  if (changeInfo.url || changeInfo.status === 'complete' || changeInfo.audible != null) {
     broadcaster.invalidateAndBroadcast();
   }
 });
