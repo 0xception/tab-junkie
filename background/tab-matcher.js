@@ -146,12 +146,12 @@ export function matchTabsToBookmarks(bookmarks, tabs, trackedTabs = new Map(), p
         // incorrectly suppress drift detection.
         if (urlMatch && urlMatch.id !== trackedTabId && !matchedTabIds.has(urlMatch.id)) {
           matchedTabIds.add(urlMatch.id);
-          return { ...bookmark, isOpen: true, isDrifted: false, tabId: urlMatch.id, tabLastAccessed: urlMatch.lastAccessed || 0, windowId: urlMatch.windowId };
+          return { ...bookmark, isOpen: true, isDrifted: false, tabId: urlMatch.id, tabLastAccessed: urlMatch.lastAccessed || 0, windowId: urlMatch.windowId, audible: !!urlMatch.audible };
         }
       }
 
       matchedTabIds.add(trackedTabId);
-      return { ...bookmark, isOpen: true, isDrifted, tabId: trackedTabId, tabLastAccessed: tab.lastAccessed || 0, windowId: tab.windowId };
+      return { ...bookmark, isOpen: true, isDrifted, tabId: trackedTabId, tabLastAccessed: tab.lastAccessed || 0, windowId: tab.windowId, audible: !!tab.audible };
     }
 
     // Fall back to URL-based matching
@@ -160,7 +160,7 @@ export function matchTabsToBookmarks(bookmarks, tabs, trackedTabs = new Map(), p
 
     if (matchingTab && !matchedTabIds.has(matchingTab.id)) {
       matchedTabIds.add(matchingTab.id);
-      return { ...bookmark, isOpen: true, isDrifted: false, tabId: matchingTab.id, tabLastAccessed: matchingTab.lastAccessed || 0, windowId: matchingTab.windowId };
+      return { ...bookmark, isOpen: true, isDrifted: false, tabId: matchingTab.id, tabLastAccessed: matchingTab.lastAccessed || 0, windowId: matchingTab.windowId, audible: !!matchingTab.audible };
     }
 
     return { ...bookmark, isOpen: false, isDrifted: false, tabId: null };

@@ -72,6 +72,9 @@ export function setupDialogs(sendMessage, getState) {
     const name = nameInput.value.trim();
     if (!name) return;
 
+    // Close dialog immediately to prevent duplicate submissions
+    dialog.close();
+
     if (editingGroupId) {
       // Edit existing group
       await sendMessage(MSG.UPDATE_GROUP, {
@@ -87,7 +90,6 @@ export function setupDialogs(sendMessage, getState) {
         color: selectedColor,
       });
     }
-    dialog.close();
   });
 
   // --- Edit Bookmark Dialog ---
@@ -106,18 +108,21 @@ export function setupDialogs(sendMessage, getState) {
     const url = bmUrlInput.value.trim();
     if (!title || !url || !editingBookmarkId) return;
 
-    await sendMessage(MSG.UPDATE_BOOKMARK, { id: editingBookmarkId, title, url });
+    // Close dialog immediately to prevent duplicate submissions
+    const bookmarkId = editingBookmarkId;
+    const previousGroupId = editingBookmarkGroupId;
+    const targetGroupId = bmGroupSelect.value;
+    bmDialog.close();
 
-    const newGroupId = bmGroupSelect.value;
-    if (newGroupId && newGroupId !== editingBookmarkGroupId) {
+    await sendMessage(MSG.UPDATE_BOOKMARK, { id: bookmarkId, title, url });
+
+    if (targetGroupId && targetGroupId !== previousGroupId) {
       await sendMessage(MSG.MOVE_BOOKMARK, {
-        id: editingBookmarkId,
-        groupId: newGroupId,
+        id: bookmarkId,
+        groupId: targetGroupId,
         sortOrder: 0,
       });
     }
-
-    bmDialog.close();
   });
 
   // Expose functions to open dialogs

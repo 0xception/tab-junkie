@@ -201,6 +201,20 @@ export function createBroadcaster(chrome, storage) {
     const { bookmarks: enrichedBookmarks, unbookmarkedTabs, floatingTabsByGroup } =
       matchTabsToBookmarks(bookmarks, tabs, trackedTabs, pinnedTabGroups, bookmarkTabIds);
 
+    // Auto-pin floating tabs resolved via opener chain so they survive the
+    // opener being closed.  Without this, closing the parent bookmark tab
+    // breaks the chain and the floating tab drops into open/unbookmarked tabs.
+    let pinnedUpdated = false;
+    for (const [groupId, groupTabs] of Object.entries(floatingTabsByGroup)) {
+      for (const tab of groupTabs) {
+        if (!pinnedTabGroups.has(tab.id)) {
+          pinnedTabGroups.set(tab.id, groupId);
+          pinnedUpdated = true;
+        }
+      }
+    }
+    if (pinnedUpdated) await savePinnedTabs();
+
     // Promote URL-matched tabs into persistent tracking so drift detection
     // works even for tabs that weren't opened via Tab Junkie's click handler.
     // Also update lastTabUrl for drifted tabs so we can re-match after restart.

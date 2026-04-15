@@ -14,6 +14,7 @@ template.innerHTML = `
       cursor: pointer;
       border-left: 2px solid transparent;
       transition: background 0.1s;
+      position: relative;
     }
     .bookmark:hover {
       background: var(--bg-hover, rgba(255, 255, 255, 0.04));
@@ -27,6 +28,22 @@ template.innerHTML = `
     }
     .bookmark.selected {
       background: color-mix(in srgb, var(--group-blue, #5b91cf) 15%, transparent);
+    }
+    .audible-icon {
+      position: absolute;
+      left: calc(var(--indent, 32px) - 18px);
+      top: 50%;
+      transform: translateY(-50%);
+      width: 14px;
+      height: 14px;
+      color: var(--text-secondary, #888);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .audible-icon svg {
+      width: 12px;
+      height: 12px;
     }
     .checkbox {
       width: 14px;
@@ -173,6 +190,13 @@ template.innerHTML = `
     <span class="open-dot hidden"></span>
     <span class="window-badge hidden"></span>
     <button class="close-btn hidden" title="Close tab">&#x2715;</button>
+    <span class="audible-icon hidden">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+        <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+        <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+      </svg>
+    </span>
   </div>
   <div class="tooltip">
     <div class="tooltip-title"></div>
@@ -311,6 +335,10 @@ export class BookmarkItem extends HTMLElement {
     openDot.classList.toggle('hidden', !isOpen || isBookmarked === false);
     openDot.classList.toggle('drifted', !!this._data.isDrifted);
     closeBtn.classList.toggle('hidden', !isOpen);
+
+    // Audible indicator — shows when tab is playing audio
+    const audibleIcon = el.querySelector('.audible-icon');
+    audibleIcon.classList.toggle('hidden', !this._data.audible);
 
     // Window badge — shows which window a tab is in (multi-window only)
     const windowBadge = el.querySelector('.window-badge');

@@ -41,6 +41,7 @@ export function fromFloatingTab(tab, { activeTabId, windowLabelMap, myWindowId }
     tabId: tab.id,
     isBookmarked: false,
     isActive: tab.id === activeTabId,
+    audible: !!tab.audible,
     windowLabel: computeWindowLabel(tab.windowId, windowLabelMap, myWindowId),
   };
 }
@@ -60,6 +61,7 @@ export function fromUnbookmarkedTab(tab, { activeTabId, windowLabelMap, myWindow
     tabId: tab.id,
     isBookmarked: false,
     isActive: tab.id === activeTabId,
+    audible: !!tab.audible,
     windowLabel: computeWindowLabel(tab.windowId, windowLabelMap, myWindowId),
   };
 }
