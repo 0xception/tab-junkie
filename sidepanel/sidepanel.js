@@ -31,7 +31,7 @@ function getState() {
 }
 
 // Listen for state broadcasts and scroll-to-group requests
-chrome.runtime.onMessage.addListener(async (message) => {
+chrome.runtime.onMessage.addListener((message) => {
   if (message.type === MSG.STATE_UPDATED) {
     currentState = message.payload;
     if (isDragging) {
@@ -40,7 +40,7 @@ chrome.runtime.onMessage.addListener(async (message) => {
       render();
     }
   } else if (message.type === MSG.SCROLL_TO_GROUP) {
-    await scrollToGroup(message.payload.groupId);
+    scrollToGroup(message.payload.groupId);
   }
 });
 
@@ -360,7 +360,7 @@ function syncSelectionToDOM() {
 function clearSelection() {
   // Deselect from SortableJS MultiDrag internal state
   for (const el of getAllBookmarkItems()) {
-    if (el.classList.contains('multi-drag-selected')) {
+    if (el.classList.contains('multi-drag-selected') && el.parentNode && Sortable.get(el.parentNode)) {
       Sortable.utils.deselect(el);
     }
   }
@@ -1042,7 +1042,9 @@ async function handleDragEnd(evt) {
   // Deselect all items from SortableJS MultiDrag state
   const sortableItems = evt.items && evt.items.length > 0 ? evt.items : [evt.item];
   for (const el of sortableItems) {
-    Sortable.utils.deselect(el);
+    if (el.parentNode && Sortable.get(el.parentNode)) {
+      Sortable.utils.deselect(el);
+    }
   }
 
   if (itemsToMove.length === 0) return;
