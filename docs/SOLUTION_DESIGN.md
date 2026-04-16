@@ -1,9 +1,9 @@
 # Tab Junkie — Solution Design
 
-**Version:** 1.1
+**Version:** 1.2
 **Date:** 2026-04-15
 **Owner:** [solution-architect]
-**Status:** Active — B-001a landed (R6 close). Downstream items (B-001b/c/d, B-053) will amend.
+**Status:** Active — B-001b + B-001c landed.
 
 > This document is the current source of truth for what has actually shipped.
 > For the R2 *plan* (pre-build design) see `docs/design/B-001a.md`; deviations
@@ -13,7 +13,7 @@
 
 ## 1. Project Structure
 
-Current build-relevant layout on `feature/rebuild-from-prd` (paths shipped by B-001a):
+Current build-relevant layout on `feature/rebuild-from-prd` (paths shipped through B-001c):
 
 ```
 junkie/
@@ -21,20 +21,26 @@ junkie/
 ├── jsconfig.json                          TS checker shim (suppresses circular-import false positives, see B-053)
 ├── .eslintrc.json                         Write-boundary denylist (see §6)
 ├── background/
-│   ├── service-worker.js                  Entry point · exports `readyPromise` · wires onMessage
+│   ├── service-worker.js                  Entry point · exports `readyPromise` (gates on runMigrations) · wires onMessage + tab events
 │   ├── messages/
-│   │   └── storage-handlers.js            runtime.onMessage dispatcher + sender guard
-│   └── storage/
-│       ├── index.js                       Public barrel (no writeTransaction export — M3)
-│       ├── partitions.js                  Partition keys, defaults, shape validators, read helpers, length caps
-│       ├── ids.js                         Zero-dep ULID generator (strict-monotonic)
-│       ├── errors.js                      StorageError + ERR_* constants + isQuotaError
-│       ├── write-transaction.js           Serialized atomic batcher — SOLE write path
-│       ├── items.js                       Item CRUD
-│       ├── groups.js                      Group CRUD + depth/cycle enforcement + cascade on delete
-│       └── preferences.js                 Preferences CRUD
+│   │   └── storage-handlers.js            runtime.onMessage dispatcher + sender guard + safe-mode write gate
+│   ├── storage/
+│   │   ├── index.js                       Public barrel (no writeTransaction export — M3)
+│   │   ├── partitions.js                  Partition keys, defaults, shape validators, read helpers, length caps
+│   │   ├── ids.js                         Zero-dep ULID generator (strict-monotonic)
+│   │   ├── errors.js                      StorageError + ERR_* constants (incl. ERR_SAFE_MODE) + isQuotaError
+│   │   ├── write-transaction.js           Serialized atomic batcher — SOLE write path
+│   │   ├── migration.js                   Migration runner · KNOWN_VERSION · safe-mode · quota monitor (B-001b)
+│   │   ├── items.js                       Item CRUD
+│   │   ├── groups.js                      Group CRUD + depth/cycle enforcement + cascade on delete
+│   │   └── preferences.js                 Preferences CRUD
+│   └── tabs/
+│       ├── index.js                       Barrel · exports registerTabEventListeners, initializeLiveState, buildLiveStates (B-001c)
+│       ├── live-tab-index.js              SW-memory Map<tabId,{url,windowId,active,audible}> — never written to storage.local (B-001c)
+│       ├── tab-claims.js                  storage.session TabClaims mirror + reconcile/release/reevaluate + buildLiveStates (B-001c)
+│       └── tab-events.js                  chrome.tabs/windows event handlers — zero storage.local writes (B-001c)
 ├── shared/
-│   └── messages.js                        MSG_* constants + envelope typedefs (NO storage logic)
+│   └── messages.js                        MSG_* constants (13 total, incl. MSG_GET_STATUS) + envelope typedefs incl. ListItemsResponse (NO storage logic)
 ├── sidepanel/
 │   └── sidepanel.html                     Placeholder stub — overwritten by B-022
 ├── newtab/
@@ -53,9 +59,7 @@ wholesale when the corresponding UI backlog items land.
 
 ## 2. Storage Schema
 
-All state lives under six partitioned keys in `chrome.storage.local`. Each
-key is read, validated, and mutated independently so a single corrupt
-partition isolates blast radius (AC8).
+All state lives under six partitioned keys in `chrome.storage.local`, plus one key in `chrome.storage.session`. Each `storage.local` key is read, validated, and mutated independently so a single corrupt partition isolates blast radius (AC8).
 
 | Key | Purpose | Shape | Default | Persistence tier |
 |---|---|---|---|---|
@@ -65,12 +69,26 @@ partition isolates blast radius (AC8).
 | `tj:prefs` | User preferences | `Preferences` | see DEFAULT_PREFERENCES below | `storage.local` |
 | `tj:drift` | Drift records keyed by item id (B-001d will populate) | `Record<string, DriftRecord>` | `{}` | `storage.local` |
 | `tj:floatingGroups` | Floating-group re-association hints (B-001d) | `FloatingGroup[]` | `[]` | `storage.local` |
+| `tj:tabClaims` | Item-to-tab disambiguation table (B-001c) | `Record<string, number>` (itemId → tabId) | `{}` | `storage.session` — cleared on browser restart |
 
 Per R0 spike decision #2, **only `drifted` is persisted**. `live`, `active`,
-and `audible` are ephemeral and computed from a SW-memory `LiveTabIndex`
-(not yet built — B-001c). Per decision #3, `TabClaims` pairing records live
-in `chrome.storage.session` (not yet built — B-001c). Neither surface exists
-in B-001a.
+and `audible` are ephemeral and computed at read time from the SW-memory
+`LiveTabIndex` and the session-persisted `TabClaims` table (both shipped in
+B-001c). See §10.5 for the full architecture.
+
+### Schema version field — B-001b closed the gap
+
+`tj:meta.schemaVersion` is now consumed by `runMigrations()` in
+`background/storage/migration.js`. On every SW cold start, `runMigrations()`
+reads the stored version and compares it to `KNOWN_VERSION` (currently `1`):
+
+- **Equal:** no steps to run; resolves immediately.
+- **Less than:** applies migration steps atomically inside a single
+  `writeTransaction`; bumps `tj:meta.schemaVersion` to `KNOWN_VERSION` on success.
+- **Greater than:** enters safe-mode (read-only); `readyPromise` resolves (not rejects) so reads still work.
+- **Corrupt/NaN/missing:** `readyPromise` rejects with `ERR_CORRUPT_DATA`.
+
+The B-001a stub that only awaited `initializePartitions()` is replaced. See §4 and §10.6.
 
 ### Item shape
 
@@ -202,6 +220,26 @@ writeTransaction(ops):
   `lastQuotaSample = { bytesInUse, at }` is recorded. Exposed only via the
   non-barrel `_peekQuotaSample()` for future B-001b consumption.
 
+### readyPromise — now gates on runMigrations()
+
+`service-worker.js` exports:
+
+```js
+export const readyPromise = runMigrations().catch((err) => { … throw err; });
+```
+
+`runMigrations()` replaces the B-001a stub (`initializePartitions()` only).
+It performs the full migration sequence (init → version check → migrate/safe-mode/corrupt → legacy cleanup → quota eval) before the gate opens. Any pending `onMessage` handler that `await`s `readyPromise` is held until the gate settles.
+
+### Safe-mode write gate
+
+When `isSafeMode()` returns `true` (stored schemaVersion > KNOWN_VERSION),
+`storage-handlers.js` blocks the following message types with `ERR_SAFE_MODE`
+before dispatching them: `MSG_CREATE_ITEM`, `MSG_UPDATE_ITEM`,
+`MSG_DELETE_ITEM`, `MSG_CREATE_GROUP`, `MSG_UPDATE_GROUP`,
+`MSG_DELETE_GROUP`, `MSG_SET_PREFERENCES`. All read messages and
+`MSG_GET_STATUS` pass through unaffected.
+
 ### Single write path — cross-partition enforcement
 
 `initializePartitions()` writes through `writeTransaction` too (see C1 fix
@@ -232,15 +270,14 @@ envelope. Any thrown non-`StorageError` is coerced to an envelope with code
 
 ### Message types — full registry
 
-Defined in `shared/messages.js`. 12 constants total. **UI must never import
-any file under `background/`**; the only contract is this module + `chrome.runtime.sendMessage`.
+Defined in `shared/messages.js`. **13 constants total** (12 from B-001a + `MSG_GET_STATUS` added in B-001b). **UI must never import any file under `background/`**; the only contract is this module + `chrome.runtime.sendMessage`.
 
 | Constant | Value | Request payload | Success `data` | Allowed senders |
 |---|---|---|---|---|
 | `MSG_CREATE_ITEM` | `tj/createItem` | `{title, url, groupId?}` | `Item` | sidepanel, newtab, popup |
 | `MSG_UPDATE_ITEM` | `tj/updateItem` | `{id, patch}` | `Item` | sidepanel, newtab, popup |
 | `MSG_DELETE_ITEM` | `tj/deleteItem` | `{id}` | `null` | sidepanel, newtab, popup |
-| `MSG_LIST_ITEMS`  | `tj/listItems`  | `{groupId?}` | `Item[]` | all |
+| `MSG_LIST_ITEMS`  | `tj/listItems`  | `{groupId?}` | `{ items: Item[], liveStates: Record<itemId, {live, active, audible}> }` *(B-001c — shape change)* | all |
 | `MSG_GET_ITEM`    | `tj/getItem`    | `{id}` | `Item \| null` | all |
 | `MSG_CREATE_GROUP`| `tj/createGroup`| `{name, color, parentId, sortOrder?}` | `Group` | sidepanel, newtab |
 | `MSG_UPDATE_GROUP`| `tj/updateGroup`| `{id, patch}` | `Group` | sidepanel, newtab |
@@ -249,6 +286,11 @@ any file under `background/`**; the only contract is this module + `chrome.runti
 | `MSG_GET_GROUP`   | `tj/getGroup`   | `{id}` | `Group \| null` | all *(added post-R2 — H4 fix)* |
 | `MSG_GET_PREFERENCES` | `tj/getPreferences` | `{}` | `Preferences` | all |
 | `MSG_SET_PREFERENCES` | `tj/setPreferences` | `{patch}` | `Preferences` | sidepanel |
+| `MSG_GET_STATUS`  | `tj/getStatus`  | `{}` | `{ safeMode, schemaVersion, knownVersion, quotaWarning, quotaBytesInUse, quotaBytesTotal }` *(B-001b)* | all |
+
+**Note on `MSG_LIST_ITEMS` response shape change (B-001c):** The success `data` is now a `ListItemsResponse` object `{ items, liveStates }` rather than a bare `Item[]`. The `liveStates` map is built at read time from `LiveTabIndex` + `TabClaims`; items with no claim receive `{ live: false, active: false, audible: false }`. No live-state field is stored on `Item` objects in `tj:items`.
+
+**Note on `MSG_GET_STATUS` dispatch order (B-001b):** `MSG_GET_STATUS` is handled **before** the `readyPromise` gate — it returns the current migration/safe-mode/quota state even while migrations are running or have failed.
 
 ### Dispatch flow
 
@@ -334,10 +376,12 @@ leak). See `background/storage/errors.js`.
 | `ERR_QUOTA_EXCEEDED` | `chrome.storage.local.set` rejects with a quota-class error (detected via `isQuotaError`) | Prompt user to delete items (B-001b UI) |
 | `ERR_VALIDATION` | Missing/wrong-type payload field; whitespace-only title/name; disallowed URL scheme; length caps; unknown patch field; attempted mutation of `id`/`createdAt`/`updatedAt` (via patch) | Inline form error |
 | `ERR_TX_CONFLICT` | Non-`StorageError` thrown from mutator; `storage.get`/`set` failure other than quota; unhandled error surfaced through `errorEnvelope` | Retry; fall back to safe mode on repeat |
+| `ERR_SAFE_MODE` | Write operation attempted while stored `schemaVersion > KNOWN_VERSION`; emitted by the write gate in `storage-handlers.js` before dispatch (B-001b) | Show "update required" banner; reads still work |
 
-**Reachability audit** (from R4 / SPRINT_FINDINGS): every code above is
-either thrown by at least one path in the shipped code, or deliberately
-unreachable (`ERR_ID_COLLISION`).
+**Reachability audit** (updated through B-001b): every code above is either
+thrown by at least one path in the shipped code, or deliberately unreachable
+(`ERR_ID_COLLISION`). `ERR_SAFE_MODE` is reachable via the safe-mode write
+gate in `storage-handlers.js`.
 
 ---
 
@@ -371,36 +415,139 @@ patch list (M2 fix) and always recomputed by the mutator.
 
 ---
 
-## 9. Performance Standards (B-001a portion)
+## 9. Performance Standards
 
-| Metric | Target | Current status |
-|---|---|---|
-| Single-item read round-trip (`getItem`) | P95 < 20ms on 1k-item collection | Verified in `tests/perf.test.js` via chrome-mock (AC9) |
-| Single-item write round-trip (`updateItem`) | P95 < 20ms on 1k-item collection | Verified in `tests/perf.test.js` via chrome-mock (AC9) |
-| `writeTransaction` serialization under concurrent callers | No lost updates | Verified in integration tests (AC10) |
-| Real-browser perf (`chrome.storage.local`, not mock) | not measured | UAT validated correctness only — real-browser latency is unverified |
-| Sidepanel first paint | < 200ms (500-item) | Deferred — UI not in B-001a scope |
-| Fuzzy search P95 | < 50ms (1k-item) | Deferred — search not in B-001a scope |
+| Metric | Target | Owner | Current status |
+|---|---|---|---|
+| Single-item read round-trip (`getItem`) | P95 < 20ms on 1k-item collection | B-001a | Verified in `tests/perf.test.js` via chrome-mock |
+| Single-item write round-trip (`updateItem`) | P95 < 20ms on 1k-item collection | B-001a | Verified in `tests/perf.test.js` via chrome-mock |
+| `writeTransaction` serialization under concurrent callers | No lost updates | B-001a | Verified in integration tests |
+| Migration run over max realistic dataset (1k items, 100 groups) | < 500ms in chrome-mock | B-001b (AC9) | Verified in migration perf test |
+| `LiveTabIndex` cold-start rebuild (50 open tabs) | < 100ms in chrome-mock | B-001c (AC1) | Verified in live-tab perf test |
+| `TabClaims` reconciliation (500 items, 50-tab index) | < 50ms in chrome-mock | B-001c (AC10) | Verified in claims perf test |
+| Real-browser perf (`chrome.storage.local`, not mock) | not measured | — | UAT validated correctness only — real-browser latency is unverified |
+| Sidepanel first paint | < 200ms (500-item) | B-022 | Deferred — UI not yet built |
+| Fuzzy search P95 | < 50ms (1k-item) | — | Deferred — search not yet in scope |
 
 ---
 
-## 10. What B-001a Did NOT Ship
+## 10. What B-001a Did NOT Ship (updated through B-001c)
 
-Explicit handoff list to downstream items.
+Items fully resolved by B-001b or B-001c are marked **DONE**. Remaining items are open.
 
-| Handoff | Owner | Detail |
-|---|---|---|
-| Schema version field consumption + migration runner + `ready` barrier | **B-001b** | `readyPromise` is currently a stub that only awaits `initializePartitions()`. B-001b replaces it with a migration-gated promise that can legitimately reject with `ERR_NOT_READY`. `tj:meta.schemaVersion = 1` is written but never compared. |
-| Read-only safe-mode banner (downgrade path, R0 decision #9) | **B-001b** | When `stored.schemaVersion > known`, all writes blocked, reads still work. |
-| Quota warning UX (80% threshold per R0 decision #8) | **B-001b** | `writeTransaction` already stashes `lastQuotaSample = {bytesInUse, at}`; B-001b owns the user-facing prompt. |
-| Legacy `junkie_*` storage key migration | **B-001b** | UAT found pre-existing `junkie_*` keys coexisting harmlessly with `tj:*`. Clean-up / migration is B-001b's call. |
-| `LiveTabIndex` (ephemeral SW-memory index of live tabs) | **B-001c** | R0 decision #2 — computed at cold start from `chrome.tabs.query`. |
-| `TabClaims` disambiguation table | **B-001c** | Per R0 decision #3, lives in `chrome.storage.session`, re-claimed on cold start in item-sort-order. |
-| Drift record persistence + floating-tab exact-position re-association | **B-001d** | `tj:drift` and `tj:floatingGroups` partitions are initialized but unused in B-001a. |
-| Sidepanel UI | **B-022** | Currently a stub `sidepanel.html`. |
-| Newtab UI | **B-035** | Currently a stub `newtab.html`. |
-| Popup UI | **B-036** | Currently a stub `popup.html`. |
-| ESLint allowlist refactor + circular-dep extraction | **B-053** | Flip denylist → allowlist (only `background/**` may reach `background/storage/**`); resolve the circular `partitions.js` ↔ `write-transaction.js` import that `jsconfig.json` currently papers over. |
+| Handoff | Owner | Status | Detail |
+|---|---|---|---|
+| Schema version field consumption + migration runner + `ready` barrier | **B-001b** | **DONE** | `runMigrations()` replaces the stub `readyPromise`. `tj:meta.schemaVersion` is now read, compared to `KNOWN_VERSION`, and acted upon on every cold start. See §10.6. |
+| Read-only safe-mode (downgrade path, R0 decision #9) | **B-001b** | **DONE** | `isSafeMode()` in `migration.js`; write gate in `storage-handlers.js`; `ERR_SAFE_MODE` returned to callers. |
+| Quota warning flag (80% threshold per R0 decision #8) | **B-001b** | **DONE** | `evaluateQuota()` runs after migrations; `quotaWarning` flag exposed via `MSG_GET_STATUS`. UI banner deferred to the sidepanel item (B-022). |
+| Legacy `junkie_*` storage key migration | **B-001b** | **DONE** | `migrateLegacyKeys()` runs best-effort post-migration; known legacy keys are shape-mapped to Items and removed. |
+| `LiveTabIndex` (ephemeral SW-memory index of live tabs) | **B-001c** | **DONE** | `background/tabs/live-tab-index.js` — `Map<tabId, {url,windowId,active,audible}>`, built on cold start, kept current by event handlers. |
+| `TabClaims` disambiguation table | **B-001c** | **DONE** | `background/tabs/tab-claims.js` — `storage.session` under `tj:tabClaims`; in-memory mirror; reconciled on cold start; released on tab close/URL change. |
+| `MSG_LIST_ITEMS` enriched with `liveStates` | **B-001c** | **DONE** | Response shape is now `{ items, liveStates }`. |
+| Drift record persistence + floating-tab exact-position re-association | **B-001d** | pending (deps B-001b+c now satisfied) | `tj:drift` and `tj:floatingGroups` partitions are initialized but unused. |
+| Sidepanel UI | **B-022** | pending | Currently a stub `sidepanel.html`. |
+| Newtab UI | **B-035** | pending | Currently a stub `newtab.html`. |
+| Popup UI | **B-036** | pending | Currently a stub `popup.html`. |
+| ESLint allowlist refactor + circular-dep extraction | **B-053** | pending | Flip denylist → allowlist (only `background/**` may reach `background/storage/**`); resolve the circular `partitions.js` ↔ `write-transaction.js` import that `jsconfig.json` currently papers over. |
+
+---
+
+## 10.5 LiveTabIndex & TabClaims Architecture (B-001c)
+
+### LiveTabIndex
+
+- **Location:** `background/tabs/live-tab-index.js`, SW-memory only.
+- **Shape:** `Map<number, {url: string, windowId: number, active: boolean, audible: boolean}>`.
+- **Population:** `buildLiveTabIndex()` calls `chrome.tabs.query({})` once on cold start and clears + repopulates the map. The call is made at module scope via `initializeLiveState()` which runs `buildLiveTabIndex()` and `readyPromise.then(listItems)` concurrently (M2 optimization — migration and index build overlap).
+- **Mutation:** `updateTabEntry(tabId, patch)` merges a partial patch; `removeTabEntry(tabId)` deletes; `removeTabsByWindow(windowId)` batch-deletes and returns removed tabIds.
+- **Invariant:** never written to `chrome.storage.local` (AC4). Tab event handlers are the sole mutators after cold start.
+
+### TabClaims
+
+- **Location:** `background/tabs/tab-claims.js`.
+- **Persistence:** `chrome.storage.session` under key `tj:tabClaims`, cleared by Chrome on browser restart (AC8). An in-memory `claimsMirror` record is maintained for synchronous reads by `buildLiveStates`.
+- **Shape:** `Record<string, number>` — itemId → tabId.
+- **Invariant:** no two claims share the same tabId (AC3).
+
+### Claim lifecycle
+
+1. **Cold start — reconcile:** `reconcileClaims(items)` loads existing session claims, validates each against LiveTabIndex (tabId still live, URL still matches after normalization), discards stale claims, then assigns unclaimed items to unclaimed tabs in ascending `sortOrder` (first-unclaimed-wins). Final state is written back to `storage.session` atomically.
+2. **Tab closed — release:** `chrome.tabs.onRemoved` → `releaseClaimByTab(tabId)` → removes the entry from `claimsMirror` and writes back to `storage.session`.
+3. **URL change — reevaluate:** `chrome.tabs.onUpdated` (URL change) → per-tab 100ms debounce → `reevaluateTab(tabId, newUrl, items)` — releases stale claim if URL no longer matches, re-assigns to a matching unclaimed item if the new URL matches one.
+4. **Window closed — batch release:** `chrome.windows.onRemoved` → `removeTabsByWindow(windowId)` → `releaseClaimByTab` for each removed tabId. Early return if `isClaimsReady()` is false (M4 — reconcile handles it).
+
+### Event handlers registered in tab-events.js
+
+| Event | LiveTabIndex mutation | Claims mutation | storage.local writes |
+|---|---|---|---|
+| `chrome.tabs.onUpdated` | `updateTabEntry` | `reevaluateTab` (debounced 100ms) via `storage.session` | **none** |
+| `chrome.tabs.onActivated` | deactivate prev tab in window; `updateTabEntry` active=true | none | **none** |
+| `chrome.tabs.onRemoved` | `removeTabEntry` | `releaseClaimByTab` via `storage.session` | **none** |
+| `chrome.windows.onRemoved` | `removeTabsByWindow` | batch `releaseClaimByTab` via `storage.session` | **none** |
+
+**MV3 registration requirement:** `registerTabEventListeners(readyPromise)` must be called synchronously at module scope in `service-worker.js` before the first `await`. It only calls `chrome.*.addListener` synchronously; async work (claims reevaluation) is deferred inside the handlers via promises.
+
+### Read-time merge — buildLiveStates
+
+`buildLiveStates(items)` in `tab-claims.js` is a pure synchronous function. It walks `claimsMirror` and `liveTabIndex` to produce `Record<itemId, {live, active, audible}>`. If `isClaimsReady()` is false (before the first reconcile completes), it returns all-false defaults. Called by the `MSG_LIST_ITEMS` handler in `storage-handlers.js` to enrich the response without any storage read.
+
+### URL normalization
+
+`normalizeForMatch(url)` strips fragment (`#…`), lowercases hostname, and removes trailing slash (path-only URLs without a query string) before comparison. This prevents fragment-only variations and case differences from preventing claim matches.
+
+---
+
+## 10.6 Migration Runner Architecture (B-001b)
+
+### Core constants and registry
+
+- **`KNOWN_VERSION`** (`migration.js`): the schema version the current codebase understands. Currently `1`. Bump alongside each new entry in `MIGRATION_STEPS`.
+- **`MIGRATION_STEPS`**: ordered array of `{ fromVersion, toVersion, migrate(snapshot) }` objects. Currently empty (no migration from v1 to v2 has been written). A static assertion at module load time verifies the array forms a contiguous chain (`step[i].toVersion === step[i+1].fromVersion`); broken chains throw immediately (F2).
+- **`migrate(snapshot)`**: receives a deep-cloned JSON snapshot (F6 — prevents prototype pollution), returns the mutated snapshot.
+
+### runMigrations() flow
+
+```
+runMigrations():
+  1. initializePartitions()               // idempotent, writes defaults via writeTransaction
+  2. readPartition(PARTITION_META)        // read tj:meta
+  3. Validate stored.schemaVersion (type, finite, >= 1) → reject ERR_CORRUPT_DATA if bad
+  4. stored > KNOWN_VERSION  → set safeMode = true, continue (resolve, not reject)
+  5. stored < KNOWN_VERSION  → collect steps, run in single writeTransaction
+                                (scaffold: wraps only PARTITION_META — F3)
+                                → reject ERR_TX_CONFLICT if step throws
+  6. migrateLegacyKeys()                  // best-effort, non-blocking on failure
+  7. evaluateQuota()                      // set quotaWarning, quotaBytesInUse, quotaBytesTotal
+```
+
+### Safe-mode behaviour
+
+- `isSafeMode()` returns `true` when `stored.schemaVersion > KNOWN_VERSION`.
+- `readyPromise` **resolves** (not rejects) in safe mode so reads remain available.
+- All write message types return `ERR_SAFE_MODE` from the gate in `storage-handlers.js`.
+- Safe-mode is reset on SW restart (module-level state); if the extension is updated, the new `KNOWN_VERSION` will match or exceed the stored version, lifting safe mode.
+
+### Quota monitor
+
+`evaluateQuota()` runs after every migration (and is also called indirectly after writes via `writeTransaction`'s `lastQuotaSample`):
+
+1. Read `chrome.storage.local.QUOTA_BYTES` (default 5 MiB if unavailable).
+2. Call `_peekQuotaSample()` from `write-transaction.js` for the cached post-write byte count.
+3. On first cold start (no writes yet), fall back to `chrome.storage.local.getBytesInUse(null)` (M2).
+4. Set `quotaWarning = (bytesInUse / total) >= 0.80`.
+5. All quota fields are exposed via `MSG_GET_STATUS` / `getSystemStatus()`.
+
+### Legacy key cleanup (migrateLegacyKeys)
+
+- Only fetches the four known keys: `junkie_bookmarks`, `junkie_groups`, `junkie_pinned_tabs`, `junkie_preferences` (M4 — no wildcard scan).
+- Shape-maps `junkie_bookmarks` entries to `Item` objects: fresh ULIDs, null groupId, sortOrder 0, URL validated through the same scheme-allowlist + length check as `createItem` (F5 — invalid entries silently discarded per AC7).
+- Appended to `tj:items` via `writeTransaction`.
+- All legacy keys removed via `chrome.storage.local.remove(legacyKeys)` — acceptable because these are foreign keys, not `tj:*` partitions (the single-writer invariant applies only to `tj:*` keys).
+- Best-effort: failure logs a warning but does not reject `readyPromise`.
+
+### Known scaffold limitation
+
+The current migration runner wraps steps in a `writeTransaction` that only touches `PARTITION_META` (F3). This is adequate for v1 (no steps defined yet). When a real migration step needs to atomically mutate multiple partitions, the `ops` array passed to `writeTransaction` must be extended to include all touched partitions within the same call. This is documented inline in `migration.js` and must be addressed before any multi-partition migration step is added.
 
 ---
 
@@ -506,38 +653,86 @@ shipped code is captured here.
 
 ---
 
+### B-001b Deviations and Rulings
+
+#### R4 fixes landed during B-001b build
+
+- **F2 — Static migration chain assertion.** The R2 design doc implied the runner would detect a broken step registry at runtime during migration execution. Shipped code validates the chain at module load time (static assertion in `migration.js` module scope) so a misconfigured registry fails immediately and loudly on SW cold start rather than during a user-triggered migration path.
+
+- **F3 — Multi-partition atomicity scaffold documented, not implemented.** The R2 design spec called for "atomic multi-partition migration steps". The shipped runner wraps steps in a `writeTransaction` that currently covers only `PARTITION_META`. This is correct for v1 (no steps exist yet). The limitation is documented inline (see §10.6). Multi-partition step support must be added before any step that mutates data partitions.
+
+- **F5 — Legacy import URL validation mirrors createItem.** R2 AC7 said "copy recoverable data or discard if shape is unrecognisable." Shipped code applies the same URL scheme-allowlist + length check used by `createItem` to each legacy bookmark before import. Invalid URLs are silently discarded. This is stricter than R2's unspecified "shape check" but correct per the storage boundary's XSS prophylaxis invariant (§8).
+
+- **F6 — Deep-clone before passing snapshot to step.migrate().** Not specified in R2. Added as a defensive measure against prototype pollution from a malformed migration step modifying the live snapshot object while the runner is iterating.
+
+#### B-001b Rulings
+
+- **Ruling B1b-1 — `MSG_GET_STATUS` bypasses `readyPromise` gate.** The R2 plan did not specify the ordering between the gate and the status query. Ruled: `MSG_GET_STATUS` is handled before the gate so callers can observe migration progress/failure without being blocked by `ERR_NOT_READY`. Consistent with the purpose of the status endpoint.
+
+- **Ruling B1b-2 — `evaluateQuota` falls back to `getBytesInUse` on first cold start.** `_peekQuotaSample()` returns null on first cold start because no write has run yet. Rather than skipping the quota check entirely, the runner does a one-time direct `chrome.storage.local.getBytesInUse(null)` call. This is best-effort; failure leaves `quotaBytesInUse` at 0 (no warning).
+
+- **Ruling B1b-3 — `migrateLegacyKeys` uses known-key allowlist, not wildcard.** R2 said "remove all `junkie_*` keys". Shipped code only fetches and removes the four specific known keys (`KNOWN_LEGACY_KEYS`). This avoids unintended removal of user data stored under unexpected `junkie_*` keys by a third-party or future code.
+
+---
+
+### B-001c Deviations and Rulings
+
+#### R4 fixes landed during B-001c build
+
+- **H1 — `onUpdated` guard: only reevaluate on non-empty URL string.** R2 did not specify the filter. Chrome fires `onUpdated` with `changeInfo.url` set to empty string in some loading states. Shipped code checks `typeof changeInfo.url === 'string' && changeInfo.url !== ''` before scheduling a reevaluate debounce.
+
+- **H2 — Per-tab 100ms debounce on `reevaluateTab`.** R2 implied immediate reevaluation on each `onUpdated` URL change. Rapid redirects (HTTP → HTTPS, SPA client-side routing) can fire multiple `onUpdated` events in quick succession. The debounce collapses these into a single evaluation, reducing spurious claim churn.
+
+- **H3 — `isClaimsReady()` guard in `buildLiveStates`.** R2 did not specify behavior when `buildLiveStates` is called before `reconcileClaims` has completed. Shipped code returns explicit `{ live: false, active: false, audible: false }` defaults for all items when `claimsReady === false`, rather than returning stale or partial state.
+
+- **M2 — `buildLiveTabIndex` and `readyPromise.then(listItems)` run concurrently in `initializeLiveState`.** R2 implied sequential init (index first, then claims). Shipped code uses `Promise.all` to overlap the `tabs.query` call with the storage migration so cold-start latency is minimized.
+
+- **M3 — Explicit `hostname.toLowerCase()` in `normalizeForMatch`.** The `URL` constructor normalizes hostnames to lowercase per spec, but the explicit assignment was added defensively in case a non-standard environment or future spec change affects this.
+
+- **M4 — `windows.onRemoved` early return when claims not yet ready.** R2 did not specify this guard. If `onRemoved` fires before `reconcileClaims` completes (edge case on very fast window close during startup), the handler short-circuits — `reconcileClaims` will handle all cleanup when it runs.
+
+- **M5 — Warning when `reconcileClaims` is called with 0 items but stored claims exist.** Defensive log added to catch misconfigured call sites. Does not block or alter behavior.
+
+#### B-001c Rulings
+
+- **Ruling B1c-1 — `windowId` captured in LiveTabIndex entry.** R0 design spec shape was `Map<tabId, {url, active, audible}>`. Shipped shape is `Map<tabId, {url, windowId, active, audible}>`. `windowId` is required for `windows.onRemoved` batch cleanup and for `onActivated` deactivation of the previous tab in the same window. Backward-compatible addition.
+
+- **Ruling B1c-2 — `buildLiveTabIndex` + `listItems` run concurrently rather than sequentially.** Correct because `buildLiveTabIndex` reads from `chrome.tabs` (independent of storage) and `readyPromise.then(listItems)` reads from storage. The two can safely overlap.
+
+- **Ruling B1c-3 — `chrome.storage.local.remove` is the allowed exception for legacy keys; `chrome.storage.session.set` is the allowed exception for TabClaims.** The single-writer invariant (`writeTransaction` is the sole path to `chrome.storage.local.set`) is not violated by either: legacy key removal operates on foreign `junkie_*` keys (not `tj:*` partitions), and TabClaims live in `storage.session`, a separate storage area not governed by the `writeTransaction` serializer.
+
+---
+
 ## 12. Rollback Plan
 
 ### What can go wrong and how to recover
 
-Storage schema version field is written (`tj:meta.schemaVersion = 1`) but
-not yet read. Until B-001b lands a migration runner, there is no **versioned**
-rollback path. The current options are:
+1. **Revert B-001b or B-001c as a code change.** `git revert` the relevant commits on `feature/rebuild-from-prd`. Any `tj:*` partitions already written remain on-disk and are re-read normally by the earlier code (B-001a storage layer is unchanged). `tj:tabClaims` in `storage.session` is ephemeral and is cleared on browser restart; no residue risk.
 
-1. **Revert B-001a as a code change.** `git revert` the R3 build commits on
-   `feature/rebuild-from-prd`. Any `tj:*` partitions already written to
-   `chrome.storage.local` in the field remain on-disk but become unreachable
-   (no reader). They will be cleaned up when the next schema version of the
-   extension either migrates them (B-001b) or ignores them. Pre-existing
-   `junkie_*` keys from legacy code coexist harmlessly under either outcome.
-2. **Regression in a specific write path.** Disable the extension and debug
-   via unpacked-mode reload. No remote kill-switch exists (by design — per
-   R0 the extension is local-only; no telemetry or remote config).
-3. **Corrupt partition in the field.** `ERR_CORRUPT_DATA` is scoped per
-   partition (AC8); the other five remain usable. B-001b will add an
-   export-and-reset UX; until then, recovery is manual via DevTools.
-4. **Quota exhaustion in the field.** `ERR_QUOTA_EXCEEDED` bubbles from
-   `writeTransaction`. B-001b owns the warning UX; short-term mitigation
-   is to delete items from a working installation.
+2. **Regression in a specific write path.** Disable the extension and debug via unpacked-mode reload. No remote kill-switch exists (by design — the extension is local-only).
 
-### What B-001a does NOT protect against
+3. **Corrupt partition in the field.** `ERR_CORRUPT_DATA` is scoped per partition (AC8); the other five remain usable. Export-and-reset UX is deferred to the sidepanel item (B-022); until then, recovery is manual via DevTools.
 
-- Cross-version downgrade (reader sees a `schemaVersion` it doesn't
-  recognize). **B-001b's read-only safe-mode** will cover this.
-- Partial writes across multiple storage APIs — not applicable; every
-  write is a single `chrome.storage.local.set`.
-- Loss of ephemeral state (`LiveTabIndex`, `TabClaims`) — not applicable;
-  those surfaces don't ship until B-001c.
+4. **Quota exhaustion in the field.** `ERR_QUOTA_EXCEEDED` bubbles from `writeTransaction`. The `quotaWarning` flag is now surfaced via `MSG_GET_STATUS`; quota warning UX banner is deferred to B-022. Short-term mitigation: delete items from a working installation.
+
+5. **Migration failure (`ERR_TX_CONFLICT` from a migration step).** `readyPromise` rejects; all write messages return `ERR_NOT_READY`. The on-disk `tj:meta.schemaVersion` is left at its pre-migration value (the failing `writeTransaction` aborts atomically). The correct fix is to patch the migration step and reload the extension.
+
+6. **Corrupt `tj:meta.schemaVersion`.** `readyPromise` rejects with `ERR_CORRUPT_DATA`. Recovery requires manual DevTools correction of `tj:meta` in `chrome.storage.local`.
+
+### B-001b-specific: safe-mode protects against schema downgrades
+
+If a user is running a newer extension version that bumped `KNOWN_VERSION` to N, then downgrades to the current codebase (KNOWN_VERSION = 1):
+
+- `stored.schemaVersion = N > 1` → `isSafeMode()` returns `true`.
+- `readyPromise` resolves (not rejects) — reads still work.
+- All write operations return `ERR_SAFE_MODE` until the user upgrades again.
+- No data is written under a schema the current code does not understand. On-disk data from the newer version is preserved intact for when the user re-upgrades.
+
+### What B-001a/b/c do NOT protect against
+
+- Partial writes across multiple storage APIs — not applicable; every `tj:*` write is a single `chrome.storage.local.set`.
+- Loss of `LiveTabIndex` on SW restart — by design (ephemeral, rebuilt on next cold start from `chrome.tabs.query`).
+- Loss of `TabClaims` on browser restart — by design (`storage.session` is cleared by Chrome; cold-start reconcile re-establishes claims).
 
 ---
 

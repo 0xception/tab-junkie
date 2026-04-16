@@ -4,6 +4,38 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.1.0 — Data Layer Completion (2026-04-15)
+
+### What's new
+- **Schema migration runner** — forward-only migration pipeline with `readyPromise` barrier; schema version tracked in `tj:meta.schemaVersion`; migrations execute atomically within `writeTransaction`
+- **Downgrade safe-mode** — when the extension detects a newer schema version than it knows, all writes are blocked (`ERR_SAFE_MODE`); reads continue working; detectable via `MSG_GET_STATUS`
+- **Quota monitoring** — 80% storage quota warning surfaced via `MSG_GET_STATUS` response
+- **Legacy key migration** — `junkie_*` keys from v1 are shape-mapped to Items (best-effort) and removed on first startup
+- **Live tab tracking** — in-memory `LiveTabIndex` rebuilt from `chrome.tabs.query` on every cold start; tracks `live`, `active`, `audible` per tab without any `storage.local` writes
+- **Tab-claims disambiguation** — `TabClaims` in `storage.session` maps each saved item to a specific live tab; handles multiple items sharing one URL via first-unclaimed-wins in sort order
+- **Enriched MSG_LIST_ITEMS** — response now includes `liveStates` map alongside items, providing real-time live/active/audible state per item at read time
+
+### Internal
+- New: `background/storage/migration.js` (~255 LoC)
+- New: `background/tabs/` (4 modules, ~433 LoC)
+- `ERR_SAFE_MODE` + `MSG_GET_STATUS` added to contracts
+- Per-tab debounce on URL-change reevaluation (100ms, prevents claim races)
+- `claimsReady` flag prevents stale reads before cold-start reconciliation completes
+- Test suite: 81 automated tests, all passing (47 new)
+- SOLUTION_DESIGN.md updated to v1.2
+
+### Known limitations
+- No UI: sidepanel, newtab, and popup are still empty stubs
+- No drift tracking or floating-tab re-association (B-001d)
+- Migration runner scaffold limited to single-partition atomicity (refactor needed for first real step)
+- UAT skipped for this release (data-layer only)
+
+### Test results
+- Automated: 81/81 passing
+- UAT: skipped
+
+---
+
 ## v1.0.0 — Foundation Storage Layer (2026-04-15)
 
 ### What's new

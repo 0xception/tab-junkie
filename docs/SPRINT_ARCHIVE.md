@@ -39,4 +39,35 @@ Historical completed sprint items. Appended by [scrum-master] at the close of ea
 **Action Items Applied:**
 - [x] Added C-5 to R2 Correctness Checklist in CLAUDE.md (manifest file references)
 - [x] Added "Build & Load" section to CLAUDE.md (no compile step, no dist/)
-- [ ] Ensure R4 reviewers launched in single parallel message (process discipline, not a code change)
+- [x] Ensure R4 reviewers launched in single parallel message (done in Sprint 2)
+
+---
+
+## Sprint 2 — Data Layer Completion (2026-04-15)
+
+**Theme:** Complete the non-UI data layer — migration runner + live tab tracking.
+**Release:** v1.1.0
+
+### Completed Items
+
+#### [B-001b] Schema version + migration runner + safe-mode — ✅ DONE
+- **Tier**: Full (M) · **Closed**: 2026-04-15
+- **Pipeline**: R1–R6 ✅ · R4 findings: C=1 H=5 M=5 L=4 (all C+H fixed) · R5: 60/60 · UAT skipped · R7 skipped
+- **Files**: `background/storage/migration.js` (new) + mods to SW, handlers, errors, index, messages
+- **Tests**: 9 files, 26 tests
+
+#### [B-001c] LiveTabIndex + TabClaims disambiguation — ✅ DONE
+- **Tier**: Full (M) · **Closed**: 2026-04-15
+- **Pipeline**: R1–R6 ✅ · R4 findings: C=0 H=3 M=5 L=6 (all H fixed) · R5: 81/81 · UAT skipped · R7 skipped
+- **Files**: `background/tabs/` (4 new files) + mods to SW, handlers, messages
+- **Tests**: 10 files, 21 tests
+
+### Velocity
+- Planned: 2 items / 2M parallel
+- Completed: 2 items / 2M
+- Carried over: 0
+
+### Retrospective
+**Went Well:** parallel pipeline worked without merge conflicts; all 6 R4 reviewers batched in single message; zero B-001a regressions.
+**To Improve:** UAT skipped; R4 finding volume high (R2 could be more defensive); migration multi-partition scaffold is a known limitation.
+**Action Items:** don't skip UAT for UI work; refactor writeTransaction ops when first real migration lands.

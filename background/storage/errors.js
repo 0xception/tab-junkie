@@ -20,6 +20,7 @@ export const ERR_ID_COLLISION = 'ERR_ID_COLLISION';
 export const ERR_QUOTA_EXCEEDED = 'ERR_QUOTA_EXCEEDED';
 export const ERR_VALIDATION = 'ERR_VALIDATION';
 export const ERR_TX_CONFLICT = 'ERR_TX_CONFLICT';
+export const ERR_SAFE_MODE = 'ERR_SAFE_MODE';
 
 export class StorageError extends Error {
   /**

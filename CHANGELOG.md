@@ -2,6 +2,21 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.1.0] — 2026-04-15
+
+### Added
+- Schema migration runner with forward-only step pipeline and `readyPromise` barrier
+- Read-only safe-mode on schema downgrade (`ERR_SAFE_MODE`)
+- `MSG_GET_STATUS` message type for system health queries (bypasses ready gate)
+- Quota monitoring at 80% threshold via `MSG_GET_STATUS`
+- Legacy `junkie_*` key migration (best-effort shape-map + cleanup)
+- In-memory `LiveTabIndex` rebuilt from `chrome.tabs.query` on cold start
+- `TabClaims` disambiguation table in `storage.session` (itemId → tabId)
+- Enriched `MSG_LIST_ITEMS` response: `{ items, liveStates }` with live/active/audible per item
+- Per-tab debounce (100ms) on URL-change claim reevaluation
+- `claimsReady` flag preventing stale live-state reads before cold-start reconciliation
+- 47 new automated tests (81 total)
+
 ## [1.0.0] — 2026-04-15
 
 ### Added

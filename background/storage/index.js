@@ -42,6 +42,7 @@ export {
   ERR_QUOTA_EXCEEDED,
   ERR_VALIDATION,
   ERR_TX_CONFLICT,
+  ERR_SAFE_MODE,
 } from './errors.js';
 export {
   initializePartitions,
@@ -53,3 +54,4 @@ export {
   PARTITION_DRIFT,
   PARTITION_FLOATING_GROUPS,
 } from './partitions.js';
+export { KNOWN_VERSION, getSystemStatus } from './migration.js';

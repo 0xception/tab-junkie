@@ -25,11 +25,24 @@ export const MSG_GET_GROUP = 'tj/getGroup';
 export const MSG_GET_PREFERENCES = 'tj/getPreferences';
 export const MSG_SET_PREFERENCES = 'tj/setPreferences';
 
+// ---- System status ----
+export const MSG_GET_STATUS = 'tj/getStatus';
+
 /**
  * @typedef {Object} MessageRequest
  * @property {string} type       // one of the MSG_* constants
  * @property {Object} [payload]  // shape depends on `type`
  * @property {string} [requestId]
+ */
+
+/**
+ * @typedef {Object} ListItemsResponse
+ * @property {Array<Object>} items        The stored items (optionally filtered by groupId)
+ * @property {Record<string, {live: boolean, active: boolean, audible: boolean}>} liveStates
+ *   Per-item live state derived from LiveTabIndex + TabClaims. Items with no
+ *   claim have `{ live: false, active: false, audible: false }`. No live-state
+ *   field is stored on the Item object in `tj:items` — this is computed at
+ *   read time (B-001c AC9).
  */
 
 /**
