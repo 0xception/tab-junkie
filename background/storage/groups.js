@@ -19,6 +19,7 @@ import {
   MAX_COLOR,
   readPartition,
 } from './partitions.js';
+import { GROUP_COLORS } from '../../shared/constants.js';
 import { writeTransaction } from './write-transaction.js';
 import { ulid } from './ids.js';
 
@@ -26,6 +27,19 @@ import { ulid } from './ids.js';
 // Tab Junkie allows at most one level of nesting: a group with parentId=null
 // is "top-level"; a group whose parentId points at a top-level group is at
 // depth 1. Any parentId that would land the group at depth >= 2 is rejected.
+
+/** Shared palette validation — used by both create and update validators. */
+function assertValidColor(color) {
+  if (typeof color !== 'string' || color.length === 0) {
+    throw new StorageError(ERR_VALIDATION, 'color must be a non-empty string');
+  }
+  if (color.length > MAX_COLOR) {
+    throw new StorageError(ERR_VALIDATION, `color exceeds ${MAX_COLOR} chars`);
+  }
+  if (!GROUP_COLORS.includes(color)) {
+    throw new StorageError(ERR_VALIDATION, `color must be one of: ${GROUP_COLORS.join(', ')}`);
+  }
+}
 
 function findGroup(groups, id) {
   return groups.find((g) => g.id === id) ?? null;
@@ -81,12 +95,7 @@ function validateNewGroup(input) {
   if (name.length > MAX_NAME) {
     throw new StorageError(ERR_VALIDATION, `createGroup: name exceeds ${MAX_NAME} chars`);
   }
-  if (typeof color !== 'string' || color.length === 0) {
-    throw new StorageError(ERR_VALIDATION, 'createGroup: color must be non-empty string');
-  }
-  if (color.length > MAX_COLOR) {
-    throw new StorageError(ERR_VALIDATION, `createGroup: color exceeds ${MAX_COLOR} chars`);
-  }
+  assertValidColor(color);
   if (parentId !== null && parentId !== undefined && typeof parentId !== 'string') {
     throw new StorageError(ERR_VALIDATION, 'createGroup: parentId must be string or null');
   }
@@ -118,12 +127,7 @@ function validateGroupPatch(patch) {
     }
   }
   if ('color' in patch) {
-    if (typeof patch.color !== 'string' || patch.color.length === 0) {
-      throw new StorageError(ERR_VALIDATION, 'updateGroup: color must be non-empty string');
-    }
-    if (patch.color.length > MAX_COLOR) {
-      throw new StorageError(ERR_VALIDATION, `updateGroup: color exceeds ${MAX_COLOR} chars`);
-    }
+    assertValidColor(patch.color);
   }
 }
 
@@ -144,7 +148,10 @@ export async function createGroup(input) {
         // not yet in the list so no cycle is possible, only depth needs to
         // be verified.
         assertDepthAndCycle(groups, '__new__', parentId);
-        created = {
+        const hasDuplicateName = groups.some(
+          (g) => g.name === input.name && g.parentId === parentId,
+        );
+        const stored = {
           id: ulid(),
           name: input.name,
           color: input.color,
@@ -154,7 +161,10 @@ export async function createGroup(input) {
           createdAt: now,
           updatedAt: now,
         };
-        return [...groups, created];
+        // `stored` is persisted; `created` may carry a `warning` that is
+        // returned to the caller but NOT written to storage.
+        created = hasDuplicateName ? { ...stored, warning: 'DUPLICATE_NAME' } : stored;
+        return [...groups, stored];
       },
     },
   ]);
@@ -195,16 +205,23 @@ export async function updateGroup(id, patch) {
             }
           }
         }
-        const next = {
+        const stored = {
           ...groups[idx],
           ...patch,
           id: groups[idx].id,
           createdAt: groups[idx].createdAt,
           updatedAt: Date.now(),
         };
-        updated = next;
+        const newName = stored.name;
+        const newParentId = stored.parentId;
+        const hasDuplicateName = groups.some(
+          (g) => g.id !== id && g.name === newName && g.parentId === newParentId,
+        );
+        // `stored` is persisted; `updated` may carry a `warning` that is
+        // returned to the caller but NOT written to storage.
+        updated = hasDuplicateName ? { ...stored, warning: 'DUPLICATE_NAME' } : stored;
         const out = groups.slice();
-        out[idx] = next;
+        out[idx] = stored;
         return out;
       },
     },

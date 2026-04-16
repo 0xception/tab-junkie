@@ -100,3 +100,22 @@ Historical completed sprint items. Appended by [scrum-master] at the close of ea
 **Went Well:** B-001 family fully shipped across 3 sprints; Fast Track worked for B-002; R4 caught critical import violation.
 **To Improve:** R4 reviewers still not always batched in single message; shared→background import direction needs lint rule.
 **Action Items:** add ESLint rule preventing shared/ from importing background/.
+
+---
+
+## Sprint 4 — Phase A Features (2026-04-15)
+
+**Theme:** Group palette enforcement + promote/demote operations.
+**Release:** v1.3.0
+
+### Completed Items
+- **B-006** (Full M) — Group palette enforcement (9 colors) + duplicate-name warning. 35 tests.
+- **B-016** (Fast Track S) — MSG_PROMOTE_TAB handler. Duplicate-URL detection, scheme filtering, immediate claim. 11 tests.
+- **B-017** (Fast Track S) — MSG_DEMOTE_ITEM handler. Preserves live tab, saves floating-group position, clears drift. 14 tests.
+
+### Velocity
+- Planned: 1M + 2S · Completed: 3 items · Carried over: 0
+
+### Retrospective
+**Went Well:** First Phase A sprint; Fast Track efficient for promote/demote; R4 caught 2 promote blockers.
+**To Improve:** Backlog dep graph has aspirational deps (B-016→B-003) that aren't real blockers — clean up.

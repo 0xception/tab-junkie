@@ -17,6 +17,7 @@ export {
   ERR_VALIDATION,
   ERR_TX_CONFLICT,
   ERR_SAFE_MODE,
+  ERR_DUPLICATE_URL,
   StorageError,
   isQuotaError,
 } from '../../shared/errors.js';

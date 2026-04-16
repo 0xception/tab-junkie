@@ -2,6 +2,18 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.3.0] — 2026-04-15
+
+### Added
+- Group color palette enforcement: 9 semantic colors (blue, purple, teal, red, orange, pink, indigo, yellow, slate)
+- Duplicate-name warning on group create/edit (non-blocking, same-parentId scope)
+- `MSG_PROMOTE_TAB` — save a live tab as a persistent bookmark with optional group
+- `MSG_DEMOTE_ITEM` — remove saved status while keeping the live tab open
+- `ERR_DUPLICATE_URL` error code for promote-duplicate detection
+- `shared/constants.js` — GROUP_COLORS allowlist
+- `shared/errors.js` now canonical home for all error constants
+- 60 new automated tests (179 total)
+
 ## [1.2.0] — 2026-04-15
 
 ### Added

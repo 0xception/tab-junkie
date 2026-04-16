@@ -7,7 +7,7 @@
 ## Progress Dashboard
 
 ```
-Overall Progress    █░░░░░░░░░░░░░░░░░░░  9% (5/56)
+Overall Progress    ██░░░░░░░░░░░░░░░░░░  14% (8/56)
 ```
 
 ### Legend
@@ -38,7 +38,7 @@ Overall Progress    █░░░░░░░░░░░░░░░░░░░
 ⬜ B-003 — Save / edit / delete saved bookmarks · 🔴 · L
 ⬜ B-004 — Favicon auto-capture + letter-avatar fallback · 🟠 · S
 ⬜ B-005 — Bulk-create saved items (import primitive) · 🟠 · M
-⬜ B-006 — Create / edit / delete groups with color palette · 🔴 · M
+✅ B-006 — Create / edit / delete groups with color palette · 🔴 · M
 ⬜ B-007 — Sub-group nesting (depth = 1) · 🟠 · M
 ⬜ B-008 — Group reorder & collapse / expand persistence · 🟠 · M
 ⬜ B-009 — Drag-to-expand collapsed group · 🟡 · S
@@ -48,8 +48,8 @@ Overall Progress    █░░░░░░░░░░░░░░░░░░░
 ⬜ B-013 — Opener-chain group inheritance for new tabs · 🟠 · M
 ⬜ B-014 — Multi-window awareness & window badge · 🟠 · M
 ⬜ B-015 — Tab-tracking cleanup on close · 🟠 · S
-⬜ B-016 — Promote live tab to saved bookmark · 🔴 · S
-⬜ B-017 — Demote saved bookmark (preserve live tab) · 🔴 · S
+✅ B-016 — Promote live tab to saved bookmark · 🔴 · S
+✅ B-017 — Demote saved bookmark (preserve live tab) · 🔴 · S
 ⬜ B-018 — Floating tab group persistence across restart · 🔴 · M
 ⬜ B-019 — Click-to-navigate with tab reuse & window focus · 🔴 · S
 ⬜ B-020 — Close tab from UI (individual + bulk) · 🔴 · S
@@ -102,7 +102,7 @@ Overall Progress    █░░░░░░░░░░░░░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 5 | 9% |
+| ✅ Done | 8 | 14% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 51 | 91% |
+| ⬜ To Do | 48 | 86% |
 | 🧊 Icebox | 0 | 0% |

@@ -4,6 +4,27 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.3.0 — Phase A Features (2026-04-15)
+
+### What's new
+- **Group palette enforcement** — 9 semantic colors validated at create/edit time
+- **Duplicate-name warning** — non-blocking soft warning when creating groups with conflicting names at the same level
+- **Promote tab → bookmark** — `MSG_PROMOTE_TAB` saves a live tab as a persistent item with immediate claim, duplicate-URL detection, and scheme filtering
+- **Demote bookmark → floating tab** — `MSG_DEMOTE_ITEM` removes saved status while preserving the live tab, saving floating-group position for cold-start re-association
+
+### Internal
+- `shared/constants.js` with frozen GROUP_COLORS palette
+- `ERR_DUPLICATE_URL` error code
+- 15 message types in contract (up from 13)
+- 60 new tests (179 total), all passing
+- SOLUTION_DESIGN.md v1.4
+
+### Test results
+- Automated: 179/179 passing
+- UAT: skipped (data-layer only)
+
+---
+
 ## v1.2.0 — Foundation Complete + URL Normalization (2026-04-15)
 
 ### What's new

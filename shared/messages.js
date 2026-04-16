@@ -28,6 +28,12 @@ export const MSG_SET_PREFERENCES = 'tj/setPreferences';
 // ---- System status ----
 export const MSG_GET_STATUS = 'tj/getStatus';
 
+// ---- Tab promotion ----
+export const MSG_PROMOTE_TAB = 'tj/promoteTab';
+
+// ---- Tab demotion ----
+export const MSG_DEMOTE_ITEM = 'tj/demoteItem';
+
 /**
  * @typedef {Object} MessageRequest
  * @property {string} type       // one of the MSG_* constants
@@ -43,6 +49,17 @@ export const MSG_GET_STATUS = 'tj/getStatus';
  *   claim have `{ live: false, active: false, audible: false }`. No live-state
  *   field is stored on the Item object in `tj:items` — this is computed at
  *   read time (B-001c AC9).
+ */
+
+/**
+ * Response shape for MSG_CREATE_GROUP and MSG_UPDATE_GROUP.
+ * The group is always created/updated regardless of the warning.
+ * `warning` is present only when a sibling group at the same parentId level
+ * already has the same name (case-sensitive comparison).
+ *
+ * @typedef {Object} CreateGroupResponse
+ * @property {import('../background/storage/partitions.js').Group} group  The created/updated group
+ * @property {'DUPLICATE_NAME'} [warning]  Present when a name collision exists at the same parentId level
  */
 
 /**

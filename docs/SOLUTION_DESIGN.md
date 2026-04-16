@@ -1,9 +1,9 @@
 # Tab Junkie — Solution Design
 
-**Version:** 1.3
+**Version:** 1.4
 **Date:** 2026-04-15
 **Owner:** [solution-architect]
-**Status:** Active — B-001d + B-002 landed.
+**Status:** Active — B-001d + B-002 + B-006 + B-016 + B-017 landed.
 
 > This document is the current source of truth for what has actually shipped.
 > For the R2 *plan* (pre-build design) see `docs/design/B-001a.md`; deviations
@@ -13,7 +13,7 @@
 
 ## 1. Project Structure
 
-Current build-relevant layout on `feature/rebuild-from-prd` (paths shipped through B-001d + B-002):
+Current build-relevant layout on `feature/rebuild-from-prd` (paths shipped through B-001d + B-002 + B-006 + B-016 + B-017):
 
 ```
 junkie/
@@ -42,7 +42,8 @@ junkie/
 │       ├── drift.js                       Drift write/clear logic; driftedToUrl normalized via shared/url.js; fragment stripped before storage (B-001d)
 │       └── floating-groups.js             Floating-group re-association: position-match → URL-fallback → retain unresolved (B-002)
 ├── shared/
-│   ├── messages.js                        MSG_* constants (13 total, incl. MSG_GET_STATUS) + envelope typedefs incl. ListItemsResponse (NO storage logic)
+│   ├── messages.js                        MSG_* constants (15 total, incl. MSG_GET_STATUS, MSG_PROMOTE_TAB, MSG_DEMOTE_ITEM) + envelope typedefs incl. ListItemsResponse (NO storage logic)
+│   ├── constants.js                       GROUP_COLORS — 9-color allowlist palette for group color values (B-006)
 │   ├── url.js                             URL normalization — normalizeUrl(url, mode) with forStorage/forMatch modes; scheme allowlist; protocol defaulting; hostname lowercasing (B-001d)
 │   └── errors.js                          Canonical home for StorageError + ERR_* constants (moved from background/storage/errors.js, which now re-exports from here) (B-001d)
 ├── sidepanel/
@@ -116,7 +117,7 @@ The B-001a stub that only awaited `initializePartitions()` is replaced. See §4 
  * @typedef {Object} Group
  * @property {string}      id         ULID
  * @property {string}      name       1..MAX_NAME, whitespace-only rejected
- * @property {string}      color      1..MAX_COLOR (theme token string)
+ * @property {string}      color      must be a value in GROUP_COLORS (9-color allowlist from shared/constants.js; B-006)
  * @property {string|null} parentId   null = top-level; max depth = 1
  * @property {number}      sortOrder  finite
  * @property {boolean}     collapsed  UI flag
@@ -241,7 +242,7 @@ When `isSafeMode()` returns `true` (stored schemaVersion > KNOWN_VERSION),
 `storage-handlers.js` blocks the following message types with `ERR_SAFE_MODE`
 before dispatching them: `MSG_CREATE_ITEM`, `MSG_UPDATE_ITEM`,
 `MSG_DELETE_ITEM`, `MSG_CREATE_GROUP`, `MSG_UPDATE_GROUP`,
-`MSG_DELETE_GROUP`, `MSG_SET_PREFERENCES`. All read messages and
+`MSG_DELETE_GROUP`, `MSG_SET_PREFERENCES`, `MSG_PROMOTE_TAB`, `MSG_DEMOTE_ITEM`. All read messages and
 `MSG_GET_STATUS` pass through unaffected.
 
 ### Single write path — cross-partition enforcement
@@ -274,7 +275,7 @@ envelope. Any thrown non-`StorageError` is coerced to an envelope with code
 
 ### Message types — full registry
 
-Defined in `shared/messages.js`. **13 constants total** (12 from B-001a + `MSG_GET_STATUS` added in B-001b). **UI must never import any file under `background/`**; the only contract is this module + `chrome.runtime.sendMessage`.
+Defined in `shared/messages.js`. **15 constants total** (12 from B-001a + `MSG_GET_STATUS` added in B-001b + `MSG_PROMOTE_TAB` added in B-016 + `MSG_DEMOTE_ITEM` added in B-017). **UI must never import any file under `background/`**; the only contract is this module + `chrome.runtime.sendMessage`.
 
 | Constant | Value | Request payload | Success `data` | Allowed senders |
 |---|---|---|---|---|
@@ -283,18 +284,26 @@ Defined in `shared/messages.js`. **13 constants total** (12 from B-001a + `MSG_G
 | `MSG_DELETE_ITEM` | `tj/deleteItem` | `{id}` | `null` | sidepanel, newtab, popup |
 | `MSG_LIST_ITEMS`  | `tj/listItems`  | `{groupId?}` | `{ items: Item[], liveStates: Record<itemId, {live, active, audible}>, driftRecords: Record<itemId, DriftRecord> }` *(B-001c shape change; B-001d adds `driftRecords`)* | all |
 | `MSG_GET_ITEM`    | `tj/getItem`    | `{id}` | `Item \| null` | all |
-| `MSG_CREATE_GROUP`| `tj/createGroup`| `{name, color, parentId, sortOrder?}` | `Group` | sidepanel, newtab |
-| `MSG_UPDATE_GROUP`| `tj/updateGroup`| `{id, patch}` | `Group` | sidepanel, newtab |
+| `MSG_CREATE_GROUP`| `tj/createGroup`| `{name, color, parentId, sortOrder?}` | `Group` *(success `data` includes `warning?: string` when duplicate name detected within same `parentId` scope — non-blocking, not persisted; B-006)* | sidepanel, newtab |
+| `MSG_UPDATE_GROUP`| `tj/updateGroup`| `{id, patch}` | `Group` *(same duplicate-name `warning` field applies; B-006)* | sidepanel, newtab |
 | `MSG_DELETE_GROUP`| `tj/deleteGroup`| `{id}` | `null` | sidepanel, newtab |
 | `MSG_LIST_GROUPS` | `tj/listGroups` | `{}` | `Group[]` | all |
 | `MSG_GET_GROUP`   | `tj/getGroup`   | `{id}` | `Group \| null` | all *(added post-R2 — H4 fix)* |
 | `MSG_GET_PREFERENCES` | `tj/getPreferences` | `{}` | `Preferences` | all |
 | `MSG_SET_PREFERENCES` | `tj/setPreferences` | `{patch}` | `Preferences` | sidepanel |
 | `MSG_GET_STATUS`  | `tj/getStatus`  | `{}` | `{ safeMode, schemaVersion, knownVersion, quotaWarning, quotaBytesInUse, quotaBytesTotal }` *(B-001b)* | all |
+| `MSG_PROMOTE_TAB` | `tj/promoteTab` | `{tabId, groupId?, title?}` | `Item` | sidepanel, popup *(B-016; `file:` scheme blocked with `ERR_VALIDATION`; `ERR_DUPLICATE_URL` if item with same URL already exists)* |
+| `MSG_DEMOTE_ITEM` | `tj/demoteItem` | `{id}` | `null` | sidepanel, popup *(B-017; operation order: delete item → clearDrift → saveFloating → releaseClaim; partial atomicity — see §5 note below)* |
 
 **Note on `MSG_LIST_ITEMS` response shape change (B-001c + B-001d):** The success `data` is now a `ListItemsResponse` object `{ items, liveStates, driftRecords }` rather than a bare `Item[]`. The `liveStates` map is built at read time from `LiveTabIndex` + `TabClaims`; items with no claim receive `{ live: false, active: false, audible: false }`. The `driftRecords` map is read from `tj:drift`; items with no drift record are absent from the map. No live-state or drift field is stored on `Item` objects in `tj:items`.
 
 **Note on `MSG_GET_STATUS` dispatch order (B-001b):** `MSG_GET_STATUS` is handled **before** the `readyPromise` gate — it returns the current migration/safe-mode/quota state even while migrations are running or have failed.
+
+**Note on `MSG_PROMOTE_TAB` (B-016):** Promotes a currently open tab into a saved `Item`. Handler reads the tab URL from `LiveTabIndex`, applies the same URL scheme validation as `createItem`, and rejects `file:` URLs with `ERR_VALIDATION`. If an existing item with an identical normalized URL already exists in `tj:items`, the handler rejects with `ERR_DUPLICATE_URL` (non-blocking duplicate-URL guard — no item is created). On success, the handler calls `claimTabForItem` to immediately associate the new item with the tab without waiting for the next reconcile pass. Subject to the safe-mode write gate.
+
+**Note on `MSG_DEMOTE_ITEM` (B-017):** Demotes a saved item back to an unclaimed floating tab. The operation executes four steps in order: (1) delete the item from `tj:items` via `writeTransaction`; (2) clear any drift record for the item from `tj:drift`; (3) write a `FloatingGroup` record to `tj:floatingGroups` so the tab can be re-associated if the window is closed and reopened; (4) release the tab claim from `claimsMirror` and `storage.session`. **Partial atomicity documented limitation:** steps 1–4 are not wrapped in a single `writeTransaction`. Steps 2–4 each write to their respective partitions independently. A SW termination between steps leaves the data in an intermediate state (item deleted but drift/floating/claims records not yet cleared). These orphan records are inert and cleaned up lazily (drift at `MSG_LIST_ITEMS` read time; unresolved floating records on next reconcile). Subject to the safe-mode write gate.
+
+**Note on duplicate-name warning (B-006):** `createGroup` and `updateGroup` perform a non-blocking name-uniqueness check scoped to groups sharing the same `parentId`. If a group with an identical `.trim()`-normalized name already exists in that scope, the operation succeeds but the success `data` object includes a `warning: string` field describing the collision. The `warning` field is set on the return value only — it is never written to `tj:groups` or any storage partition. The check is enforced in `background/storage/groups.js`.
 
 ### Dispatch flow
 
@@ -381,11 +390,12 @@ leak). **Canonical home: `shared/errors.js`** (moved from `background/storage/er
 | `ERR_VALIDATION` | Missing/wrong-type payload field; whitespace-only title/name; disallowed URL scheme; length caps; unknown patch field; attempted mutation of `id`/`createdAt`/`updatedAt` (via patch) | Inline form error |
 | `ERR_TX_CONFLICT` | Non-`StorageError` thrown from mutator; `storage.get`/`set` failure other than quota; unhandled error surfaced through `errorEnvelope` | Retry; fall back to safe mode on repeat |
 | `ERR_SAFE_MODE` | Write operation attempted while stored `schemaVersion > KNOWN_VERSION`; emitted by the write gate in `storage-handlers.js` before dispatch (B-001b) | Show "update required" banner; reads still work |
+| `ERR_DUPLICATE_URL` | `MSG_PROMOTE_TAB` handler finds an existing item in `tj:items` whose normalized URL matches the tab URL being promoted (B-016) | Inline error — surface to user; no item created |
 
-**Reachability audit** (updated through B-001b): every code above is either
+**Reachability audit** (updated through B-006 + B-016 + B-017): every code above is either
 thrown by at least one path in the shipped code, or deliberately unreachable
 (`ERR_ID_COLLISION`). `ERR_SAFE_MODE` is reachable via the safe-mode write
-gate in `storage-handlers.js`.
+gate in `storage-handlers.js`. `ERR_DUPLICATE_URL` is reachable via the `MSG_PROMOTE_TAB` handler.
 
 ---
 
@@ -401,7 +411,7 @@ so UI code can mirror them without redeclaring numbers.
 | `item.groupId` | `string \| null`; if non-null, must reference an existing group in the same serialized snapshot (FK check via cross-partition tx op) |
 | `item.sortOrder` | Finite number; default `0` on create (ruling #2) |
 | `group.name` | Non-empty after `.trim()`; `length <= MAX_NAME (256)` |
-| `group.color` | Non-empty; `length <= MAX_COLOR (32)` |
+| `group.color` | Must be a member of `GROUP_COLORS` — the 9-color allowlist defined in `shared/constants.js` (B-006); enforced in `groups.js` at create and update time; `ERR_VALIDATION` if not in palette |
 | `group.parentId` | `string \| null`; depth must stay `<= 1`; no cycles; target must exist |
 | `prefs.theme` | `'light' \| 'dark' \| 'system'` |
 | `prefs.displayMode` | `'sidepanel' \| 'window'` |
@@ -443,9 +453,9 @@ patch list (M2 fix) and always recomputed by the mutator.
 
 ---
 
-## 10. What B-001a Did NOT Ship (updated through B-001d + B-002)
+## 10. What B-001a Did NOT Ship (updated through B-001d + B-002 + B-006 + B-016 + B-017)
 
-Items fully resolved by B-001b, B-001c, B-001d, or B-002 are marked **DONE**. The entire B-001 family (a/b/c/d) is now complete. Remaining items are open.
+Items fully resolved by B-001b, B-001c, B-001d, B-002, B-006, B-016, or B-017 are marked **DONE**. The entire B-001 family (a/b/c/d) is now complete. Remaining items are open.
 
 | Handoff | Owner | Status | Detail |
 |---|---|---|---|
@@ -458,6 +468,9 @@ Items fully resolved by B-001b, B-001c, B-001d, or B-002 are marked **DONE**. Th
 | `MSG_LIST_ITEMS` enriched with `liveStates` | **B-001c** | **DONE** | Response shape is now `{ items, liveStates, driftRecords }`. |
 | Drift record persistence | **B-001d** | **DONE** | `background/tabs/drift.js` writes/clears `tj:drift`; `driftedToUrl` normalized via `shared/url.js` (forStorage mode); fragments stripped before storage; unclaimed-tab events are no-ops. `MSG_LIST_ITEMS` response now includes `driftRecords`. See §10.7. |
 | Floating-group re-association | **B-002** | **DONE** | `background/tabs/floating-groups.js` implements position-match → URL-fallback → retain-unresolved strategy. First-in-array-wins on ties. Claims propagated to `claimsMirror`. No TTL on unresolved records (documented limitation). See §10.8. |
+| Group color palette enforcement + `shared/constants.js` | **B-006** | **DONE** | `GROUP_COLORS` (9-color allowlist) defined in `shared/constants.js`; enforced in `groups.js` at create/update time via `ERR_VALIDATION`. Duplicate-name warning (non-blocking, same-parentId scope, `warning` field on return only). See §10.9. |
+| Promote tab to saved item | **B-016** | **DONE** | `MSG_PROMOTE_TAB` handler in `storage-handlers.js`; `file:` scheme blocked; `ERR_DUPLICATE_URL` on URL collision; `claimTabForItem` called on success. See §5 notes. |
+| Demote saved item to floating tab | **B-017** | **DONE** | `MSG_DEMOTE_ITEM` handler; operation order: delete → clearDrift → saveFloating → releaseClaim; partial atomicity is a documented limitation. See §5 notes and §10.9. |
 | Sidepanel UI | **B-022** | pending | Currently a stub `sidepanel.html`. |
 | Newtab UI | **B-035** | pending | Currently a stub `newtab.html`. |
 | Popup UI | **B-036** | pending | Currently a stub `popup.html`. |
@@ -618,6 +631,39 @@ Unresolved `FloatingGroup` records have no expiry. A group whose window was perm
 
 ---
 
+## 10.9 Sprint 4 Additions — B-006 + B-016 + B-017
+
+### B-006 — Group Color Palette Enforcement
+
+`shared/constants.js` is the canonical home for `GROUP_COLORS`, an ordered 9-color allowlist of theme token strings. `background/storage/groups.js` imports this constant and validates the `color` field on every `createGroup` and `updateGroup` call. A color value not present in `GROUP_COLORS` throws `ERR_VALIDATION` before the `writeTransaction` executes.
+
+**Duplicate-name warning.** `createGroup` and `updateGroup` check whether a group with the same `.trim()`-normalized `name` already exists among groups sharing the same `parentId`. The check is read-only (no separate write). If a collision is found, the operation completes successfully but the returned `Group` object carries an additional `warning: string` property. The `warning` field is never written to `tj:groups` or any storage partition — it is a transient annotation on the return value only.
+
+### B-016 — MSG_PROMOTE_TAB Handler
+
+The `MSG_PROMOTE_TAB` handler:
+
+1. Looks up the tab's current URL in `LiveTabIndex` by `tabId`; returns `ERR_NOT_FOUND` if the tab is not in the index.
+2. Rejects `file:` scheme URLs with `ERR_VALIDATION` (in addition to the standard scheme allowlist check that rejects all non-`http`/`https`/`file` schemes — `file:` is an extra block specific to promote).
+3. Normalizes the URL via `normalizeUrl(url, 'forStorage')` and scans `tj:items` for any existing item whose stored URL matches. If found, returns `ERR_DUPLICATE_URL` — no item is created.
+4. Calls `createItem` via the standard path (ULID generation, FK check, `writeTransaction`).
+5. Calls `claimTabForItem(itemId, tabId)` to immediately register the claim in `claimsMirror` and `storage.session`.
+
+Subject to the safe-mode write gate.
+
+### B-017 — MSG_DEMOTE_ITEM Handler
+
+The `MSG_DEMOTE_ITEM` handler demotes a saved item to an unclaimed floating tab. Steps execute in this order:
+
+1. **Delete item** — `deleteItem(id)` via `writeTransaction` on `tj:items`. If the item does not exist, the operation is a silent no-op (idempotent delete per ruling #3) and subsequent steps still run.
+2. **Clear drift** — if a drift record exists for the item in `tj:drift`, it is cleared via `writeTransaction`.
+3. **Save floating record** — if the item has a claim in `claimsMirror`, a `FloatingGroup` record is written to `tj:floatingGroups` via `writeTransaction` so the tab can be re-associated on the next window open.
+4. **Release claim** — `releaseClaimByTab(tabId)` removes the entry from `claimsMirror` and flushes to `storage.session`.
+
+**Documented limitation — partial atomicity.** Steps 1–4 each issue a separate `writeTransaction` (or `storage.session` write). They are not wrapped in a single atomic transaction. A SW termination between steps leaves orphan records. These are inert: the drift record is filtered at `MSG_LIST_ITEMS` read time (item absent from `tj:items`); the floating record is ignored on next reconcile if no live tab matches; the stale claim is released on the next tab close or reconcile pass. This partial atomicity is an accepted trade-off and is not expected to cause data loss or user-visible corruption.
+
+---
+
 ## 11. Build Deviations from R2 Plan
 
 Per CLAUDE.md R6, every deviation between `docs/design/B-001a.md` and the
@@ -701,6 +747,16 @@ shipped code is captured here.
   signal) deferred — low risk under current Chrome wording.
 - **M9** — Documented the `sender.id` sufficiency invariant (no
   `externally_connectable`). See §6.
+
+### B-006 / B-016 / B-017 Deviations and Rulings (Sprint 4)
+
+- **S4-D1 — `shared/constants.js` introduced for GROUP_COLORS.** Not in any prior design doc. Required to share the palette between `groups.js` (enforcement) and future UI components without crossing the write-boundary denylist.
+
+- **S4-D2 — Duplicate-name check is non-blocking (warning only).** Earlier drafts considered rejecting duplicate names outright. Ruled non-blocking: groups are identified by ULID, not name; duplicate names are user intent (e.g., "Work" under different parent groups). Warning field keeps the caller informed without breaking the flow.
+
+- **S4-D3 — `file:` scheme is specifically blocked for MSG_PROMOTE_TAB.** The general URL allowlist permits `file:` for stored items (§8). However, promoting a `file:` tab is blocked because file URLs are local to the machine and are not meaningful to share or restore across devices. This is stricter than the stored-item allowlist and is enforced only in the promote handler.
+
+- **S4-D4 — MSG_DEMOTE_ITEM partial atomicity accepted as documented limitation.** Multi-partition atomicity would require restructuring the demote operation into a single `writeTransaction` op array. The current split is intentional for code clarity; the orphan-record failure modes are all inert and self-healing. Tracked in §10.9.
 
 ### Unanticipated additions (not in R2 at all)
 

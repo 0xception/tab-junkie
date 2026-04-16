@@ -35,6 +35,8 @@ import {
   MSG_GET_PREFERENCES,
   MSG_SET_PREFERENCES,
   MSG_GET_STATUS,
+  MSG_PROMOTE_TAB,
+  MSG_DEMOTE_ITEM,
 } from '../../shared/messages.js';
 
 import {
@@ -52,14 +54,21 @@ import {
   setPreferences,
   StorageError,
   ERR_DIRECT_WRITE,
+  ERR_NOT_FOUND,
   ERR_NOT_READY,
   ERR_TX_CONFLICT,
   ERR_VALIDATION,
   ERR_SAFE_MODE,
+  ERR_DUPLICATE_URL,
 } from '../storage/index.js';
 
 import { getSystemStatus, isSafeMode } from '../storage/migration.js';
 import { buildLiveStates, getDriftRecords } from '../tabs/index.js';
+import { getClaimsMirror, getItemIdForTab, claimTabForItem, releaseClaimByTab } from '../tabs/tab-claims.js';
+import { clearDrift } from '../tabs/drift.js';
+import { saveFloatingGroups } from '../tabs/floating-groups.js';
+import { getLiveTabIndex } from '../tabs/live-tab-index.js';
+import { safeNormalizeForMatch } from '../../shared/url.js';
 
 /**
  * Build a typed error envelope regardless of whether the thrown value is a
@@ -109,6 +118,109 @@ async function dispatch(type, payload) {
       return getPreferences();
     case MSG_SET_PREFERENCES:
       return setPreferences(p.patch);
+    case MSG_PROMOTE_TAB: {
+      // AC1: validate tabId
+      if (typeof p.tabId !== 'number') {
+        throw new StorageError(ERR_VALIDATION, 'promoteTab: tabId must be a number');
+      }
+      const groupId = p.groupId !== undefined ? p.groupId : null;
+      if (groupId !== null && typeof groupId !== 'string') {
+        throw new StorageError(ERR_VALIDATION, 'promoteTab: groupId must be string or null');
+      }
+
+      // AC2: fetch the tab — chrome.tabs.get rejects if the tab doesn't exist
+      let tab;
+      try {
+        tab = await chrome.tabs.get(p.tabId);
+      } catch {
+        throw new StorageError(ERR_NOT_FOUND, 'tab not found');
+      }
+      if (!tab) {
+        throw new StorageError(ERR_NOT_FOUND, 'tab not found');
+      }
+
+      // AC3: reject restricted URL schemes
+      const url = tab.url || '';
+      if (
+        url.startsWith('chrome://') ||
+        url.startsWith('about:') ||
+        url.startsWith('chrome-extension://') ||
+        url.startsWith('file:')
+      ) {
+        throw new StorageError(ERR_VALIDATION, 'promoteTab: restricted URL scheme cannot be saved');
+      }
+
+      // AC4: duplicate detection — check ALL stored items for a matching URL,
+      // regardless of whether the tab is currently claimed.
+      const normalizedTabUrl = safeNormalizeForMatch(url);
+      const allItems = await listItems();
+      const duplicate = allItems.find(
+        (it) => safeNormalizeForMatch(it.url) === normalizedTabUrl,
+      );
+      if (duplicate) {
+        throw new StorageError(ERR_DUPLICATE_URL, 'promoteTab: an item with this URL already exists');
+      }
+
+      // AC5-6: create item (URL normalization happens inside createItem)
+      const newItem = await createItem({
+        title: tab.title || url,
+        url,
+        groupId,
+      });
+
+      // AC6: immediately claim the tab
+      await claimTabForItem(newItem.id, p.tabId);
+
+      return newItem;
+    }
+    case MSG_DEMOTE_ITEM: {
+      // AC1: validate payload
+      if (typeof p.itemId !== 'string' || p.itemId.length === 0) {
+        throw new StorageError(ERR_VALIDATION, 'demoteItem: itemId must be a non-empty string');
+      }
+
+      // AC6: read item first; if null, return silent success (idempotent)
+      const item = await getItem(p.itemId);
+      if (item === null) {
+        return null;
+      }
+
+      // Snapshot the tab claim before deletion (needed for AC7 ordering)
+      const mirror = getClaimsMirror();
+      const tabId = mirror[p.itemId] !== undefined ? mirror[p.itemId] : null;
+
+      // AC9: deleteItem first — if this throws nothing else runs.
+      // Partial atomicity: deleteItem is transactional; clearDrift,
+      // saveFloatingGroups, and releaseClaimByTab are best-effort sequential.
+      // A crash between steps leaves a dangling claim that reconcileClaims
+      // cleans up on next cold start.
+      await deleteItem(p.itemId);
+
+      // clearDrift is a no-op if no record exists
+      await clearDrift(p.itemId);
+
+      // AC7: saveFloatingGroups before releaseClaimByTab
+      if (item.groupId !== null && tabId !== null) {
+        const index = getLiveTabIndex();
+        const tabEntry = index.get(tabId);
+        if (tabEntry) {
+          await saveFloatingGroups([{
+            groupId: item.groupId,
+            windowId: tabEntry.windowId,
+            tabIndex: tabEntry.index,
+            url: tabEntry.url,
+            savedAt: Date.now(),
+          }]);
+        }
+      }
+
+      // AC7: releaseClaimByTab AFTER saveFloatingGroups
+      if (tabId !== null) {
+        await releaseClaimByTab(tabId);
+      }
+
+      return null;
+    }
     default:
       throw new StorageError(ERR_VALIDATION, `Unknown message type: ${String(type)}`);
   }
@@ -161,7 +273,7 @@ export function registerStorageHandlers(readyPromise) {
         const writeTypes = new Set([
           MSG_CREATE_ITEM, MSG_UPDATE_ITEM, MSG_DELETE_ITEM,
           MSG_CREATE_GROUP, MSG_UPDATE_GROUP, MSG_DELETE_GROUP,
-          MSG_SET_PREFERENCES,
+          MSG_SET_PREFERENCES, MSG_PROMOTE_TAB, MSG_DEMOTE_ITEM,
         ]);
         if (writeTypes.has(message.type)) {
           sendResponse({
