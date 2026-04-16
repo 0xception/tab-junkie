@@ -1,10 +1,62 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tab Junkie</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+    <script src="theme-init.js"></script>
   </head>
   <body>
-    <p>Tab Junkie side panel — UI not yet built. See B-035 in docs/BACKLOG.md.</p>
+    <!-- Loading skeleton — visible by default -->
+    <div id="skeleton" class="skeleton" role="status" aria-label="Loading bookmarks">
+      <div class="skeleton-group">
+        <div class="skeleton-header shimmer"></div>
+        <div class="skeleton-row shimmer"></div>
+        <div class="skeleton-row shimmer"></div>
+        <div class="skeleton-row shimmer"></div>
+      </div>
+      <div class="skeleton-group">
+        <div class="skeleton-header shimmer"></div>
+        <div class="skeleton-row shimmer"></div>
+        <div class="skeleton-row shimmer"></div>
+      </div>
+      <div class="skeleton-group">
+        <div class="skeleton-header shimmer"></div>
+        <div class="skeleton-row shimmer"></div>
+        <div class="skeleton-row shimmer"></div>
+        <div class="skeleton-row shimmer"></div>
+        <div class="skeleton-row shimmer"></div>
+      </div>
+    </div>
+
+    <!-- Empty state — hidden by default -->
+    <div id="empty-state" class="empty-state" hidden>
+      <svg class="empty-state-icon" width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <rect x="8" y="12" width="48" height="40" rx="4" stroke="currentColor" stroke-width="2" />
+        <path d="M8 22h48" stroke="currentColor" stroke-width="2" />
+        <circle cx="14" cy="17" r="2" fill="currentColor" />
+        <circle cx="20" cy="17" r="2" fill="currentColor" />
+        <circle cx="26" cy="17" r="2" fill="currentColor" />
+        <path d="M24 36l6 6 10-12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      <p class="empty-state-message">No bookmarks yet</p>
+      <button class="empty-state-cta" disabled>Add your first bookmark</button>
+    </div>
+
+    <!-- Error state — hidden by default -->
+    <div id="error-state" class="error-state" hidden>
+      <svg class="error-state-icon" width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <path d="M32 8l24 44H8L32 8z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/>
+        <path d="M32 26v12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="32" cy="44" r="2" fill="currentColor"/>
+      </svg>
+      <p class="error-state-message">Unable to load bookmarks. The extension may still be starting up. Try reopening the panel.</p>
+    </div>
+
+    <!-- Item list container — hidden by default -->
+    <div id="item-list" role="list" aria-label="Bookmarks" hidden></div>
+
+    <script src="sidepanel.js" type="module" defer></script>
   </body>
 </html>

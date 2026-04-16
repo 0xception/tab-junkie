@@ -7,7 +7,7 @@
 ## Progress Dashboard
 
 ```
-Overall Progress    ███░░░░░░░░░░░░░░░░░  20% (11/56)
+Overall Progress    ███░░░░░░░░░░░░░░░░░  19% (11/57)  [1 in progress]
 ```
 
 ### Legend
@@ -86,6 +86,7 @@ Overall Progress    ███░░░░░░░░░░░░░░░░░
 ⬜ B-051 — Sort-order normalisation & selection pruning · 🟠 · S
 ⬜ B-052 — Fuzzy search index caching & perf targets · 🟠 · M
 ⬜ B-053 — Break circular dep between partitions.js ↔ write-transaction.js (extract shapes module) · 🟡 · S
+🔄 B-054 — Sidepanel shell: item/group rendering + live states + click-to-navigate + broadcasts · 🔴 · L
 
 ---
 
@@ -102,7 +103,7 @@ Overall Progress    ███░░░░░░░░░░░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 11 | 20% |
-| 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 45 | 80% |
+| ✅ Done | 11 | 19% |
+| 🔄 In Progress | 1 | 2% |
+| ⬜ To Do | 45 | 79% |
 | 🧊 Icebox | 0 | 0% |

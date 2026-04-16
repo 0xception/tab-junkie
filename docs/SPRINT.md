@@ -1,39 +1,40 @@
 # Current Sprint
 
-*Sprint 5 — CLOSED. B-050 + B-019 + B-020 completed. Released as v1.4.0 on 2026-04-15.*
+*Sprint 6 — Sidepanel Shell. B-054 (Full L) — the UI foundation. Kicked off 2026-04-15.*
 
 ---
+
+## Active Items
+
+### [B-054] Sidepanel shell: item/group rendering + live states + broadcasts
+- **Tier**: Full (L)
+- **Status**: ✅ R1 · ✅ R2 → R3 Build in progress
+- **Assigned To**: [frontend-engineer] (R3)
+- **Blockers**: none (all data-layer deps satisfied)
+- **Feature Context**:
+  - Replace stub `sidepanel/sidepanel.html` with real UI
+  - New `sidepanel/sidepanel.js` + `sidepanel/sidepanel.css`
+  - Fetches data via MSG_LIST_ITEMS, MSG_LIST_GROUPS, MSG_GET_PREFERENCES
+  - Renders items organized by groups with live/active/audible/drifted indicators
+  - Group headers with collapse/expand, color chip, item count
+  - Click item → MSG_NAVIGATE_TO_ITEM
+  - Listens for MSG_STATE_CHANGED → re-fetches affected scope
+  - Empty state, loading skeleton, theme support (light/dark/system)
+  - First paint < 200ms on 500-item collection
+- **Handoff Notes**: This is the first real UI work. All 18 message types are ready in the SW. The sidepanel communicates exclusively via chrome.runtime.sendMessage — no direct storage imports (ESLint enforces this). Theme system uses tj:prefs.theme. Item visual states come from the `liveStates` + `driftRecords` fields in the MSG_LIST_ITEMS response.
+
+---
+
+## Execution Plan
+
+**B-054 (Full L):** R1 → R2 → R3 → R4 (3 reviewers) → R4 fix → R5 → R6
+
+This is the first item where **UAT must NOT be skipped** (Sprint 2 retro action item). The sidepanel must be visually verified in Chrome.
+
+---
+
+## Gate 6: ✅ READY
 
 ## Completed This Sprint
 
-### [B-050] State broadcast — ✅ DONE (Full M)
-- R1 ✅ · R2 ✅ · R3 ✅ · R4 ✅ · R5 ✅ (205/205) · R6 ✅
-- Files: `background/broadcast.js` (new) + mods to storage-handlers, tab-events, messages, chrome-mock
-- Tests: 11 new (broadcast coverage)
-
-### [B-019] Navigate-to-item — ✅ DONE (Fast Track S)
-- R1 ✅ · R3 ✅ · R4 ✅ PASS
-- Files: mods to storage-handlers, messages, chrome-mock
-- Tests: 7 new
-
-### [B-020] Close tabs — ✅ DONE (Fast Track S)
-- R1 ✅ · R3 ✅ · R4 ✅ PASS
-- Files: mods to storage-handlers, messages
-- Tests: 8 new
-
----
-
-## Gate 4: ✅ PASS — 205/205 tests, SOLUTION_DESIGN.md v1.5
-
-## Gate 7 — Sprint 5 Retrospective
-
-### Velocity
-- Planned: 1M + 2S · Completed: 3 · Carried over: 0
-
-### What Went Well
-- Core message contract now complete (18 types) — all data operations have SW handlers
-- Caught a latent bug (lastAccessedAt not in allowed patch fields) during R3
-- Combined R4 reviews efficient (code+security in single agent for Fast Track)
-
-### What to Improve
-- Need to start UI work soon — 5 sprints of data-layer without visible features
+*(none yet)*
