@@ -2,6 +2,17 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.4.0] — 2026-04-15
+
+### Added
+- `MSG_STATE_CHANGED` — SW-to-UI push broadcast on every mutation and tab event
+- `MSG_NAVIGATE_TO_ITEM` — switch to claimed tab or open new tab with immediate claim
+- `MSG_CLOSE_TABS` — individual and bulk tab close with valid/gone partitioning
+- `background/broadcast.js` — `SCOPE` enum, fire-and-forget delivery, `MUTATION_BROADCASTS` table
+- Cold-start broadcast suppression via `isClaimsReady` gate
+- `lastAccessedAt` added to `updateItem` allowed patch fields (latent bug fix)
+- 26 new automated tests (205 total)
+
 ## [1.3.0] — 2026-04-15
 
 ### Added

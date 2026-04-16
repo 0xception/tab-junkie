@@ -4,6 +4,27 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.4.0 — Core Message Contract Complete (2026-04-15)
+
+### What's new
+- **State broadcast (MSG_STATE_CHANGED)** — every mutation + tab event notifies all open extension surfaces
+- **Navigate-to-item (MSG_NAVIGATE_TO_ITEM)** — switch to existing tab or open new one with immediate claim
+- **Close tabs (MSG_CLOSE_TABS)** — individual + bulk close with smart partition (valid vs gone)
+
+### Internal
+- `background/broadcast.js` with `SCOPE` enum and fire-and-forget delivery
+- Cold-start broadcast suppression via `isClaimsReady` gate
+- 18 message types in contract (up from 15)
+- `lastAccessedAt` bug fix (was rejected by `validatePatch`)
+- 26 new tests (205 total), all passing
+- SOLUTION_DESIGN.md v1.5
+
+### Test results
+- Automated: 205/205 passing
+- UAT: skipped (data-layer only)
+
+---
+
 ## v1.3.0 — Phase A Features (2026-04-15)
 
 ### What's new

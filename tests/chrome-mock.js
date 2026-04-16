@@ -145,9 +145,13 @@ function createEventMock() {
   };
 }
 
+/** @type {Array<any[]>} recorded sendMessage calls for spy assertions */
+const sendMessageCalls = [];
+
 const runtime = {
   id: 'test-extension-id',
   lastError: null,
+  sendMessage(...args) { sendMessageCalls.push(args); return Promise.resolve(); },
   onMessage: {
     _listeners: [],
     addListener(fn) { this._listeners.push(fn); },
@@ -158,11 +162,32 @@ const runtime = {
   },
 };
 
+let _nextTabId = 1000;
+
 const tabs = {
   async query() { return deepClone(state.mockTabs); },
   async get(tabId) {
     const tab = state.mockTabs.find((t) => t.id === tabId);
     return tab ? deepClone(tab) : null;
+  },
+  async update(tabId, props) {
+    const tab = state.mockTabs.find((t) => t.id === tabId);
+    if (!tab) throw new Error(`Tab ${tabId} not found`);
+    Object.assign(tab, props);
+    return deepClone(tab);
+  },
+  async create({ url }) {
+    const id = _nextTabId++;
+    const tab = { id, url: url || '', windowId: 1, active: true, audible: false, index: state.mockTabs.length };
+    state.mockTabs.push(tab);
+    return deepClone(tab);
+  },
+  async remove(tabIds) {
+    const ids = Array.isArray(tabIds) ? tabIds : [tabIds];
+    for (const id of ids) {
+      const idx = state.mockTabs.findIndex((t) => t.id === id);
+      if (idx >= 0) state.mockTabs.splice(idx, 1);
+    }
   },
   onUpdated: createEventMock(),
   onActivated: createEventMock(),
@@ -170,6 +195,11 @@ const tabs = {
 };
 
 const windows = {
+  async update(windowId, props) {
+    // No-op in tests — windows are not tracked in state
+    void windowId; void props;
+    return { id: windowId };
+  },
   onRemoved: createEventMock(),
 };
 
@@ -194,8 +224,10 @@ export function __resetMock() {
   state.bytesInUseOverride = null;
   state.sessionStore = {};
   state.mockTabs = [];
+  _nextTabId = 1000;
   runtime.lastError = null;
   runtime.onMessage._listeners = [];
+  sendMessageCalls.length = 0;
   tabs.onUpdated._listeners.length = 0;
   tabs.onActivated._listeners.length = 0;
   tabs.onRemoved._listeners.length = 0;
@@ -239,6 +271,11 @@ export function __setSessionStore(key, value) {
 /** Read a session storage key directly. */
 export function __getSessionStore(key) {
   return deepClone(state.sessionStore[key]);
+}
+
+/** Return recorded sendMessage calls for spy assertions. */
+export function __getSendMessageCalls() {
+  return sendMessageCalls;
 }
 
 /** Seed `tj:*` partition keys directly, bypassing validation. */

@@ -34,6 +34,15 @@ export const MSG_PROMOTE_TAB = 'tj/promoteTab';
 // ---- Tab demotion ----
 export const MSG_DEMOTE_ITEM = 'tj/demoteItem';
 
+// ---- Tab navigation ----
+export const MSG_NAVIGATE_TO_ITEM = 'tj/navigateToItem';
+
+// ---- Tab close ----
+export const MSG_CLOSE_TABS = 'tj/closeTabs';
+
+// ---- State broadcast ----
+export const MSG_STATE_CHANGED = 'tj/stateChanged';
+
 /**
  * @typedef {Object} MessageRequest
  * @property {string} type       // one of the MSG_* constants

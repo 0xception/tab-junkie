@@ -1,9 +1,9 @@
 # Tab Junkie — Solution Design
 
-**Version:** 1.4
+**Version:** 1.5
 **Date:** 2026-04-15
 **Owner:** [solution-architect]
-**Status:** Active — B-001d + B-002 + B-006 + B-016 + B-017 landed.
+**Status:** Active — B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 landed.
 
 > This document is the current source of truth for what has actually shipped.
 > For the R2 *plan* (pre-build design) see `docs/design/B-001a.md`; deviations
@@ -13,7 +13,7 @@
 
 ## 1. Project Structure
 
-Current build-relevant layout on `feature/rebuild-from-prd` (paths shipped through B-001d + B-002 + B-006 + B-016 + B-017):
+Current build-relevant layout on `feature/rebuild-from-prd` (paths shipped through B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020):
 
 ```
 junkie/
@@ -22,6 +22,7 @@ junkie/
 ├── .eslintrc.json                         Write-boundary denylist (see §6)
 ├── background/
 │   ├── service-worker.js                  Entry point · exports `readyPromise` (gates on runMigrations) · wires onMessage + tab events
+│   ├── broadcast.js                       State broadcaster · SCOPE enum · fire-and-forget runtime.sendMessage to all open surfaces · cold-start suppression via isClaimsReady gate (B-050)
 │   ├── messages/
 │   │   └── storage-handlers.js            runtime.onMessage dispatcher + sender guard + safe-mode write gate
 │   ├── storage/
@@ -42,7 +43,7 @@ junkie/
 │       ├── drift.js                       Drift write/clear logic; driftedToUrl normalized via shared/url.js; fragment stripped before storage (B-001d)
 │       └── floating-groups.js             Floating-group re-association: position-match → URL-fallback → retain unresolved (B-002)
 ├── shared/
-│   ├── messages.js                        MSG_* constants (15 total, incl. MSG_GET_STATUS, MSG_PROMOTE_TAB, MSG_DEMOTE_ITEM) + envelope typedefs incl. ListItemsResponse (NO storage logic)
+│   ├── messages.js                        MSG_* constants (18 total, incl. MSG_GET_STATUS, MSG_PROMOTE_TAB, MSG_DEMOTE_ITEM, MSG_STATE_CHANGED, MSG_NAVIGATE_TO_ITEM, MSG_CLOSE_TABS) + envelope typedefs incl. ListItemsResponse (NO storage logic)
 │   ├── constants.js                       GROUP_COLORS — 9-color allowlist palette for group color values (B-006)
 │   ├── url.js                             URL normalization — normalizeUrl(url, mode) with forStorage/forMatch modes; scheme allowlist; protocol defaulting; hostname lowercasing (B-001d)
 │   └── errors.js                          Canonical home for StorageError + ERR_* constants (moved from background/storage/errors.js, which now re-exports from here) (B-001d)
@@ -275,7 +276,7 @@ envelope. Any thrown non-`StorageError` is coerced to an envelope with code
 
 ### Message types — full registry
 
-Defined in `shared/messages.js`. **15 constants total** (12 from B-001a + `MSG_GET_STATUS` added in B-001b + `MSG_PROMOTE_TAB` added in B-016 + `MSG_DEMOTE_ITEM` added in B-017). **UI must never import any file under `background/`**; the only contract is this module + `chrome.runtime.sendMessage`.
+Defined in `shared/messages.js`. **18 constants total** (12 from B-001a + `MSG_GET_STATUS` added in B-001b + `MSG_PROMOTE_TAB` added in B-016 + `MSG_DEMOTE_ITEM` added in B-017 + `MSG_STATE_CHANGED` added in B-050 + `MSG_NAVIGATE_TO_ITEM` added in B-019 + `MSG_CLOSE_TABS` added in B-020). **UI must never import any file under `background/`**; the only contract is this module + `chrome.runtime.sendMessage`.
 
 | Constant | Value | Request payload | Success `data` | Allowed senders |
 |---|---|---|---|---|
@@ -294,6 +295,9 @@ Defined in `shared/messages.js`. **15 constants total** (12 from B-001a + `MSG_G
 | `MSG_GET_STATUS`  | `tj/getStatus`  | `{}` | `{ safeMode, schemaVersion, knownVersion, quotaWarning, quotaBytesInUse, quotaBytesTotal }` *(B-001b)* | all |
 | `MSG_PROMOTE_TAB` | `tj/promoteTab` | `{tabId, groupId?, title?}` | `Item` | sidepanel, popup *(B-016; `file:` scheme blocked with `ERR_VALIDATION`; `ERR_DUPLICATE_URL` if item with same URL already exists)* |
 | `MSG_DEMOTE_ITEM` | `tj/demoteItem` | `{id}` | `null` | sidepanel, popup *(B-017; operation order: delete item → clearDrift → saveFloating → releaseClaim; partial atomicity — see §5 note below)* |
+| `MSG_STATE_CHANGED` | `tj/stateChanged` | `{mutation: string, payload: any}` | — *(SW → UI push; fire-and-forget; no response expected)* | SW only *(B-050)* |
+| `MSG_NAVIGATE_TO_ITEM` | `tj/navigateToItem` | `{id}` | `null` | sidepanel, newtab, popup *(B-019; switches to claimed tab or opens new tab; immediate claim on new-tab path)* |
+| `MSG_CLOSE_TABS` | `tj/closeTabs` | `{ids: string[]}` | `null` | sidepanel, newtab, popup *(B-020; partitions ids into valid vs gone; closes valid tabs; onRemoved handles claim cleanup)* |
 
 **Note on `MSG_LIST_ITEMS` response shape change (B-001c + B-001d):** The success `data` is now a `ListItemsResponse` object `{ items, liveStates, driftRecords }` rather than a bare `Item[]`. The `liveStates` map is built at read time from `LiveTabIndex` + `TabClaims`; items with no claim receive `{ live: false, active: false, audible: false }`. The `driftRecords` map is read from `tj:drift`; items with no drift record are absent from the map. No live-state or drift field is stored on `Item` objects in `tj:items`.
 
@@ -453,9 +457,9 @@ patch list (M2 fix) and always recomputed by the mutator.
 
 ---
 
-## 10. What B-001a Did NOT Ship (updated through B-001d + B-002 + B-006 + B-016 + B-017)
+## 10. What B-001a Did NOT Ship (updated through B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020)
 
-Items fully resolved by B-001b, B-001c, B-001d, B-002, B-006, B-016, or B-017 are marked **DONE**. The entire B-001 family (a/b/c/d) is now complete. Remaining items are open.
+Items fully resolved by B-001b, B-001c, B-001d, B-002, B-006, B-016, B-017, B-050, B-019, or B-020 are marked **DONE**. The entire B-001 family (a/b/c/d) is now complete. Remaining items are open.
 
 | Handoff | Owner | Status | Detail |
 |---|---|---|---|
@@ -471,6 +475,9 @@ Items fully resolved by B-001b, B-001c, B-001d, B-002, B-006, B-016, or B-017 ar
 | Group color palette enforcement + `shared/constants.js` | **B-006** | **DONE** | `GROUP_COLORS` (9-color allowlist) defined in `shared/constants.js`; enforced in `groups.js` at create/update time via `ERR_VALIDATION`. Duplicate-name warning (non-blocking, same-parentId scope, `warning` field on return only). See §10.9. |
 | Promote tab to saved item | **B-016** | **DONE** | `MSG_PROMOTE_TAB` handler in `storage-handlers.js`; `file:` scheme blocked; `ERR_DUPLICATE_URL` on URL collision; `claimTabForItem` called on success. See §5 notes. |
 | Demote saved item to floating tab | **B-017** | **DONE** | `MSG_DEMOTE_ITEM` handler; operation order: delete → clearDrift → saveFloating → releaseClaim; partial atomicity is a documented limitation. See §5 notes and §10.9. |
+| State broadcast to all surfaces | **B-050** | **DONE** | `background/broadcast.js` with `SCOPE` enum; `MSG_STATE_CHANGED` push on every mutation + tab event; fire-and-forget delivery; cold-start suppression via `isClaimsReady` gate; `MUTATION_BROADCASTS` table maps handler names to broadcast payloads. `lastAccessedAt` added to `updateItem` allowed fields (latent bug fix). See §10.10. |
+| Navigate to item | **B-019** | **DONE** | `MSG_NAVIGATE_TO_ITEM` handler; switches to claimed tab or opens new tab with immediate `claimTabForItem` call on new-tab path. |
+| Close tabs | **B-020** | **DONE** | `MSG_CLOSE_TABS` handler; partitions `ids` array into valid vs already-gone; closes valid tabs via `chrome.tabs.remove`; `onRemoved` handles claim cleanup. |
 | Sidepanel UI | **B-022** | pending | Currently a stub `sidepanel.html`. |
 | Newtab UI | **B-035** | pending | Currently a stub `newtab.html`. |
 | Popup UI | **B-036** | pending | Currently a stub `popup.html`. |
@@ -661,6 +668,44 @@ The `MSG_DEMOTE_ITEM` handler demotes a saved item to an unclaimed floating tab.
 4. **Release claim** — `releaseClaimByTab(tabId)` removes the entry from `claimsMirror` and flushes to `storage.session`.
 
 **Documented limitation — partial atomicity.** Steps 1–4 each issue a separate `writeTransaction` (or `storage.session` write). They are not wrapped in a single atomic transaction. A SW termination between steps leaves orphan records. These are inert: the drift record is filtered at `MSG_LIST_ITEMS` read time (item absent from `tj:items`); the floating record is ignored on next reconcile if no live tab matches; the stale claim is released on the next tab close or reconcile pass. This partial atomicity is an accepted trade-off and is not expected to cause data loss or user-visible corruption.
+
+---
+
+## 10.10 Broadcast Architecture (B-050)
+
+### Overview
+
+`background/broadcast.js` is a single-responsibility module that pushes `MSG_STATE_CHANGED` notifications to every open extension surface (sidepanel, newtab, popup) after each mutation or tab event. Surfaces treat these as cache-invalidation signals and re-fetch state via `MSG_LIST_ITEMS` / `MSG_LIST_GROUPS` as needed.
+
+### SCOPE enum
+
+```js
+SCOPE.ITEMS      // tj:items mutation
+SCOPE.GROUPS     // tj:groups mutation
+SCOPE.PREFS      // tj:prefs mutation
+SCOPE.LIVE       // live-state change (tab event)
+SCOPE.ALL        // full refresh hint
+```
+
+### Fire-and-forget delivery
+
+`broadcastState(scope, payload)` calls `chrome.runtime.sendMessage` to each registered view URL without awaiting a response. Errors (no listeners, view not open) are silently swallowed — delivery is best-effort by design. The SW does not retry and does not track acknowledgement.
+
+### Cold-start suppression
+
+Broadcasts triggered by tab events during cold-start reconciliation are suppressed via the `isClaimsReady()` gate. Events fired before `reconcileClaims()` completes would push stale live-state to surfaces; suppressing them ensures the first broadcast a surface receives reflects a fully reconciled state.
+
+### Ordering guarantee
+
+`broadcastState` is called synchronously at the end of each handler, after the `writeTransaction` resolves. This ensures any surface that immediately re-fetches on receiving `MSG_STATE_CHANGED` observes the committed state.
+
+### MUTATION_BROADCASTS table
+
+A static table in `broadcast.js` maps message handler names to the `SCOPE` value used for their broadcast. This keeps handler code free of broadcast logic: each handler calls `broadcastState(MUTATION_BROADCASTS[type], ...)` without knowing the scope details.
+
+### lastAccessedAt bug fix
+
+`lastAccessedAt` was inadvertently excluded from `updateItem`'s `validatePatch` allowlist, causing tab-navigation updates to be silently rejected. The field is now explicitly allowed, correcting drift in last-access timestamps.
 
 ---
 

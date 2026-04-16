@@ -37,6 +37,8 @@ import {
   MSG_GET_STATUS,
   MSG_PROMOTE_TAB,
   MSG_DEMOTE_ITEM,
+  MSG_NAVIGATE_TO_ITEM,
+  MSG_CLOSE_TABS,
 } from '../../shared/messages.js';
 
 import {
@@ -69,6 +71,21 @@ import { clearDrift } from '../tabs/drift.js';
 import { saveFloatingGroups } from '../tabs/floating-groups.js';
 import { getLiveTabIndex } from '../tabs/live-tab-index.js';
 import { safeNormalizeForMatch } from '../../shared/url.js';
+import { broadcast, SCOPE } from '../broadcast.js';
+
+/** Lookup table: message type → broadcast scope for write operations. */
+const MUTATION_BROADCASTS = {
+  [MSG_CREATE_ITEM]: SCOPE.ITEMS,
+  [MSG_UPDATE_ITEM]: SCOPE.ITEMS,
+  [MSG_DELETE_ITEM]: SCOPE.ITEMS,
+  [MSG_CREATE_GROUP]: SCOPE.GROUPS,
+  [MSG_UPDATE_GROUP]: SCOPE.GROUPS,
+  [MSG_DELETE_GROUP]: SCOPE.GROUPS,
+  [MSG_SET_PREFERENCES]: SCOPE.PREFERENCES,
+  [MSG_PROMOTE_TAB]: SCOPE.ITEMS,
+  [MSG_DEMOTE_ITEM]: SCOPE.ITEMS,
+  [MSG_NAVIGATE_TO_ITEM]: SCOPE.ITEMS, // Included because navigate bumps lastAccessedAt via updateItem — a real storage mutation.
+};
 
 /**
  * Build a typed error envelope regardless of whether the thrown value is a
@@ -221,6 +238,92 @@ async function dispatch(type, payload) {
 
       return null;
     }
+    case MSG_NAVIGATE_TO_ITEM: {
+      // AC1: validate itemId
+      if (typeof p.itemId !== 'string' || p.itemId.length === 0) {
+        throw new StorageError(ERR_VALIDATION, 'navigateToItem: itemId must be a non-empty string');
+      }
+
+      // AC2: fetch item
+      const item = await getItem(p.itemId);
+      if (item === null) {
+        throw new StorageError(ERR_NOT_FOUND, 'navigateToItem: item not found');
+      }
+
+      // AC4: reject items with no URL
+      if (!item.url) {
+        throw new StorageError(ERR_VALIDATION, 'Item has no URL');
+      }
+
+      const mirror = getClaimsMirror();
+      const claimedTabId = mirror[p.itemId] !== undefined ? mirror[p.itemId] : null;
+      const index = getLiveTabIndex();
+
+      let resultTabId;
+      let opened;
+
+      if (claimedTabId !== null && index.has(claimedTabId)) {
+        // AC2: live tab exists — activate it
+        const entry = index.get(claimedTabId);
+        await chrome.tabs.update(claimedTabId, { active: true });
+        await chrome.windows.update(entry.windowId, { focused: true });
+        resultTabId = claimedTabId;
+        opened = false;
+      } else {
+        // AC3: stale claim — release it
+        if (claimedTabId !== null) {
+          await releaseClaimByTab(claimedTabId);
+        }
+        // AC5: open a new tab
+        const newTab = await chrome.tabs.create({ url: item.url });
+        await claimTabForItem(p.itemId, newTab.id);
+        resultTabId = newTab.id;
+        opened = true;
+      }
+
+      // AC8: bump lastAccessedAt
+      await updateItem(p.itemId, { lastAccessedAt: Date.now() });
+
+      return { tabId: resultTabId, opened };
+    }
+    case MSG_CLOSE_TABS: {
+      // AC6: validate tabIds
+      if (!Array.isArray(p.tabIds) || p.tabIds.length === 0) {
+        throw new StorageError(ERR_VALIDATION, 'closeTabs: tabIds must be a non-empty array');
+      }
+      for (const id of p.tabIds) {
+        if (typeof id !== 'number') {
+          throw new StorageError(ERR_VALIDATION, 'closeTabs: all tabIds must be numbers');
+        }
+      }
+
+      // AC5: partition into valid (present in index) and notFound
+      const closeIndex = getLiveTabIndex();
+      const validTabIds = [];
+      const notFoundIds = [];
+      for (const id of p.tabIds) {
+        if (closeIndex.has(id)) {
+          validTabIds.push(id);
+        } else {
+          notFoundIds.push(id);
+        }
+      }
+
+      // AC3: single chrome call for all valid tabs; catch per-tab failures
+      if (validTabIds.length > 0) {
+        try {
+          await chrome.tabs.remove(validTabIds);
+        } catch {
+          // AC10: move all valid tabs to notFound on error
+          for (const id of validTabIds) notFoundIds.push(id);
+          validTabIds.length = 0;
+        }
+      }
+
+      // AC7: do NOT call releaseClaimByTab — tabs.onRemoved handles cleanup
+      // Intentionally absent from MUTATION_BROADCASTS — chrome.tabs.remove triggers tabs.onRemoved which handles claim cleanup and broadcasts LIVE_STATE.
+      return { closed: validTabIds, notFound: notFoundIds };
+    }
     default:
       throw new StorageError(ERR_VALIDATION, `Unknown message type: ${String(type)}`);
   }
@@ -274,6 +377,7 @@ export function registerStorageHandlers(readyPromise) {
           MSG_CREATE_ITEM, MSG_UPDATE_ITEM, MSG_DELETE_ITEM,
           MSG_CREATE_GROUP, MSG_UPDATE_GROUP, MSG_DELETE_GROUP,
           MSG_SET_PREFERENCES, MSG_PROMOTE_TAB, MSG_DEMOTE_ITEM,
+          MSG_NAVIGATE_TO_ITEM, MSG_CLOSE_TABS,
         ]);
         if (writeTypes.has(message.type)) {
           sendResponse({
@@ -289,7 +393,12 @@ export function registerStorageHandlers(readyPromise) {
 
       try {
         const data = await dispatch(message.type, message.payload);
+        // AC6: sendResponse completes synchronously before broadcast fires.
         sendResponse({ ok: true, data });
+        const broadcastScope = MUTATION_BROADCASTS[message.type];
+        if (broadcastScope !== undefined) {
+          broadcast(broadcastScope, message.type);
+        }
       } catch (err) {
         sendResponse(errorEnvelope(err));
       }

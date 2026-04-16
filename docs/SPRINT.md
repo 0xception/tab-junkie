@@ -1,38 +1,39 @@
 # Current Sprint
 
-*Sprint 4 — CLOSED. B-006 + B-016 + B-017 completed. Released as v1.3.0 on 2026-04-15.*
+*Sprint 5 — CLOSED. B-050 + B-019 + B-020 completed. Released as v1.4.0 on 2026-04-15.*
 
 ---
 
 ## Completed This Sprint
 
-### [B-006] Group palette + duplicate-name — ✅ DONE (Full M)
-- R1 ✅ · R2 ✅ · R3 ✅ · R4 ✅ · R5 ✅ (179/179) · R6 ✅
-- Files: `shared/constants.js` (new) + mods to `groups.js`, `messages.js`
-- Tests: 35 new (palette, name, duplicate, cascade, persist)
+### [B-050] State broadcast — ✅ DONE (Full M)
+- R1 ✅ · R2 ✅ · R3 ✅ · R4 ✅ · R5 ✅ (205/205) · R6 ✅
+- Files: `background/broadcast.js` (new) + mods to storage-handlers, tab-events, messages, chrome-mock
+- Tests: 11 new (broadcast coverage)
 
-### [B-016] Promote tab → saved bookmark — ✅ DONE (Fast Track S)
-- R1 ✅ · R3 ✅ · R4 ✅
-- Files: mods to `storage-handlers.js`, `errors.js`, `messages.js`, `index.js`
-- Tests: 11 new
+### [B-019] Navigate-to-item — ✅ DONE (Fast Track S)
+- R1 ✅ · R3 ✅ · R4 ✅ PASS
+- Files: mods to storage-handlers, messages, chrome-mock
+- Tests: 7 new
 
-### [B-017] Demote bookmark → floating tab — ✅ DONE (Fast Track S)
-- R1 ✅ · R3 ✅ · R4 ✅
-- Files: mods to `storage-handlers.js`, `messages.js`
-- Tests: 14 new
+### [B-020] Close tabs — ✅ DONE (Fast Track S)
+- R1 ✅ · R3 ✅ · R4 ✅ PASS
+- Files: mods to storage-handlers, messages
+- Tests: 8 new
 
 ---
 
-## Gate 4: ✅ PASS — 179/179 tests, build clean, SOLUTION_DESIGN.md v1.4
-## Gate 7 — Sprint 4 Retrospective
+## Gate 4: ✅ PASS — 205/205 tests, SOLUTION_DESIGN.md v1.5
+
+## Gate 7 — Sprint 5 Retrospective
 
 ### Velocity
-- Planned: 3 items (1M + 2S) · Completed: 3 · Carried over: 0
+- Planned: 1M + 2S · Completed: 3 · Carried over: 0
 
 ### What Went Well
-- First sprint with Phase A feature work — palette, promote, demote all clean
-- Fast Track pipeline efficient for B-016/B-017 (4 rounds vs 7)
-- R4 caught 2 blockers in promote handler before they shipped
+- Core message contract now complete (18 types) — all data operations have SW handlers
+- Caught a latent bug (lastAccessedAt not in allowed patch fields) during R3
+- Combined R4 reviews efficient (code+security in single agent for Fast Track)
 
 ### What to Improve
-- B-016/B-017 backlog deps listed B-003 (not yet built) — deps were aspirational, not real blockers. Clean up dep graph for remaining items.
+- Need to start UI work soon — 5 sprints of data-layer without visible features

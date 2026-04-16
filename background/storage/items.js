@@ -62,7 +62,7 @@ function validatePatch(patch) {
   }
   // M2: `updatedAt` is always overwritten by the mutator, so it must not be
   // in the caller-visible allowed patch list.
-  const allowed = ['title', 'url', 'groupId', 'sortOrder'];
+  const allowed = ['title', 'url', 'groupId', 'sortOrder', 'lastAccessedAt'];
   for (const k of Object.keys(patch)) {
     if (!allowed.includes(k)) {
       throw new StorageError(ERR_VALIDATION, 'updateItem: unknown field', { field: k });

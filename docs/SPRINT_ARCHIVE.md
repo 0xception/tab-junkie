@@ -119,3 +119,23 @@ Historical completed sprint items. Appended by [scrum-master] at the close of ea
 ### Retrospective
 **Went Well:** First Phase A sprint; Fast Track efficient for promote/demote; R4 caught 2 promote blockers.
 **To Improve:** Backlog dep graph has aspirational deps (B-016→B-003) that aren't real blockers — clean up.
+
+---
+
+## Sprint 5 — Core Message Contract Complete (2026-04-15)
+
+**Theme:** Navigate, close, broadcast — completing the SW message contract.
+**Release:** v1.4.0
+
+### Completed Items
+- **B-050** (Full M) — MSG_STATE_CHANGED broadcast with SCOPE enum, cold-start suppression, ordering guarantee. 11 tests.
+- **B-019** (Fast Track S) — MSG_NAVIGATE_TO_ITEM handler. Tab switch/create with claim management. 7 tests.
+- **B-020** (Fast Track S) — MSG_CLOSE_TABS handler. Individual + bulk with valid/gone partition. 8 tests.
+- **Bonus:** `lastAccessedAt` latent bug fix caught during R3.
+
+### Velocity
+- Planned: 1M + 2S · Completed: 3 · Carried over: 0
+
+### Retrospective
+**Went Well:** 18-type message contract complete; latent bug caught; combined R4 reviews efficient.
+**To Improve:** 5 sprints of data-layer work — UI work must start next sprint.

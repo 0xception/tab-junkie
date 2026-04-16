@@ -20,6 +20,7 @@ import {
 import { releaseClaimByTab, reevaluateTab, isClaimsReady } from './tab-claims.js';
 import { detectDriftForTab } from './drift.js';
 import { listItems } from '../storage/items.js';
+import { broadcast, SCOPE } from '../broadcast.js';
 
 /** @type {Map<number, ReturnType<typeof setTimeout>>} per-tab debounce timers (H2) */
 const reevalTimers = new Map();
@@ -68,6 +69,8 @@ export function registerTabEventListeners(readyPromise) {
             return reevaluateTab(tabId, changeInfo.url, items).then(() => {
               return detectDriftForTab(tabId, changeInfo.url, items);
             });
+          }).then(() => {
+            broadcast(SCOPE.LIVE_STATE, 'tab/updated', { requireClaimsReady: true });
           });
         }).catch((err) => {
           console.warn('[tab-junkie] reevaluateTab/detectDrift failed after URL change', err);
@@ -91,6 +94,7 @@ export function registerTabEventListeners(readyPromise) {
     }
     // Activate the new tab
     updateTabEntry(tabId, { active: true, windowId });
+    broadcast(SCOPE.LIVE_STATE, 'tab/activated', { requireClaimsReady: true });
   });
 
   /**
@@ -98,7 +102,9 @@ export function registerTabEventListeners(readyPromise) {
    */
   chrome.tabs.onRemoved.addListener((tabId) => {
     removeTabEntry(tabId);
-    releaseClaimByTab(tabId).catch((err) => {
+    releaseClaimByTab(tabId).then(() => {
+      broadcast(SCOPE.LIVE_STATE, 'tab/removed', { requireClaimsReady: true });
+    }).catch((err) => {
       console.warn('[tab-junkie] releaseClaimByTab failed on tab removal', err);
     });
   });
@@ -112,7 +118,9 @@ export function registerTabEventListeners(readyPromise) {
     const removedTabIds = removeTabsByWindow(windowId);
     if (removedTabIds.length === 0) return;
     if (!isClaimsReady()) return;
-    Promise.all(removedTabIds.map((tabId) => releaseClaimByTab(tabId))).catch((err) => {
+    Promise.all(removedTabIds.map((tabId) => releaseClaimByTab(tabId))).then(() => {
+      broadcast(SCOPE.LIVE_STATE, 'tab/removed', { requireClaimsReady: true });
+    }).catch((err) => {
       console.warn('[tab-junkie] batch releaseClaimByTab failed on window removal', err);
     });
   });

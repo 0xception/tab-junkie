@@ -7,7 +7,7 @@
 ## Progress Dashboard
 
 ```
-Overall Progress    ██░░░░░░░░░░░░░░░░░░  14% (8/56)
+Overall Progress    ███░░░░░░░░░░░░░░░░░  20% (11/56)
 ```
 
 ### Legend
@@ -51,8 +51,8 @@ Overall Progress    ██░░░░░░░░░░░░░░░░░░
 ✅ B-016 — Promote live tab to saved bookmark · 🔴 · S
 ✅ B-017 — Demote saved bookmark (preserve live tab) · 🔴 · S
 ⬜ B-018 — Floating tab group persistence across restart · 🔴 · M
-⬜ B-019 — Click-to-navigate with tab reuse & window focus · 🔴 · S
-⬜ B-020 — Close tab from UI (individual + bulk) · 🔴 · S
+✅ B-019 — Click-to-navigate with tab reuse & window focus · 🔴 · S
+✅ B-020 — Close tab from UI (individual + bulk) · 🔴 · S
 ⬜ B-021 — Inline side-panel filter with debounce & highlight · 🟠 · M
 ⬜ B-022 — Quick search popup with keyboard navigation · 🟠 · L
 ⬜ B-023 — Group jump popup · 🟠 · L
@@ -82,7 +82,7 @@ Overall Progress    ██░░░░░░░░░░░░░░░░░░
 ⬜ B-047 — In-panel keyboard shortcuts (select-all, clear) · 🟠 · XS
 ⬜ B-048 — Item visual states (live / active / drifted / audible / selected) · 🟠 · M
 ⬜ B-049 — Empty states & error feedback · 🟠 · S
-⬜ B-050 — State broadcast to all extension surfaces · 🔴 · M
+✅ B-050 — State broadcast to all extension surfaces · 🔴 · M
 ⬜ B-051 — Sort-order normalisation & selection pruning · 🟠 · S
 ⬜ B-052 — Fuzzy search index caching & perf targets · 🟠 · M
 ⬜ B-053 — Break circular dep between partitions.js ↔ write-transaction.js (extract shapes module) · 🟡 · S
@@ -102,7 +102,7 @@ Overall Progress    ██░░░░░░░░░░░░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 8 | 14% |
+| ✅ Done | 11 | 20% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 48 | 86% |
+| ⬜ To Do | 45 | 80% |
 | 🧊 Icebox | 0 | 0% |
