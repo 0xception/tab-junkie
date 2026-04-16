@@ -37,6 +37,7 @@
 
 import { StorageError, ERR_CORRUPT_DATA } from './errors.js';
 import { writeTransaction } from './write-transaction.js';
+import { normalizeUrl } from '../../shared/url.js';
 
 // ---- Field length caps (H1) ------------------------------------------------
 // Enforced in validators at the storage boundary to prevent quota-exhaustion
@@ -158,10 +159,38 @@ export function assertShape(partitionOrKey, value) {
       if (!value || typeof value !== 'object' || Array.isArray(value)) {
         throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition}`);
       }
+      for (const [key, entry] of Object.entries(value)) {
+        if (!entry || typeof entry !== 'object'
+          || !isString(entry.itemId) || !isString(entry.driftedToUrl)
+          || !isNumber(entry.detectedAt)) {
+          throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition}`);
+        }
+        // M2: key must match entry.itemId
+        if (entry.itemId !== key) {
+          throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition} — key/itemId mismatch`);
+        }
+        // M1: driftedToUrl must have valid scheme and respect MAX_URL
+        if (entry.driftedToUrl.length > MAX_URL) {
+          throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition} — driftedToUrl exceeds MAX_URL`);
+        }
+        try {
+          normalizeUrl(entry.driftedToUrl);
+        } catch {
+          throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition} — driftedToUrl has invalid scheme`);
+        }
+      }
       return;
     case PARTITION_FLOATING_GROUPS:
       if (!Array.isArray(value)) {
         throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition}`);
+      }
+      for (const entry of value) {
+        if (!entry || typeof entry !== 'object'
+          || !isString(entry.groupId) || !isNumber(entry.windowId)
+          || !isNumber(entry.tabIndex) || !isString(entry.url)
+          || !isNumber(entry.savedAt)) {
+          throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition}`);
+        }
       }
       return;
     default:

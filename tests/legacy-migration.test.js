@@ -40,21 +40,42 @@ test('AC7: valid legacy bookmarks migrated to tj:items, invalid discarded', asyn
   // Valid items should be in tj:items
   const items = __getRawStore('tj:items');
   assert.ok(Array.isArray(items));
-  // Valid: example.com, test.org, ftp, empty-title (URL used as title)
+  // Valid: example.com (https:), test.org (http:), not-a-url (protocol-defaulted → https:), empty-title (https:)
+  // Discarded: ftp: scheme not in ALLOWED_URL_SCHEMES, chrome: scheme not allowed,
+  //            no-url entry (no url field), null entry
   assert.equal(items.length, 4, `Expected 4 valid items, got ${items.length}`);
 
-  // Check shape of migrated items
-  const first = items.find((i) => i.url === 'https://example.com');
-  assert.ok(first);
-  assert.equal(first.title, 'Valid Site');
-  assert.equal(first.groupId, null);
-  assert.equal(first.sortOrder, 0);
-  assert.ok(first.id, 'should have a ULID');
-  assert.ok(first.createdAt > 0);
+  // --- Assert survivors by scheme / URL ---
+
+  // https: item survives
+  const httpsItem = items.find((i) => i.url === 'https://example.com/');
+  assert.ok(httpsItem, 'https:// item should survive');
+  assert.equal(httpsItem.title, 'Valid Site');
+  assert.equal(httpsItem.groupId, null);
+  assert.equal(httpsItem.sortOrder, 0);
+  assert.ok(httpsItem.id, 'should have a ULID');
+  assert.ok(httpsItem.createdAt > 0);
+
+  // http: item survives
+  const httpItem = items.find((i) => i.url === 'http://test.org/page');
+  assert.ok(httpItem, 'http:// item should survive');
+  assert.equal(httpItem.title, 'Also Valid');
+
+  // Protocol-defaulted item (bare hostname → https:) survives
+  const defaultedItem = items.find((i) => i.url && i.url.startsWith('https://not-a-url'));
+  assert.ok(defaultedItem, 'bare-hostname item should be protocol-defaulted to https: and survive');
+
+  // ftp: item is discarded (not in ALLOWED_URL_SCHEMES)
+  const ftpItem = items.find((i) => i.url && i.url.startsWith('ftp:'));
+  assert.equal(ftpItem, undefined, 'ftp: item must be discarded');
+
+  // chrome: item is discarded (not in ALLOWED_URL_SCHEMES)
+  const chromeItem = items.find((i) => i.url && i.url.startsWith('chrome:'));
+  assert.equal(chromeItem, undefined, 'chrome: item must be discarded');
 
   // Empty title should fall back to URL
-  const emptyTitle = items.find((i) => i.url === 'https://empty-title.com');
-  assert.ok(emptyTitle);
+  const emptyTitle = items.find((i) => i.url === 'https://empty-title.com/');
+  assert.ok(emptyTitle, 'empty-title item should survive');
   assert.equal(emptyTitle.title, 'https://empty-title.com');
 
   // All legacy keys should be removed

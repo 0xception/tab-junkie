@@ -5,10 +5,10 @@
  * by the tab/window event handlers in `tab-events.js`. Never written to
  * `chrome.storage.local` (AC4).
  *
- * Shape: Map<number, {url: string, windowId: number, active: boolean, audible: boolean}>
+ * Shape: Map<number, {url: string, windowId: number, active: boolean, audible: boolean, index: number}>
  */
 
-/** @type {Map<number, {url: string, windowId: number, active: boolean, audible: boolean}>} */
+/** @type {Map<number, {url: string, windowId: number, active: boolean, audible: boolean, index: number}>} */
 const liveTabIndex = new Map();
 
 /**
@@ -25,6 +25,7 @@ export async function buildLiveTabIndex() {
       windowId: tab.windowId,
       active: tab.active || false,
       audible: tab.audible || false,
+      index: typeof tab.index === 'number' ? tab.index : 0,
     });
   }
 }
@@ -40,7 +41,7 @@ export function getLiveTabIndex() {
 /**
  * Update a single entry in the index. Creates the entry if it does not exist.
  * @param {number} tabId
- * @param {Partial<{url: string, windowId: number, active: boolean, audible: boolean}>} patch
+ * @param {Partial<{url: string, windowId: number, active: boolean, audible: boolean, index: number}>} patch
  */
 export function updateTabEntry(tabId, patch) {
   const existing = liveTabIndex.get(tabId);
@@ -53,6 +54,7 @@ export function updateTabEntry(tabId, patch) {
     entry.windowId = entry.windowId ?? 0;
     entry.active = entry.active ?? false;
     entry.audible = entry.audible ?? false;
+    entry.index = typeof entry.index === 'number' ? entry.index : 0;
     liveTabIndex.set(tabId, entry);
   }
 }

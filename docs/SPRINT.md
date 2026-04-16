@@ -1,71 +1,37 @@
 # Current Sprint
 
-*Sprint 2 — CLOSED. B-001b + B-001c completed in parallel. Released as v1.1.0 on 2026-04-15.*
-
----
-
-## Active Items
-
-*(none — sprint closed)*
+*Sprint 3 — CLOSED. B-001d + B-002 completed. Released as v1.2.0 on 2026-04-15. Entire B-001 family now complete.*
 
 ---
 
 ## Completed This Sprint
 
-### [B-001b] Schema version + migration runner + safe-mode — ✅ DONE
-- **Tier**: Full (M)
-- **Closed**: 2026-04-15
-- **Pipeline**: R1 ✅ · R2 ✅ · R3 ✅ · R4 ✅ (C=1 H=5 M=5 L=4) · R4 Fix ✅ · R5 ✅ (60/60) · UAT skipped · R6 ✅ · R7 skipped
-- **Files created**: `background/storage/migration.js` (~255 LoC)
-- **Files modified**: `service-worker.js`, `storage-handlers.js`, `errors.js`, `index.js`, `shared/messages.js`
-- **Tests**: 9 new test files, 26 new tests
+### [B-001d] Drift + floating-tab re-association — ✅ DONE
+- **Tier**: Full (L) · **Closed**: 2026-04-15
+- **Pipeline**: R1 ✅ · R2 ✅ · R3 ✅ · R4 ✅ (C=0 H=6 M=7 L=6, all H fixed) · R5 ✅ (119/119) · UAT skipped · R6 ✅
+- **Files**: `background/tabs/drift.js`, `background/tabs/floating-groups.js` (new) + mods to live-tab-index, tab-events, tab-claims, index, partitions, storage-handlers
+- **Tests**: 11 files, 30 tests
 
-### [B-001c] LiveTabIndex + TabClaims disambiguation — ✅ DONE
-- **Tier**: Full (M)
-- **Closed**: 2026-04-15
-- **Pipeline**: R1 ✅ · R2 ✅ · R3 ✅ · R4 ✅ (C=0 H=3 M=5 L=6) · R4 Fix ✅ · R5 ✅ (81/81) · UAT skipped · R6 ✅ · R7 skipped
-- **Files created**: `background/tabs/{live-tab-index,tab-claims,tab-events,index}.js` (~433 LoC)
-- **Files modified**: `service-worker.js`, `storage-handlers.js`, `shared/messages.js`
-- **Tests**: 10 new test files, 21 new tests
+### [B-002] URL normalization — ✅ DONE
+- **Tier**: Fast Track (S) · **Closed**: 2026-04-15
+- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (C=1 H=1 M=4 L=4, all C+H fixed) · 84/84 tests
+- **Files**: `shared/url.js`, `shared/errors.js` (new) + mods to items.js, tab-claims.js, migration.js, background/storage/errors.js
+- **Tests**: 3 new AC4 tests
 
 ---
 
-## Gate 4 — Release Checklist
+## Gate 4: ✅ PASS — 119/119 tests, build clean, SOLUTION_DESIGN.md v1.3
 
-| # | Check | Status |
-|---|-------|--------|
-| 1 | All R4 findings resolved | ✅ |
-| 2 | All R5 tests passing | ✅ 81/81 |
-| 3 | UAT sign-off | ⚠️ skipped by user |
-| 4 | No open blockers | ✅ |
-| 5 | SOLUTION_DESIGN.md updated | ✅ v1.2 |
-| 6 | manifest.json permissions reviewed | ✅ no changes |
-| 7 | ./build.sh clean | ✅ 56K, 37 files |
-| 8 | Rollback plan documented | ✅ §12 updated |
-| 9 | BACKLOG.md done | ✅ |
-| 10 | BACKLOG_BOARD.md accurate | ✅ 3/56 done |
-
-**Gate 4 Result: ✅ PASS**
-
----
-
-## Gate 7 — Sprint 2 Retrospective
+## Gate 7 — Sprint 3 Retrospective
 
 ### Velocity
-- Planned: 2 items (B-001b + B-001c) / 2M effort in parallel
-- Completed: 2 items / 2M effort
-- Carried over: 0
+- Planned: 2 items (1L + 1S) · Completed: 2 items · Carried over: 0
 
 ### What Went Well
-- Parallel pipeline worked — both items ran R1→R6 concurrently with no merge conflicts
-- All 6 R4 reviewers launched in a single message (Sprint 1 retro action item honored)
-- B-001a foundation held up — zero regressions across 34 existing tests
+- B-001 family (a/b/c/d) fully shipped across 3 sprints — entire data layer complete
+- Fast Track pipeline worked smoothly for B-002 (4 rounds vs 7)
+- R4 reviews caught a critical import-direction violation (shared→background) that was fixed cleanly
 
 ### What to Improve
-- UAT was skipped — acceptable for internal data-layer items but should not become habit for UI-facing work
-- R4 finding volume was high (C=1 H=8 M=10 combined) — R2 designs could be more defensive up front
-- Migration runner's multi-partition atomicity is a scaffold limitation — first real migration step will need a refactor
-
-### Action Items for Next Sprint
-- [ ] Do not skip UAT for items with user-visible behavior
-- [ ] When authoring the first real migration step, refactor writeTransaction ops to support multi-partition mutations
+- Still not launching all R4 reviewers in a single parallel message consistently
+- B-002 created an import-direction violation that R3 should have prevented — need lint rule for shared/→background/ imports

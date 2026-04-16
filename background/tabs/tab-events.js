@@ -4,9 +4,11 @@
  * These handlers keep `LiveTabIndex` current and maintain `TabClaims` when
  * tabs are updated, activated, removed, or when windows are closed.
  *
- * CRITICAL (AC4): none of these handlers call `chrome.storage.local.set` or
- * `writeTransaction`. LiveTabIndex mutations are in-memory only. TabClaims
- * mutations go through `chrome.storage.session` only.
+ * CRITICAL (AC4): LiveTabIndex mutations are in-memory only. TabClaims
+ * mutations go through `chrome.storage.session` only. The sole exception is
+ * drift detection (B-001d): `detectDriftForTab` writes to `tj:drift` via
+ * `writeTransaction` — this is a durable state change, not ephemeral
+ * live-state, and is explicitly allowed per R2 design.
  */
 
 import {
@@ -16,6 +18,7 @@ import {
   getLiveTabIndex,
 } from './live-tab-index.js';
 import { releaseClaimByTab, reevaluateTab, isClaimsReady } from './tab-claims.js';
+import { detectDriftForTab } from './drift.js';
 import { listItems } from '../storage/items.js';
 
 /** @type {Map<number, ReturnType<typeof setTimeout>>} per-tab debounce timers (H2) */
@@ -41,10 +44,11 @@ export function registerTabEventListeners(readyPromise) {
     if ('url' in changeInfo) patch.url = changeInfo.url;
     if ('audible' in changeInfo) patch.audible = changeInfo.audible;
 
-    // Also capture windowId and active from the full tab object for new entries
+    // Also capture windowId, active, and index from the full tab object
     if (tab) {
       patch.windowId = tab.windowId;
       if ('active' in tab) patch.active = tab.active;
+      if (typeof tab.index === 'number') patch.index = tab.index;
     }
 
     if (Object.keys(patch).length > 0) {
@@ -61,10 +65,12 @@ export function registerTabEventListeners(readyPromise) {
         reevalTimers.delete(tabId);
         readyPromise.then(() => {
           return listItems().then((items) => {
-            return reevaluateTab(tabId, changeInfo.url, items);
+            return reevaluateTab(tabId, changeInfo.url, items).then(() => {
+              return detectDriftForTab(tabId, changeInfo.url, items);
+            });
           });
         }).catch((err) => {
-          console.warn('[tab-junkie] reevaluateTab failed after URL change', err);
+          console.warn('[tab-junkie] reevaluateTab/detectDrift failed after URL change', err);
         });
       }, 100));
     }

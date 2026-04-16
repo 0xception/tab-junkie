@@ -10,6 +10,7 @@
  */
 
 import { getLiveTabIndex } from './live-tab-index.js';
+import { safeNormalizeForMatch } from '../../shared/url.js';
 
 const SESSION_KEY = 'tj:tabClaims';
 
@@ -25,6 +26,15 @@ let claimsReady = false;
  */
 export function isClaimsReady() {
   return claimsReady;
+}
+
+/**
+ * Returns the current in-memory claims mirror (read-only contract).
+ * Used by drift.js to look up which item is claimed for a given tabId.
+ * @returns {Record<string, number>}
+ */
+export function getClaimsMirror() {
+  return claimsMirror;
 }
 
 /**
@@ -80,7 +90,7 @@ export async function reconcileClaims(items) {
   for (const [itemId, tabId] of Object.entries(storedClaims)) {
     const tabEntry = index.get(tabId);
     const item = items.find((it) => it.id === itemId);
-    if (tabEntry && item && normalizeForMatch(tabEntry.url) === normalizeForMatch(item.url)) {
+    if (tabEntry && item && safeNormalizeForMatch(tabEntry.url) === safeNormalizeForMatch(item.url)) {
       reconciled[itemId] = tabId;
       claimedTabIds.add(tabId);
     }
@@ -91,7 +101,7 @@ export async function reconcileClaims(items) {
   const urlToTabs = new Map();
   for (const [tabId, entry] of index) {
     if (claimedTabIds.has(tabId)) continue;
-    const normalized = normalizeForMatch(entry.url);
+    const normalized = safeNormalizeForMatch(entry.url);
     if (!normalized) continue;
     let list = urlToTabs.get(normalized);
     if (!list) {
@@ -107,7 +117,7 @@ export async function reconcileClaims(items) {
     .sort((a, b) => a.sortOrder - b.sortOrder);
 
   for (const item of sorted) {
-    const normalized = normalizeForMatch(item.url);
+    const normalized = safeNormalizeForMatch(item.url);
     if (!normalized) continue;
     const available = urlToTabs.get(normalized);
     if (available && available.length > 0) {
@@ -150,14 +160,14 @@ export async function releaseClaimByTab(tabId) {
  * @returns {Promise<void>}
  */
 export async function reevaluateTab(tabId, newUrl, items) {
-  const normalizedNew = normalizeForMatch(newUrl);
+  const normalizedNew = safeNormalizeForMatch(newUrl);
   let dirty = false;
 
   // Release current claim if URL no longer matches
   for (const [itemId, claimedTabId] of Object.entries(claimsMirror)) {
     if (claimedTabId === tabId) {
       const item = items.find((it) => it.id === itemId);
-      if (!item || normalizeForMatch(item.url) !== normalizedNew) {
+      if (!item || safeNormalizeForMatch(item.url) !== normalizedNew) {
         delete claimsMirror[itemId];
         dirty = true;
       }
@@ -172,7 +182,7 @@ export async function reevaluateTab(tabId, newUrl, items) {
     if (!alreadyClaimed) {
       // Find unclaimed items matching this URL, sorted by sortOrder
       const candidates = items
-        .filter((it) => normalizeForMatch(it.url) === normalizedNew && !(it.id in claimsMirror))
+        .filter((it) => safeNormalizeForMatch(it.url) === normalizedNew && !(it.id in claimsMirror))
         .sort((a, b) => a.sortOrder - b.sortOrder);
       if (candidates.length > 0) {
         claimsMirror[candidates[0].id] = tabId;
@@ -223,27 +233,25 @@ export function buildLiveStates(items) {
 }
 
 /**
- * Normalize a URL for matching purposes. Strips fragments and trailing
- * slashes so that minor variations do not prevent claim matches.
- * Returns empty string for unparseable URLs.
- * @param {string} url
- * @returns {string}
+ * H2: Reverse lookup — find the itemId claimed by a given tabId.
+ * O(n) scan is acceptable; performance backlog tracks a reverse map.
+ * @param {number} tabId
+ * @returns {string|null}
  */
-function normalizeForMatch(url) {
-  if (!url) return '';
-  try {
-    const parsed = new URL(url);
-    // M3: explicitly lowercase hostname (URL constructor usually does this, but be safe)
-    parsed.hostname = parsed.hostname.toLowerCase();
-    // Strip fragment
-    parsed.hash = '';
-    let result = parsed.href;
-    // Strip trailing slash only from path-only URLs (not query strings)
-    if (result.endsWith('/') && !parsed.search) {
-      result = result.slice(0, -1);
-    }
-    return result;
-  } catch {
-    return '';
-  }
+export function getItemIdForTab(tabId) {
+  const entry = Object.entries(claimsMirror).find(([, tid]) => tid === tabId);
+  return entry ? entry[0] : null;
+}
+
+/**
+ * H7: Register a claim for an item+tab in the in-memory mirror AND write to
+ * storage.session. Used by floating-groups.js after successful re-association
+ * so buildLiveStates correctly reflects the claim.
+ * @param {string} itemId
+ * @param {number} tabId
+ * @returns {Promise<void>}
+ */
+export async function claimTabForItem(itemId, tabId) {
+  claimsMirror[itemId] = tabId;
+  await writeClaims();
 }

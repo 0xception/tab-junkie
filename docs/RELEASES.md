@@ -4,6 +4,32 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.2.0 — Foundation Complete + URL Normalization (2026-04-15)
+
+### What's new
+- **Drift detection** — items flagged when their live tab navigates away from the saved URL; drift persists across restarts; clears automatically when tab navigates back
+- **Floating-tab re-association** — group assignments survive browser restarts via exact window+index matching with URL fallback
+- **URL normalization** — unified `normalizeUrl()` in `shared/url.js` with protocol defaulting, scheme validation, hostname lowercasing, fragment handling
+- **Scheme allowlist update** — `http`/`https`/`file` accepted; `ftp`/`mailto` removed
+
+### Internal
+- New: `background/tabs/drift.js` (~120 LoC), `background/tabs/floating-groups.js` (~120 LoC), `shared/url.js`, `shared/errors.js`
+- `StorageError` + `ERR_*` constants moved to `shared/errors.js` (canonical home)
+- 35 new tests (119 total), all passing
+- SOLUTION_DESIGN.md v1.3
+- **Entire B-001 family (a/b/c/d) now complete** — full data layer shipped
+
+### Known limitations
+- No UI: sidepanel, newtab, popup still stubs
+- No floating-group TTL (stale records may accumulate)
+- `file:` URLs storable but may not be openable in MV3
+
+### Test results
+- Automated: 119/119 passing
+- UAT: skipped
+
+---
+
 ## v1.1.0 — Data Layer Completion (2026-04-15)
 
 ### What's new

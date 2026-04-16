@@ -71,3 +71,32 @@ Historical completed sprint items. Appended by [scrum-master] at the close of ea
 **Went Well:** parallel pipeline worked without merge conflicts; all 6 R4 reviewers batched in single message; zero B-001a regressions.
 **To Improve:** UAT skipped; R4 finding volume high (R2 could be more defensive); migration multi-partition scaffold is a known limitation.
 **Action Items:** don't skip UAT for UI work; refactor writeTransaction ops when first real migration lands.
+
+---
+
+## Sprint 3 — Foundation Complete + URL Normalization (2026-04-15)
+
+**Theme:** Finish B-001 family + start Phase A with URL normalization.
+**Release:** v1.2.0
+
+### Completed Items
+
+#### [B-001d] Drift + floating-tab re-association — ✅ DONE
+- **Tier**: Full (L) · **Closed**: 2026-04-15
+- **Pipeline**: R1–R6 ✅ · R4: C=0 H=6 M=7 L=6 (all H fixed) · R5: 119/119 · UAT skipped
+- **Files**: `background/tabs/drift.js`, `background/tabs/floating-groups.js` (new) + 7 mods
+- **Tests**: 11 files, 30 tests
+
+#### [B-002] URL normalization — ✅ DONE (Fast Track)
+- **Tier**: Fast Track (S) · **Closed**: 2026-04-15
+- **Pipeline**: R1 → R3 → R4 ✅ · C=1 H=1 fixed · 84→119 tests
+- **Files**: `shared/url.js`, `shared/errors.js` (new) + 5 mods
+- **Milestone**: Entire B-001 family (a/b/c/d) complete — full data layer shipped
+
+### Velocity
+- Planned: 1L + 1S · Completed: 2 items · Carried over: 0
+
+### Retrospective
+**Went Well:** B-001 family fully shipped across 3 sprints; Fast Track worked for B-002; R4 caught critical import violation.
+**To Improve:** R4 reviewers still not always batched in single message; shared→background import direction needs lint rule.
+**Action Items:** add ESLint rule preventing shared/ from importing background/.

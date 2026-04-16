@@ -17,27 +17,13 @@ import {
 } from './partitions.js';
 import { writeTransaction } from './write-transaction.js';
 import { ulid } from './ids.js';
+import { normalizeUrl } from '../../shared/url.js';
 
-// H2: only schemes safe for downstream `<a href>` rendering are accepted at
-// the storage boundary. Parsing with `new URL` both normalizes and rejects
-// malformed input. `javascript:`, `data:`, `file:`, `chrome:` etc. are
-// rejected here so stored XSS cannot originate from the storage layer.
-const ALLOWED_URL_SCHEMES = new Set(['http:', 'https:', 'ftp:', 'mailto:']);
-
-function assertValidUrl(url) {
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch (e) {
-    // M7: do not echo the raw input back in the message body; attach it as
-    // structured `cause` so logs that serialize `.message` can't leak it.
-    throw new StorageError(ERR_VALIDATION, 'url is not a valid URL', { url });
-  }
-  if (!ALLOWED_URL_SCHEMES.has(parsed.protocol)) {
-    throw new StorageError(ERR_VALIDATION, 'url scheme not allowed', { scheme: parsed.protocol });
-  }
-}
-
+/**
+ * Validate createItem input. Returns the normalized URL (B-002: protocol
+ * defaulting + scheme validation + hostname lowercasing happen here).
+ * @returns {string} normalized URL for storage
+ */
 function validateNewItem(input) {
   if (!input || typeof input !== 'object') {
     throw new StorageError(ERR_VALIDATION, 'createItem: payload required');
@@ -52,15 +38,21 @@ function validateNewItem(input) {
   if (typeof url !== 'string' || url.length === 0) {
     throw new StorageError(ERR_VALIDATION, 'createItem: url must be a non-empty string');
   }
-  if (url.length > MAX_URL) {
+  // B-002: normalize first (protocol defaulting may add chars), then length cap
+  const normalized = normalizeUrl(url, { forStorage: true });
+  if (normalized.length > MAX_URL) {
     throw new StorageError(ERR_VALIDATION, `createItem: url exceeds ${MAX_URL} chars`);
   }
-  assertValidUrl(url);
   if (groupId !== null && groupId !== undefined && typeof groupId !== 'string') {
     throw new StorageError(ERR_VALIDATION, 'createItem: groupId must be string or null');
   }
+  return normalized;
 }
 
+/**
+ * Validate updateItem patch. If the patch contains a `url` field, it is
+ * normalized in place (B-002). Returns void — the patch object is mutated.
+ */
 function validatePatch(patch) {
   if (!patch || typeof patch !== 'object') {
     throw new StorageError(ERR_VALIDATION, 'updateItem: patch required');
@@ -88,10 +80,11 @@ function validatePatch(patch) {
     if (typeof patch.url !== 'string' || patch.url.length === 0) {
       throw new StorageError(ERR_VALIDATION, 'updateItem: url must be non-empty string');
     }
+    // B-002: normalize first (protocol defaulting may add chars), then length cap
+    patch.url = normalizeUrl(patch.url, { forStorage: true });
     if (patch.url.length > MAX_URL) {
       throw new StorageError(ERR_VALIDATION, `updateItem: url exceeds ${MAX_URL} chars`);
     }
-    assertValidUrl(patch.url);
   }
   if ('groupId' in patch && patch.groupId !== null && typeof patch.groupId !== 'string') {
     throw new StorageError(ERR_VALIDATION, 'updateItem: groupId must be string or null');
@@ -121,12 +114,12 @@ function assertGroupExists(groupId, groups) {
  * @returns {Promise<import('./partitions.js').Item>}
  */
 export async function createItem(input) {
-  validateNewItem(input);
+  const normalizedUrl = validateNewItem(input);
   const now = Date.now();
   const item = {
     id: ulid(),
     title: input.title,
-    url: input.url,
+    url: normalizedUrl,
     groupId: input.groupId ?? null,
     // Ruling #2: deterministic default of 0. Drag-reorder (B-030) will assign
     // explicit ordering values later; using Date.now() here made tests flaky

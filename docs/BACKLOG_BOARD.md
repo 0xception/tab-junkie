@@ -7,7 +7,7 @@
 ## Progress Dashboard
 
 ```
-Overall Progress    █░░░░░░░░░░░░░░░░░░░  5% (3/56)
+Overall Progress    █░░░░░░░░░░░░░░░░░░░  9% (5/56)
 ```
 
 ### Legend
@@ -33,8 +33,8 @@ Overall Progress    █░░░░░░░░░░░░░░░░░░░
 ✅ B-001a — Partitioned storage schema + CRUD + ULIDs · 🔴 · M
 ✅ B-001b — Schema version + migration runner + safe-mode · 🔴 · M
 ✅ B-001c — LiveTabIndex + TabClaims disambiguation · 🔴 · M
-⬜ B-001d — Drift + floating-tab exact-position re-association · 🔴 · L *(→ Sprint 2)*
-⬜ B-002 — URL normalization & validation · 🟠 · S
+✅ B-001d — Drift + floating-tab exact-position re-association · 🔴 · L
+✅ B-002 — URL normalization & validation · 🟠 · S
 ⬜ B-003 — Save / edit / delete saved bookmarks · 🔴 · L
 ⬜ B-004 — Favicon auto-capture + letter-avatar fallback · 🟠 · S
 ⬜ B-005 — Bulk-create saved items (import primitive) · 🟠 · M
@@ -102,7 +102,7 @@ Overall Progress    █░░░░░░░░░░░░░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 3 | 5% |
+| ✅ Done | 5 | 9% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 53 | 95% |
+| ⬜ To Do | 51 | 91% |
 | 🧊 Icebox | 0 | 0% |

@@ -1,9 +1,9 @@
 # Tab Junkie — Solution Design
 
-**Version:** 1.2
+**Version:** 1.3
 **Date:** 2026-04-15
 **Owner:** [solution-architect]
-**Status:** Active — B-001b + B-001c landed.
+**Status:** Active — B-001d + B-002 landed.
 
 > This document is the current source of truth for what has actually shipped.
 > For the R2 *plan* (pre-build design) see `docs/design/B-001a.md`; deviations
@@ -13,7 +13,7 @@
 
 ## 1. Project Structure
 
-Current build-relevant layout on `feature/rebuild-from-prd` (paths shipped through B-001c):
+Current build-relevant layout on `feature/rebuild-from-prd` (paths shipped through B-001d + B-002):
 
 ```
 junkie/
@@ -36,11 +36,15 @@ junkie/
 │   │   └── preferences.js                 Preferences CRUD
 │   └── tabs/
 │       ├── index.js                       Barrel · exports registerTabEventListeners, initializeLiveState, buildLiveStates (B-001c)
-│       ├── live-tab-index.js              SW-memory Map<tabId,{url,windowId,active,audible}> — never written to storage.local (B-001c)
-│       ├── tab-claims.js                  storage.session TabClaims mirror + reconcile/release/reevaluate + buildLiveStates (B-001c)
-│       └── tab-events.js                  chrome.tabs/windows event handlers — zero storage.local writes (B-001c)
+│       ├── live-tab-index.js              SW-memory Map<tabId,{url,windowId,active,audible,index}> — never written to storage.local (B-001c)
+│       ├── tab-claims.js                  storage.session TabClaims mirror + reconcile/release/reevaluate + buildLiveStates + claimTabForItem (B-001c/d)
+│       ├── tab-events.js                  chrome.tabs/windows event handlers + drift detection hook — zero storage.local writes (B-001c/d)
+│       ├── drift.js                       Drift write/clear logic; driftedToUrl normalized via shared/url.js; fragment stripped before storage (B-001d)
+│       └── floating-groups.js             Floating-group re-association: position-match → URL-fallback → retain unresolved (B-002)
 ├── shared/
-│   └── messages.js                        MSG_* constants (13 total, incl. MSG_GET_STATUS) + envelope typedefs incl. ListItemsResponse (NO storage logic)
+│   ├── messages.js                        MSG_* constants (13 total, incl. MSG_GET_STATUS) + envelope typedefs incl. ListItemsResponse (NO storage logic)
+│   ├── url.js                             URL normalization — normalizeUrl(url, mode) with forStorage/forMatch modes; scheme allowlist; protocol defaulting; hostname lowercasing (B-001d)
+│   └── errors.js                          Canonical home for StorageError + ERR_* constants (moved from background/storage/errors.js, which now re-exports from here) (B-001d)
 ├── sidepanel/
 │   └── sidepanel.html                     Placeholder stub — overwritten by B-022
 ├── newtab/
@@ -67,8 +71,8 @@ All state lives under six partitioned keys in `chrome.storage.local`, plus one k
 | `tj:items` | All user-saved items (flat list) | `Item[]` | `[]` | `storage.local` |
 | `tj:groups` | All groups (flat list, adjacency list via `parentId`) | `Group[]` | `[]` | `storage.local` |
 | `tj:prefs` | User preferences | `Preferences` | see DEFAULT_PREFERENCES below | `storage.local` |
-| `tj:drift` | Drift records keyed by item id (B-001d will populate) | `Record<string, DriftRecord>` | `{}` | `storage.local` |
-| `tj:floatingGroups` | Floating-group re-association hints (B-001d) | `FloatingGroup[]` | `[]` | `storage.local` |
+| `tj:drift` | Drift records keyed by item id (B-001d) | `Record<string, DriftRecord>` — shape: `{ itemId: string, driftedToUrl: string (scheme-validated + MAX_URL, normalized via shared/url.js), detectedAt: number }` | `{}` | `storage.local` |
+| `tj:floatingGroups` | Floating-group re-association records (B-002) | `FloatingGroup[]` — shape: `{ groupId: string, windowId: number, tabIndex: number, url: string, savedAt: number }` | `[]` | `storage.local` |
 | `tj:tabClaims` | Item-to-tab disambiguation table (B-001c) | `Record<string, number>` (itemId → tabId) | `{}` | `storage.session` — cleared on browser restart |
 
 Per R0 spike decision #2, **only `drifted` is persisted**. `live`, `active`,
@@ -277,7 +281,7 @@ Defined in `shared/messages.js`. **13 constants total** (12 from B-001a + `MSG_G
 | `MSG_CREATE_ITEM` | `tj/createItem` | `{title, url, groupId?}` | `Item` | sidepanel, newtab, popup |
 | `MSG_UPDATE_ITEM` | `tj/updateItem` | `{id, patch}` | `Item` | sidepanel, newtab, popup |
 | `MSG_DELETE_ITEM` | `tj/deleteItem` | `{id}` | `null` | sidepanel, newtab, popup |
-| `MSG_LIST_ITEMS`  | `tj/listItems`  | `{groupId?}` | `{ items: Item[], liveStates: Record<itemId, {live, active, audible}> }` *(B-001c — shape change)* | all |
+| `MSG_LIST_ITEMS`  | `tj/listItems`  | `{groupId?}` | `{ items: Item[], liveStates: Record<itemId, {live, active, audible}>, driftRecords: Record<itemId, DriftRecord> }` *(B-001c shape change; B-001d adds `driftRecords`)* | all |
 | `MSG_GET_ITEM`    | `tj/getItem`    | `{id}` | `Item \| null` | all |
 | `MSG_CREATE_GROUP`| `tj/createGroup`| `{name, color, parentId, sortOrder?}` | `Group` | sidepanel, newtab |
 | `MSG_UPDATE_GROUP`| `tj/updateGroup`| `{id, patch}` | `Group` | sidepanel, newtab |
@@ -288,7 +292,7 @@ Defined in `shared/messages.js`. **13 constants total** (12 from B-001a + `MSG_G
 | `MSG_SET_PREFERENCES` | `tj/setPreferences` | `{patch}` | `Preferences` | sidepanel |
 | `MSG_GET_STATUS`  | `tj/getStatus`  | `{}` | `{ safeMode, schemaVersion, knownVersion, quotaWarning, quotaBytesInUse, quotaBytesTotal }` *(B-001b)* | all |
 
-**Note on `MSG_LIST_ITEMS` response shape change (B-001c):** The success `data` is now a `ListItemsResponse` object `{ items, liveStates }` rather than a bare `Item[]`. The `liveStates` map is built at read time from `LiveTabIndex` + `TabClaims`; items with no claim receive `{ live: false, active: false, audible: false }`. No live-state field is stored on `Item` objects in `tj:items`.
+**Note on `MSG_LIST_ITEMS` response shape change (B-001c + B-001d):** The success `data` is now a `ListItemsResponse` object `{ items, liveStates, driftRecords }` rather than a bare `Item[]`. The `liveStates` map is built at read time from `LiveTabIndex` + `TabClaims`; items with no claim receive `{ live: false, active: false, audible: false }`. The `driftRecords` map is read from `tj:drift`; items with no drift record are absent from the map. No live-state or drift field is stored on `Item` objects in `tj:items`.
 
 **Note on `MSG_GET_STATUS` dispatch order (B-001b):** `MSG_GET_STATUS` is handled **before** the `readyPromise` gate — it returns the current migration/safe-mode/quota state even while migrations are running or have failed.
 
@@ -362,7 +366,7 @@ so the gap is static-only.
 
 All storage rejections are `StorageError` instances with `{ code, message, cause? }`.
 Serialized over the message boundary as `{ code, message }` only (no cause
-leak). See `background/storage/errors.js`.
+leak). **Canonical home: `shared/errors.js`** (moved from `background/storage/errors.js` in B-001d; `background/storage/errors.js` now re-exports from `shared/errors.js` for backward compatibility).
 
 | Code | When it fires (post-R4 fixes) | Caller recovery |
 |---|---|---|
@@ -405,9 +409,15 @@ so UI code can mirror them without redeclaring numbers.
 | `prefs.autoCollapseSubGroups` | `boolean`, default `false` |
 
 **Disallowed URL schemes** (rejected at storage boundary as XSS prophylactic,
-H2 fix): `javascript:`, `data:`, `file:`, `chrome:`, `chrome-extension:`,
-`blob:`, and anything else not explicitly allowlisted. Storage is the
+H2 fix): `javascript:`, `data:`, `chrome:`, `chrome-extension:`,
+`blob:`, and anything else not explicitly allowlisted. The scheme allowlist (B-001d) is: `http`, `https`, `file`. Storage is the
 chokepoint — downstream UI cannot be trusted to sanitize href attributes.
+
+**URL normalization via `shared/url.js` (B-001d).** `normalizeUrl(url, mode)` is the canonical normalization entry point:
+- **`forStorage` mode:** strips fragment (`#…`), applies protocol defaulting (bare hostnames without scheme get `https://` prepended), lowercases hostname. Used when writing drift records to `tj:drift`.
+- **`forMatch` mode:** all `forStorage` transforms plus trailing-slash removal on path-only URLs without a query string. Used for claim matching and drift comparison in `tab-claims.js` and `drift.js`.
+- Both modes reject URLs whose scheme is not in the allowlist (`http`, `https`, `file`) with `ERR_VALIDATION`.
+- `shared/url.js` replaces the inline `normalizeForMatch` helper that was previously local to `tab-claims.js`.
 
 **Immutable fields.** `id` and `createdAt` are rejected as patch fields in
 both `updateItem` and `updateGroup`. `updatedAt` is stripped from the allowed
@@ -425,15 +435,17 @@ patch list (M2 fix) and always recomputed by the mutator.
 | Migration run over max realistic dataset (1k items, 100 groups) | < 500ms in chrome-mock | B-001b (AC9) | Verified in migration perf test |
 | `LiveTabIndex` cold-start rebuild (50 open tabs) | < 100ms in chrome-mock | B-001c (AC1) | Verified in live-tab perf test |
 | `TabClaims` reconciliation (500 items, 50-tab index) | < 50ms in chrome-mock | B-001c (AC10) | Verified in claims perf test |
+| Drift write round-trip (`writeDrift`) | P95 ≤ 20ms in chrome-mock | B-001d | Verified in drift perf test |
+| Floating-group re-association (50 records) | ≤ 100ms in chrome-mock | B-002 | Verified in floating-groups perf test |
 | Real-browser perf (`chrome.storage.local`, not mock) | not measured | — | UAT validated correctness only — real-browser latency is unverified |
 | Sidepanel first paint | < 200ms (500-item) | B-022 | Deferred — UI not yet built |
 | Fuzzy search P95 | < 50ms (1k-item) | — | Deferred — search not yet in scope |
 
 ---
 
-## 10. What B-001a Did NOT Ship (updated through B-001c)
+## 10. What B-001a Did NOT Ship (updated through B-001d + B-002)
 
-Items fully resolved by B-001b or B-001c are marked **DONE**. Remaining items are open.
+Items fully resolved by B-001b, B-001c, B-001d, or B-002 are marked **DONE**. The entire B-001 family (a/b/c/d) is now complete. Remaining items are open.
 
 | Handoff | Owner | Status | Detail |
 |---|---|---|---|
@@ -441,10 +453,11 @@ Items fully resolved by B-001b or B-001c are marked **DONE**. Remaining items ar
 | Read-only safe-mode (downgrade path, R0 decision #9) | **B-001b** | **DONE** | `isSafeMode()` in `migration.js`; write gate in `storage-handlers.js`; `ERR_SAFE_MODE` returned to callers. |
 | Quota warning flag (80% threshold per R0 decision #8) | **B-001b** | **DONE** | `evaluateQuota()` runs after migrations; `quotaWarning` flag exposed via `MSG_GET_STATUS`. UI banner deferred to the sidepanel item (B-022). |
 | Legacy `junkie_*` storage key migration | **B-001b** | **DONE** | `migrateLegacyKeys()` runs best-effort post-migration; known legacy keys are shape-mapped to Items and removed. |
-| `LiveTabIndex` (ephemeral SW-memory index of live tabs) | **B-001c** | **DONE** | `background/tabs/live-tab-index.js` — `Map<tabId, {url,windowId,active,audible}>`, built on cold start, kept current by event handlers. |
+| `LiveTabIndex` (ephemeral SW-memory index of live tabs) | **B-001c** | **DONE** | `background/tabs/live-tab-index.js` — `Map<tabId, {url,windowId,active,audible,index}>`, built on cold start, kept current by event handlers. |
 | `TabClaims` disambiguation table | **B-001c** | **DONE** | `background/tabs/tab-claims.js` — `storage.session` under `tj:tabClaims`; in-memory mirror; reconciled on cold start; released on tab close/URL change. |
-| `MSG_LIST_ITEMS` enriched with `liveStates` | **B-001c** | **DONE** | Response shape is now `{ items, liveStates }`. |
-| Drift record persistence + floating-tab exact-position re-association | **B-001d** | pending (deps B-001b+c now satisfied) | `tj:drift` and `tj:floatingGroups` partitions are initialized but unused. |
+| `MSG_LIST_ITEMS` enriched with `liveStates` | **B-001c** | **DONE** | Response shape is now `{ items, liveStates, driftRecords }`. |
+| Drift record persistence | **B-001d** | **DONE** | `background/tabs/drift.js` writes/clears `tj:drift`; `driftedToUrl` normalized via `shared/url.js` (forStorage mode); fragments stripped before storage; unclaimed-tab events are no-ops. `MSG_LIST_ITEMS` response now includes `driftRecords`. See §10.7. |
+| Floating-group re-association | **B-002** | **DONE** | `background/tabs/floating-groups.js` implements position-match → URL-fallback → retain-unresolved strategy. First-in-array-wins on ties. Claims propagated to `claimsMirror`. No TTL on unresolved records (documented limitation). See §10.8. |
 | Sidepanel UI | **B-022** | pending | Currently a stub `sidepanel.html`. |
 | Newtab UI | **B-035** | pending | Currently a stub `newtab.html`. |
 | Popup UI | **B-036** | pending | Currently a stub `popup.html`. |
@@ -457,7 +470,7 @@ Items fully resolved by B-001b or B-001c are marked **DONE**. Remaining items ar
 ### LiveTabIndex
 
 - **Location:** `background/tabs/live-tab-index.js`, SW-memory only.
-- **Shape:** `Map<number, {url: string, windowId: number, active: boolean, audible: boolean}>`.
+- **Shape:** `Map<number, {url: string, windowId: number, active: boolean, audible: boolean, index: number}>`. The `index` field (tab position within its window) was added in B-001d to support floating-group position-match re-association.
 - **Population:** `buildLiveTabIndex()` calls `chrome.tabs.query({})` once on cold start and clears + repopulates the map. The call is made at module scope via `initializeLiveState()` which runs `buildLiveTabIndex()` and `readyPromise.then(listItems)` concurrently (M2 optimization — migration and index build overlap).
 - **Mutation:** `updateTabEntry(tabId, patch)` merges a partial patch; `removeTabEntry(tabId)` deletes; `removeTabsByWindow(windowId)` batch-deletes and returns removed tabIds.
 - **Invariant:** never written to `chrome.storage.local` (AC4). Tab event handlers are the sole mutators after cold start.
@@ -468,6 +481,7 @@ Items fully resolved by B-001b or B-001c are marked **DONE**. Remaining items ar
 - **Persistence:** `chrome.storage.session` under key `tj:tabClaims`, cleared by Chrome on browser restart (AC8). An in-memory `claimsMirror` record is maintained for synchronous reads by `buildLiveStates`.
 - **Shape:** `Record<string, number>` — itemId → tabId.
 - **Invariant:** no two claims share the same tabId (AC3).
+- **`claimTabForItem(itemId, tabId)`** (added B-001d/B-002): writes a new claim directly to `claimsMirror` and flushes to `storage.session`. Used by floating-group re-association after a successful match to register the resolved tab without waiting for the next full `reconcileClaims` pass.
 
 ### Claim lifecycle
 
@@ -478,12 +492,12 @@ Items fully resolved by B-001b or B-001c are marked **DONE**. Remaining items ar
 
 ### Event handlers registered in tab-events.js
 
-| Event | LiveTabIndex mutation | Claims mutation | storage.local writes |
-|---|---|---|---|
-| `chrome.tabs.onUpdated` | `updateTabEntry` | `reevaluateTab` (debounced 100ms) via `storage.session` | **none** |
-| `chrome.tabs.onActivated` | deactivate prev tab in window; `updateTabEntry` active=true | none | **none** |
-| `chrome.tabs.onRemoved` | `removeTabEntry` | `releaseClaimByTab` via `storage.session` | **none** |
-| `chrome.windows.onRemoved` | `removeTabsByWindow` | batch `releaseClaimByTab` via `storage.session` | **none** |
+| Event | LiveTabIndex mutation | Claims mutation | Drift hook | storage.local writes |
+|---|---|---|---|---|
+| `chrome.tabs.onUpdated` | `updateTabEntry` | `reevaluateTab` (debounced 100ms) via `storage.session` | drift detection (URL change on claimed tab triggers `drift.js` write to `tj:drift`) | `tj:drift` only (via drift.js) |
+| `chrome.tabs.onActivated` | deactivate prev tab in window; `updateTabEntry` active=true | none | none | **none** |
+| `chrome.tabs.onRemoved` | `removeTabEntry` | `releaseClaimByTab` via `storage.session` | drift cleared on tab close if claimed | `tj:drift` only (via drift.js) |
+| `chrome.windows.onRemoved` | `removeTabsByWindow` | batch `releaseClaimByTab` via `storage.session` | none | **none** |
 
 **MV3 registration requirement:** `registerTabEventListeners(readyPromise)` must be called synchronously at module scope in `service-worker.js` before the first `await`. It only calls `chrome.*.addListener` synchronously; async work (claims reevaluation) is deferred inside the handlers via promises.
 
@@ -548,6 +562,59 @@ runMigrations():
 ### Known scaffold limitation
 
 The current migration runner wraps steps in a `writeTransaction` that only touches `PARTITION_META` (F3). This is adequate for v1 (no steps defined yet). When a real migration step needs to atomically mutate multiple partitions, the `ops` array passed to `writeTransaction` must be extended to include all touched partitions within the same call. This is documented inline in `migration.js` and must be addressed before any multi-partition migration step is added.
+
+---
+
+## 10.7 Drift Detection Architecture (B-001d)
+
+### Overview
+
+`background/tabs/drift.js` is the sole path for writing and clearing drift records in `tj:drift`. It is called from `tab-events.js` when a URL-change event fires on a tab that holds a claim for a saved item.
+
+### Write path
+
+1. **Trigger:** `chrome.tabs.onUpdated` fires with a URL change on a tab whose `tabId` is present in `claimsMirror`.
+2. **Unclaimed-tab no-op:** if the tab has no claim, `drift.js` exits immediately — no storage write.
+3. **Fragment stripping:** the new URL is passed through `normalizeUrl(url, 'forStorage')` from `shared/url.js`. This strips the fragment (`#…`), lowercases the hostname, and applies protocol defaulting before the drift record is written. Fragments are not stored.
+4. **Scheme validation:** if the normalized URL's scheme is not in the allowlist (`http`, `https`, `file`), the drift write is silently skipped and an error is logged (not thrown — drift is best-effort).
+5. **Length cap:** `driftedToUrl` is capped at `MAX_URL` (4096). URLs exceeding this limit cause the drift write to be skipped.
+6. **Storage write:** a `writeTransaction` op mutates `tj:drift`, setting `drift[itemId] = { itemId, driftedToUrl: normalizedUrl, detectedAt: Date.now() }`.
+
+### Clear path
+
+Drift is cleared (the record deleted from `tj:drift`) when:
+- The claimed tab is closed (`chrome.tabs.onRemoved`).
+- The claimed tab's URL returns to a value that matches the item's stored URL (as determined by `normalizeUrl(url, 'forMatch')`).
+
+### Invariants
+
+- `tj:drift` is keyed by `itemId`, not `tabId`. At most one drift record per item exists at any time.
+- Drift records do not have a TTL. Stale records (item deleted while drift exists) are cleaned up lazily during the `MSG_LIST_ITEMS` read: items absent from `tj:items` are omitted from the `driftRecords` response field.
+
+---
+
+## 10.8 Floating-Group Re-association Architecture (B-002)
+
+### Overview
+
+`background/tabs/floating-groups.js` resolves entries in `tj:floatingGroups` to currently open tabs, propagating claims for matched items. It runs on SW cold start after `reconcileClaims` completes and is also triggered when a new window opens.
+
+### Resolution strategy
+
+For each `FloatingGroup` record (`{ groupId, windowId, tabIndex, url, savedAt }`):
+
+1. **Position-match:** find a live tab in `liveTabIndex` with matching `windowId` and `tabIndex`. If found and its URL matches `record.url` (via `normalizeUrl` forMatch), claim it.
+2. **URL-fallback:** if the position match fails (tab moved), scan all unclaimed tabs in `liveTabIndex` whose normalized URL matches `record.url`. First match wins (first-in-array order).
+3. **Retain unresolved:** if neither strategy finds a match, the `FloatingGroup` record is left in `tj:floatingGroups` unchanged. There is no TTL — unresolved records persist until explicitly cleared (documented limitation; a future cleanup sweep is tracked as tech debt).
+
+### Tie-break and claim propagation
+
+- **First-in-array-wins:** when multiple `FloatingGroup` records could claim the same tab, the record that appears first in the `tj:floatingGroups` array wins. Subsequent records fall through to URL-fallback or remain unresolved.
+- **Claim propagation:** a successful match calls `claimTabForItem(itemId, tabId)` from `tab-claims.js`, writing the claim to `claimsMirror` and flushing to `storage.session`. The resolved record is then removed from `tj:floatingGroups` via `writeTransaction`.
+
+### Known limitation
+
+Unresolved `FloatingGroup` records have no expiry. A group whose window was permanently closed will accumulate stale records indefinitely. A future cleanup job (triggered by `MSG_DELETE_GROUP` or a periodic SW alarm) is not yet implemented.
 
 ---
 
@@ -675,6 +742,42 @@ shipped code is captured here.
 
 ---
 
+### B-001d Deviations and Rulings
+
+#### Fixes and deviations landed during B-001d build
+
+- **D1 — `shared/errors.js` as canonical error home.** R2 placed `StorageError` + `ERR_*` constants in `background/storage/errors.js`. B-001d moved the canonical definition to `shared/errors.js` so `drift.js` and `url.js` (both under `shared/` or `background/tabs/`) can import error types without crossing the write-boundary denylist. `background/storage/errors.js` now re-exports everything from `shared/errors.js`; no call sites were changed.
+
+- **D2 — `shared/url.js` replaces local `normalizeForMatch`.** The inline `normalizeForMatch` helper in `tab-claims.js` was promoted to `shared/url.js` as `normalizeUrl(url, mode)`. The `forStorage` mode is new (adds protocol defaulting; used by drift writes). The `forMatch` mode is functionally equivalent to the old helper. `tab-claims.js` now imports from `shared/url.js`.
+
+- **D3 — `index` field added to `LiveTabIndex` entry shape.** Not in the original B-001c spec. Required by B-002's position-match strategy. Added to `updateTabEntry` and `buildLiveTabIndex` in B-001d rather than waiting for B-002, so both land atomically.
+
+- **D4 — Drift write is best-effort (no throw on scheme/length violation).** R2's drift spec did not specify the failure mode for invalid URLs. Ruled: drift is a non-critical annotation; scheme or length violations log a warning and silently skip the write rather than throwing `ERR_VALIDATION` (which would surface to the caller as a UI error for a background event they did not initiate).
+
+#### B-001d Rulings
+
+- **Ruling B1d-1 — Fragment stripped before storage, not before comparison.** Fragment stripping happens in `normalizeUrl` forStorage mode, which runs before the drift record is written. The item's stored URL is also fragment-free (enforced by the `createItem` path). Comparison therefore uses fragment-free URLs on both sides consistently.
+
+- **Ruling B1d-2 — Unclaimed-tab URL changes are no-ops in drift.js.** R2 did not specify this edge case. If a tab changes URL but holds no claim, there is no item to associate drift to, so `drift.js` exits immediately without reading `tj:drift`. This avoids a spurious storage read on every unclaimed tab navigation.
+
+---
+
+### B-002 Deviations and Rulings
+
+#### Fixes and deviations landed during B-002 build
+
+- **B2-D1 — No TTL on unresolved FloatingGroup records.** R2 implied a cleanup pass on window close. Shipped code retains unresolved records indefinitely. Cleanup on `MSG_DELETE_GROUP` or a periodic alarm is tracked as tech debt (see §10.8).
+
+- **B2-D2 — `claimTabForItem` added to `tab-claims.js` rather than inline in `floating-groups.js`.** Keeping the write path in `tab-claims.js` ensures the single-mirror invariant is not duplicated. `floating-groups.js` is a pure orchestrator that calls into `tab-claims.js` for all claim mutations.
+
+#### B-002 Rulings
+
+- **Ruling B2-1 — First-in-array-wins for tie-break.** R2 did not specify tie-break order when multiple floating groups match the same tab. Ruled: the record appearing first in the `tj:floatingGroups` array wins. This is deterministic, cheap (no scoring), and consistent with the existing `reconcileClaims` first-unclaimed-wins approach.
+
+- **Ruling B2-2 — Position-match requires both `windowId` and `tabIndex` match.** URL match alone is insufficient for position-match because the same URL may be open in multiple windows. The position-match phase requires an exact (`windowId`, `tabIndex`) pair; URL is then verified as a confirmation. If position matches but URL diverged, the record falls through to URL-fallback.
+
+---
+
 ### B-001c Deviations and Rulings
 
 #### R4 fixes landed during B-001c build
@@ -728,11 +831,21 @@ If a user is running a newer extension version that bumped `KNOWN_VERSION` to N,
 - All write operations return `ERR_SAFE_MODE` until the user upgrades again.
 - No data is written under a schema the current code does not understand. On-disk data from the newer version is preserved intact for when the user re-upgrades.
 
-### What B-001a/b/c do NOT protect against
+### B-001d-specific: drift records survive SW restart but not item deletion
+
+`tj:drift` records are in `storage.local` and survive SW restarts. Stale records for deleted items are filtered out lazily at `MSG_LIST_ITEMS` read time. There is no proactive cleanup on item delete; a missed delete (e.g. crash mid-delete) leaves an orphan drift record that is harmlessly ignored at read time.
+
+### B-002-specific: unresolved floating-group records have no TTL
+
+Unresolved `tj:floatingGroups` records persist indefinitely. Revert of B-002 code leaves these records inert on disk (they are never read by non-B-002 code paths). Manual cleanup via DevTools `chrome.storage.local.set({'tj:floatingGroups': []})` is the recovery path if accumulation becomes a problem.
+
+### What B-001a/b/c/d + B-002 do NOT protect against
 
 - Partial writes across multiple storage APIs — not applicable; every `tj:*` write is a single `chrome.storage.local.set`.
 - Loss of `LiveTabIndex` on SW restart — by design (ephemeral, rebuilt on next cold start from `chrome.tabs.query`).
 - Loss of `TabClaims` on browser restart — by design (`storage.session` is cleared by Chrome; cold-start reconcile re-establishes claims).
+- Stale `tj:drift` records for deleted items — filtered lazily at read time, not proactively deleted.
+- Unresolved `tj:floatingGroups` records accumulating indefinitely — no TTL or cleanup job exists yet.
 
 ---
 

@@ -59,7 +59,7 @@ import {
 } from '../storage/index.js';
 
 import { getSystemStatus, isSafeMode } from '../storage/migration.js';
-import { buildLiveStates } from '../tabs/index.js';
+import { buildLiveStates, getDriftRecords } from '../tabs/index.js';
 
 /**
  * Build a typed error envelope regardless of whether the thrown value is a
@@ -89,7 +89,8 @@ async function dispatch(type, payload) {
     case MSG_LIST_ITEMS: {
       const items = await listItems('groupId' in p ? { groupId: p.groupId } : undefined);
       const liveStates = buildLiveStates(items);
-      return { items, liveStates };
+      const driftRecords = await getDriftRecords();
+      return { items, liveStates, driftRecords };
     }
     case MSG_GET_ITEM:
       return getItem(p.id);

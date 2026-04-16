@@ -24,19 +24,19 @@ import { writeTransaction } from './write-transaction.js';
 import { _peekQuotaSample } from './write-transaction.js';
 import { StorageError, ERR_CORRUPT_DATA, ERR_TX_CONFLICT } from './errors.js';
 import { ulid } from './ids.js';
+import { normalizeUrl } from '../../shared/url.js';
 
 /**
- * F5: URL validation for legacy imports — mirrors the assertValidUrl + length
- * cap checks used in createItem (items.js). Returns true if the URL is valid
- * for import, false otherwise. Best-effort: invalid entries are silently
- * discarded per AC7.
+ * F5: URL validation for legacy imports — uses shared normalizeUrl (B-002)
+ * for consistent scheme validation + length cap checks. Returns true if the
+ * URL is valid for import, false otherwise. Best-effort: invalid entries are
+ * silently discarded per AC7.
  */
-const ALLOWED_URL_SCHEMES = new Set(['http:', 'https:', 'ftp:', 'mailto:']);
 function isValidImportUrl(url) {
   if (typeof url !== 'string' || url.length === 0 || url.length > MAX_URL) return false;
   try {
-    const parsed = new URL(url);
-    return ALLOWED_URL_SCHEMES.has(parsed.protocol);
+    normalizeUrl(url, { forStorage: true });
+    return true;
   } catch {
     return false;
   }
@@ -187,7 +187,8 @@ async function migrateLegacyKeys() {
       .map((b) => ({
         id: ulid(),
         title: typeof b.title === 'string' && b.title.trim().length > 0 ? b.title.trim() : b.url,
-        url: b.url,
+        // B-002: normalize imported URLs for consistent storage form
+        url: normalizeUrl(b.url, { forStorage: true }),
         groupId: null,
         sortOrder: 0,
         createdAt: now,

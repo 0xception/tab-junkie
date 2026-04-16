@@ -2,6 +2,24 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.2.0] — 2026-04-15
+
+### Added
+- Drift detection: URL divergence tracked in `tj:drift`, persisted across restarts
+- Drift clearing: navigating back to saved URL clears drift in real time
+- Fragment-only URL changes do not trigger drift (automatic via normalization)
+- Floating-tab group persistence in `tj:floatingGroups` with exact window+index re-association
+- Cold-start re-association: position match first, URL fallback second, unresolved retained
+- `shared/url.js` — unified `normalizeUrl()` with `forStorage`/`forMatch` modes
+- `shared/errors.js` — canonical home for `StorageError` + all `ERR_*` constants
+- Protocol defaulting: bare `example.com` → `https://example.com`
+- Updated scheme allowlist: `http`/`https`/`file` (removed `ftp`/`mailto`)
+- Hostname lowercasing in URL normalization
+- `safeNormalizeForMatch` shared helper (DRY across drift, claims, floating)
+- `getItemIdForTab` + `claimTabForItem` helpers in tab-claims
+- MSG_LIST_ITEMS response now includes `driftRecords` field
+- 35 new automated tests (119 total)
+
 ## [1.1.0] — 2026-04-15
 
 ### Added
