@@ -129,6 +129,9 @@ function validateGroupPatch(patch) {
   if ('color' in patch) {
     assertValidColor(patch.color);
   }
+  if ('sortOrder' in patch && (typeof patch.sortOrder !== 'number' || !Number.isFinite(patch.sortOrder))) {
+    throw new StorageError(ERR_VALIDATION, 'updateGroup: sortOrder must be a finite number');
+  }
 }
 
 /**

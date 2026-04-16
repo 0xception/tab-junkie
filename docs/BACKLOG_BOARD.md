@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-16 · **Version:** 1.1 · **Total Items:** 56
+**Updated:** 2026-04-16 · **Version:** 1.2 · **Total Items:** 56
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ████░░░░░░░░░░░░░░░░  21% (12/56)  [0 in progress]
+Overall Progress    ██████░░░░░░░░░░░░░░  29% (16/56)  [0 in progress]
 ```
 
 ### Legend
@@ -36,13 +36,13 @@ Overall Progress    ████░░░░░░░░░░░░░░░░
 ✅ B-001d — Drift + floating-tab exact-position re-association · 🔴 · L
 ✅ B-002 — URL normalization & validation · 🟠 · S
 ✅ B-003 — Save / edit / delete saved bookmarks · 🔴 · L
-⬜ B-004 — Favicon auto-capture + letter-avatar fallback · 🟠 · S
+✅ B-004 — Favicon auto-capture + letter-avatar fallback · 🟠 · S
 ⬜ B-005 — Bulk-create saved items (import primitive) · 🟠 · M
 ✅ B-006 — Create / edit / delete groups with color palette · 🔴 · M
 ⬜ B-007 — Sub-group nesting (depth = 1) · 🟠 · M
-⬜ B-008 — Group reorder & collapse / expand persistence · 🟠 · M
+✅ B-008 — Group reorder & collapse / expand persistence · 🟠 · M
 ⬜ B-009 — Drag-to-expand collapsed group · 🟡 · S
-⬜ B-010 — Live tab reflection & active-tab highlight · 🔴 · L
+✅ B-010 — Live tab reflection & active-tab highlight · 🔴 · L
 ⬜ B-011 — Drift detection & persistence · 🔴 · L
 ⬜ B-012 — Audible tab indicator · 🟠 · XS
 ⬜ B-013 — Opener-chain group inheritance for new tabs · 🟠 · M
@@ -53,7 +53,7 @@ Overall Progress    ████░░░░░░░░░░░░░░░░
 ⬜ B-018 — Floating tab group persistence across restart · 🔴 · M
 ✅ B-019 — Click-to-navigate with tab reuse & window focus · 🔴 · S
 ✅ B-020 — Close tab from UI (individual + bulk) · 🔴 · S
-⬜ B-021 — Inline side-panel filter with debounce & highlight · 🟠 · M
+✅ B-021 — Inline side-panel filter with debounce & highlight · 🟠 · M
 ⬜ B-022 — Quick search popup with keyboard navigation · 🟠 · L
 ⬜ B-023 — Group jump popup · 🟠 · L
 ⬜ B-024 — Multi-select + bulk action bar · 🟠 · M
@@ -103,7 +103,7 @@ Overall Progress    ████░░░░░░░░░░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 12 | 21% |
+| ✅ Done | 16 | 29% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 44 | 79% |
+| ⬜ To Do | 40 | 71% |
 | 🧊 Icebox | 0 | 0% |

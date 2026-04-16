@@ -93,3 +93,100 @@ The [code-reviewer] surfaced 2 open questions from R3, and the [qa-reviewer] fla
 ## Handoff for fix round
 
 [frontend-engineer] fixes all CRITICAL + HIGH findings, plus as many MEDIUM as fit in the fix round. Then R5 [test-engineer] takes over.
+
+---
+
+## Sprint 8 — B-004 R4 Findings (Deduplicated)
+
+**Reviewed by:** [code-reviewer] · [security-reviewer]
+**Date:** 2026-04-16
+**Totals:** C=0 · H=2 · M=0 · L=0 · **VERDICT: REQUEST CHANGES → FIXED**
+
+### HIGH (fixed before R5)
+
+| # | File:Line | Source | Finding | Fix Applied |
+|---|-----------|--------|---------|-------------|
+| H-1 | `background/tabs/tab-events.js:62` | code-reviewer | `tab/favicon-changed` broadcast fired on every navigation alongside `tab/updated`, causing double patch cycles | Guard: `'favIconUrl' in changeInfo && !('url' in changeInfo)` |
+| H-2 | `sidepanel/sidepanel.js:597` | code-reviewer | `existingImg.src` (IDL property, always absolute URL) used for no-op comparison — always triggered unnecessary src update | Changed to `existingImg.getAttribute('src')` |
+
+---
+
+## Sprint 8 — B-010 R4 Findings (Deduplicated)
+
+**Reviewed by:** [code-reviewer] · [security-reviewer] · [qa-reviewer]
+**Date:** 2026-04-16
+**Totals:** C=0 · H=8 · M=7 · L=8 · **VERDICT: REQUEST CHANGES → FIXED (H-1 through H-8)**
+
+### HIGH (all fixed before R5)
+
+| # | File:Line | Source | Finding | Fix Applied |
+|---|-----------|--------|---------|-------------|
+| H-1 | `tab-events.js:99,131,140` | code-reviewer | `entry.active = false` mutated LiveTabIndex directly, bypassing `updateTabEntry()` API contract | Replaced with `updateTabEntry(id, { active: false })` throughout |
+| H-2 | `tab-events.js:110` | code-reviewer | `reevalTimers` not cancelled on `tabs.onRemoved` or `windows.onRemoved` → phantom claim window | Cancel + delete timer before `removeTabEntry` in both handlers |
+| H-3 | `tab-events.js:154` | code-reviewer + qa | `broadcast(window/focused)` fired after try/catch regardless of query state → wrong-highlight flash | Moved broadcast inside try block after `updateTabEntry`; retained fallback in catch |
+| H-4 | `sidepanel.js:552,558` | code-reviewer | `aria-label` concatenated user-controlled `item.title` → untrusted data in attribute | Changed to static `'Edit bookmark'` / `'Delete bookmark'` |
+| H-5 | `sidepanel.js:479` | security-reviewer | `favIconUrl` assigned to `img.src` without scheme validation → `javascript:` / arbitrary `data:` risk | Added `isSafeFaviconUrl()` allowlist helper; all 4 `img.src` assignments guarded |
+| H-6 | `sidepanel.js:573` | qa-reviewer | `refetchAndPatchLiveState` left stale indicators when `MSG_LIST_ITEMS` failed | Wrapped in try/catch; on failure clears all `data-live/active/audible/drifted` |
+| H-7 | `sidepanel.js:578` | qa-reviewer | DOM patch applied to detached nodes on concurrent re-render race | Added `itemListEl.contains(row)` guard inside patch loop |
+| H-8 | `sidepanel.js:522` | qa-reviewer | Audible/drifted icon DOM nodes never injected when state transitions false→true post-render | Added `_ensureIndicators(row, live)` helper called in patch loop |
+
+### MEDIUM (deferred — addressed in future sprint if time permits)
+
+- code-reviewer M-5: `requireClaimsReady` broadcast option undocumented
+- code-reviewer M-6: Batch `releaseClaimByTab` for window-close (N writes)
+- code-reviewer M-7: `refetchAndPatchLiveState` fetches full items list on every live-state change (expose MSG_GET_LIVE_STATES)
+- security-reviewer M-1: TOCTOU in `onFocusChanged` rapid window-switch race
+- security-reviewer M-2: Broadcast amplification to all extension contexts
+- qa-reviewer M-1: ARIA live/active state not communicated to screen readers
+- qa-reviewer M-5: 500ms budget not integration-tested under load
+
+---
+
+## Sprint 8 — B-008 R4 Findings (Deduplicated)
+
+**Reviewed by:** [code-reviewer] · [security-reviewer] · [qa-reviewer]
+**Date:** 2026-04-16
+**Totals:** C=0 · H=4 · M=4 · L=5 · **VERDICT: REQUEST CHANGES → IN PROGRESS**
+
+### HIGH (must fix before R5)
+
+| # | File:Line | Source | Finding | Fix |
+|---|-----------|--------|---------|-----|
+| H-1 | `sidepanel.js:867` | code-reviewer | `dragstart` guard `e.target.closest('.group-drag-handle')` broken — `e.target` is the section element (dragstart fires on `draggable`), not the handle child; guard always returns null → feature non-functional | Use `mousedown` on handle to set a flag; in `dragstart` check the flag, not `e.target.closest()` |
+| H-2 | `sidepanel.js:924` | code-reviewer + qa | Persistence failure on `Promise.all(updates)` is silent — DOM shows new order but storage retains old; no rollback, no user signal | On catch: call `renderAll()` to revert to stored order |
+| H-3 | `sidepanel.js:931` | qa-reviewer | `dragend` cleanup conditional — `dragging-src` class removal guarded by `if (_dragSrcGroupId)` + DOM query that can fail if `renderAll` fired mid-drag → class permanently stranded at 0.5 opacity | Make cleanup unconditional; remove class without conditional guard |
+| H-4 | `sidepanel.js:959` | qa-reviewer | Concurrent `renderAll()` on `groups`-scope broadcast mid-drag destroys `dropIndicatorEl` position and `dragging-src` class | Guard `renderAll()` for `groups` scope: `if (_dragSrcGroupId) return;`; re-render on `dragend` if skipped |
+
+### MEDIUM (fix before R5)
+
+| # | File:Line | Source | Finding |
+|---|-----------|--------|---------|
+| M-1 | `background/storage/groups.js:115` | security-reviewer | `validateGroupPatch` missing `sortOrder` finiteness check — `validateNewGroup` has it but `validateGroupPatch` does not; NaN/Infinity could be persisted |
+| M-2 | `sidepanel.js:444` | qa + code | Drag handle missing `tabindex="0"` — WCAG AA violation; `:focus-visible` CSS is dead code without it |
+| M-3 | `sidepanel.js:870` | security-reviewer | `e.dataTransfer.setData('text/plain', _dragSrcGroupId)` dead code — `drop` reads `_dragSrcGroupId` directly, `getData` never called |
+| M-4 | `sidepanel.js:924` | qa-reviewer | No-op drag may still dispatch MSG_UPDATE_GROUP if stored sortOrders aren't normalised to `idx*1000` scheme |
+
+---
+
+## Sprint 8 — B-021 R4 Findings (Deduplicated)
+
+**Reviewed by:** [code-reviewer] · [security-reviewer] · [qa-reviewer]
+**Date:** 2026-04-16
+**Totals:** C=0 · H=2 · M=5 · L=4 · **VERDICT: REQUEST CHANGES → IN PROGRESS**
+
+### HIGH (must fix before R5)
+
+| # | File:Line | Source | Finding | Fix |
+|---|-----------|--------|---------|-----|
+| H-1 | `sidepanel.js:411,419` | code-reviewer | O(n²) `_cachedItems.find()` per DOM row in `applyFilter` — up to 500,000 comparisons on 1,000-item collection, violates <50ms P95 budget | Populate `_itemById = new Map(items.map(it => [it.id, it]))` in `renderAll`; replace all `find()` calls with `_itemById.get(itemId)` |
+| H-2 | `sidepanel.js:1147` | qa-reviewer | Missing `e.preventDefault()` on filter Escape handler — browser's native `type="search"` Escape fires `input` event before `keydown`, re-arming debounce timer | Add `e.preventDefault()` before `e.stopPropagation()` in the Escape keydown handler |
+
+### MEDIUM (fix before R5)
+
+| # | File:Line | Source | Finding |
+|---|-----------|--------|---------|
+| M-1 | `sidepanel.css:798` | code + qa | `--mark-bg` undefined in dark/system themes — yellow `#fef08a` fallback jarring on dark bg |
+| M-2 | `sidepanel.html:78` | code + qa | `#filter-empty-state` missing `aria-live="polite"` + `role="status"` + `aria-atomic="true"` |
+| M-3 | `sidepanel.js:385` | qa-reviewer | `buildHighlightedText` uses `query.length` not `lowerQuery.length` for mark extent — Unicode `toLowerCase` can change char count |
+| M-4 | `sidepanel.js:457` | qa-reviewer | Scroll reset only fires when `query` is truthy — not applied on filter clear |
+| M-5 | `sidepanel.js:450` | qa-reviewer | Group count badge shows total items, not filtered match count during active filter |

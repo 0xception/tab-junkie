@@ -201,14 +201,14 @@ export async function reevaluateTab(tabId, newUrl, items) {
  * LiveTabIndex. Pure synchronous function.
  *
  * @param {Array<{id: string}>} items
- * @returns {Record<string, {live: boolean, active: boolean, audible: boolean}>}
+ * @returns {Record<string, {live: boolean, active: boolean, audible: boolean, favIconUrl: string|null}>}
  */
 export function buildLiveStates(items) {
   // H3: before reconcileClaims has run, return explicit not-ready defaults
   if (!claimsReady) {
     const states = {};
     for (const item of items) {
-      states[item.id] = { live: false, active: false, audible: false };
+      states[item.id] = { live: false, active: false, audible: false, favIconUrl: null };
     }
     return states;
   }
@@ -223,11 +223,12 @@ export function buildLiveStates(items) {
           live: true,
           active: tabEntry.active,
           audible: tabEntry.audible,
+          favIconUrl: tabEntry.favIconUrl || null,
         };
         continue;
       }
     }
-    states[item.id] = { live: false, active: false, audible: false };
+    states[item.id] = { live: false, active: false, audible: false, favIconUrl: null };
   }
   return states;
 }

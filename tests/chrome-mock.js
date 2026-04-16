@@ -165,7 +165,18 @@ const runtime = {
 let _nextTabId = 1000;
 
 const tabs = {
-  async query() { return deepClone(state.mockTabs); },
+  async query(filter) {
+    let result = state.mockTabs;
+    if (filter && typeof filter === 'object') {
+      if ('windowId' in filter) {
+        result = result.filter((t) => t.windowId === filter.windowId);
+      }
+      if ('active' in filter) {
+        result = result.filter((t) => t.active === filter.active);
+      }
+    }
+    return deepClone(result);
+  },
   async get(tabId) {
     const tab = state.mockTabs.find((t) => t.id === tabId);
     return tab ? deepClone(tab) : null;
@@ -195,12 +206,14 @@ const tabs = {
 };
 
 const windows = {
+  WINDOW_ID_NONE: -1,
   async update(windowId, props) {
     // No-op in tests — windows are not tracked in state
     void windowId; void props;
     return { id: windowId };
   },
   onRemoved: createEventMock(),
+  onFocusChanged: createEventMock(),
 };
 
 const chromeMock = {
@@ -232,6 +245,7 @@ export function __resetMock() {
   tabs.onActivated._listeners.length = 0;
   tabs.onRemoved._listeners.length = 0;
   windows.onRemoved._listeners.length = 0;
+  windows.onFocusChanged._listeners.length = 0;
 }
 
 export function __setCallCount() {

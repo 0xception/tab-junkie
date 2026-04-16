@@ -169,3 +169,48 @@ Historical completed sprint items. Appended by [scrum-master] at the close of ea
 **Went Well:** First fully self-service UAT — all flows verified by user without devtools. R4 caught two real blocking bugs before ship. SVG click-target lesson documented for the project.
 **To Improve:** R1 hit a rate limit mid-execution; ACs should specify enforcement mechanism (HTML attribute vs JS) for form validation.
 **Action Items:** [product-manager] specify client-side vs HTML-attribute enforcement in form ACs; [frontend-engineer] always use `closest()` for SVG-icon buttons in event delegation.
+
+---
+
+## Sprint 8 — Favicons, Live State UI, Group Reorder, Inline Search (2026-04-16)
+
+**Theme:** Visual polish and discoverability — favicons, live tab indicators, group drag-reorder, and inline filter.
+**Release:** v1.8.0 (pending [release-manager])
+**Tests:** 222 → 285 (+63 new tests across 4 suites)
+**SOLUTION_DESIGN.md:** v1.8 → v2.1 (§17 B-010, §18 B-008, §19 B-021 added)
+
+### Completed Items
+
+| ID | Title | Tier | UAT | New Tests |
+|----|-------|------|-----|-----------|
+| B-004 | Favicon auto-capture + letter-avatar fallback | Fast Track (S) | PASS (8/8 ACs) | 19 |
+| B-010 | Live tab reflection & active-tab highlight | Full (L) | PASS (12/12 ACs) | 18 |
+| B-008 | Group reorder & collapse/expand persistence | Full (M) | PASS (12/12 ACs) | 16 |
+| B-021 | Inline side-panel filter with debounce & highlight | Full (M) | PASS (10/10 ACs) | 10 |
+
+### Files Changed
+- `background/tabs/tab-events.js` — favIconUrl capture, broadcast double-fire guard, onFocusChanged multi-window gap, timer cleanup on tab/window remove
+- `background/tabs/live-tab-index.js` — favIconUrl field added to entry shape
+- `background/tabs/tab-claims.js` — buildLiveStates returns favIconUrl
+- `background/broadcast.js` — removed debug console.warn
+- `background/storage/groups.js` — validateGroupPatch: added sortOrder finiteness check
+- `sidepanel/sidepanel.html` — #filter-container, #filter-input, #filter-clear-btn, #filter-empty-state (aria-live)
+- `sidepanel/sidepanel.js` — isSafeFaviconUrl, buildItemRow favicon/avatar, refetchAndPatchLiveState, _ensureIndicators, drag handle in buildGroupSection, 5 drag event listeners, _pendingGroupsRender guard, _itemById Map, buildHighlightedText, applyFilter
+- `sidepanel/sidepanel.css` — data-live/active/audible styles, group drag handle + drop indicator, filter input/clear/empty/mark styles with dark theme --mark-bg
+- `tests/chrome-mock.js` — windows.WINDOW_ID_NONE, onFocusChanged, tabs.query filter support
+- `tests/b004-favicon.test.js` (19 tests), `tests/b010-live-state.test.js` (18 tests), `tests/b008-group-reorder.test.js` (16 tests), `tests/b021-filter.test.js` (10 tests)
+- `docs/SOLUTION_DESIGN.md` v2.1 — §17, §18, §19
+
+### Notable R4 Findings Fixed (Sprint-wide)
+- **B-010 H-1**: Direct LiveTabIndex mutation bypassed updateTabEntry() API contract
+- **B-010 H-5**: favIconUrl → img.src without scheme validation (isSafeFaviconUrl allowlist added)
+- **B-010 H-8**: Audible icon DOM nodes not injected when state transitions false→true post-render (_ensureIndicators)
+- **B-008 H-1**: dragstart guard e.target.closest() broken on section element → mousedown flag pattern
+- **B-008 H-4**: Concurrent renderAll() mid-drag destroyed drop indicator → _pendingGroupsRender guard
+- **B-021 H-1**: O(n²) item lookup → O(1) _itemById Map
+- **B-021 M-3**: buildHighlightedText used query.length not lowerQuery.length (Unicode edge case)
+
+### Retrospective
+**Went Well:** Parallel R4 reviews (3 reviewers × 4 items = 12 review passes) caught 30+ HIGH findings before UAT. B-021 filter's DocumentFragment highlight approach was XSS-clean by design — security review approved with zero changes.
+**To Improve:** SPRINT.md accumulated duplicate entries from parallel agent edits. B-008 dragstart guard and B-021 _itemById Map were both in R2 spec but not implemented in R3 — spec-compliance gap.
+**Action Items:** [solution-architect] specify browser API implementation patterns in R2; [scrum-master] do single-pass doc cleanup after parallel rounds; [test-engineer] add R2 spec-compliance check to R5.

@@ -19,6 +19,22 @@ import {
 
 import { GROUP_COLORS } from '../shared/constants.js';
 
+/**
+ * Returns true only for favicon URLs that are safe to assign to img.src.
+ * Rejects javascript:, data:text/, and any unknown schemes.
+ * @param {string} url
+ * @returns {boolean}
+ */
+function isSafeFaviconUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  const lower = url.toLowerCase();
+  return (
+    lower.startsWith('https://') ||
+    lower.startsWith('http://') ||
+    lower.startsWith('data:image/')
+  );
+}
+
 /* =========================================================================
    DOM references
    ========================================================================= */
@@ -45,6 +61,9 @@ const dialogSubmitBtnEl = document.getElementById('dialog-submit-btn');
 const confirmBodyEl = document.getElementById('confirm-body');
 const confirmDeleteBtnEl = document.getElementById('confirm-delete-btn');
 const confirmCancelBtnEl = document.getElementById('confirm-cancel-btn');
+const filterInputEl = document.getElementById('filter-input');
+const filterClearBtnEl = document.getElementById('filter-clear-btn');
+const filterEmptyStateEl = document.getElementById('filter-empty-state');
 
 /* =========================================================================
    Collapsed groups state (panel-lifetime; persisted via MSG_UPDATE_GROUP)
@@ -59,6 +78,30 @@ const collapsedGroups = new Set();
 let _editingItemId = null;
 let _dialogTriggerEl = null;
 let _pendingConfirmCallback = null;
+
+/* =========================================================================
+   Filter state (B-021)
+   ========================================================================= */
+
+let _filterQuery = '';
+let _filterTimer = null;
+let _cachedItems = [];
+let _cachedGroups = [];
+let _cachedLiveStates = {};
+let _cachedDriftRecords = {};
+let _itemById = new Map();
+
+/* =========================================================================
+   Group drag-to-reorder state (B-008)
+   ========================================================================= */
+
+let _dragSrcGroupId = null;
+let _dragInitiatedFromHandle = false;
+let _pendingGroupsRender = false;
+
+const dropIndicatorEl = document.createElement('div');
+dropIndicatorEl.className = 'drop-indicator';
+dropIndicatorEl.hidden = true;
 
 /* =========================================================================
    Messaging (B3 — null guard)
@@ -311,10 +354,141 @@ async function _handleFormSubmit(e) {
 bookmarkFormEl.addEventListener('submit', _handleFormSubmit);
 
 /* =========================================================================
+   Filter helpers (B-021)
+   ========================================================================= */
+
+/**
+ * Returns a DocumentFragment with matched substrings wrapped in <mark> elements.
+ * All text content set via createTextNode — no innerHTML used.
+ * @param {string} text
+ * @param {string} query
+ * @returns {DocumentFragment}
+ */
+function buildHighlightedText(text, query) {
+  const frag = document.createDocumentFragment();
+  if (!query) {
+    frag.appendChild(document.createTextNode(text));
+    return frag;
+  }
+  const lower = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  let cursor = 0;
+  while (cursor < text.length) {
+    const idx = lower.indexOf(lowerQuery, cursor);
+    if (idx === -1) {
+      frag.appendChild(document.createTextNode(text.slice(cursor)));
+      break;
+    }
+    if (idx > cursor) {
+      frag.appendChild(document.createTextNode(text.slice(cursor, idx)));
+    }
+    const mark = document.createElement('mark');
+    mark.textContent = text.slice(idx, idx + lowerQuery.length);
+    frag.appendChild(mark);
+    cursor = idx + lowerQuery.length;
+  }
+  return frag;
+}
+
+function applyFilter() {
+  const query = _filterQuery.trim().toLowerCase();
+
+  const groupSections = itemListEl.querySelectorAll('.group-section');
+  let totalVisible = 0;
+
+  for (const section of groupSections) {
+    const rows = section.querySelectorAll('[data-item-id]');
+    let visibleInGroup = 0;
+
+    for (const row of rows) {
+      if (!query) {
+        row.hidden = false;
+        /* Clear any existing highlights (restore original title/url text) */
+        const titleEl = row.querySelector('.item-title');
+        const urlEl = row.querySelector('.item-url');
+        if (titleEl) {
+          const itemId = row.dataset.itemId;
+          const item = _itemById.get(itemId);
+          if (item) {
+            titleEl.textContent = item.title || '';
+            if (urlEl) urlEl.textContent = item.url || '';
+          }
+        }
+        visibleInGroup++;
+      } else {
+        const itemId = row.dataset.itemId;
+        const item = _itemById.get(itemId);
+        if (!item) { row.hidden = true; continue; }
+
+        const titleMatch = (item.title || '').toLowerCase().includes(query);
+        const urlMatch = (item.url || '').toLowerCase().includes(query);
+
+        if (titleMatch || urlMatch) {
+          row.hidden = false;
+          visibleInGroup++;
+
+          /* Apply highlights */
+          const titleEl = row.querySelector('.item-title');
+          const urlEl = row.querySelector('.item-url');
+          if (titleEl) {
+            titleEl.textContent = '';
+            titleEl.appendChild(buildHighlightedText(item.title || '', query));
+          }
+          if (urlEl) {
+            urlEl.textContent = '';
+            urlEl.appendChild(buildHighlightedText(item.url || '', query));
+          }
+        } else {
+          row.hidden = true;
+        }
+      }
+    }
+
+    /* Update group count badge to reflect filtered count */
+    const countBadge = section.querySelector('.group-header-count');
+    if (countBadge) {
+      if (query) {
+        countBadge.textContent = visibleInGroup;
+      } else {
+        const total = section.dataset.itemCount;
+        if (total !== undefined) countBadge.textContent = total;
+      }
+    }
+
+    /* Hide group section entirely if no visible items */
+    if (!query) {
+      section.hidden = false;
+    } else {
+      section.hidden = visibleInGroup === 0;
+    }
+
+    totalVisible += visibleInGroup;
+  }
+
+  /* Reset scroll to top on filter apply (AC10) */
+  itemListEl.scrollTop = 0;
+
+  /* Show/hide filter empty state */
+  filterEmptyStateEl.hidden = !query || totalVisible > 0;
+  /* Also hide the regular empty state during filter */
+  if (query) emptyStateEl.hidden = true;
+
+  /* Show/hide clear button */
+  filterClearBtnEl.hidden = !_filterQuery;
+}
+
+/* =========================================================================
    Rendering
    ========================================================================= */
 
 function renderAll(items, groups, liveStates, driftRecords) {
+  /* Cache data for filter (B-021) */
+  _cachedItems = items;
+  _cachedGroups = groups;
+  _cachedLiveStates = liveStates || {};
+  _cachedDriftRecords = driftRecords || {};
+  _itemById = new Map(items.map((it) => [it.id, it]));
+
   if (!items.length && !groups.length) {
     skeletonEl.hidden = true;
     emptyStateEl.hidden = false;
@@ -387,11 +561,15 @@ function renderAll(items, groups, liveStates, driftRecords) {
   }
 
   itemListEl.replaceChildren(fragment);
+  itemListEl.appendChild(dropIndicatorEl);
   skeletonEl.hidden = true;
   emptyStateEl.hidden = true;
   errorStateEl.hidden = true;
   itemListEl.hidden = false;
   panelHeaderEl.hidden = false;
+
+  /* Re-apply active filter after DOM rebuild (B-021) */
+  if (_filterQuery) applyFilter();
 }
 
 /* --- Group section (W2 — unified, handles both real + ungrouped) ------- */
@@ -403,6 +581,7 @@ function buildGroupSection(group, byGroup, liveStates, driftRecords, isChild) {
 
   const groupItems = byGroup.get(group.id) || [];
   const collapsed = collapsedGroups.has(group.id);
+  section.dataset.itemCount = groupItems.length;
 
   /* Header */
   const header = document.createElement('div');
@@ -412,6 +591,21 @@ function buildGroupSection(group, byGroup, liveStates, driftRecords, isChild) {
   header.setAttribute('aria-expanded', String(!collapsed));
   header.setAttribute('aria-controls', 'group-items-' + group.id);
   header.dataset.groupId = group.id;
+
+  /* B-008: Drag handle + draggable for real groups only */
+  if (group.id !== '__ungrouped__') {
+    const handle = document.createElement('div');
+    handle.className = 'group-drag-handle';
+    handle.tabIndex = 0;
+    handle.setAttribute('aria-label', 'Reorder group');
+    handle.setAttribute('title', 'Drag to reorder (keyboard reorder not yet available)');
+    handle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="5" cy="4" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="5" cy="12" r="1.5"/><circle cx="11" cy="4" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="11" cy="12" r="1.5"/></svg>';
+    header.prepend(handle);
+
+    section.draggable = true;
+    section.dataset.groupId = group.id;
+    section.dataset.sortOrder = group.sortOrder ?? 0;
+  }
 
   /* Collapse icon */
   const collapseIcon = document.createElement('span');
@@ -474,13 +668,30 @@ function buildItemRow(item, liveStates, driftRecords) {
   if (live?.audible) row.dataset.audible = 'true';
   if (drifted) row.dataset.drifted = 'true';
 
-  /* Letter avatar for all items (favicon support deferred to B-004) */
-  const avatar = document.createElement('div');
-  avatar.className = 'item-avatar';
-  const letter = (item.title || '?').charAt(0);
-  avatar.textContent = letter;
-  avatar.style.backgroundColor = avatarColor(item.title || '');
-  row.appendChild(avatar);
+  /* B-004: favicon from live tab state, letter-avatar fallback */
+  const favIconUrl = liveStates?.[item.id]?.favIconUrl;
+  if (isSafeFaviconUrl(favIconUrl)) {
+    const img = document.createElement('img');
+    img.className = 'item-favicon';
+    img.alt = '';
+    img.src = favIconUrl;
+    img.onerror = () => {
+      const fallback = document.createElement('div');
+      fallback.className = 'item-avatar';
+      const fbLetter = (item.title || '?').charAt(0);
+      fallback.textContent = fbLetter;
+      fallback.style.backgroundColor = avatarColor(item.title || '');
+      img.replaceWith(fallback);
+    };
+    row.appendChild(img);
+  } else {
+    const avatar = document.createElement('div');
+    avatar.className = 'item-avatar';
+    const letter = (item.title || '?').charAt(0);
+    avatar.textContent = letter;
+    avatar.style.backgroundColor = avatarColor(item.title || '');
+    row.appendChild(avatar);
+  }
 
   /* Text block */
   const textBlock = document.createElement('div');
@@ -532,13 +743,13 @@ function buildItemRow(item, liveStates, driftRecords) {
 
   const editBtn = document.createElement('button');
   editBtn.className = 'item-action-btn item-action-edit';
-  editBtn.setAttribute('aria-label', 'Edit ' + (item.title || 'bookmark'));
+  editBtn.setAttribute('aria-label', 'Edit bookmark');
   editBtn.dataset.action = 'edit';
   editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M9.5 2.5l2 2-7 7H2.5v-2l7-7z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>';
 
   const deleteBtn = document.createElement('button');
   deleteBtn.className = 'item-action-btn item-action-delete';
-  deleteBtn.setAttribute('aria-label', 'Delete ' + (item.title || 'bookmark'));
+  deleteBtn.setAttribute('aria-label', 'Delete bookmark');
   deleteBtn.dataset.action = 'delete';
   deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2 3.5h10M5.5 3.5V2h3v1.5M5 5.5v5M9 5.5v5M3.5 3.5l.5 8h6l.5-8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
@@ -554,12 +765,25 @@ function buildItemRow(item, liveStates, driftRecords) {
    ========================================================================= */
 
 async function refetchAndPatchLiveState() {
-  const itemsResp = await sendMessage(MSG_LIST_ITEMS);
+  let itemsResp;
+  try {
+    itemsResp = await sendMessage(MSG_LIST_ITEMS);
+  } catch (err) {
+    console.warn('[tab-junkie] refetchAndPatchLiveState: MSG_LIST_ITEMS failed, clearing live indicators', err);
+    for (const row of itemListEl.querySelectorAll('[data-item-id]')) {
+      delete row.dataset.live;
+      delete row.dataset.active;
+      delete row.dataset.audible;
+      delete row.dataset.drifted;
+    }
+    return;
+  }
   const liveStates = itemsResp.liveStates || {};
   const driftRecords = itemsResp.driftRecords || {};
 
   const rows = itemListEl.querySelectorAll('[data-item-id]');
   for (const row of rows) {
+    if (!itemListEl.contains(row)) continue; // skip if a concurrent re-render detached this row
     const id = row.dataset.itemId;
     const live = liveStates[id];
     const drifted = driftRecords[id];
@@ -570,7 +794,82 @@ async function refetchAndPatchLiveState() {
     if (live?.audible) row.dataset.audible = 'true'; else delete row.dataset.audible;
     if (drifted) row.dataset.drifted = 'true'; else delete row.dataset.drifted;
 
-    /* Letter avatar always used (favicon deferred to B-004) — no swap needed */
+    /* H-8: Ensure indicator DOM nodes exist when state transitions false→true */
+    _ensureIndicators(row, live);
+
+    /* B-004: patch favicon / letter-avatar without full rebuild */
+    const newFavIconUrl = live?.favIconUrl || null;
+    const existingImg = row.querySelector('.item-favicon');
+    const existingAvatar = row.querySelector('.item-avatar');
+
+    if (newFavIconUrl && isSafeFaviconUrl(newFavIconUrl) && existingImg) {
+      /* Favicon present, img exists — update src if changed.
+         Use getAttribute('src') not .src: the IDL property returns the
+         browser-resolved absolute URL which may differ from the original
+         string even when the value hasn't changed (H-2 fix). */
+      if (existingImg.getAttribute('src') !== newFavIconUrl) {
+        existingImg.src = newFavIconUrl;
+      }
+    } else if (newFavIconUrl && isSafeFaviconUrl(newFavIconUrl) && existingAvatar) {
+      /* Favicon now available but currently showing avatar — swap to img */
+      const img = document.createElement('img');
+      img.className = 'item-favicon';
+      img.alt = '';
+      img.src = newFavIconUrl;
+      img.onerror = () => {
+        const fallback = document.createElement('div');
+        fallback.className = 'item-avatar';
+        const itemData = itemsResp.items.find((it) => it.id === id);
+        const fbLetter = (itemData?.title || '?').charAt(0);
+        fallback.textContent = fbLetter;
+        fallback.style.backgroundColor = avatarColor(itemData?.title || '');
+        img.replaceWith(fallback);
+      };
+      existingAvatar.replaceWith(img);
+    } else if ((!newFavIconUrl || !isSafeFaviconUrl(newFavIconUrl)) && existingImg) {
+      /* Favicon gone or unsafe — swap back to letter avatar */
+      const avatar = document.createElement('div');
+      avatar.className = 'item-avatar';
+      const itemData = itemsResp.items.find((it) => it.id === id);
+      const letter = (itemData?.title || '?').charAt(0);
+      avatar.textContent = letter;
+      avatar.style.backgroundColor = avatarColor(itemData?.title || '');
+      existingImg.replaceWith(avatar);
+    }
+    /* If !newFavIconUrl && existingAvatar — already showing avatar, skip */
+  }
+}
+
+/**
+ * Ensure audible indicator DOM node exists/is removed to match live state.
+ * Covers the case where a tab becomes audible after initial render (H-8).
+ */
+function _ensureIndicators(row, live) {
+  const needsAudible = !!live?.audible;
+  let audibleIcon = row.querySelector('.item-audible-icon');
+  if (needsAudible && !audibleIcon) {
+    let indicators = row.querySelector('.item-indicators');
+    if (!indicators) {
+      indicators = document.createElement('div');
+      indicators.className = 'item-indicators';
+      /* Insert before .item-actions so indicators appear in the right spot */
+      const actions = row.querySelector('.item-actions');
+      if (actions) {
+        row.insertBefore(indicators, actions);
+      } else {
+        row.appendChild(indicators);
+      }
+    }
+    audibleIcon = document.createElement('span');
+    audibleIcon.className = 'item-audible-icon';
+    audibleIcon.setAttribute('aria-label', 'Playing audio');
+    audibleIcon.innerHTML =
+      '<svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 5h2l3-3v10L4 9H2a1 1 0 01-1-1V6a1 1 0 011-1z" fill="currentColor"/><path d="M9.5 4.5a3.5 3.5 0 010 5" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg>';
+    indicators.appendChild(audibleIcon);
+  } else if (!needsAudible && audibleIcon) {
+    audibleIcon.remove();
+    const indicators = row.querySelector('.item-indicators');
+    if (indicators && indicators.children.length === 0) indicators.remove();
   }
 }
 
@@ -635,6 +934,7 @@ document.addEventListener('click', (e) => {
 
   const header = e.target.closest('.group-header');
   if (header) {
+    if (e.target.closest('.group-drag-handle')) return;
     toggleGroup(header);
     return;
   }
@@ -711,6 +1011,101 @@ function navigateToItem(row) {
 }
 
 /* =========================================================================
+   Group drag-to-reorder listeners (B-008)
+   ========================================================================= */
+
+itemListEl.addEventListener('mousedown', (e) => {
+  _dragInitiatedFromHandle = !!e.target.closest('.group-drag-handle');
+});
+
+itemListEl.addEventListener('dragstart', (e) => {
+  const section = e.target.closest('[data-group-id]');
+  if (!section) { e.preventDefault(); return; }
+  if (!_dragInitiatedFromHandle) { e.preventDefault(); return; }
+  _dragSrcGroupId = section.dataset.groupId;
+  e.dataTransfer.effectAllowed = 'move';
+  section.classList.add('dragging-src');
+  itemListEl.classList.add('is-dragging');
+});
+
+itemListEl.addEventListener('dragover', (e) => {
+  if (!_dragSrcGroupId) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+
+  const sections = [...itemListEl.querySelectorAll('[data-group-id]')];
+  let insertBefore = null;
+  for (const sec of sections) {
+    const rect = sec.getBoundingClientRect();
+    const mid = rect.top + rect.height / 2;
+    if (e.clientY < mid) { insertBefore = sec; break; }
+  }
+
+  dropIndicatorEl.hidden = false;
+  if (insertBefore) {
+    insertBefore.before(dropIndicatorEl);
+  } else {
+    const ungrouped = itemListEl.querySelector('.group-section:not([data-group-id])');
+    if (ungrouped) ungrouped.before(dropIndicatorEl);
+    else itemListEl.appendChild(dropIndicatorEl);
+  }
+});
+
+itemListEl.addEventListener('dragleave', (e) => {
+  if (!e.relatedTarget || !itemListEl.contains(e.relatedTarget)) {
+    dropIndicatorEl.hidden = true;
+  }
+});
+
+itemListEl.addEventListener('drop', (e) => {
+  e.preventDefault();
+  if (!_dragSrcGroupId) return;
+  dropIndicatorEl.hidden = true;
+
+  const srcSection = itemListEl.querySelector(`[data-group-id="${CSS.escape(_dragSrcGroupId)}"]`);
+  if (!srcSection) return;
+
+  itemListEl.insertBefore(srcSection, dropIndicatorEl);
+
+  const realSections = [...itemListEl.querySelectorAll('[data-group-id]')];
+  const updates = [];
+  realSections.forEach((sec, idx) => {
+    const newOrder = idx * 1000;
+    const oldOrder = Number(sec.dataset.sortOrder ?? 0);
+    if (newOrder !== oldOrder) {
+      sec.dataset.sortOrder = newOrder;
+      updates.push(sendMessage(MSG_UPDATE_GROUP, { id: sec.dataset.groupId, patch: { sortOrder: newOrder } }));
+    }
+  });
+  if (updates.length > 0) {
+    Promise.all(updates).catch((err) => {
+      console.warn('[tab-junkie] group reorder persistence failed — reverting to stored order', err);
+      Promise.all([sendMessage(MSG_LIST_ITEMS), sendMessage(MSG_LIST_GROUPS)])
+        .then(([itemsResp, groups]) => {
+          renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords);
+        })
+        .catch(() => {});
+    });
+  }
+});
+
+itemListEl.addEventListener('dragend', () => {
+  dropIndicatorEl.hidden = true;
+  itemListEl.classList.remove('is-dragging');
+  itemListEl.querySelector('.dragging-src')?.classList.remove('dragging-src');
+  _dragSrcGroupId = null;
+  _dragInitiatedFromHandle = false;
+  if (_pendingGroupsRender) {
+    _pendingGroupsRender = false;
+    Promise.all([sendMessage(MSG_LIST_ITEMS), sendMessage(MSG_LIST_GROUPS)])
+      .then(([itemsResp, groups]) => {
+        renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords);
+      })
+      .catch(() => {});
+  }
+});
+
+/* =========================================================================
    Broadcast listener (B4 — sender validation)
    ========================================================================= */
 
@@ -729,6 +1124,10 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   }
 
   if (scope === 'items' || scope === 'groups') {
+    if (scope === 'groups' && _dragSrcGroupId) {
+      _pendingGroupsRender = true;
+      return;
+    }
     Promise.all([
       sendMessage(MSG_LIST_ITEMS),
       sendMessage(MSG_LIST_GROUPS),
@@ -744,6 +1143,41 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       applyTheme(prefs.theme);
     }).catch(() => {});
   }
+});
+
+/* =========================================================================
+   Filter event listeners (B-021)
+   ========================================================================= */
+
+/* Filter: debounced input */
+filterInputEl.addEventListener('input', () => {
+  _filterQuery = filterInputEl.value;
+  filterClearBtnEl.hidden = !_filterQuery;
+  clearTimeout(_filterTimer);
+  _filterTimer = setTimeout(applyFilter, 150);
+});
+
+/* Filter: Escape to clear */
+filterInputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    _filterQuery = '';
+    filterInputEl.value = '';
+    filterClearBtnEl.hidden = true;
+    clearTimeout(_filterTimer);
+    applyFilter();
+  }
+});
+
+/* Filter: clear button */
+filterClearBtnEl.addEventListener('click', () => {
+  _filterQuery = '';
+  filterInputEl.value = '';
+  filterClearBtnEl.hidden = true;
+  clearTimeout(_filterTimer);
+  applyFilter();
+  filterInputEl.focus();
 });
 
 /* =========================================================================

@@ -31,6 +31,7 @@ test('AC9: buildLiveStates returns {items, liveStates} shape with correct values
     live: true,
     active: true,
     audible: false,
+    favIconUrl: null,
   });
 
   // Unclaimed item should have all false
@@ -38,6 +39,7 @@ test('AC9: buildLiveStates returns {items, liveStates} shape with correct values
     live: false,
     active: false,
     audible: false,
+    favIconUrl: null,
   });
 });
 

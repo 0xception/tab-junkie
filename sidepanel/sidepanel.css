@@ -30,6 +30,7 @@
   --group-count-text: #5f6673;
   --avatar-text: #ffffff;
   --collapse-icon: #8a8f9a;
+  --mark-bg: #fef08a;
 }
 
 [data-theme="dark"] {
@@ -58,6 +59,7 @@
   --group-count-text: #9aa0ab;
   --avatar-text: #ffffff;
   --collapse-icon: #6b7280;
+  --mark-bg: #713f12;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -87,6 +89,7 @@
     --group-count-text: #9aa0ab;
     --avatar-text: #ffffff;
     --collapse-icon: #6b7280;
+    --mark-bg: #713f12;
   }
 }
 
@@ -117,6 +120,7 @@
     --group-count-text: #5f6673;
     --avatar-text: #ffffff;
     --collapse-icon: #8a8f9a;
+    --mark-bg: #fef08a;
   }
 }
 
@@ -346,6 +350,52 @@ html, body {
   padding: 1px 6px;
   border-radius: 10px;
   flex-shrink: 0;
+}
+
+/* --- B-008: Group drag-to-reorder -------------------------------------- */
+
+.group-drag-handle {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 4px;
+  color: var(--text-tertiary);
+  cursor: grab;
+  border-radius: 4px;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.group-drag-handle:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
+.group-drag-handle:active {
+  cursor: grabbing;
+}
+
+.group-drag-handle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.drop-indicator {
+  height: 2px;
+  background-color: var(--accent);
+  border-radius: 1px;
+  margin: 0 8px;
+  pointer-events: none;
+}
+
+#item-list.is-dragging {
+  user-select: none;
+}
+
+[data-group-id].dragging-src {
+  opacity: 0.5;
 }
 
 .group-items {
@@ -678,6 +728,81 @@ html, body {
 
 .dialog-btn--danger:hover {
   background: #b91c1c;
+}
+
+/* --- Filter (B-021) --------------------------------------------------- */
+
+#filter-container {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  margin: 0 8px;
+}
+
+#filter-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 32px 0 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+#filter-input:focus {
+  border-color: var(--accent);
+}
+
+#filter-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+#filter-clear-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  padding: 0;
+}
+
+#filter-clear-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+#filter-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+mark {
+  background-color: var(--mark-bg, #fef08a);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
 }
 
 /* --- Item action buttons ----------------------------------------------- */

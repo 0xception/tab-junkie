@@ -4,6 +4,32 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.5.0 — Favicons, Live Tab State, Group Reorder, Inline Filter (2026-04-16)
+
+### What's new
+- **Favicon auto-capture** — bookmark and live-tab rows show the site favicon; letter-avatar fallback (first char of title, color-hashed) when no favicon is available or when the URL fails the `isSafeFaviconUrl` scheme guard (`https://` and `chrome-extension://` only)
+- **Live tab indicators** — sidepanel rows reflect live/active/audible state in real time; active tab highlighted distinctly; audible tabs show a speaker icon; multi-window `onFocusChanged` gap closed
+- **Group drag-to-reorder** — groups can be dragged to any position; `sortOrder` persisted to storage via `MSG_UPDATE_GROUP`; collapse/expand state persisted across reloads; drag handle visible on hover; concurrent-render guard prevents drop indicator destruction mid-drag
+- **Inline filter** — `#filter-input` with 150ms debounce; matching text highlighted with `<mark>` (XSS-clean DocumentFragment approach); `#filter-empty-state` aria-live region; `_itemById` O(1) Map replaces O(n²) linear scan; filter clears on group navigation
+
+### Internal
+- `isSafeFaviconUrl` scheme allowlist guard (security fix, B-010 H-5)
+- `_ensureIndicators` for post-render audible icon injection (B-010 H-8)
+- `mousedown` flag pattern for drag guard instead of broken `e.target.closest()` on section element (B-008 H-1)
+- `_pendingGroupsRender` guard prevents concurrent render during active drag (B-008 H-4)
+- `buildHighlightedText` uses `lowerQuery.length` for correct Unicode slicing (B-021 M-3)
+- 63 new tests (285 total), all passing
+- SOLUTION_DESIGN.md v2.1 (§17 B-010, §18 B-008, §19 B-021)
+
+### Bookmark CRUD (shipped with Sprint 7 / no prior release)
+- **Create, edit, delete bookmarks** — inline dialog in sidepanel with form validation, focus trap, and confirmation dialog for destructive actions
+
+### Test results
+- Automated: 285/285 passing
+- UAT: PASS — B-004 (8/8 ACs), B-010 (12/12 ACs), B-008 (12/12 ACs), B-021 (10/10 ACs)
+
+---
+
 ## v1.4.0 — Core Message Contract Complete (2026-04-15)
 
 ### What's new

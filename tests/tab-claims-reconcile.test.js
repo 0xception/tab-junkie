@@ -77,6 +77,6 @@ test('H3: buildLiveStates returns all-false before reconcileClaims runs', async 
   const items = [{ id: 'item-1', url: 'https://example.com', sortOrder: 0 }];
   const states = buildLiveStates(items);
 
-  assert.deepStrictEqual(states['item-1'], { live: false, active: false, audible: false },
+  assert.deepStrictEqual(states['item-1'], { live: false, active: false, audible: false, favIconUrl: null },
     'Before reconcile, all states should be false');
 });

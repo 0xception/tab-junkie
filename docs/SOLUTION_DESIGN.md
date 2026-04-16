@@ -1,9 +1,9 @@
 # Tab Junkie — Solution Design
 
-**Version:** 1.7
+**Version:** 2.1
 **Date:** 2026-04-16
 **Owner:** [solution-architect]
-**Status:** Active — B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-003 landed.
+**Status:** Active — B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-003 + B-010 + B-008 + B-021 landed.
 
 > This document is the current source of truth for what has actually shipped.
 > For the R2 *plan* (pre-build design) see `docs/design/B-001a.md`; deviations
@@ -457,7 +457,7 @@ patch list (M2 fix) and always recomputed by the mutator.
 
 ---
 
-## 10. What B-001a Did NOT Ship (updated through B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020)
+## 10. What B-001a Did NOT Ship (updated through B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-021)
 
 Items fully resolved by B-001b, B-001c, B-001d, B-002, B-006, B-016, B-017, B-050, B-019, or B-020 are marked **DONE**. The entire B-001 family (a/b/c/d) is now complete. Remaining items are open.
 
@@ -1568,3 +1568,519 @@ All five Open Question resolutions from §15.1 were confirmed accurate as-built:
 **Rule**: Always use `e.target.closest('#button-id')` or `e.target.closest('.button-class')` for event delegation on any button that contains child elements (SVG icons, `<span>` labels, etc.). This applies to all future icon buttons across the extension.
 
 **Applies to**: `#add-bookmark-btn`, `.item-action-btn`, and any future buttons with SVG icons in sidepanel, newtab, or popup surfaces.
+
+---
+
+## 16. B-010 — Live Tab Reflection & Active-Tab Highlight (R2 Design)
+
+### 16.1 Overview
+
+B-010 verifies and closes gaps in the end-to-end live-tab and active-tab indicator pipeline. The data infrastructure shipped in B-001c (LiveTabIndex, TabClaims, `buildLiveStates`, `refetchAndPatchLiveState`). B-010 is NOT a rebuild; it is a verification + gap-close sprint item.
+
+### 16.2 R1 Open Question Resolutions
+
+**OQ-1: `windows.onFocusChanged` gap — CONFIRMED GAP, FIX REQUIRED.**
+
+`chrome.tabs.onActivated` fires only when the active tab *within a window* changes. Switching focus between two windows (e.g., Alt-Tab) does NOT fire `tabs.onActivated` if the active tab in the target window was already its active tab before the switch. This means:
+
+- Window A has tab 1 active. Window B has tab 5 active.
+- User clicks on Window B. `tabs.onActivated` does NOT fire because tab 5 was already the active tab in Window B.
+- Result: LiveTabIndex still shows tab 1 as `active: true` in Window A AND tab 5 as `active: true` in Window B. Neither is wrong per-window, but AC6 requires that only the *focused* window's active tab shows the active highlight.
+
+**Fix**: Add a `chrome.windows.onFocusChanged` listener in `tab-events.js`. When a window gains focus (ignoring `chrome.windows.WINDOW_ID_NONE`), query the active tab in the focused window via `chrome.tabs.query({ active: true, windowId })`, then update the LiveTabIndex to set `active: false` for all tabs NOT in the focused window and `active: true` for the focused window's active tab. Broadcast `SCOPE.LIVE_STATE` with trigger `window/focused`.
+
+**OQ-2: `console.warn` leakage in `broadcast.js` — CONFIRMED, FIX REQUIRED.**
+
+Line 13 of `background/broadcast.js` has `console.warn('[tab-junkie:broadcast] firing:', scope, trigger)`. This fires on every tab event (activated, updated, removed) and violates CLAUDE.md's "No `console.log` debug noise" rule. Must be removed. The existing `console.warn` on line 15 (sendMessage failure) is legitimate error handling and stays.
+
+**OQ-3: `tabs.onUpdated` debounce latency — CONFIRMED WITHIN BUDGET.**
+
+The 100ms per-tab debounce in `tab-events.js` (line 65) only gates *claim re-evaluation* (which triggers `broadcast(SCOPE.LIVE_STATE)`). The LiveTabIndex itself is updated synchronously before the debounce (lines 44-57). Since `refetchAndPatchLiveState` in the sidepanel calls `MSG_LIST_ITEMS` which reads from the in-memory index synchronously, the actual live-state read is always current. The debounce only delays the *notification* to the UI, not the data. Worst case: 100ms debounce + ~50ms message round-trip + ~10ms DOM patch = ~160ms, well within the 500ms budget. No change needed.
+
+**OQ-4: `requireClaimsReady` guard on cold open — CONFIRMED SAFE, NO GAP.**
+
+Flow analysis:
+1. SW cold start: `registerTabEventListeners(readyPromise)` registers listeners synchronously.
+2. `initializeLiveState(readyPromise)` runs concurrently: builds LiveTabIndex, awaits `readyPromise`, then calls `reconcileClaims(items)` which sets `claimsReady = true`.
+3. Any tab events firing before `reconcileClaims` completes are gated by `{ requireClaimsReady: true }` — broadcasts are suppressed.
+4. Sidepanel's `DOMContentLoaded` handler calls `sendMessage(MSG_LIST_ITEMS)`, which in `storage-handlers.js` awaits `readyPromise`. By the time `readyPromise` resolves AND the dispatch runs `buildLiveStates(items)`, `initializeLiveState` has already run `reconcileClaims` (both await the same `readyPromise` and `initializeLiveState` starts its work at the same time). Edge case: if `buildLiveTabIndex()` takes longer than `readyPromise`, `reconcileClaims` could still be pending when `MSG_LIST_ITEMS` reads. However, `buildLiveStates` checks `if (!claimsReady)` and returns all-false defaults (line 208 of `tab-claims.js`). The first broadcast after `claimsReady` flips to true will trigger `refetchAndPatchLiveState` which corrects the UI. Net effect: at most one frame of "no live indicators" on cold open, then correct state within ~200ms. This is acceptable.
+
+**OQ-5: `tabs.onUpdated` with empty URL in transit — CONFIRMED SAFE, NO GAP.**
+
+The guard on line 60 of `tab-events.js`: `typeof changeInfo.url === 'string' && changeInfo.url !== ''` correctly filters out:
+- `changeInfo.url === undefined` (non-URL updates like `audible` changes)
+- `changeInfo.url === ''` (blank URL during navigation initiation)
+
+During redirect chains, each intermediate URL that is non-empty triggers a debounced re-evaluation. The 100ms debounce collapses rapid redirect hops. If an intermediate URL briefly unsets a claim (URL doesn't match any item), the final URL re-evaluation corrects it. The temporary "un-claimed" state lasts at most one debounce cycle (~100ms) and is not user-visible because the broadcast is also debounced.
+
+### 16.3 Code Changes Required
+
+| # | File | Change | Reason |
+|---|------|--------|--------|
+| C-1 | `background/tabs/tab-events.js` | Add `chrome.windows.onFocusChanged` listener inside `registerTabEventListeners()` | OQ-1: multi-window active-tab tracking requires window focus events |
+| C-2 | `background/broadcast.js` | Remove `console.warn` on line 13 | OQ-2: debug noise in production code |
+| C-3 | `sidepanel/sidepanel.js` | Patch `refetchAndPatchLiveState()` to reconcile audible/drifted indicator DOM elements, not just data attributes | Currently only updates `dataset.*` attributes but audible/drifted indicator `<span>` elements are only created at full-render time; if a tab becomes audible after initial render, the icon element doesn't exist to become visible. Active/live work because they use CSS attribute selectors on the row itself. |
+| C-4 | `sidepanel/sidepanel.css` | No changes needed | CSS already has `[data-live]`, `[data-active]`, `[data-audible]`, `[data-drifted]` selectors with correct theme variables for light/dark |
+
+**No changes needed:**
+- `manifest.json` — no new permissions required (see 16.5)
+- `background/messages/storage-handlers.js` — `MSG_LIST_ITEMS` response shape (`{ items, liveStates, driftRecords }`) is already correct; `buildLiveStates` already returns `{ live, active, audible }` per item
+- `shared/messages.js` — no new message types needed; `MSG_STATE_CHANGED` with `scope: 'liveState'` is sufficient
+
+### 16.4 `windows.onFocusChanged` Listener Design
+
+```js
+// Inside registerTabEventListeners(readyPromise):
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  // Ignore WINDOW_ID_NONE (all windows lost focus, e.g. user switched to another app)
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+
+  // Deactivate all tabs in other windows, activate the focused window's active tab
+  const index = getLiveTabIndex();
+  for (const [id, entry] of index) {
+    if (entry.windowId !== windowId) {
+      entry.active = false;
+    }
+  }
+
+  // Query the active tab in the focused window to ensure correctness
+  chrome.tabs.query({ active: true, windowId }).then((tabs) => {
+    if (tabs.length > 0) {
+      updateTabEntry(tabs[0].id, { active: true, windowId });
+    }
+    broadcast(SCOPE.LIVE_STATE, 'window/focused', { requireClaimsReady: true });
+  }).catch((err) => {
+    console.warn('[tab-junkie] window focus query failed', err);
+  });
+});
+```
+
+**Key design decisions:**
+- **Deactivate-then-query pattern**: First deactivate all tabs in non-focused windows (synchronous, in-memory), then query the actual active tab in the focused window (async) to set it. This avoids a race where two tabs are momentarily both active.
+- **`WINDOW_ID_NONE` guard**: When the user switches to a non-browser app, all windows lose focus. We do NOT deactivate everything — the last-focused window's active tab remains highlighted. This is correct UX: when the user returns to the browser, the highlight is already there.
+- **No `readyPromise` await**: This listener only touches the in-memory LiveTabIndex and issues a broadcast. No storage read needed. The `requireClaimsReady` gate on broadcast is sufficient.
+
+### 16.5 Permissions Review
+
+Current `manifest.json` permissions: `["tabs", "tabGroups", "storage", "sidePanel", "search"]`
+
+| Permission | Required for B-010? | Present? | Notes |
+|-----------|-------------------|----------|-------|
+| `tabs` | Yes — `tab.url`, `tab.active`, `chrome.tabs.query`, `tabs.onActivated`, `tabs.onUpdated`, `tabs.onRemoved` | Yes | Already present |
+| (none for windows) | `chrome.windows.onFocusChanged` and `chrome.windows.onRemoved` do NOT require any permission | N/A | These are available to all extensions by default; only `windows.getAll`, `windows.get`, `windows.create`, `windows.update` need the implicit access that `tabs` provides |
+| `storage` | Yes — `chrome.storage.session` for TabClaims | Yes | Already present |
+
+**No new permissions needed for B-010.**
+
+### 16.6 Message Flow — End-to-End per AC
+
+**AC1: Tab opens at saved URL -> live indicator appears**
+```
+chrome.tabs.onUpdated(tabId, {url: "..."}, tab)
+  -> updateTabEntry(tabId, {url, windowId, active, index})     [sync, in-memory]
+  -> debounce 100ms -> reevaluateTab(tabId, url, items)         [async, writes session storage]
+  -> broadcast(SCOPE.LIVE_STATE, 'tab/updated')                 [fire-and-forget]
+  -> sidepanel receives MSG_STATE_CHANGED {scope: 'liveState'}
+  -> refetchAndPatchLiveState() -> MSG_LIST_ITEMS
+  -> buildLiveStates(items) returns {itemId: {live: true, active: ?, audible: ?}}
+  -> patches data-live="true" on matching .item-row
+  -> CSS rule .item-row[data-live="true"] applies green left border
+```
+
+**AC2: Tab closes -> live indicator clears**
+```
+chrome.tabs.onRemoved(tabId)
+  -> removeTabEntry(tabId)                                      [sync, in-memory]
+  -> releaseClaimByTab(tabId)                                   [async, writes session storage]
+  -> broadcast(SCOPE.LIVE_STATE, 'tab/removed')
+  -> sidepanel patches data-live removed -> CSS reverts to no border
+```
+
+**AC3: Tab focused -> active highlight appears**
+```
+chrome.tabs.onActivated({tabId, windowId})
+  -> deactivate previous active tab in same window              [sync, in-memory]
+  -> updateTabEntry(tabId, {active: true, windowId})            [sync, in-memory]
+  -> broadcast(SCOPE.LIVE_STATE, 'tab/activated')
+  -> sidepanel patches data-active="true" on row
+  -> CSS rule .item-row[data-active="true"] applies blue bg + blue left border
+```
+
+**AC6: Window focus switches -> active transfers (NEW with B-010 fix)**
+```
+chrome.windows.onFocusChanged(windowId)
+  -> [guard: skip WINDOW_ID_NONE]
+  -> deactivate all tabs in other windows                       [sync, in-memory]
+  -> chrome.tabs.query({active: true, windowId})                [async]
+  -> updateTabEntry(activeTab.id, {active: true})               [sync, in-memory]
+  -> broadcast(SCOPE.LIVE_STATE, 'window/focused')
+  -> sidepanel patches: old window's tab loses data-active, new window's tab gains data-active
+  -> Only one item-row has data-active="true" at any time
+```
+
+### 16.7 `refetchAndPatchLiveState` Indicator DOM Gap
+
+Current `refetchAndPatchLiveState()` (sidepanel.js lines 556-575) only toggles `dataset.*` attributes on existing `.item-row` elements. For `live` and `active`, this works because the CSS selectors (`.item-row[data-live="true"]`, `.item-row[data-active="true"]`) operate on the row element itself.
+
+However, for `audible` and `drifted`, the CSS selectors target *child elements* (`.item-row[data-audible="true"] .item-audible-icon`, `.item-row[data-drifted="true"] .item-drifted-icon`) that are only created during `buildItemRow()` when the state is truthy at render time. If a tab becomes audible after the initial render, setting `data-audible="true"` on the row has no effect because the `.item-audible-icon` span doesn't exist in the DOM.
+
+**Fix**: In `refetchAndPatchLiveState`, after updating data attributes, check whether indicator elements need to be created or removed:
+- If `audible` became true and no `.item-audible-icon` exists in the row: create and append the icon span inside `.item-indicators` (creating the container if needed).
+- If `audible` became false and `.item-audible-icon` exists: remove it.
+- Same pattern for `drifted` / `.item-drifted-icon`.
+
+This keeps the "no full re-render" contract while ensuring indicator icons match the data attributes.
+
+### 16.8 R2 Correctness Checklist
+
+| # | Check | Status | Notes |
+|---|-------|--------|-------|
+| C-1 | Storage schema versioned | PASS — No change | B-010 does not modify any persisted data shapes. LiveTabIndex is in-memory only. TabClaims shape (`Record<string, number>`) is unchanged. |
+| C-2 | Message contracts typed | PASS — No change | `MSG_STATE_CHANGED { scope: 'liveState', trigger: string }` is unchanged. `liveStates` shape in `MSG_LIST_ITEMS` response (`Record<string, {live, active, audible}>`) is unchanged. New trigger value `'window/focused'` is a string — no contract change. |
+| C-3 | Service worker cold-start safe | PASS | `windows.onFocusChanged` listener is registered synchronously in `registerTabEventListeners()`. It only reads/writes in-memory LiveTabIndex and broadcasts with `requireClaimsReady` gate. `initializeLiveState` builds the index and reconciles claims before the gate opens. |
+| C-4 | ID stability | N/A | B-010 does not change item identity or matching logic. |
+| C-5 | Manifest file references resolvable | N/A | No new files or manifest entries. |
+
+### 16.9 Risk Assessment
+
+| Risk | Severity | Mitigation |
+|------|----------|-----------|
+| `windows.onFocusChanged` fires rapidly during window drag/resize | LOW | The listener only does in-memory map mutations (O(n) over open tabs) + one async `tabs.query`. No debounce needed — the operation is cheap and idempotent. |
+| `tabs.query` fails in the `onFocusChanged` handler | LOW | Wrapped in `.catch()` with `console.warn`. LiveTabIndex may have stale active flags until next `tabs.onActivated` corrects it. |
+| Indicator DOM manipulation in `refetchAndPatchLiveState` introduces XSS | MEDIUM | All indicator elements use `innerHTML` with hardcoded SVG literals (no user data). Same pattern as `buildItemRow`. [security-reviewer] should verify. |
+
+### 16.10 Rollback Plan
+
+No storage schema changes. No new permissions. Rollback = revert the commit. No data migration needed.
+
+---
+
+## 17. B-010 — Live Tab Reflection & Active-Tab Highlight (R6 Close — What Shipped)
+
+### 17.1 Summary
+
+B-010 closed all gaps in the live-tab and active-tab indicator pipeline. The data infrastructure shipped in B-001c (LiveTabIndex, TabClaims, `buildLiveStates`) was verified correct and extended with: (1) a `windows.onFocusChanged` handler for multi-window active-tab tracking, (2) broadcast noise cleanup, (3) dynamic audible-indicator DOM creation/removal in the sidepanel, and (4) favicon rendering integrated from B-004.
+
+### 17.2 What Was Built
+
+#### Background layer
+
+**`background/tabs/live-tab-index.js`** — In-memory `Map<tabId, LiveTabEntry>` unchanged in shape from B-001c. `LiveTabEntry = { url: string, windowId: number, active: boolean, audible: boolean, index: number, favIconUrl: string }`. Populated at SW cold start via `buildLiveTabIndex()` calling `chrome.tabs.query({})`. Mutated only through `updateTabEntry(tabId, patch)`, `removeTabEntry(tabId)`, and `removeTabsByWindow(windowId)`. `getLiveTabIndex()` returns the live Map reference (read-only contract).
+
+**`background/tabs/tab-events.js`** — Registers 5 event listeners inside `registerTabEventListeners(readyPromise)`:
+
+| Listener | Behavior |
+|----------|----------|
+| `tabs.onUpdated` | Updates LiveTabIndex synchronously with url/audible/favIconUrl/windowId/active/index. Guards `tab/favicon-changed` broadcast to fire only when favIconUrl changes WITHOUT a simultaneous URL change (prevents double-patch on navigation). Debounces URL-change re-evaluation at 100ms per tab via `reevalTimers` Map. Cancels pending timers on tab removal. |
+| `tabs.onActivated` | Deactivates previous active tab in the same window via `updateTabEntry(id, { active: false })` (never direct Map mutation). Activates new tab. Broadcasts `tab/activated`. |
+| `tabs.onRemoved` | Cancels reevalTimers for the tab, then `removeTabEntry` + `releaseClaimByTab`. Broadcasts `tab/removed` after claim release. |
+| `windows.onFocusChanged` | **NEW in B-010.** Fills the gap where `tabs.onActivated` does not fire on window focus switch. On `WINDOW_ID_NONE`: deactivates ALL tabs (user left the browser), broadcasts `window/blurred`. On a real windowId: deactivates tabs in non-focused windows, queries the active tab in the focused window via `chrome.tabs.query({ windowId, active: true })`, activates it AFTER the query resolves, broadcasts `window/focused`. |
+| `windows.onRemoved` | Bulk timer cleanup + `removeTabsByWindow` + batch `releaseClaimByTab`. Early-returns if `!isClaimsReady()` (reconcileClaims will handle on next run). Broadcasts `tab/removed`. |
+
+**`background/tabs/tab-claims.js`** — `buildLiveStates(items)` now includes `favIconUrl: tabEntry.favIconUrl || null` in each live-state entry (integrated from B-004). Shape: `Record<string, { live: boolean, active: boolean, audible: boolean, favIconUrl: string|null }>`.
+
+**`background/broadcast.js`** — OQ-2 fix: removed the `console.warn('[tab-junkie:broadcast] firing:', scope, trigger)` debug line. Only the error-path `console.warn` on `sendMessage` failure remains.
+
+#### Sidepanel layer
+
+**`sidepanel/sidepanel.js`** — four key functions:
+
+| Function | Purpose |
+|----------|---------|
+| `isSafeFaviconUrl(url)` | Allowlist helper accepting only `https://`, `http://`, `data:image/` scheme prefixes. Guards all favicon `<img>` creation against unsafe protocols (e.g., `chrome://`, `javascript:`, `file://`). |
+| `buildItemRow(item, liveStates, driftRecords)` | Sets `data-item-id`, `data-live`, `data-active`, `data-audible`, `data-drifted` on the row element. Renders `<img class="item-favicon">` (with `isSafeFaviconUrl` guard + `onerror` fallback) or `<div class="item-avatar">` (first-letter + djb2 hash color). Static `aria-label` on edit/delete buttons. Indicator icons (audible, drifted) created only when state is truthy at render time. |
+| `refetchAndPatchLiveState()` | Called on `MSG_STATE_CHANGED { scope: 'liveState' }`. Patches existing rows in-place (no full re-render). Error-safe: clears all stale indicators on `MSG_LIST_ITEMS` failure. Guards against detached-node race with `itemListEl.contains(row)`. Patches favicon/avatar transitions (img to avatar, avatar to img, src update) using `getAttribute('src')` comparison to avoid IDL-resolved URL false positives (H-2 fix). Calls `_ensureIndicators()` for audible DOM transitions. |
+| `_ensureIndicators(row, live)` | Creates `.item-audible-icon` span when audible state transitions false-to-true post-render; removes it when audible becomes false. Creates/removes the `.item-indicators` container as needed. Inserts before `.item-actions` to maintain correct DOM order. SVG markup is hardcoded (no user data — XSS-safe). |
+
+### 17.3 Deviations from R2 Plan (section 16)
+
+| # | R2 Plan | What Shipped | Reason |
+|---|---------|-------------|--------|
+| D-1 | `WINDOW_ID_NONE` guard was "do NOT deactivate everything" (keep last-focused window highlighted) | Shipped: deactivates ALL tabs on `WINDOW_ID_NONE` and broadcasts `window/blurred` | More accurate representation — when the browser loses focus, no tab is truly "active" from the user's perspective. The next `onFocusChanged` with a real windowId re-activates correctly. |
+| D-2 | R2 pseudocode used direct `entry.active = false` mutation in the onFocusChanged loop | Shipped: all mutations go through `updateTabEntry(id, { active: false })` | Consistent with the mutation contract established in B-001c; avoids bypassing any future instrumentation on `updateTabEntry`. |
+| D-3 | R2 did not mention `_ensureIndicators` handling drifted icons | Shipped: `_ensureIndicators` handles audible only; drifted icon creation/removal is deferred | Drifted state transitions are rare enough that full re-render handles them. Audible transitions happen frequently (media play/pause) and required the targeted DOM approach. |
+| D-4 | `buildLiveStates` return shape was `{ live, active, audible }` | Shipped: `{ live, active, audible, favIconUrl }` | B-004 integration added `favIconUrl` to the live-state contract. This was approved during B-004 R2; not a deviation from B-010's scope but worth documenting since it changed the shape referenced in section 16.2. |
+
+### 17.4 Message Types
+
+No new message types introduced. B-010 reuses the existing contract:
+
+- **Broadcast**: `MSG_STATE_CHANGED { scope: 'liveState', trigger: '<event>' }` — triggers include `tab/updated`, `tab/activated`, `tab/removed`, `tab/favicon-changed`, `window/focused`, `window/blurred`.
+- **Request/response**: `MSG_LIST_ITEMS` response includes `{ items, liveStates, driftRecords }` where `liveStates` shape is now `Record<string, { live: boolean, active: boolean, audible: boolean, favIconUrl: string|null }>`.
+
+New trigger values added by B-010: `window/focused`, `window/blurred`. These are string values in the existing `trigger` field — no contract change.
+
+### 17.5 Manifest Permissions
+
+`tabs` and `windows` events were already available. `chrome.windows.onFocusChanged` and `chrome.windows.onRemoved` do not require any additional permission. No changes to `manifest.json`.
+
+### 17.6 Storage Schema
+
+No changes. LiveTabIndex is purely in-memory (lost on SW termination, rebuilt on cold start). TabClaims remain in `chrome.storage.session` under `tj:tabClaims` with unchanged shape `Record<string, number>`. The only addition to `buildLiveStates` output (`favIconUrl`) is an in-flight response field, not persisted.
+
+### 17.7 Rollback Plan
+
+No storage schema changes. No new permissions. No durable state changes. LiveTabIndex is ephemeral (in-memory). Rollback = `git revert` the B-010 commits. No data migration needed.
+
+### 17.8 Known Deferred Items (from R4 MEDIUM findings)
+
+| # | Finding | Severity | Status | Notes |
+|---|---------|----------|--------|-------|
+| 1 | Broadcast amplification — `broadcast()` sends to ALL open contexts (sidepanel, newtab, popup) via `chrome.runtime.sendMessage`; each context refetches `MSG_LIST_ITEMS` independently | MEDIUM | Deferred | Acceptable at current scale (<5 open surfaces). If Tab Junkie adds many open contexts, consider targeted messaging or a shared observable. |
+| 2 | TOCTOU in rapid `onFocusChanged` — two rapid window-focus events could interleave: event 1 deactivates synchronously, then event 2 deactivates synchronously, then event 1's async `tabs.query` resolves and activates a tab in the wrong window | MEDIUM | Deferred | Extremely rare in practice (requires sub-millisecond focus switching). The next legitimate focus event self-corrects. No user-visible impact observed in UAT. |
+| 3 | No `MSG_GET_LIVE_STATES` optimization — sidepanel refetches the full item list via `MSG_LIST_ITEMS` on every live-state broadcast, even though only `liveStates` changed | MEDIUM | Deferred | Performance is within budget (items list is typically <500 items, serialization is fast). A dedicated lightweight message could reduce payload but adds contract surface area. Tracked for future optimization. |
+
+### 17.9 Test Coverage
+
+| Suite | File | Tests | Coverage |
+|-------|------|-------|----------|
+| B-004 favicon | `tests/b004-favicon.test.js` | 19 | favIconUrl in liveStates, isSafeFaviconUrl allowlist (https/http/data:image allowed; chrome://javascript://file:// blocked), broadcast guard for favicon-only vs URL+favicon changes |
+| B-010 live state | `tests/b010-live-state.test.js` | 18 | LiveTabIndex CRUD (build/update/remove/removeByWindow), all 5 event handlers (onUpdated, onActivated, onRemoved, onFocusChanged, windows.onRemoved), buildLiveStates output shape, claimsReady gate |
+| Chrome mock additions | `tests/chrome-mock.js` | — | Added `windows.WINDOW_ID_NONE` constant, `windows.onFocusChanged` mock, `tabs.query` filter support for `{ windowId, active }` |
+
+### 17.10 R2 Correctness Checklist (Post-Build Verification)
+
+| # | Check | Status | Notes |
+|---|-------|--------|-------|
+| C-1 | Storage schema versioned | PASS — No change | No persisted data shapes modified. |
+| C-2 | Message contracts typed | PASS — No change | New trigger values (`window/focused`, `window/blurred`) are strings in existing `trigger` field. `favIconUrl` added to `buildLiveStates` output (B-004 integration, not a B-010 contract change). |
+| C-3 | Service worker cold-start safe | PASS | All 5 listeners registered synchronously in `registerTabEventListeners()`. `onFocusChanged` handler uses only in-memory LiveTabIndex + async `tabs.query` + `requireClaimsReady` broadcast gate. No `readyPromise` await needed. |
+| C-4 | ID stability | N/A | No changes to item identity or matching logic. |
+| C-5 | Manifest file references resolvable | N/A | No new files or manifest entries. |
+
+---
+
+## 18. B-008 — Group Reorder & Collapse/Expand Persistence (R6 Close)
+
+This section documents what actually shipped for B-008: drag-to-reorder groups and persisted collapse/expand state.
+
+### 18.1 Storage Schema — No Changes
+
+Both fields used by B-008 already existed in the Group shape (defined in section 2):
+
+| Field | Type | Default | Origin |
+|-------|------|---------|--------|
+| `sortOrder` | `number` (finite) | `Date.now()` at creation | B-001a schema |
+| `collapsed` | `boolean` | `false` | B-001a schema |
+
+No migration is required. No schema version bump. The `KNOWN_VERSION` in `background/storage/migration.js` is unchanged.
+
+### 18.2 Storage Validation — sortOrder Finiteness (R4 Fix M-1)
+
+`validateGroupPatch` in `background/storage/groups.js` was missing the `Number.isFinite()` guard on `sortOrder` that `validateNewGroup` already had. This was flagged as security finding M-1 during R4 and fixed:
+
+```js
+// groups.js line 133-134
+if ('sortOrder' in patch && (typeof patch.sortOrder !== 'number' || !Number.isFinite(patch.sortOrder))) {
+  throw new StorageError(ERR_VALIDATION, 'updateGroup: sortOrder must be a finite number');
+}
+```
+
+This closes the gap where `Infinity`, `-Infinity`, or `NaN` could be persisted via the update path.
+
+### 18.3 Sidepanel State Model
+
+Module-level drag state in `sidepanel/sidepanel.js`:
+
+| Variable | Type | Purpose |
+|----------|------|---------|
+| `_dragSrcGroupId` | `string \| null` | Group ID of the section being dragged; `null` when idle |
+| `_dragInitiatedFromHandle` | `boolean` | `true` only when `mousedown` fired on `.group-drag-handle`; gates `dragstart` |
+| `_pendingGroupsRender` | `boolean` | Set when a `scope === 'groups'` broadcast arrives mid-drag; deferred `renderAll()` fires in `dragend` |
+| `dropIndicatorEl` | `HTMLDivElement` | Singleton `<div class="drop-indicator">` appended to `itemListEl`; toggled via `.hidden` |
+| `collapsedGroups` | `Set<string>` | Panel-lifetime set tracking collapsed group IDs; hydrated from `group.collapsed` on `DOMContentLoaded` |
+
+### 18.4 Drag Implementation
+
+**Mechanism:** Native HTML5 Drag and Drop on `.group-section[data-group-id]` elements. Only real groups (not `__ungrouped__`) are draggable.
+
+**Handle gating:** A `mousedown` listener on `itemListEl` sets `_dragInitiatedFromHandle` based on whether the event target is inside `.group-drag-handle`. The `dragstart` listener checks this flag and calls `e.preventDefault()` if false. This prevents accidental drags when clicking group headers to collapse/expand.
+
+**Visual feedback:**
+- `.dragging-src` class on the source section (reduces opacity).
+- `.is-dragging` class on `itemListEl` (enables cursor and visual cues).
+- `dropIndicatorEl` positioned before the nearest section whose vertical midpoint is below the cursor; if no section qualifies, positioned before `__ungrouped__` or appended to the list.
+
+**DOM-first reorder:** On `drop`, the source section is moved in the DOM immediately via `itemListEl.insertBefore(srcSection, dropIndicatorEl)`. Then all `[data-group-id]` sections are enumerated and assigned `sortOrder = index * 1000`. Only groups whose `sortOrder` actually changed get a `MSG_UPDATE_GROUP` message.
+
+**sortOrder scheme:** Multiplier of 1000 per position leaves room for future insertion without recalculating all positions (e.g., inserting between positions 0 and 1000 could use 500). Current implementation always recalculates all positions on reorder.
+
+**Error recovery:** If any `MSG_UPDATE_GROUP` call in the `Promise.all` batch fails, the catch handler refetches all items and groups from storage and calls `renderAll()` to revert the DOM to the persisted state.
+
+**Broadcast guard:** When a `scope === 'groups'` broadcast arrives from the service worker while `_dragSrcGroupId` is non-null (mid-drag), the handler sets `_pendingGroupsRender = true` instead of triggering an immediate `renderAll()`. The deferred render fires unconditionally in the `dragend` listener, ensuring the UI is never torn mid-drag.
+
+### 18.5 Collapse/Expand Persistence
+
+**Real groups:** `toggleGroup()` calls `sendMessage(MSG_UPDATE_GROUP, { id, patch: { collapsed: !expanded } })` after updating the DOM. The send is fire-and-forget (`.catch(() => {})`) since the UI is already toggled.
+
+**Ungrouped section:** Collapse state is stored in `sessionStorage` under key `tj-ungrouped-collapsed` (panel-lifetime, not cross-session). This avoids a storage write for a synthetic group that has no storage record.
+
+**Hydration on load:** `DOMContentLoaded` handler reads `sessionStorage` for ungrouped state, then iterates the fetched groups array and adds any group with `collapsed: true` to the `collapsedGroups` set before calling `renderAll()`.
+
+**Click delegation guard:** The group-header click handler checks `e.target.closest('.group-drag-handle')` and returns early if true, preventing a collapse toggle when the user grabs the drag handle.
+
+### 18.6 Message Contracts — No New Types
+
+B-008 uses only existing message types:
+
+| Message | Direction | Payload change |
+|---------|-----------|----------------|
+| `MSG_UPDATE_GROUP` | sidepanel -> SW | `{ id, patch: { sortOrder: number } }` or `{ id, patch: { collapsed: boolean } }` — both fields were already in the allowed patch schema |
+| `MSG_LIST_GROUPS` | sidepanel -> SW | No change — used for error recovery refetch |
+| `MSG_LIST_ITEMS` | sidepanel -> SW | No change — used for error recovery refetch |
+
+No new `MSG_*` constants were added. The total remains at 18.
+
+### 18.7 Accessibility
+
+- Drag handle has `tabindex="0"`, `aria-label="Reorder group"`, and `title="Drag to reorder (keyboard reorder not yet available)"`.
+- Drag handle uses a 6-dot grip SVG icon with `aria-hidden="true"`.
+- Group headers retain existing `role="button"`, `tabindex="0"`, `aria-expanded`, and `aria-controls` attributes.
+- Keyboard reorder is not yet implemented (deferred — see 18.9).
+
+### 18.8 Rollback Plan
+
+**No migration required.** Both `sortOrder` and `collapsed` pre-existed in the Group schema. A `git revert` of the B-008 commits removes the drag UI and collapse persistence logic. Groups will render with whatever `sortOrder` values are stored (the field is still read/sorted even without the drag UI). Collapsed groups will render expanded (the default) since the `collapsedGroups` set hydration code would be removed.
+
+No data corruption risk. No storage format change. No compatibility shim needed.
+
+### 18.9 Deferred Items
+
+| Item | Rationale |
+|------|-----------|
+| Keyboard reorder (arrow keys on drag handle) | Accessibility enhancement; current title attribute discloses the gap; drag handle is focusable but only mouse drag works |
+| Batch `MSG_UPDATE_GROUP` | Currently sends one message per changed group in `Promise.all`; a dedicated batch message type would reduce round-trips for large group counts |
+| Reorder animation | CSS transition on `.group-section` position changes during drag; currently snaps instantly |
+| Touch/pointer event support | HTML5 DnD has inconsistent touch support; a future pass could add pointer event fallback |
+
+### 18.10 R2 Correctness Checklist (Post-Build Verification)
+
+| # | Check | Status | Notes |
+|---|-------|--------|-------|
+| C-1 | Storage schema versioned | PASS — No change | `sortOrder` and `collapsed` fields pre-existed. No schema version bump needed. |
+| C-2 | Message contracts typed | PASS — No change | No new message types. `MSG_UPDATE_GROUP` payload shape unchanged; `sortOrder` and `collapsed` were already in the allowed patch fields. |
+| C-3 | Service worker cold-start safe | PASS | No new SW code. All persistence goes through existing `MSG_UPDATE_GROUP` handler in `storage-handlers.js`. Drag state is panel-local (module-level variables), not SW-dependent. |
+| C-4 | ID stability | N/A | No changes to item identity or matching logic. Group IDs are stable ULIDs. |
+| C-5 | Manifest file references resolvable | N/A | No new files or manifest entries. |
+
+## 19. B-021 — Inline Side-Panel Filter with Debounce & Highlight (R6 Close)
+
+### 19.1 Summary
+
+B-021 adds an inline filter input to the sidepanel header that provides instant, client-side substring matching across all bookmark titles and URLs. The filter operates entirely on cached data held in module-level variables — no service worker messages are sent, no storage reads occur during filtering, and no new manifest permissions are required.
+
+### 19.2 State Model
+
+Six module-level variables support the filter subsystem:
+
+| Variable | Type | Populated in | Purpose |
+|----------|------|-------------|---------|
+| `_filterQuery` | `string` | `input` event listener | Raw filter input value; drives show/hide logic |
+| `_filterTimer` | `number \| null` | `input` event listener | `setTimeout` handle for 150ms debounce; cleared on each keystroke |
+| `_cachedItems` | `Item[]` | `renderAll()` | Full item list; never re-fetched during filter |
+| `_cachedGroups` | `Group[]` | `renderAll()` | Full group list; cached alongside items |
+| `_cachedLiveStates` | `object` | `renderAll()` | Live tab states; cached alongside items |
+| `_cachedDriftRecords` | `object` | `renderAll()` | Drift records; cached alongside items |
+| `_itemById` | `Map<id, Item>` | `renderAll()` | O(1) lookup by item ID; built as `new Map(items.map(it => [it.id, it]))` |
+
+**Cache strategy:** All six variables are populated at the top of `renderAll()`, which runs on initial load and on every `MSG_BROADCAST_MUTATION` re-render. The filter never triggers its own data fetch — it reads `_itemById` to resolve `data-item-id` attributes on DOM rows. This ensures filter latency is pure DOM + Map lookup, well under the 50ms P95 target.
+
+### 19.3 `buildHighlightedText` — XSS-Safe Highlight Rendering
+
+```
+buildHighlightedText(text: string, query: string) → DocumentFragment
+```
+
+**Algorithm:** Linear scan using `String.prototype.indexOf` on lowercased copies. For each match, slices the original (case-preserved) text into a `<mark>` element via `.textContent` assignment. Non-matching segments use `document.createTextNode()`. Returns a `DocumentFragment`.
+
+**Security properties:**
+- Zero `innerHTML` usage — all user-provided strings (bookmark titles, URLs) flow through `createTextNode` or `.textContent`
+- XSS-safe by construction: no HTML parsing of untrusted data
+- Uses `lowerQuery.length` for slice extent, which is Unicode-safe for BMP characters (sufficient for URL/title content)
+
+**Complexity:** O(n) per text string where n = `text.length`. Each character is visited at most twice (once in `indexOf`, once in `slice`).
+
+### 19.4 `applyFilter` — Visibility Algorithm
+
+**Algorithm:**
+1. Iterate all `.group-section` elements in the item list
+2. Within each section, iterate all `[data-item-id]` rows
+3. For each row, perform O(1) lookup via `_itemById.get(row.dataset.itemId)`
+4. Test `item.title.toLowerCase().includes(query)` and `item.url.toLowerCase().includes(query)`
+5. Set `row.hidden = true/false` based on match
+6. For matching rows, replace title/URL text nodes with highlighted fragments via `buildHighlightedText`
+7. Update group count badge to show filtered count (or restore original count when filter cleared)
+8. Hide group sections with zero visible items
+9. Show `#filter-empty-state` when total visible count is zero and query is non-empty
+10. Reset `itemListEl.scrollTop = 0` unconditionally
+
+**Complexity:** O(n) where n = total item rows. Each row involves one Map lookup (O(1)) and two `String.includes` calls. No DOM creation — only show/hide toggling and text node replacement.
+
+**Clear path:** When `query` is empty, all rows are unhidden, highlights are replaced with plain `textContent` from the cached item, group sections are shown, and the original `data-item-count` badge value is restored.
+
+### 19.5 Event Flow
+
+```
+User types in #filter-input
+  → input event fires
+  → _filterQuery = filterInputEl.value
+  → clearTimeout(_filterTimer)         // cancel pending debounce
+  → _filterTimer = setTimeout(applyFilter, 150)  // 150ms debounce
+  → ... 150ms elapses ...
+  → applyFilter() runs (O(n) DOM visibility pass)
+```
+
+**Escape key:** `keydown` listener on `#filter-input` intercepts Escape, calls `e.preventDefault()` + `e.stopPropagation()` (prevents panel close), clears query, and calls `applyFilter()` synchronously (no debounce).
+
+**Clear button:** `click` on `#filter-clear-btn` clears query, calls `applyFilter()` synchronously, returns focus to the input via `filterInputEl.focus()`.
+
+**Re-render resilience:** At the end of `renderAll()`, if `_filterQuery` is non-empty, `applyFilter()` is called to re-apply the active filter to the freshly rebuilt DOM. This handles broadcast-driven re-renders without losing filter state.
+
+### 19.6 HTML Additions
+
+Added to `sidepanel.html` inside `#panel-header`:
+
+- `#filter-container` — flex wrapper containing the input and clear button
+- `#filter-input` — `type="search"`, `aria-label="Filter bookmarks"`, `autocomplete="off"`, `spellcheck="false"`
+- `#filter-clear-btn` — `aria-label="Clear filter"`, initially `hidden`
+- `#filter-empty-state` — `role="status"`, `aria-live="polite"`, `aria-atomic="true"`, initially `hidden`
+
+### 19.7 CSS Additions
+
+- `#filter-container`, `#filter-input`, `#filter-clear-btn`, `#filter-empty-state` layout and theming styles
+- `mark` element highlight color via `--mark-bg` CSS custom property:
+  - Light theme: `#fef08a` (yellow-200)
+  - Dark theme: `#713f12` (yellow-900)
+
+### 19.8 Service Worker & Message Contracts — No Changes
+
+The filter operates entirely within the sidepanel JavaScript context. No new message types were introduced. No messages are sent to or received from the service worker during filter operations. The existing `MSG_BROADCAST_MUTATION` flow triggers `renderAll()`, which re-populates the cache and re-applies the active filter — no filter-specific SW coordination is needed.
+
+### 19.9 Manifest Permissions — No Changes
+
+No new permissions required. The filter reads only from in-memory cached data populated by the existing storage fetch in `renderAll()`.
+
+### 19.10 Rollback Plan
+
+**Risk:** None — no storage schema changes, no new message types, no manifest changes.
+
+**Rollback procedure:** `git revert <commit-sha>` removes all filter UI and logic. No data migration needed. The cached variables (`_cachedItems`, `_itemById`, etc.) are inert when the filter code is absent — they are populated in `renderAll()` but never read outside of `applyFilter`/`buildHighlightedText`.
+
+### 19.11 Deferred Items
+
+| Item | Description | Candidate backlog ID |
+|------|-------------|---------------------|
+| Fuzzy search | Replace substring matching with Fuse.js or similar for typo tolerance | B-052 |
+| Filter persistence | Preserve filter query across panel close/reopen via `sessionStorage` | Future backlog item |
+| Filter by group/live-state | Scoped filter modes (e.g., "only live tabs", "only group X") | Future backlog item |
+| Filter keyboard shortcut | Global `Ctrl+F` or `/` to focus the filter input | Future backlog item |
+
+### 19.12 R2 Correctness Checklist (Post-Build Verification)
+
+| # | Check | Status | Notes |
+|---|-------|--------|-------|
+| C-1 | Storage schema versioned | N/A | No storage schema changes. Filter state is ephemeral (module-level variables only). |
+| C-2 | Message contracts typed | N/A | No new message types. Filter is entirely client-side. |
+| C-3 | Service worker cold-start safe | PASS | No SW dependency. If SW restarts, `renderAll()` re-populates the cache from a fresh storage fetch, and `applyFilter()` re-runs. |
+| C-4 | ID stability | PASS | Uses existing `item.id` via `data-item-id` attributes and `_itemById` Map. No new identity concerns. |
+| C-5 | Manifest file references resolvable | N/A | No new files or manifest entries. |

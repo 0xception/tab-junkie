@@ -5,10 +5,10 @@
  * by the tab/window event handlers in `tab-events.js`. Never written to
  * `chrome.storage.local` (AC4).
  *
- * Shape: Map<number, {url: string, windowId: number, active: boolean, audible: boolean, index: number}>
+ * Shape: Map<number, {url: string, windowId: number, active: boolean, audible: boolean, index: number, favIconUrl: string}>
  */
 
-/** @type {Map<number, {url: string, windowId: number, active: boolean, audible: boolean, index: number}>} */
+/** @type {Map<number, {url: string, windowId: number, active: boolean, audible: boolean, index: number, favIconUrl: string}>} */
 const liveTabIndex = new Map();
 
 /**
@@ -26,13 +26,14 @@ export async function buildLiveTabIndex() {
       active: tab.active || false,
       audible: tab.audible || false,
       index: typeof tab.index === 'number' ? tab.index : 0,
+      favIconUrl: tab.favIconUrl || '',
     });
   }
 }
 
 /**
  * Return the live index map (read-only contract — callers should not mutate).
- * @returns {Map<number, {url: string, windowId: number, active: boolean, audible: boolean}>}
+ * @returns {Map<number, {url: string, windowId: number, active: boolean, audible: boolean, favIconUrl: string}>}
  */
 export function getLiveTabIndex() {
   return liveTabIndex;
@@ -41,7 +42,7 @@ export function getLiveTabIndex() {
 /**
  * Update a single entry in the index. Creates the entry if it does not exist.
  * @param {number} tabId
- * @param {Partial<{url: string, windowId: number, active: boolean, audible: boolean, index: number}>} patch
+ * @param {Partial<{url: string, windowId: number, active: boolean, audible: boolean, index: number, favIconUrl: string}>} patch
  */
 export function updateTabEntry(tabId, patch) {
   const existing = liveTabIndex.get(tabId);
@@ -55,6 +56,7 @@ export function updateTabEntry(tabId, patch) {
     entry.active = entry.active ?? false;
     entry.audible = entry.audible ?? false;
     entry.index = typeof entry.index === 'number' ? entry.index : 0;
+    entry.favIconUrl = entry.favIconUrl ?? '';
     liveTabIndex.set(tabId, entry);
   }
 }

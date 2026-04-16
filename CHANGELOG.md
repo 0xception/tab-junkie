@@ -2,6 +2,35 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.5.0] — 2026-04-16
+
+### Added
+- Favicon auto-capture in sidepanel item rows (`isSafeFaviconUrl` scheme guard: `https://` and `chrome-extension://` only)
+- Letter-avatar fallback when favicon is unavailable (first char of title, deterministic color hash)
+- Live tab indicators: per-row live/active/audible state reflected in real time
+- Active-tab highlight (distinct styling for the currently focused tab)
+- Audible tab speaker icon with `_ensureIndicators` post-render injection
+- Multi-window focus tracking: `onFocusChanged` gap closed, `WINDOW_ID_NONE` guard added
+- Group drag-to-reorder via HTML5 DnD; `sortOrder` persisted to storage on drop
+- Drag handle on groups (visible on hover); `mousedown` flag pattern for reliable drag guard
+- `_pendingGroupsRender` guard prevents concurrent render destroying drag drop indicator
+- Group collapse/expand state persisted across reloads
+- Inline filter (`#filter-input`) with 150ms debounce and `#filter-clear-btn`
+- `<mark>` highlights on filter matches (XSS-clean DocumentFragment approach)
+- `#filter-empty-state` with `aria-live="polite"` region
+- `_itemById` O(1) Map replacing O(n²) linear item lookup (B-021 H-1)
+- Create / edit / delete bookmarks via sidepanel dialog (Sprint 7 / B-003, first release)
+- 63 new automated tests across 4 suites (285 total)
+- SOLUTION_DESIGN.md v2.1
+
+### Fixed
+- B-010 H-5: favicon `img.src` assigned without scheme validation — `isSafeFaviconUrl` allowlist added
+- B-010 H-8: audible icon not injected on false→true state transition post-render — `_ensureIndicators` added
+- B-008 H-1: `e.target.closest()` dragstart guard broken on `<section>` element — `mousedown` flag pattern
+- B-008 H-4: concurrent `renderAll()` mid-drag destroyed drop indicator — `_pendingGroupsRender` guard
+- B-021 M-3: `buildHighlightedText` used `query.length` not `lowerQuery.length` (Unicode edge case)
+- Removed stray `console.warn` in `background/broadcast.js`
+
 ## [1.4.0] — 2026-04-15
 
 ### Added

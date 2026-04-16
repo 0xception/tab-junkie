@@ -61,6 +61,7 @@ test('AC1: buildLiveTabIndex stores url, windowId, active, audible per tab', asy
     active: true,
     audible: true,
     index: 0,
+    favIconUrl: '',
   });
 });
 

@@ -10,6 +10,17 @@
   <body>
     <div id="panel-header" class="panel-header" hidden>
       <span class="panel-header-title">Tab Junkie</span>
+      <div id="filter-container">
+        <input
+          type="search"
+          id="filter-input"
+          placeholder="Filter..."
+          aria-label="Filter bookmarks"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button id="filter-clear-btn" aria-label="Clear filter" hidden>×</button>
+      </div>
       <button id="add-bookmark-btn" class="header-add-btn" aria-label="Add bookmark" type="button">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
@@ -61,6 +72,11 @@
         <circle cx="32" cy="44" r="2" fill="currentColor"/>
       </svg>
       <p class="error-state-message">Unable to load bookmarks. The extension may still be starting up. Try reopening the panel.</p>
+    </div>
+
+    <!-- Filter empty state — hidden by default -->
+    <div id="filter-empty-state" role="status" aria-live="polite" aria-atomic="true" hidden>
+      <p>No items match your filter.</p>
     </div>
 
     <!-- Item list container — hidden by default -->

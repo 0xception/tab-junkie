@@ -44,6 +44,7 @@ export function registerTabEventListeners(readyPromise) {
     const patch = {};
     if ('url' in changeInfo) patch.url = changeInfo.url;
     if ('audible' in changeInfo) patch.audible = changeInfo.audible;
+    if ('favIconUrl' in changeInfo) patch.favIconUrl = changeInfo.favIconUrl || '';
 
     // Also capture windowId, active, and index from the full tab object
     if (tab) {
@@ -56,25 +57,31 @@ export function registerTabEventListeners(readyPromise) {
       updateTabEntry(tabId, patch);
     }
 
+    // B-004: broadcast when favIconUrl changes WITHOUT a simultaneous URL change.
+    // When a URL change is present, the debounced reevaluateTab path already
+    // broadcasts tab/updated — firing tab/favicon-changed here too would cause
+    // a double patch cycle for every navigation (H-1 fix).
+    if ('favIconUrl' in changeInfo && !('url' in changeInfo)) {
+      broadcast(SCOPE.LIVE_STATE, 'tab/favicon-changed', { requireClaimsReady: true });
+    }
+
     // H1: Only re-evaluate when URL is a non-empty string
     if ('url' in changeInfo && typeof changeInfo.url === 'string' && changeInfo.url !== '') {
       // H2: Per-tab debounce — collapse rapid URL changes into one evaluation
       if (reevalTimers.has(tabId)) {
         clearTimeout(reevalTimers.get(tabId));
       }
-      reevalTimers.set(tabId, setTimeout(() => {
+      reevalTimers.set(tabId, setTimeout(async () => {
         reevalTimers.delete(tabId);
-        readyPromise.then(() => {
-          return listItems().then((items) => {
-            return reevaluateTab(tabId, changeInfo.url, items).then(() => {
-              return detectDriftForTab(tabId, changeInfo.url, items);
-            });
-          }).then(() => {
-            broadcast(SCOPE.LIVE_STATE, 'tab/updated', { requireClaimsReady: true });
-          });
-        }).catch((err) => {
+        try {
+          await readyPromise;
+          const items = await listItems();
+          await reevaluateTab(tabId, changeInfo.url, items);
+          await detectDriftForTab(tabId, changeInfo.url, items);
+          broadcast(SCOPE.LIVE_STATE, 'tab/updated', { requireClaimsReady: true });
+        } catch (err) {
           console.warn('[tab-junkie] reevaluateTab/detectDrift failed after URL change', err);
-        });
+        }
       }, 100));
     }
   });
@@ -89,7 +96,7 @@ export function registerTabEventListeners(readyPromise) {
     // Deactivate previous active tab in this window
     for (const [id, entry] of index) {
       if (entry.windowId === windowId && entry.active && id !== tabId) {
-        entry.active = false;
+        updateTabEntry(id, { active: false });
       }
     }
     // Activate the new tab
@@ -101,6 +108,10 @@ export function registerTabEventListeners(readyPromise) {
    * tabs.onRemoved: remove from LiveTabIndex, release claim.
    */
   chrome.tabs.onRemoved.addListener((tabId) => {
+    if (reevalTimers.has(tabId)) {
+      clearTimeout(reevalTimers.get(tabId));
+      reevalTimers.delete(tabId);
+    }
     removeTabEntry(tabId);
     releaseClaimByTab(tabId).then(() => {
       broadcast(SCOPE.LIVE_STATE, 'tab/removed', { requireClaimsReady: true });
@@ -110,12 +121,56 @@ export function registerTabEventListeners(readyPromise) {
   });
 
   /**
+   * windows.onFocusChanged: transfer active-tab highlight between windows.
+   * When user switches focus to a different window, tabs.onActivated does NOT
+   * fire for the already-active tab in the newly focused window. This listener
+   * fills that gap (AC6).
+   */
+  chrome.windows.onFocusChanged.addListener(async (windowId) => {
+    const index = getLiveTabIndex();
+
+    if (windowId === chrome.windows.WINDOW_ID_NONE) {
+      // All windows lost focus (user alt-tabbed away) — deactivate all tabs
+      for (const [id, entry] of index.entries()) {
+        if (entry.active) updateTabEntry(id, { active: false });
+      }
+      broadcast(SCOPE.LIVE_STATE, 'window/blurred', { requireClaimsReady: true });
+      return;
+    }
+
+    // Deactivate all tabs NOT in the newly focused window
+    for (const [id, entry] of index.entries()) {
+      if (entry.windowId !== windowId && entry.active) {
+        updateTabEntry(id, { active: false });
+      }
+    }
+
+    // Query for the active tab in the focused window and activate it
+    try {
+      const [activeTab] = await chrome.tabs.query({ windowId, active: true });
+      if (activeTab) {
+        updateTabEntry(activeTab.id, { active: true, windowId });
+      }
+      broadcast(SCOPE.LIVE_STATE, 'window/focused', { requireClaimsReady: true });
+    } catch (err) {
+      console.warn('[tab-junkie] tabs.query failed in onFocusChanged', err);
+      broadcast(SCOPE.LIVE_STATE, 'window/focused', { requireClaimsReady: true });
+    }
+  });
+
+  /**
    * windows.onRemoved: bulk remove all tabs for the window, release claims.
    * M4: Early return if claims haven't been reconciled yet — reconcileClaims
    * will handle everything when it runs.
    */
   chrome.windows.onRemoved.addListener((windowId) => {
     const removedTabIds = removeTabsByWindow(windowId);
+    for (const tabId of removedTabIds) {
+      if (reevalTimers.has(tabId)) {
+        clearTimeout(reevalTimers.get(tabId));
+        reevalTimers.delete(tabId);
+      }
+    }
     if (removedTabIds.length === 0) return;
     if (!isClaimsReady()) return;
     Promise.all(removedTabIds.map((tabId) => releaseClaimByTab(tabId))).then(() => {
