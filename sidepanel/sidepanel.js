@@ -5,7 +5,17 @@ import {
   MSG_UPDATE_GROUP,
   MSG_NAVIGATE_TO_ITEM,
   MSG_STATE_CHANGED,
+  MSG_CREATE_ITEM,
+  MSG_UPDATE_ITEM,
+  MSG_DELETE_ITEM,
+  MSG_DEMOTE_ITEM,
+  MSG_GET_ITEM,
 } from '../shared/messages.js';
+
+import {
+  ERR_NOT_FOUND,
+  ERR_VALIDATION,
+} from '../shared/errors.js';
 
 import { GROUP_COLORS } from '../shared/constants.js';
 
@@ -17,6 +27,24 @@ const skeletonEl = document.getElementById('skeleton');
 const emptyStateEl = document.getElementById('empty-state');
 const errorStateEl = document.getElementById('error-state');
 const itemListEl = document.getElementById('item-list');
+const panelHeaderEl = document.getElementById('panel-header');
+const addBookmarkBtnEl = document.getElementById('add-bookmark-btn');
+const dialogOverlayEl = document.getElementById('dialog-overlay');
+const bookmarkDialogEl = document.getElementById('bookmark-dialog');
+const confirmDialogEl = document.getElementById('confirm-dialog');
+const bookmarkFormEl = document.getElementById('bookmark-form');
+const fieldTitleEl = document.getElementById('field-title');
+const fieldUrlEl = document.getElementById('field-url');
+const fieldGroupEl = document.getElementById('field-group');
+const errorTitleEl = document.getElementById('error-title');
+const errorUrlEl = document.getElementById('error-url');
+const errorDialogEl = document.getElementById('error-dialog');
+const dialogHeadingEl = document.getElementById('dialog-heading');
+const dialogCancelBtnEl = document.getElementById('dialog-cancel-btn');
+const dialogSubmitBtnEl = document.getElementById('dialog-submit-btn');
+const confirmBodyEl = document.getElementById('confirm-body');
+const confirmDeleteBtnEl = document.getElementById('confirm-delete-btn');
+const confirmCancelBtnEl = document.getElementById('confirm-cancel-btn');
 
 /* =========================================================================
    Collapsed groups state (panel-lifetime; persisted via MSG_UPDATE_GROUP)
@@ -25,13 +53,23 @@ const itemListEl = document.getElementById('item-list');
 const collapsedGroups = new Set();
 
 /* =========================================================================
+   Dialog state
+   ========================================================================= */
+
+let _editingItemId = null;
+let _dialogTriggerEl = null;
+let _pendingConfirmCallback = null;
+
+/* =========================================================================
    Messaging (B3 — null guard)
    ========================================================================= */
 
 async function sendMessage(type, payload = {}) {
   const resp = await chrome.runtime.sendMessage({ type, payload });
   if (!resp || !resp.ok) {
-    throw new Error(resp?.error?.message ?? 'No response from service worker');
+    const err = new Error(resp?.error?.message ?? 'No response from service worker');
+    if (resp?.error?.code) err.code = resp.error.code;
+    throw err;
   }
   return resp.data;
 }
@@ -74,16 +112,215 @@ function avatarColor(title) {
 }
 
 /* =========================================================================
+   Dialog helpers
+   ========================================================================= */
+
+async function _populateGroupPicker(selectedGroupId) {
+  fieldGroupEl.innerHTML = '';
+  const ungroupedOpt = document.createElement('option');
+  ungroupedOpt.value = '';
+  ungroupedOpt.textContent = 'Ungrouped';
+  fieldGroupEl.appendChild(ungroupedOpt);
+
+  try {
+    const groups = await sendMessage(MSG_LIST_GROUPS);
+    const sorted = [...groups].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    for (const group of sorted) {
+      const opt = document.createElement('option');
+      opt.value = group.id;
+      opt.textContent = group.name;
+      fieldGroupEl.appendChild(opt);
+    }
+  } catch {
+    /* Leave only Ungrouped option on fetch error */
+  }
+
+  fieldGroupEl.value = selectedGroupId ?? '';
+}
+
+function _validateForm() {
+  const title = fieldTitleEl.value.trim();
+  const url = fieldUrlEl.value.trim();
+  let titleError = null;
+  let urlError = null;
+
+  if (!title) {
+    titleError = 'Title is required.';
+  }
+
+  if (!url) {
+    urlError = 'URL is required.';
+  } else {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        urlError = 'URL must start with http:// or https://';
+      }
+    } catch {
+      urlError = 'Enter a valid URL (e.g. https://example.com).';
+    }
+  }
+
+  return { valid: !titleError && !urlError, titleError, urlError };
+}
+
+function _setFieldError(errorEl, inputEl, message) {
+  errorEl.textContent = message;
+  errorEl.hidden = false;
+  inputEl.classList.add('dialog-input--error');
+}
+
+function _clearFieldError(errorEl, inputEl) {
+  errorEl.hidden = true;
+  inputEl.classList.remove('dialog-input--error');
+}
+
+function _clearAllErrors() {
+  _clearFieldError(errorTitleEl, fieldTitleEl);
+  _clearFieldError(errorUrlEl, fieldUrlEl);
+  errorDialogEl.hidden = true;
+}
+
+function _setDialogError(message) {
+  errorDialogEl.textContent = message;
+  errorDialogEl.hidden = false;
+}
+
+function _activateFocusTrap(activeDialogEl) {
+  for (const child of document.body.children) {
+    if (child.id !== 'dialog-overlay') child.setAttribute('inert', '');
+  }
+  /* Also inert the inactive dialog sibling so Tab cannot reach its inputs */
+  for (const child of dialogOverlayEl.children) {
+    if (child !== activeDialogEl) child.setAttribute('inert', '');
+  }
+}
+
+function _deactivateFocusTrap() {
+  for (const child of document.body.children) child.removeAttribute('inert');
+  for (const child of dialogOverlayEl.children) child.removeAttribute('inert');
+}
+
+async function openCreateDialog({ triggerEl = null } = {}) {
+  if (!dialogOverlayEl.hidden) return;
+  _editingItemId = null;
+  _dialogTriggerEl = triggerEl;
+  bookmarkFormEl.reset();
+  _clearAllErrors();
+  dialogHeadingEl.textContent = 'Add Bookmark';
+  confirmDialogEl.hidden = true;
+  bookmarkDialogEl.hidden = false;
+  await _populateGroupPicker(null);
+  dialogOverlayEl.hidden = false;
+  dialogOverlayEl.removeAttribute('aria-hidden');
+  _activateFocusTrap(bookmarkDialogEl);
+  fieldTitleEl.focus();
+}
+
+async function openEditDialog(item, { triggerEl = null } = {}) {
+  if (!dialogOverlayEl.hidden) return;
+  _editingItemId = item.id;
+  _dialogTriggerEl = triggerEl;
+  _clearAllErrors();
+  dialogHeadingEl.textContent = 'Edit Bookmark';
+  fieldTitleEl.value = item.title ?? '';
+  fieldUrlEl.value = item.url ?? '';
+  confirmDialogEl.hidden = true;
+  bookmarkDialogEl.hidden = false;
+  await _populateGroupPicker(item.groupId);
+  dialogOverlayEl.hidden = false;
+  dialogOverlayEl.removeAttribute('aria-hidden');
+  _activateFocusTrap(bookmarkDialogEl);
+  fieldTitleEl.focus();
+}
+
+function closeDialog() {
+  dialogOverlayEl.hidden = true;
+  dialogOverlayEl.setAttribute('aria-hidden', 'true');
+  bookmarkDialogEl.hidden = true;
+  confirmDialogEl.hidden = true;
+  _deactivateFocusTrap();
+  _editingItemId = null;
+  _pendingConfirmCallback = null;
+  if (_dialogTriggerEl) {
+    _dialogTriggerEl.focus();
+    _dialogTriggerEl = null;
+  }
+}
+
+function openConfirmDialog(item, onConfirm, { triggerEl = null } = {}) {
+  _pendingConfirmCallback = onConfirm;
+  _dialogTriggerEl = triggerEl;
+  confirmBodyEl.textContent = 'Delete "' + (item.title || 'this bookmark') + '"? This cannot be undone.';
+  bookmarkDialogEl.hidden = true;
+  confirmDialogEl.hidden = false;
+  dialogOverlayEl.hidden = false;
+  dialogOverlayEl.removeAttribute('aria-hidden');
+  _activateFocusTrap(confirmDialogEl);
+  confirmCancelBtnEl.focus();
+}
+
+async function _handleFormSubmit(e) {
+  e.preventDefault();
+  const validation = _validateForm();
+  if (!validation.valid) {
+    if (validation.titleError) _setFieldError(errorTitleEl, fieldTitleEl, validation.titleError);
+    if (validation.urlError) _setFieldError(errorUrlEl, fieldUrlEl, validation.urlError);
+    return;
+  }
+
+  dialogSubmitBtnEl.disabled = true;
+  const payload = {
+    title: fieldTitleEl.value.trim(),
+    url: fieldUrlEl.value.trim(),
+    groupId: fieldGroupEl.value || null,
+  };
+
+  try {
+    if (_editingItemId) {
+      await sendMessage(MSG_UPDATE_ITEM, { id: _editingItemId, patch: payload });
+    } else {
+      await sendMessage(MSG_CREATE_ITEM, payload);
+    }
+    closeDialog();
+    /* Fallback re-render in case MSG_STATE_CHANGED broadcast is lost */
+    Promise.all([sendMessage(MSG_LIST_ITEMS), sendMessage(MSG_LIST_GROUPS)])
+      .then(([itemsResp, groups]) => {
+        renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords);
+      })
+      .catch(() => {});
+  } catch (err) {
+    const code = err?.code;
+    const message = err?.message || 'Something went wrong.';
+    if (code === ERR_VALIDATION) {
+      if (message.toLowerCase().includes('url')) {
+        _setFieldError(errorUrlEl, fieldUrlEl, message);
+      } else {
+        _setFieldError(errorTitleEl, fieldTitleEl, message);
+      }
+    } else if (code === ERR_NOT_FOUND) {
+      _setDialogError('This bookmark no longer exists.');
+    } else {
+      _setDialogError(message);
+    }
+  } finally {
+    dialogSubmitBtnEl.disabled = false;
+  }
+}
+
+bookmarkFormEl.addEventListener('submit', _handleFormSubmit);
+
+/* =========================================================================
    Rendering
    ========================================================================= */
 
 function renderAll(items, groups, liveStates, driftRecords) {
-  console.warn('[tab-junkie:renderAll] called with', items?.length, 'items,', groups?.length, 'groups. itemListEl:', itemListEl, 'hidden:', itemListEl?.hidden);
   if (!items.length && !groups.length) {
     skeletonEl.hidden = true;
     emptyStateEl.hidden = false;
     errorStateEl.hidden = true;
     itemListEl.hidden = true;
+    panelHeaderEl.hidden = true;
     return;
   }
 
@@ -154,6 +391,7 @@ function renderAll(items, groups, liveStates, driftRecords) {
   emptyStateEl.hidden = true;
   errorStateEl.hidden = true;
   itemListEl.hidden = false;
+  panelHeaderEl.hidden = false;
 }
 
 /* --- Group section (W2 — unified, handles both real + ungrouped) ------- */
@@ -289,6 +527,25 @@ function buildItemRow(item, liveStates, driftRecords) {
     row.appendChild(indicators);
   }
 
+  const actions = document.createElement('div');
+  actions.className = 'item-actions';
+
+  const editBtn = document.createElement('button');
+  editBtn.className = 'item-action-btn item-action-edit';
+  editBtn.setAttribute('aria-label', 'Edit ' + (item.title || 'bookmark'));
+  editBtn.dataset.action = 'edit';
+  editBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M9.5 2.5l2 2-7 7H2.5v-2l7-7z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'item-action-btn item-action-delete';
+  deleteBtn.setAttribute('aria-label', 'Delete ' + (item.title || 'bookmark'));
+  deleteBtn.dataset.action = 'delete';
+  deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2 3.5h10M5.5 3.5V2h3v1.5M5 5.5v5M9 5.5v5M3.5 3.5l.5 8h6l.5-8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  actions.appendChild(editBtn);
+  actions.appendChild(deleteBtn);
+  row.appendChild(actions);
+
   return row;
 }
 
@@ -322,6 +579,60 @@ async function refetchAndPatchLiveState() {
    ========================================================================= */
 
 document.addEventListener('click', (e) => {
+  if (e.target === dialogOverlayEl) {
+    closeDialog();
+    return;
+  }
+
+  if (e.target === dialogCancelBtnEl || e.target === confirmCancelBtnEl) {
+    closeDialog();
+    return;
+  }
+
+  if (e.target === confirmDeleteBtnEl) {
+    if (_pendingConfirmCallback) _pendingConfirmCallback();
+    return;
+  }
+
+  if (e.target.closest('#add-bookmark-btn') || e.target.closest('.empty-state-cta')) {
+    openCreateDialog({ triggerEl: e.target });
+    return;
+  }
+
+  const actionBtn = e.target.closest('[data-action]');
+  if (actionBtn) {
+    e.stopPropagation();
+    const row = actionBtn.closest('.item-row');
+    if (!row) return;
+    const itemId = row.dataset.itemId;
+    if (actionBtn.dataset.action === 'edit') {
+      sendMessage(MSG_GET_ITEM, { id: itemId }).then((item) => {
+        openEditDialog(item, { triggerEl: actionBtn });
+      }).catch((err) => {
+        console.warn('[tab-junkie] get-item for edit failed:', err?.message);
+      });
+      return;
+    }
+    if (actionBtn.dataset.action === 'delete') {
+      if (row.dataset.live === 'true') {
+        sendMessage(MSG_DEMOTE_ITEM, { itemId }).catch((err) => {
+          console.warn('[tab-junkie] demote failed:', err?.message);
+        });
+      } else {
+        sendMessage(MSG_GET_ITEM, { id: itemId }).then((item) => {
+          openConfirmDialog(item, () => {
+            sendMessage(MSG_DELETE_ITEM, { id: itemId }).catch((err) => {
+              console.warn('[tab-junkie] delete failed:', err?.message);
+            });
+          }, { triggerEl: actionBtn });
+        }).catch((err) => {
+          console.warn('[tab-junkie] get-item for delete failed:', err?.message);
+        });
+      }
+      return;
+    }
+  }
+
   const header = e.target.closest('.group-header');
   if (header) {
     toggleGroup(header);
@@ -336,6 +647,12 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !dialogOverlayEl.hidden) {
+    e.preventDefault();
+    closeDialog();
+    return;
+  }
+
   if (e.key !== 'Enter') return;
 
   const header = e.target.closest('.group-header');
@@ -398,7 +715,6 @@ function navigateToItem(row) {
    ========================================================================= */
 
 chrome.runtime.onMessage.addListener((msg, sender) => {
-  console.warn('[tab-junkie:sidepanel] onMessage received:', msg?.type, 'from sender:', sender?.id, 'runtime.id:', chrome.runtime.id);
   if (sender.id !== chrome.runtime.id) return;
   if (msg.type !== MSG_STATE_CHANGED) return;
 
@@ -417,7 +733,6 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       sendMessage(MSG_LIST_ITEMS),
       sendMessage(MSG_LIST_GROUPS),
     ]).then(([itemsResp, groups]) => {
-      console.warn('[tab-junkie:sidepanel] re-render data:', { itemCount: itemsResp?.items?.length, groupCount: groups?.length, itemsResp, groups });
       renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords);
     }).catch((err) => {
       console.warn('[tab-junkie] broadcast re-fetch failed:', err);

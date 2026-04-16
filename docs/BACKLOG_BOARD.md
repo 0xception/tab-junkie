@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-15 · **Version:** 1.0 · **Total Items:** 56
+**Updated:** 2026-04-16 · **Version:** 1.1 · **Total Items:** 56
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███░░░░░░░░░░░░░░░░░  19% (11/57)  [1 in progress]
+Overall Progress    ████░░░░░░░░░░░░░░░░  21% (12/56)  [0 in progress]
 ```
 
 ### Legend
@@ -35,7 +35,7 @@ Overall Progress    ███░░░░░░░░░░░░░░░░░
 ✅ B-001c — LiveTabIndex + TabClaims disambiguation · 🔴 · M
 ✅ B-001d — Drift + floating-tab exact-position re-association · 🔴 · L
 ✅ B-002 — URL normalization & validation · 🟠 · S
-⬜ B-003 — Save / edit / delete saved bookmarks · 🔴 · L
+✅ B-003 — Save / edit / delete saved bookmarks · 🔴 · L
 ⬜ B-004 — Favicon auto-capture + letter-avatar fallback · 🟠 · S
 ⬜ B-005 — Bulk-create saved items (import primitive) · 🟠 · M
 ✅ B-006 — Create / edit / delete groups with color palette · 🔴 · M
@@ -103,7 +103,7 @@ Overall Progress    ███░░░░░░░░░░░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 11 | 19% |
-| 🔄 In Progress | 1 | 2% |
-| ⬜ To Do | 45 | 79% |
+| ✅ Done | 12 | 21% |
+| 🔄 In Progress | 0 | 0% |
+| ⬜ To Do | 44 | 79% |
 | 🧊 Icebox | 0 | 0% |

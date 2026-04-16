@@ -8,6 +8,15 @@
     <script src="theme-init.js"></script>
   </head>
   <body>
+    <div id="panel-header" class="panel-header" hidden>
+      <span class="panel-header-title">Tab Junkie</span>
+      <button id="add-bookmark-btn" class="header-add-btn" aria-label="Add bookmark" type="button">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+
     <!-- Loading skeleton — visible by default -->
     <div id="skeleton" class="skeleton" role="status" aria-label="Loading bookmarks">
       <div class="skeleton-group">
@@ -41,7 +50,7 @@
         <path d="M24 36l6 6 10-12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
       <p class="empty-state-message">No bookmarks yet</p>
-      <button class="empty-state-cta" disabled>Add your first bookmark</button>
+      <button class="empty-state-cta">Add your first bookmark</button>
     </div>
 
     <!-- Error state — hidden by default -->
@@ -56,6 +65,45 @@
 
     <!-- Item list container — hidden by default -->
     <div id="item-list" role="list" aria-label="Bookmarks" hidden></div>
+
+    <div id="dialog-overlay" class="dialog-overlay" hidden aria-hidden="true">
+      <div id="bookmark-dialog" class="dialog-modal" role="dialog"
+           aria-modal="true" aria-labelledby="dialog-heading">
+        <h2 id="dialog-heading" class="dialog-title">Add Bookmark</h2>
+        <form id="bookmark-form" class="dialog-form" novalidate>
+          <div class="dialog-field">
+            <label for="field-title" class="dialog-label">Title</label>
+            <input id="field-title" name="title" type="text" class="dialog-input"
+                   autocomplete="off" maxlength="512" required />
+            <span id="error-title" class="dialog-field-error" aria-live="polite" hidden></span>
+          </div>
+          <div class="dialog-field">
+            <label for="field-url" class="dialog-label">URL</label>
+            <input id="field-url" name="url" type="text" class="dialog-input"
+                   autocomplete="off" required />
+            <span id="error-url" class="dialog-field-error" aria-live="polite" hidden></span>
+          </div>
+          <div class="dialog-field">
+            <label for="field-group" class="dialog-label">Group</label>
+            <select id="field-group" name="groupId" class="dialog-select"></select>
+          </div>
+          <span id="error-dialog" class="dialog-level-error" aria-live="assertive" hidden></span>
+          <div class="dialog-actions">
+            <button type="button" id="dialog-cancel-btn" class="dialog-btn dialog-btn--secondary">Cancel</button>
+            <button type="submit" id="dialog-submit-btn" class="dialog-btn dialog-btn--primary">Save</button>
+          </div>
+        </form>
+      </div>
+      <div id="confirm-dialog" class="dialog-modal" role="alertdialog"
+           aria-modal="true" aria-labelledby="confirm-heading" aria-describedby="confirm-body" hidden>
+        <h2 id="confirm-heading" class="dialog-title">Delete Bookmark?</h2>
+        <p id="confirm-body" class="dialog-body"></p>
+        <div class="dialog-actions">
+          <button type="button" id="confirm-cancel-btn" class="dialog-btn dialog-btn--secondary">Cancel</button>
+          <button type="button" id="confirm-delete-btn" class="dialog-btn dialog-btn--danger">Delete</button>
+        </div>
+      </div>
+    </div>
 
     <script src="sidepanel.js" type="module" defer></script>
   </body>

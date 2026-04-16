@@ -1,40 +1,49 @@
 # Current Sprint
 
-*Sprint 6 — Sidepanel Shell. B-054 (Full L) — the UI foundation. Kicked off 2026-04-15.*
+*Sprint 7 — Bookmark CRUD Dialog. B-003 (Full L). Kicked off 2026-04-15.*
 
 ---
 
 ## Active Items
 
-### [B-054] Sidepanel shell: item/group rendering + live states + broadcasts
-- **Tier**: Full (L)
-- **Status**: ✅ R1 · ✅ R2 → R3 Build in progress
-- **Assigned To**: [frontend-engineer] (R3)
-- **Blockers**: none (all data-layer deps satisfied)
-- **Feature Context**:
-  - Replace stub `sidepanel/sidepanel.html` with real UI
-  - New `sidepanel/sidepanel.js` + `sidepanel/sidepanel.css`
-  - Fetches data via MSG_LIST_ITEMS, MSG_LIST_GROUPS, MSG_GET_PREFERENCES
-  - Renders items organized by groups with live/active/audible/drifted indicators
-  - Group headers with collapse/expand, color chip, item count
-  - Click item → MSG_NAVIGATE_TO_ITEM
-  - Listens for MSG_STATE_CHANGED → re-fetches affected scope
-  - Empty state, loading skeleton, theme support (light/dark/system)
-  - First paint < 200ms on 500-item collection
-- **Handoff Notes**: This is the first real UI work. All 18 message types are ready in the SW. The sidepanel communicates exclusively via chrome.runtime.sendMessage — no direct storage imports (ESLint enforces this). Theme system uses tj:prefs.theme. Item visual states come from the `liveStates` + `driftRecords` fields in the MSG_LIST_ITEMS response.
+*(none)*
 
 ---
 
-## Execution Plan
-
-**B-054 (Full L):** R1 → R2 → R3 → R4 (3 reviewers) → R4 fix → R5 → R6
-
-This is the first item where **UAT must NOT be skipped** (Sprint 2 retro action item). The sidepanel must be visually verified in Chrome.
-
----
-
+## Gate 4: ✅ PASS (2026-04-16)
 ## Gate 6: ✅ READY
 
 ## Completed This Sprint
 
-*(none yet)*
+### [B-003] Create / edit / delete bookmarks via dialog ✅
+- **Tier**: Full (L)
+- **Status**: done
+- **UAT**: PASS (2026-04-16) — create, edit, delete, group reassignment, live-tab tracking all verified
+- **Files Changed**:
+  - `sidepanel/sidepanel.html` — panel header, CRUD dialog, confirmation dialog
+  - `sidepanel/sidepanel.js` — dialog state, form validation, event delegation, focus trap
+  - `sidepanel/sidepanel.css` — panel header, dialog, item action button styles
+- **R4 Findings Fixed**: focus trap inert-sibling gap (BLOCKING), fallback re-render on success (BLOCKING), re-entry guard, keyboard-accessible action buttons, silent catch warnings, dead code removal
+- **Handoff Notes**: R6 ✅ complete (SOLUTION_DESIGN.md v1.7). R7 [technical-writer] pending.
+
+---
+
+## Sprint Retrospective — Sprint 7
+
+### Velocity
+- Planned: 1 item / L effort
+- Completed: 1 item / L effort
+- Carried over: 0
+
+### What Went Well
+- UAT was fully self-service for the first time — user verified create, edit, delete, group reassignment, and live-tab tracking all from the panel without devtools
+- R4 code review caught two real blocking bugs (focus trap gap, missing fallback re-render) before they reached production
+- SVG click-target bug (`e.target` vs `e.target.closest()`) caught and documented as a project-wide lesson in SOLUTION_DESIGN.md
+
+### What to Improve
+- R1 was interrupted by rate limit mid-execution; the retry was clean but added latency — consider shorter R1 prompts for well-scoped L items
+- AC13 (title length) was written as a JS-validation test case but the enforcement was actually the HTML `maxlength` attribute — ACs should specify the enforcement mechanism, not just the outcome
+
+### Action Items for Next Sprint
+- [ ] [product-manager] Always specify client-side vs. HTML-attribute enforcement in ACs for form validation items
+- [ ] [frontend-engineer] Establish project convention: all SVG-icon buttons use `e.target.closest('[id]')` in event delegation — never `e.target ===`
