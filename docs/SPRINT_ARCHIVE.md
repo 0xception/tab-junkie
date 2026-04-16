@@ -139,3 +139,33 @@ Historical completed sprint items. Appended by [scrum-master] at the close of ea
 ### Retrospective
 **Went Well:** 18-type message contract complete; latent bug caught; combined R4 reviews efficient.
 **To Improve:** 5 sprints of data-layer work — UI work must start next sprint.
+
+---
+
+## Sprint 7 — Bookmark CRUD Dialog (2026-04-16)
+
+**Theme:** Make UAT self-service — users can create, edit, and delete bookmarks directly from the panel.
+
+**Commit:** `4768af6` on `release/v2`
+
+### Completed Items
+
+| ID | Title | Tier | UAT |
+|----|-------|------|-----|
+| B-003 | Create / edit / delete bookmarks via dialog | Full (L) | PASS |
+
+### Files Changed
+- `sidepanel/sidepanel.html` — panel header, CRUD dialog, confirmation dialog
+- `sidepanel/sidepanel.js` — dialog state, form validation, event delegation, focus trap, item action buttons
+- `sidepanel/sidepanel.css` — panel header, dialog styles, item action button styles
+- `docs/SOLUTION_DESIGN.md` — v1.7, §15 as-built deviations + lesson learned
+
+### Notable R4 Findings Fixed
+- Focus trap gap: `inert` was not applied to inactive dialog sibling within `#dialog-overlay`
+- Missing fallback re-render: success path now fire-and-forgets a re-fetch as broadcast-loss guard
+- SVG click-target: `e.target === btn` fails when child `<path>` is the click target; fixed with `e.target.closest()`
+
+### Retrospective
+**Went Well:** First fully self-service UAT — all flows verified by user without devtools. R4 caught two real blocking bugs before ship. SVG click-target lesson documented for the project.
+**To Improve:** R1 hit a rate limit mid-execution; ACs should specify enforcement mechanism (HTML attribute vs JS) for form validation.
+**Action Items:** [product-manager] specify client-side vs HTML-attribute enforcement in form ACs; [frontend-engineer] always use `closest()` for SVG-icon buttons in event delegation.
