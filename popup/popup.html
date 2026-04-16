@@ -1,71 +1,10 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="stylesheet" href="../shared/styles.css" />
-  <link rel="stylesheet" href="../shared/themes.css" />
-  <link rel="stylesheet" href="popup.css" />
-  <link rel="stylesheet" href="../shared/theme-ready.css" />
-  <script src="../shared/theme-init.js"></script>
-  <title>Tab Junkie</title>
-</head>
-<body>
-  <!-- Search Mode -->
-  <div id="search-mode">
-    <search-bar></search-bar>
-    <div class="mode-tabs">
-      <button class="mode-tab active" data-mode="search">Search</button>
-      <button class="mode-tab" data-mode="groups">Groups</button>
-    </div>
-    <main id="results"></main>
-    <footer class="keyboard-hints" id="search-hints">
-      <span><kbd>&#x2191;&#x2193;</kbd> navigate</span>
-      <span><kbd>&#x23CE;</kbd> open</span>
-      <span><kbd>alt+g</kbd> groups</span>
-      <span><kbd>tab</kbd> full view</span>
-      <span><kbd>esc</kbd> close</span>
-    </footer>
-  </div>
-
-  <!-- Groups Mode -->
-  <div id="groups-mode" class="hidden">
-    <search-bar placeholder="Jump to group..."></search-bar>
-    <div class="mode-tabs">
-      <button class="mode-tab" data-mode="search">Search</button>
-      <button class="mode-tab active" data-mode="groups">Groups</button>
-    </div>
-    <main id="group-results"></main>
-    <footer class="keyboard-hints" id="groups-hints">
-      <span><kbd>&#x2191;&#x2193;</kbd> navigate</span>
-      <span><kbd>&#x23CE;</kbd> drill in</span>
-      <span><kbd>alt+s</kbd> search</span>
-      <span><kbd>tab</kbd> scroll panel</span>
-      <span><kbd>esc</kbd> close</span>
-    </footer>
-  </div>
-
-  <!-- Drill-In View (inside Groups mode) -->
-  <div id="drill-view" class="hidden">
-    <div class="drill-header">
-      <button class="back-btn" id="back-btn">&#x2190; Back</button>
-      <span class="drill-dot" id="drill-dot"></span>
-      <span class="drill-group-name" id="drill-group-name"></span>
-      <span class="drill-counts" id="drill-counts"></span>
-    </div>
-    <search-bar placeholder="Filter bookmarks..."></search-bar>
-    <main id="drill-results"></main>
-    <footer class="keyboard-hints">
-      <span><kbd>&#x232B;</kbd> back</span>
-      <span><kbd>&#x2191;&#x2193;</kbd> navigate</span>
-      <span><kbd>&#x23CE;</kbd> open</span>
-      <span><kbd>tab</kbd> scroll panel</span>
-      <span><kbd>esc</kbd> close</span>
-    </footer>
-  </div>
-
-  <script type="module" src="../components/search-bar.js"></script>
-  <script type="module" src="../components/bookmark-item.js"></script>
-  <script type="module" src="popup.js"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <title>Tab Junkie</title>
+  </head>
+  <body>
+    <p>Tab Junkie popup — UI not yet built. See B-022 in docs/BACKLOG.md.</p>
+  </body>
 </html>

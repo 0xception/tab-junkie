@@ -1,2 +1,0 @@
-/* Hide page until theme is applied to prevent flash of default theme */
-html:not(.t-ready) { opacity: 0; }

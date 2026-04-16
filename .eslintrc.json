@@ -1,0 +1,40 @@
+{
+  "root": true,
+  "env": {
+    "browser": true,
+    "es2022": true,
+    "worker": true,
+    "webextensions": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module"
+  },
+  "rules": {},
+  "overrides": [
+    {
+      "files": [
+        "sidepanel/**/*.js",
+        "newtab/**/*.js",
+        "popup/**/*.js",
+        "components/**/*.js"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "**/background/storage/**",
+                  "**/background/messages/**"
+                ],
+                "message": "UI surfaces must use shared/messages.js + chrome.runtime.sendMessage. Direct storage imports are forbidden (B-001a AC5)."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
