@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-16 · **Version:** 1.2 · **Total Items:** 56
+**Updated:** 2026-04-16 · **Version:** 1.4 · **Total Items:** 56
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████░░░░░░░░░░░░░░  29% (16/56)  [0 in progress]
+Overall Progress    ███████░░░░░░░░░░░░░  34% (19/56)  [0 in progress]
 ```
 
 ### Legend
@@ -43,11 +43,11 @@ Overall Progress    ██████░░░░░░░░░░░░░░
 ✅ B-008 — Group reorder & collapse / expand persistence · 🟠 · M
 ⬜ B-009 — Drag-to-expand collapsed group · 🟡 · S
 ✅ B-010 — Live tab reflection & active-tab highlight · 🔴 · L
-⬜ B-011 — Drift detection & persistence · 🔴 · L
-⬜ B-012 — Audible tab indicator · 🟠 · XS
+✅ B-011 — Drift detection & persistence · 🔴 · L
+✅ B-012 — Audible tab indicator · 🟠 · XS
 ⬜ B-013 — Opener-chain group inheritance for new tabs · 🟠 · M
 ⬜ B-014 — Multi-window awareness & window badge · 🟠 · M
-⬜ B-015 — Tab-tracking cleanup on close · 🟠 · S
+✅ B-015 — Tab-tracking cleanup on close · 🟠 · S
 ✅ B-016 — Promote live tab to saved bookmark · 🔴 · S
 ✅ B-017 — Demote saved bookmark (preserve live tab) · 🔴 · S
 ⬜ B-018 — Floating tab group persistence across restart · 🔴 · M
@@ -103,7 +103,7 @@ Overall Progress    ██████░░░░░░░░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 16 | 29% |
+| ✅ Done | 19 | 34% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 40 | 71% |
+| ⬜ To Do | 37 | 66% |
 | 🧊 Icebox | 0 | 0% |

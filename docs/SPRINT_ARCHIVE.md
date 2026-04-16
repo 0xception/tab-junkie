@@ -214,3 +214,38 @@ Historical completed sprint items. Appended by [scrum-master] at the close of ea
 **Went Well:** Parallel R4 reviews (3 reviewers × 4 items = 12 review passes) caught 30+ HIGH findings before UAT. B-021 filter's DocumentFragment highlight approach was XSS-clean by design — security review approved with zero changes.
 **To Improve:** SPRINT.md accumulated duplicate entries from parallel agent edits. B-008 dragstart guard and B-021 _itemById Map were both in R2 spec but not implemented in R3 — spec-compliance gap.
 **Action Items:** [solution-architect] specify browser API implementation patterns in R2; [scrum-master] do single-pass doc cleanup after parallel rounds; [test-engineer] add R2 spec-compliance check to R5.
+
+---
+
+## Sprint 9 — Drift Detection, Audible Indicator, Tab Cleanup (2026-04-16)
+
+**Theme:** Formal closure of pre-built B-001d subsystems — drift detection, audible indicator, and tab tracking cleanup.
+**Release:** v1.6.0 (pending [release-manager])
+**Tests:** 285 → 296 (+11 new tests across 3 suites)
+**SOLUTION_DESIGN.md:** v2.1 → v2.2 (§10.7 drift lifecycle, B-012 broadcast, B-015 clearDrift documented; D-3 marked RESOLVED)
+
+### Completed Items
+
+| ID | Title | Tier | UAT | New Tests |
+|----|-------|------|-----|-----------|
+| B-011 | Drift detection & persistence | Full (L) | PASS (13/14 ACs; AC12 contrast WARN) | 9 |
+| B-012 | Audible tab indicator | Fast Track (XS) | PASS (regression) | 0 |
+| B-015 | Tab-tracking cleanup on close | Fast Track (S) | PASS | 2 |
+
+### Files Changed
+- `background/tabs/tab-events.js` — B-012: `tab/audible-changed` broadcast for audible-only changes; B-015: `clearDrift` awaited after `releaseClaimByTab` in `onRemoved`; `Promise.allSettled` in `windows.onRemoved` bulk path
+- `sidepanel/sidepanel.js` — B-011: `_ensureIndicators(row, live, isDrifted)` drift icon lifecycle; `isConnected` guard; atomic catch-path cleanup (`replaceChildren`); aria-label "URL drifted" → "Tab has navigated away from its saved URL"
+- `tests/b011-drift.test.js` (9 new tests for AC11 drift icon DOM lifecycle)
+- `tests/tab-close-claim.test.js` (+1 test: drift cleared on tab close)
+- `tests/window-close-claims.test.js` (+1 test: drift cleared on window close)
+- `docs/SOLUTION_DESIGN.md` v2.2
+
+### Key Bugs Fixed
+- **B-012 gap**: No broadcast for audible-only `onUpdated` events — sidepanel never updated when audio started/stopped
+- **B-015 gap**: `clearDrift` not called on tab close — drift records persisted indefinitely after tab closed; SOLUTION_DESIGN.md had specified this but it was unimplemented for 8 sprints
+- **B-011 gap**: `_ensureIndicators` managed audible icon lifecycle but not drift icon — mid-session drift transitions never injected the icon without a full re-render
+
+### Retrospective
+**Went Well:** R1 code analysis revealed pre-existing implementations covering 13/14 ACs for B-011 — sprint was largely validation + gap-closing rather than greenfield build. All three items closed with zero CRITICAL/HIGH open at Gate 4.
+**To Improve:** Design-to-code coverage gap (SOLUTION_DESIGN.md §519 said clearDrift on close but code didn't do it) — went 8 sprints undetected. R1 pre-flight check for existing code should be standard practice.
+**Action Items:** [scrum-master] scan codebase at R1 for pre-existing implementations; [test-engineer] cross-reference SOLUTION_DESIGN.md design decisions against code at R5; [product-manager] include explicit ARIA label text in ACs for new indicators.

@@ -1,9 +1,9 @@
 # Tab Junkie — Solution Design
 
-**Version:** 2.1
+**Version:** 2.2
 **Date:** 2026-04-16
 **Owner:** [solution-architect]
-**Status:** Active — B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-003 + B-010 + B-008 + B-021 landed.
+**Status:** Active — B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-003 + B-010 + B-008 + B-021 + B-011 + B-012 + B-015 landed.
 
 > This document is the current source of truth for what has actually shipped.
 > For the R2 *plan* (pre-build design) see `docs/design/B-001a.md`; deviations
@@ -457,7 +457,7 @@ patch list (M2 fix) and always recomputed by the mutator.
 
 ---
 
-## 10. What B-001a Did NOT Ship (updated through B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-021)
+## 10. What B-001a Did NOT Ship (updated through B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-021 + B-011 + B-012 + B-015)
 
 Items fully resolved by B-001b, B-001c, B-001d, B-002, B-006, B-016, B-017, B-050, B-019, or B-020 are marked **DONE**. The entire B-001 family (a/b/c/d) is now complete. Remaining items are open.
 
@@ -603,8 +603,22 @@ The current migration runner wraps steps in a `writeTransaction` that only touch
 ### Clear path
 
 Drift is cleared (the record deleted from `tj:drift`) when:
-- The claimed tab is closed (`chrome.tabs.onRemoved`).
+- The claimed tab is closed (`chrome.tabs.onRemoved`). **B-015 resolved this:** `clearDrift(releasedItemId)` is now `await`ed after `releaseClaimByTab` in the `tabs.onRemoved` handler (async `.then` callback) and in the `windows.onRemoved` bulk path (via `Promise.allSettled` over all removed tabs). Previously the clear-on-close was implicit; it is now explicit in `tab-events.js`.
 - The claimed tab's URL returns to a value that matches the item's stored URL (as determined by `normalizeUrl(url, 'forMatch')`).
+
+### Sidepanel drift icon lifecycle (B-011)
+
+The drift icon DOM is managed by `_ensureIndicators(row, live, isDrifted)` in `sidepanel/sidepanel.js`. This function was extended in Sprint 9 from its original audible-only signature `_ensureIndicators(row, live)` to handle drift icon creation and removal.
+
+**Signature:** `_ensureIndicators(row, live, isDrifted)`
+
+**Behavior:**
+- **`isConnected` guard:** Early-returns if `row.isConnected` is false, preventing DOM manipulation on detached nodes during rapid re-renders or race conditions.
+- **Drift false-to-true:** When `isDrifted` is truthy and no `.item-drifted-icon` exists, creates the icon span inside `.item-indicators` (creating the container div if needed, inserted before `.item-actions`). Sets `aria-label="Tab has navigated away from its saved URL"`. SVG markup is hardcoded (no user data).
+- **Drift true-to-false:** When `isDrifted` is falsy and `.item-drifted-icon` exists, removes the icon. If the `.item-indicators` container is now empty, removes it too.
+- **Call site:** Invoked from `refetchAndPatchLiveState` as `_ensureIndicators(row, live, !!drifted)` where `drifted = driftRecords[id]`.
+
+**Catch-path cleanup:** When `MSG_LIST_ITEMS` fails in `refetchAndPatchLiveState`, the catch block performs atomic indicator cleanup: `indicators.replaceChildren()` followed by `indicators.remove()`. This removes all child icons and the container in one pass rather than querying each icon type individually.
 
 ### Invariants
 
@@ -1718,18 +1732,11 @@ chrome.windows.onFocusChanged(windowId)
   -> Only one item-row has data-active="true" at any time
 ```
 
-### 16.7 `refetchAndPatchLiveState` Indicator DOM Gap
+### 16.7 `refetchAndPatchLiveState` Indicator DOM Gap — RESOLVED
 
-Current `refetchAndPatchLiveState()` (sidepanel.js lines 556-575) only toggles `dataset.*` attributes on existing `.item-row` elements. For `live` and `active`, this works because the CSS selectors (`.item-row[data-live="true"]`, `.item-row[data-active="true"]`) operate on the row element itself.
+~~Current `refetchAndPatchLiveState()` only toggles `dataset.*` attributes on existing `.item-row` elements. For `audible` and `drifted`, the CSS selectors target *child elements* that are only created during `buildItemRow()` when the state is truthy at render time.~~
 
-However, for `audible` and `drifted`, the CSS selectors target *child elements* (`.item-row[data-audible="true"] .item-audible-icon`, `.item-row[data-drifted="true"] .item-drifted-icon`) that are only created during `buildItemRow()` when the state is truthy at render time. If a tab becomes audible after the initial render, setting `data-audible="true"` on the row has no effect because the `.item-audible-icon` span doesn't exist in the DOM.
-
-**Fix**: In `refetchAndPatchLiveState`, after updating data attributes, check whether indicator elements need to be created or removed:
-- If `audible` became true and no `.item-audible-icon` exists in the row: create and append the icon span inside `.item-indicators` (creating the container if needed).
-- If `audible` became false and `.item-audible-icon` exists: remove it.
-- Same pattern for `drifted` / `.item-drifted-icon`.
-
-This keeps the "no full re-render" contract while ensuring indicator icons match the data attributes.
+**RESOLVED (B-010 for audible, B-011 for drifted):** `_ensureIndicators(row, live, isDrifted)` now handles both audible and drifted icon DOM lifecycle. Called from `refetchAndPatchLiveState` after updating data attributes. Creates indicator icons on false-to-true transitions and removes them on true-to-false transitions, including cleanup of the empty `.item-indicators` container. See section 10.7 "Sidepanel drift icon lifecycle" for full specification.
 
 ### 16.8 R2 Correctness Checklist
 
@@ -1771,11 +1778,11 @@ B-010 closed all gaps in the live-tab and active-tab indicator pipeline. The dat
 
 | Listener | Behavior |
 |----------|----------|
-| `tabs.onUpdated` | Updates LiveTabIndex synchronously with url/audible/favIconUrl/windowId/active/index. Guards `tab/favicon-changed` broadcast to fire only when favIconUrl changes WITHOUT a simultaneous URL change (prevents double-patch on navigation). Debounces URL-change re-evaluation at 100ms per tab via `reevalTimers` Map. Cancels pending timers on tab removal. |
+| `tabs.onUpdated` | Updates LiveTabIndex synchronously with url/audible/favIconUrl/windowId/active/index. Guards `tab/favicon-changed` broadcast to fire only when favIconUrl changes WITHOUT a simultaneous URL change (prevents double-patch on navigation). **B-012:** Guards `tab/audible-changed` broadcast to fire only when `'audible' in changeInfo && !('url' in changeInfo)` — same pattern as favicon, prevents double-broadcast on navigation. Debounces URL-change re-evaluation at 100ms per tab via `reevalTimers` Map. Cancels pending timers on tab removal. |
 | `tabs.onActivated` | Deactivates previous active tab in the same window via `updateTabEntry(id, { active: false })` (never direct Map mutation). Activates new tab. Broadcasts `tab/activated`. |
-| `tabs.onRemoved` | Cancels reevalTimers for the tab, then `removeTabEntry` + `releaseClaimByTab`. Broadcasts `tab/removed` after claim release. |
+| `tabs.onRemoved` | Cancels reevalTimers for the tab, then `removeTabEntry` + `releaseClaimByTab`. **B-015:** `clearDrift(releasedItemId)` is now `await`ed after `releaseClaimByTab` resolves (in the async `.then` callback), ensuring drift records are cleaned up on tab close. Broadcasts `tab/removed` after claim release + drift clear. |
 | `windows.onFocusChanged` | **NEW in B-010.** Fills the gap where `tabs.onActivated` does not fire on window focus switch. On `WINDOW_ID_NONE`: deactivates ALL tabs (user left the browser), broadcasts `window/blurred`. On a real windowId: deactivates tabs in non-focused windows, queries the active tab in the focused window via `chrome.tabs.query({ windowId, active: true })`, activates it AFTER the query resolves, broadcasts `window/focused`. |
-| `windows.onRemoved` | Bulk timer cleanup + `removeTabsByWindow` + batch `releaseClaimByTab`. Early-returns if `!isClaimsReady()` (reconcileClaims will handle on next run). Broadcasts `tab/removed`. |
+| `windows.onRemoved` | Bulk timer cleanup + `removeTabsByWindow` + batch `releaseClaimByTab`. **B-015:** Each released claim now also `await`s `clearDrift(releasedItemId)` inside a `Promise.allSettled` over all removed tabs, ensuring bulk drift cleanup on window close. Early-returns if `!isClaimsReady()` (reconcileClaims will handle on next run). Broadcasts `tab/removed`. |
 
 **`background/tabs/tab-claims.js`** — `buildLiveStates(items)` now includes `favIconUrl: tabEntry.favIconUrl || null` in each live-state entry (integrated from B-004). Shape: `Record<string, { live: boolean, active: boolean, audible: boolean, favIconUrl: string|null }>`.
 
@@ -1789,8 +1796,8 @@ B-010 closed all gaps in the live-tab and active-tab indicator pipeline. The dat
 |----------|---------|
 | `isSafeFaviconUrl(url)` | Allowlist helper accepting only `https://`, `http://`, `data:image/` scheme prefixes. Guards all favicon `<img>` creation against unsafe protocols (e.g., `chrome://`, `javascript:`, `file://`). |
 | `buildItemRow(item, liveStates, driftRecords)` | Sets `data-item-id`, `data-live`, `data-active`, `data-audible`, `data-drifted` on the row element. Renders `<img class="item-favicon">` (with `isSafeFaviconUrl` guard + `onerror` fallback) or `<div class="item-avatar">` (first-letter + djb2 hash color). Static `aria-label` on edit/delete buttons. Indicator icons (audible, drifted) created only when state is truthy at render time. |
-| `refetchAndPatchLiveState()` | Called on `MSG_STATE_CHANGED { scope: 'liveState' }`. Patches existing rows in-place (no full re-render). Error-safe: clears all stale indicators on `MSG_LIST_ITEMS` failure. Guards against detached-node race with `itemListEl.contains(row)`. Patches favicon/avatar transitions (img to avatar, avatar to img, src update) using `getAttribute('src')` comparison to avoid IDL-resolved URL false positives (H-2 fix). Calls `_ensureIndicators()` for audible DOM transitions. |
-| `_ensureIndicators(row, live)` | Creates `.item-audible-icon` span when audible state transitions false-to-true post-render; removes it when audible becomes false. Creates/removes the `.item-indicators` container as needed. Inserts before `.item-actions` to maintain correct DOM order. SVG markup is hardcoded (no user data — XSS-safe). |
+| `refetchAndPatchLiveState()` | Called on `MSG_STATE_CHANGED { scope: 'liveState' }`. Patches existing rows in-place (no full re-render). Error-safe: clears all stale indicators on `MSG_LIST_ITEMS` failure via atomic `indicators.replaceChildren()` + `indicators.remove()` (B-011). Guards against detached-node race with `itemListEl.contains(row)`. Patches favicon/avatar transitions (img to avatar, avatar to img, src update) using `getAttribute('src')` comparison to avoid IDL-resolved URL false positives (H-2 fix). Calls `_ensureIndicators()` for audible and drifted DOM transitions. |
+| `_ensureIndicators(row, live, isDrifted)` | **(B-011 extended from audible-only.)** Creates/removes `.item-audible-icon` and `.item-drifted-icon` spans when state transitions occur post-render. `isConnected` guard prevents DOM ops on detached nodes. Creates/removes the `.item-indicators` container as needed. Inserts before `.item-actions` to maintain correct DOM order. SVG markup is hardcoded (no user data — XSS-safe). See section 10.7 for full specification. |
 
 ### 17.3 Deviations from R2 Plan (section 16)
 
@@ -1798,7 +1805,7 @@ B-010 closed all gaps in the live-tab and active-tab indicator pipeline. The dat
 |---|---------|-------------|--------|
 | D-1 | `WINDOW_ID_NONE` guard was "do NOT deactivate everything" (keep last-focused window highlighted) | Shipped: deactivates ALL tabs on `WINDOW_ID_NONE` and broadcasts `window/blurred` | More accurate representation — when the browser loses focus, no tab is truly "active" from the user's perspective. The next `onFocusChanged` with a real windowId re-activates correctly. |
 | D-2 | R2 pseudocode used direct `entry.active = false` mutation in the onFocusChanged loop | Shipped: all mutations go through `updateTabEntry(id, { active: false })` | Consistent with the mutation contract established in B-001c; avoids bypassing any future instrumentation on `updateTabEntry`. |
-| D-3 | R2 did not mention `_ensureIndicators` handling drifted icons | Shipped: `_ensureIndicators` handles audible only; drifted icon creation/removal is deferred | Drifted state transitions are rare enough that full re-render handles them. Audible transitions happen frequently (media play/pause) and required the targeted DOM approach. |
+| D-3 | R2 did not mention `_ensureIndicators` handling drifted icons | **RESOLVED in B-011 (Sprint 9):** `_ensureIndicators(row, live, isDrifted)` now handles both audible and drifted icon lifecycle. Originally deferred because drifted transitions were rare; resolved to close the indicator DOM gap completely. See section 10.7 "Sidepanel drift icon lifecycle". |
 | D-4 | `buildLiveStates` return shape was `{ live, active, audible }` | Shipped: `{ live, active, audible, favIconUrl }` | B-004 integration added `favIconUrl` to the live-state contract. This was approved during B-004 R2; not a deviation from B-010's scope but worth documenting since it changed the shape referenced in section 16.2. |
 
 ### 17.4 Message Types

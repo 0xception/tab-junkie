@@ -729,7 +729,7 @@ function buildItemRow(item, liveStates, driftRecords) {
     if (needsDrifted) {
       const driftedIcon = document.createElement('span');
       driftedIcon.className = 'item-drifted-icon';
-      driftedIcon.setAttribute('aria-label', 'URL drifted');
+      driftedIcon.setAttribute('aria-label', 'Tab has navigated away from its saved URL');
       driftedIcon.innerHTML =
         '<svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1l6 11H1L7 1z" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/><path d="M7 5v3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="7" cy="10" r="0.8" fill="currentColor"/></svg>';
       indicators.appendChild(driftedIcon);
@@ -771,10 +771,16 @@ async function refetchAndPatchLiveState() {
   } catch (err) {
     console.warn('[tab-junkie] refetchAndPatchLiveState: MSG_LIST_ITEMS failed, clearing live indicators', err);
     for (const row of itemListEl.querySelectorAll('[data-item-id]')) {
+      if (!row.isConnected) continue;
       delete row.dataset.live;
       delete row.dataset.active;
       delete row.dataset.audible;
       delete row.dataset.drifted;
+      const indicators = row.querySelector('.item-indicators');
+      if (indicators) {
+        indicators.replaceChildren();
+        indicators.remove();
+      }
     }
     return;
   }
@@ -794,8 +800,8 @@ async function refetchAndPatchLiveState() {
     if (live?.audible) row.dataset.audible = 'true'; else delete row.dataset.audible;
     if (drifted) row.dataset.drifted = 'true'; else delete row.dataset.drifted;
 
-    /* H-8: Ensure indicator DOM nodes exist when state transitions false→true */
-    _ensureIndicators(row, live);
+    /* H-8, B-011: Ensure indicator DOM nodes exist when state transitions false→true */
+    _ensureIndicators(row, live, !!drifted);
 
     /* B-004: patch favicon / letter-avatar without full rebuild */
     const newFavIconUrl = live?.favIconUrl || null;
@@ -842,9 +848,10 @@ async function refetchAndPatchLiveState() {
 
 /**
  * Ensure audible indicator DOM node exists/is removed to match live state.
- * Covers the case where a tab becomes audible after initial render (H-8).
+ * Covers the case where a tab becomes audible or drifted after initial render (H-8, B-011).
  */
-function _ensureIndicators(row, live) {
+function _ensureIndicators(row, live, isDrifted) {
+  if (!row.isConnected) return;
   const needsAudible = !!live?.audible;
   let audibleIcon = row.querySelector('.item-audible-icon');
   if (needsAudible && !audibleIcon) {
@@ -868,6 +875,32 @@ function _ensureIndicators(row, live) {
     indicators.appendChild(audibleIcon);
   } else if (!needsAudible && audibleIcon) {
     audibleIcon.remove();
+    const indicators = row.querySelector('.item-indicators');
+    if (indicators && indicators.children.length === 0) indicators.remove();
+  }
+
+  const needsDrifted = !!isDrifted;
+  let driftedIcon = row.querySelector('.item-drifted-icon');
+  if (needsDrifted && !driftedIcon) {
+    let indicators = row.querySelector('.item-indicators');
+    if (!indicators) {
+      indicators = document.createElement('div');
+      indicators.className = 'item-indicators';
+      const actions = row.querySelector('.item-actions');
+      if (actions) {
+        row.insertBefore(indicators, actions);
+      } else {
+        row.appendChild(indicators);
+      }
+    }
+    driftedIcon = document.createElement('span');
+    driftedIcon.className = 'item-drifted-icon';
+    driftedIcon.setAttribute('aria-label', 'Tab has navigated away from its saved URL');
+    driftedIcon.innerHTML =
+      '<svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1l6 11H1L7 1z" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/><path d="M7 5v3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="7" cy="10" r="0.8" fill="currentColor"/></svg>';
+    indicators.appendChild(driftedIcon);
+  } else if (!needsDrifted && driftedIcon) {
+    driftedIcon.remove();
     const indicators = row.querySelector('.item-indicators');
     if (indicators && indicators.children.length === 0) indicators.remove();
   }

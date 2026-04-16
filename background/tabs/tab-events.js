@@ -18,7 +18,7 @@ import {
   getLiveTabIndex,
 } from './live-tab-index.js';
 import { releaseClaimByTab, reevaluateTab, isClaimsReady } from './tab-claims.js';
-import { detectDriftForTab } from './drift.js';
+import { detectDriftForTab, clearDrift } from './drift.js';
 import { listItems } from '../storage/items.js';
 import { broadcast, SCOPE } from '../broadcast.js';
 
@@ -63,6 +63,12 @@ export function registerTabEventListeners(readyPromise) {
     // a double patch cycle for every navigation (H-1 fix).
     if ('favIconUrl' in changeInfo && !('url' in changeInfo)) {
       broadcast(SCOPE.LIVE_STATE, 'tab/favicon-changed', { requireClaimsReady: true });
+    }
+
+    // B-012: broadcast when audible changes WITHOUT a simultaneous URL change.
+    // Same pattern as favIconUrl above — the URL-change path already broadcasts.
+    if ('audible' in changeInfo && !('url' in changeInfo)) {
+      broadcast(SCOPE.LIVE_STATE, 'tab/audible-changed', { requireClaimsReady: true });
     }
 
     // H1: Only re-evaluate when URL is a non-empty string
@@ -113,7 +119,8 @@ export function registerTabEventListeners(readyPromise) {
       reevalTimers.delete(tabId);
     }
     removeTabEntry(tabId);
-    releaseClaimByTab(tabId).then(() => {
+    releaseClaimByTab(tabId).then(async (releasedItemId) => {
+      if (releasedItemId) await clearDrift(releasedItemId);
       broadcast(SCOPE.LIVE_STATE, 'tab/removed', { requireClaimsReady: true });
     }).catch((err) => {
       console.warn('[tab-junkie] releaseClaimByTab failed on tab removal', err);
@@ -173,7 +180,10 @@ export function registerTabEventListeners(readyPromise) {
     }
     if (removedTabIds.length === 0) return;
     if (!isClaimsReady()) return;
-    Promise.all(removedTabIds.map((tabId) => releaseClaimByTab(tabId))).then(() => {
+    Promise.allSettled(removedTabIds.map(async (tabId) => {
+      const releasedItemId = await releaseClaimByTab(tabId);
+      if (releasedItemId) await clearDrift(releasedItemId);
+    })).then(() => {
       broadcast(SCOPE.LIVE_STATE, 'tab/removed', { requireClaimsReady: true });
     }).catch((err) => {
       console.warn('[tab-junkie] batch releaseClaimByTab failed on window removal', err);

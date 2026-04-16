@@ -1,6 +1,6 @@
 # Current Sprint
 
-*Sprint 8 — Favicons, Live State UI, Group Reorder, Inline Search. Kicked off 2026-04-16.*
+*Sprint 9 — Drift Detection, Audible Indicator, Tab Cleanup. Kicked off 2026-04-16.*
 
 ---
 
@@ -12,35 +12,35 @@
 
 ## Gate 4: ✅ PASSED
 - All R4 findings resolved (no open CRITICAL/HIGH)
-- 285/285 automated tests passing
-- UAT PASS: B-004 (8/8 ACs), B-010 (12/12 ACs), B-008 (12/12 ACs), B-021 (10/10 ACs)
-- SOLUTION_DESIGN.md v2.1 — §17, §18, §19 added
+- 296/296 automated tests passing (+11 new tests)
+- UAT PASS: B-011 (13/14 ACs pass, AC12 contrast WARN tracked as M-2), B-012 (regression PASS), B-015 (PASS)
+- SOLUTION_DESIGN.md v2.2 — drift lifecycle, B-012 broadcast, B-015 clearDrift documented
 - manifest.json unchanged — no new permissions
 - build.sh clean (84K, 46 files)
 
 ---
 
-## Sprint Retrospective — Sprint 8
+## Sprint Retrospective — Sprint 9
 
 ### Velocity
-- **Planned**: 4 items / S + L + M + M effort
-- **Completed**: 4 items / S + L + M + M effort
+- **Planned**: 3 items / XS + S + L effort
+- **Completed**: 3 items / XS + S + L effort
 - **Carried over**: 0 items
 
 ### What Went Well
-- Parallel R4 reviews (3 reviewers simultaneously) caught 8+ HIGH findings per item without blocking velocity
-- B-010 multi-window active-tab tracking (windows.onFocusChanged gap) was a non-obvious bug that R2 architecture caught proactively
-- B-021 filter `buildHighlightedText()` via DocumentFragment was the right XSS-safe design from the start — security review approved without changes
+- Pre-built B-001d code covered 13/14 ACs for B-011 — R1 analysis confirmed this upfront, avoiding redundant build work
+- All three items had pre-existing tests; R5 added 11 targeted new tests covering new behaviors without duplicating existing coverage
+- B-012 and B-015 R4 reviewers caught two non-obvious issues (async drift race in `onRemoved`, `aria-label` jargon) that would have shipped as bugs
 
 ### What to Improve
-- SPRINT.md had duplicate entries for B-008 and B-021 due to interleaved parallel agent edits — need a cleaner handoff protocol when multiple agents touch the same doc
-- B-008 dragstart guard (H-1) was fundamentally broken in R3 build — the `e.target.closest()` approach doesn't work on a `draggable` section element; R2 architecture should have specified the mousedown-flag pattern explicitly
-- B-021 R3 omitted the `_itemById` Map despite it being in the R2 spec — R3 agent should verify spec compliance before claiming done
+- The "pre-built but not formally sprinted" pattern (B-001d code satisfying B-011/B-015 ACs) creates confusion at sprint start — R1 should explicitly check if code already exists before defining work
+- B-015 `clearDrift` on tab close was documented in SOLUTION_DESIGN.md §519 but not implemented — design doc and code drifted silently for 8 sprints. Need a "design→code coverage check" step
+- `aria-label="URL drifted"` shipped in the pre-built code (not Sprint 9 build) — security/QA review caught it at R4, but it would have been caught at R1 if accessible label requirements were in the ACs
 
 ### Action Items for Next Sprint
-- [ ] [solution-architect] Specify implementation-level patterns (not just design) in R2 for non-obvious browser APIs (drag events, intersection observer, etc.)
-- [ ] [scrum-master] After parallel agent edits, do a single-pass SPRINT.md cleanup before advancing to next round
-- [ ] [test-engineer] Add spec-compliance check to R5: verify each R2 design decision is present in the code
+- [ ] [scrum-master] At R1, scan codebase for pre-existing implementations before defining build scope — reduces wasted R3 cycles
+- [ ] [test-engineer] Add spec-compliance check to R5: cross-reference SOLUTION_DESIGN.md design decisions against actual code (catches design→code gaps early)
+- [ ] [product-manager] Add explicit ARIA label requirements to ACs for any new user-visible indicators (not just "accessible")
 
 ---
 
@@ -48,29 +48,21 @@
 
 ## Completed This Sprint
 
-### [B-008] Group reorder & collapse/expand persistence ✅
-- **Tier**: Full (M)
-- **UAT**: PASS (all 12 ACs satisfied)
-- **R6**: `docs/SOLUTION_DESIGN.md` §18 added (v2.0)
-- **R7**: Skipped (per user preference)
-- **Files Changed**: `sidepanel/sidepanel.js`, `sidepanel/sidepanel.css`, `background/storage/groups.js`, `tests/b008-group-reorder.test.js` (16 new tests)
-
-### [B-021] Inline side-panel filter with debounce & highlight ✅
-- **Tier**: Full (M)
-- **UAT**: PASS (all 10 ACs satisfied)
-- **R6**: `docs/SOLUTION_DESIGN.md` §19 added (v2.1)
-- **R7**: Skipped (per user preference)
-- **Files Changed**: `sidepanel/sidepanel.html`, `sidepanel/sidepanel.js`, `sidepanel/sidepanel.css`, `tests/b021-filter.test.js` (10 new tests)
-
-### [B-004] Favicon auto-capture + letter-avatar fallback ✅
-- **Tier**: Fast Track (S)
-- **UAT**: PASS (all 8 ACs satisfied)
-- **R7**: Skipped (per user preference)
-- **Files Changed**: `background/tabs/tab-events.js`, `background/tabs/live-tab-index.js`, `background/tabs/tab-claims.js`, `sidepanel/sidepanel.js`, `tests/b004-favicon.test.js` (19 new tests)
-
-### [B-010] Live tab reflection & active-tab highlight ✅
+### [B-011] Drift detection & persistence ✅
 - **Tier**: Full (L)
-- **UAT**: PASS (all 12 ACs satisfied by code analysis; 18 automated tests)
-- **R6**: `docs/SOLUTION_DESIGN.md` §17 added (v1.9)
+- **UAT**: PASS (13/14 ACs; AC12 contrast WARN — tracked M-2)
+- **R6**: `docs/SOLUTION_DESIGN.md` v2.2 — §10.7 drift icon lifecycle + D-3 RESOLVED
 - **R7**: Skipped (per user preference)
-- **Files Changed**: `background/tabs/tab-events.js`, `background/tabs/live-tab-index.js`, `background/tabs/tab-claims.js`, `background/broadcast.js`, `sidepanel/sidepanel.js`, `tests/chrome-mock.js`, `tests/b010-live-state.test.js` (18 new tests)
+- **Files Changed**: `sidepanel/sidepanel.js` (`_ensureIndicators` drift lifecycle, `refetchAndPatchLiveState` call site + catch cleanup, aria-label fix), `tests/b011-drift.test.js` (9 new tests)
+
+### [B-012] Audible tab indicator ✅
+- **Tier**: Fast Track (XS)
+- **UAT**: PASS (regression check — zero regressions)
+- **R7**: Skipped (per user preference)
+- **Files Changed**: `background/tabs/tab-events.js` (added `tab/audible-changed` broadcast for audible-only changes)
+
+### [B-015] Tab-tracking cleanup on close ✅
+- **Tier**: Fast Track (S)
+- **UAT**: PASS (new drift-cleared assertions pass)
+- **R7**: Skipped (per user preference)
+- **Files Changed**: `background/tabs/tab-events.js` (`clearDrift` awaited in `onRemoved`, `Promise.allSettled` in `windows.onRemoved`), `tests/tab-close-claim.test.js` (+1 test), `tests/window-close-claims.test.js` (+1 test)
