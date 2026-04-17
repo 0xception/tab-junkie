@@ -326,3 +326,52 @@ Historical completed sprint items. Appended by [scrum-master] at the close of ea
 **Went Well:** R1 pre-existing code scanning (Sprint 9 action item) correctly identified both items as ~95% pre-built, avoiding unnecessary greenfield work. R4 caught 5 HIGH findings across both items — the TOCTOU prune race (H-1 B-018) and premature resolution marking (H-2 B-018) would have been silent data-loss bugs in production, recoverable only by browser restart.
 **To Improve:** B-054's sidepanel.js is 1249 lines — a modularity refactor should be tracked as a backlog item. AC12 (first-paint < 200ms) could not be verified without browser context; a measurement methodology should be defined. No TTL exists on unresolved floating-group records.
 **Action Items:** [product-manager] create backlog item for sidepanel.js modularization; [product-manager] create backlog item for floating-group TTL pruning; [test-engineer] define AC12 measurement methodology for manual UAT.
+
+---
+
+## Sprint 12 — Multi-select, Context Menu, Empty States (2026-04-17)
+
+**Theme:** Power-user item management — bulk actions across multiple items, right-click context menu for fast single-item operations, and consistent empty-state / error-feedback UX.
+**Release:** v1.7.0 · Commit `437b9c7` on `release/v2` (tag staged, pending v2→main merge)
+**Tests:** 374 → 427 (+53 new tests in `tests/b024-multi-select.test.js`)
+**SOLUTION_DESIGN.md:** §25 added — B-024 bulk contracts + `tabId` on live states, B-026/B-049 sibling notes
+
+### Completed Items
+
+| ID | Title | Tier | UAT | New Tests |
+|----|-------|------|-----|-----------|
+| B-024 | Multi-select + bulk action bar | Full (M) | PASS (11/11 gestures + 12/12 bulk-bar) | 53 |
+| B-026 | Item context menu | Fast Track (S) | PASS (11/11) | — (uses B-024 coverage) |
+| B-049 | Empty states & error feedback | Fast Track (S) | PASS (3/3 empty-state paths; error-toast UAT deferred to Task #7) | — |
+
+### Files Changed
+- `sidepanel/sidepanel.js` — all three items (+798/−27): multi-select state (`_selection`, `_rangeAnchorId`, `_pendingClickTimer`), bulk action bar + move picker, right-click context menu with viewport clamping, toast system, empty-state variants, `refetchAndPatchLiveState` cache sync (C-1), `openConfirmDialog` heading/body overrides (C-2)
+- `sidepanel/sidepanel.html` — bulk-action-bar, context-menu, toast, filter-empty CTA (+27/−2)
+- `sidepanel/sidepanel.css` — bulk bar, context menu, toast, empty-state variants (+291)
+- `shared/messages.js` — `MSG_CLOSE_TABS`, `MSG_BULK_DELETE_ITEMS`, `MSG_BULK_UPDATE_ITEMS` (+6)
+- `background/messages/storage-handlers.js` — bulk delete/update dispatchers with `MAX_BULK_INPUTS` cap + safe-mode gate (+12/−2)
+- `background/storage/items.js` — `bulkDeleteItems`, `bulkUpdateItems` with partial-success envelope (+117)
+- `background/storage/index.js` — exports (+2)
+- `background/tabs/tab-claims.js` — surface `tabId` on enriched live state (+1)
+- `tests/b024-multi-select.test.js` (new, 1,202 lines / 53 tests)
+- `tests/b010-live-state.test.js`, `tests/enriched-list-items.test.js` — `tabId` shape additions
+
+### Notable R4 Findings Fixed
+- **B-024 C-1 (qa-reviewer)**: `_updateBulkBar` read stale `_cachedLiveStates` after a live-state broadcast — "Close tabs" button could appear enabled for tabs that had already closed. Fixed: `refetchAndPatchLiveState` now reassigns the cache and calls `_updateBulkBar()` after every patch.
+- **B-024 C-2 (qa-reviewer)**: Bulk Remove confirm dialog showed static "Delete Bookmark?" heading regardless of selection count, and body said "Delete N bookmarks" — misleading for bulk and inaccurate for live items (which are demoted, not deleted). Fixed: `openConfirmDialog` accepts `{ heading, body }` overrides; bulk caller passes accurate copy.
+- **B-024 H-1 (code-reviewer)**: `_clearSelection()` did not close the open bulk-move picker — Escape/Clear left an orphaned DOM node with a live capture-phase listener. Fixed: `_clearSelection()` calls `_closeBulkMovePicker()` at top.
+- **B-024 H-2 (qa-reviewer)**: Bulk-move picker had no Escape handler; `onDocClick` listener leaked on non-outside-click close paths. Fixed: picker `<select>` handles Escape with `stopPropagation`; listener always removed inside `_closeBulkMovePicker()`.
+- **B-024 H-3 (qa-reviewer)**: `_rangeSelect` wrote `_lastSelectedId`, causing the range anchor to drift with each Shift+Click. Fixed: introduced dedicated `_rangeAnchorId` written only by `_toggleSelection`/`_selectAll`.
+- **B-024 H-5 (qa-reviewer)**: Sequential `await` in bulk Remove stopped at first failure — subsequent demotes and bulk-delete skipped; selection not pruned of successful IDs. Fixed: `Promise.allSettled` with per-result handling; fulfilled IDs pruned, rejected IDs retained, failure count surfaced via toast.
+- **B-024 H-6 (qa-reviewer)**: `click` + `dblclick` race in selection mode — single-click toggle fired before dblclick navigation, mutating selection unintentionally. Fixed: 200ms deferred toggle via `setTimeout`, cancelled by dblclick.
+- **B-026 H-1 (code-reviewer)**: `isLive` captured before async `MSG_LIST_GROUPS` await — stale state after concurrent broadcast. Fixed: re-read from `_cachedLiveStates` at click time in each action handler.
+- **B-026 H-2 (code-reviewer)**: Every right-click fired a redundant `MSG_LIST_GROUPS` IPC round-trip; `_cachedGroups` was already in memory. Fixed: all three call sites (context menu, bulk-move picker, `_populateGroupPicker`) read from cache; `openContextMenu` is no longer async.
+
+### UAT-Discovered Defects (fixed in-pipeline)
+- **UAT-D1**: Confirm dialog stayed open after clicking Delete — pre-existing latent bug in the document click handler (never called `closeDialog()` on the confirm path). Affected all dialog-bearing flows. Fixed by capturing the callback and calling `closeDialog()` before invocation.
+- **UAT-D2**: "Clear filter" link in filter-empty state also opened the Add Bookmark dialog — both CTAs shared class `.empty-state-cta`. Fixed by narrowing selector to exclude `#filter-empty-clear-btn`.
+
+### Retrospective
+**Went Well:** Parallel build of three co-located items worked cleanly thanks to `/* B-XXX */` comment markers preserving per-item attribution. The 7-agent R4 pass produced actionable de-duplicated findings; [qa-reviewer] caught both CRITICAL state-machine defects that code/security review missed. Interactive UAT surfaced two real bugs (one pre-existing) in under 15 minutes.
+**To Improve:** Pre-existing confirm-dialog-close bug survived prior sprints because UAT exercised cancel paths more than confirm paths. Two R4 reviewers flagged the parallel build as "scope bleed" without seeing the SPRINT.md parallel-opportunity note. B-049 AC4 error-toast verification could not be triggered manually — deferred to future sprint.
+**Action Items:** Pass SPRINT.md item context into R4 review agent prompts to prevent scope-creep false positives. Require UAT scripts to exercise confirm/commit on every dialog. Revisit B-049 error-toast UAT when a naturally failing op is available (import work or storage-quota stress).
