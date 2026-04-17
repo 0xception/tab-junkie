@@ -249,3 +249,46 @@ Historical completed sprint items. Appended by [scrum-master] at the close of ea
 **Went Well:** R1 code analysis revealed pre-existing implementations covering 13/14 ACs for B-011 — sprint was largely validation + gap-closing rather than greenfield build. All three items closed with zero CRITICAL/HIGH open at Gate 4.
 **To Improve:** Design-to-code coverage gap (SOLUTION_DESIGN.md §519 said clearDrift on close but code didn't do it) — went 8 sprints undetected. R1 pre-flight check for existing code should be standard practice.
 **Action Items:** [scrum-master] scan codebase at R1 for pre-existing implementations; [test-engineer] cross-reference SOLUTION_DESIGN.md design decisions against code at R5; [product-manager] include explicit ARIA label text in ACs for new indicators.
+
+---
+
+## Sprint 10 — Opener-chain Inheritance, Bulk Create, Circular Dep Fix (2026-04-16)
+
+**Theme:** Extend the tab-tracking subsystem with group inheritance for new tabs, add the bulk-create primitive that unlocks import flows, and eliminate the circular dependency in the storage layer.
+**Release:** v1.6.0 · Commit `544971d` on `release/v2`
+**Tests:** 296 → 332 (+40 new tests across 2 suites + 8 fixture updates)
+**SOLUTION_DESIGN.md:** v2.2 → v2.3 (§20 B-053 circular dep, §21 B-013 opener-chain, §22 B-005 bulk-create)
+
+### Completed Items
+
+| ID | Title | Tier | UAT | New Tests |
+|----|-------|------|-----|-----------|
+| B-013 | Opener-chain group inheritance for new tabs | Full (M) | PASS (10/10 ACs) | 22 |
+| B-005 | Bulk-create saved items (import primitive) | Full (M) | PASS (10/10 ACs) | 18 |
+| B-053 | Break circular dep partitions.js ↔ write-transaction.js | Fast Track (S) | regression PASS | 0 |
+
+### Files Changed
+- `background/storage/shapes.js` (new) — extracted partition constants, shape validators, `MAX_BULK_INPUTS=500`, `MAX_OPENER_MAP_ENTRIES=512`
+- `background/storage/partitions.js` — re-exports from `shapes.js` + local import (both required)
+- `background/storage/write-transaction.js` — imports from `shapes.js` (breaks circular dep)
+- `background/storage/items.js` — `bulkCreateItems`: two-phase partial-success, tx-failure routing, size cap
+- `background/storage/index.js` — re-exports `bulkCreateItems`
+- `background/messages/storage-handlers.js` — `MSG_BULK_CREATE_ITEMS` dispatch, MUTATION_BROADCASTS, writeTypes
+- `shared/messages.js` — `MSG_BULK_CREATE_ITEMS = 'tj/bulkCreateItems'`
+- `background/tabs/opener-chain.js` (new) — openerMap, walkOpenerChain, cycle guard, size cap, pruning
+- `background/tabs/floating-groups.js` — `appendFloatingGroup` (atomic append), itemId+savedAt in records, `reassociateFloatingGroups` fix (claimTabForItem uses itemId not groupId)
+- `background/tabs/tab-events.js` — `onCreated` listener (sync recordOpener + async inheritance IIFE), live-state re-read after async gap, pruning in onRemoved/windows.onRemoved
+- `tests/b013-opener-chain.test.js` (new, 22 tests)
+- `tests/b005-bulk-create.test.js` (new, 18 tests)
+- 8 floating-group fixture test files updated for itemId field
+
+### Notable R4 Findings Fixed
+- **B-013 C-1**: `reassociateFloatingGroups` passed `record.groupId` to `claimTabForItem` (which expects itemId) — poisoning claimsMirror with phantom entries. Fixed: floating-group records now store `itemId`; reassociation uses `record.itemId`.
+- **B-013 H-4/H-5**: Stale `tab.url`/`tab.index` from closure over `onCreated` event (usually `about:blank`) used after async gap. Fixed: re-read live entry from `getLiveTabIndex().get(tab.id)` after async gap; bail if tab was removed.
+- **B-005 H-3**: Side-effects (pushing to `created`) inside `writeTransaction` mutator — if tx later threw, `created` contained phantom items. Fixed: collect in mutator-local vars, merge to outer arrays only after `await writeTransaction()` resolves.
+- **B-053 H-1**: `export { X } from './shapes.js'` re-exports but does not bind `X` locally; `initializePartitions` read `ALL_PARTITIONS` as `undefined`. Fixed: added separate local `import { ALL_PARTITIONS, ... } from './shapes.js'` alongside the re-export.
+
+### Retrospective
+**Went Well:** Parallel R4 reviews (6 reviewer passes across 2 items) caught a CRITICAL itemId data-flow bug before R5; B-053 Fast Track taught a durable lesson about ES module re-export semantics; 40 new tests cover all acceptance criteria including tricky edge cases (tab-removed-before-async-resume, tx-failure-routes-to-skipped).
+**To Improve:** B-013 R3 missed the `itemId` field in the floating-group record despite it being derivable from `walkOpenerChain`'s return shape — a spec-compliance gap. The `requireClaimsReady: true` broadcast guard was silently swallowing signals during cold-start windows — [solution-architect] should add broadcast guard review to the R2 checklist.
+**Action Items:** [solution-architect] add to R2 checklist: every new in-memory data structure must document a size bound and eviction policy; [product-manager] reflect corrected floating-group record shape (itemId field) in B-018 ACs; [scrum-master] prioritize B-054 (sidepanel shell, P0 Critical, in-progress) for Sprint 11.
