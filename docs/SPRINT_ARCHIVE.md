@@ -292,3 +292,37 @@ Historical completed sprint items. Appended by [scrum-master] at the close of ea
 **Went Well:** Parallel R4 reviews (6 reviewer passes across 2 items) caught a CRITICAL itemId data-flow bug before R5; B-053 Fast Track taught a durable lesson about ES module re-export semantics; 40 new tests cover all acceptance criteria including tricky edge cases (tab-removed-before-async-resume, tx-failure-routes-to-skipped).
 **To Improve:** B-013 R3 missed the `itemId` field in the floating-group record despite it being derivable from `walkOpenerChain`'s return shape — a spec-compliance gap. The `requireClaimsReady: true` broadcast guard was silently swallowing signals during cold-start windows — [solution-architect] should add broadcast guard review to the R2 checklist.
 **Action Items:** [solution-architect] add to R2 checklist: every new in-memory data structure must document a size bound and eviction policy; [product-manager] reflect corrected floating-group record shape (itemId field) in B-018 ACs; [scrum-master] prioritize B-054 (sidepanel shell, P0 Critical, in-progress) for Sprint 11.
+
+---
+
+## Sprint 11 — Sidepanel Shell + Floating Tab Persistence (2026-04-16)
+
+**Theme:** Formal verification of two pre-built subsystems — the sidepanel UI shell and floating-group persistence across browser restart.
+**Release:** v1.6.1 · Commit `72656b4` on `release/v2`
+**Tests:** 332 → 374 (+42 new tests across 2 suites)
+**SOLUTION_DESIGN.md:** v2.3 → v2.5 (§23 B-054 sidepanel shell, §24 B-018 floating persistence)
+
+### Completed Items
+
+| ID | Title | Tier | UAT | New Tests |
+|----|-------|------|-----|-----------|
+| B-054 | Sidepanel shell: item/group rendering + live states + click-to-navigate + broadcasts | Full (M, downgraded from L) | PASS (16/17 ACs; AC12 SKIP) | 33 |
+| B-018 | Floating tab group persistence across restart | Full (M) | PASS (13/13 ACs) | 9 |
+
+### Files Changed
+- `sidepanel/sidepanel.js` — B-054 R4 fixes: `_createAudibleIcon`/`_createDriftedIcon` factory extraction (DRY), `itemMap` O(1) lookup in `refetchAndPatchLiveState` (was O(N²)), nested group drag selector fix (`:not(.group-section--child)`), `replaceChildren()` consistency
+- `background/tabs/floating-groups.js` — B-018 R4 fixes: `pruneResolvedFloatingGroups` uses live `current` from writeTransaction with `resolvedItemIds` Set (was stale snapshot with positional indices); `resolvedItemIds.add` moved after `await claimTabForItem` (was before); claim failure releases tab via `claimedTabIds.delete`
+- `tests/b054-sidepanel.test.js` (new, 33 tests: isSafeFaviconUrl, sendMessage, icon factories, buildHighlightedText)
+- `tests/b018-persistence.test.js` (new, 9 tests: orphan guard, TOCTOU regression, claim-failure regression, cold-start integration, disambiguation, all-same-tab)
+
+### Notable R4 Findings Fixed
+- **B-054 H-1 (code-reviewer)**: Audible/drifted icon SVG markup duplicated between `buildItemRow` and `_ensureIndicators` — maintenance hazard. Fixed: extracted `_createAudibleIcon()` and `_createDriftedIcon()` factory functions.
+- **B-054 H-2 (code-reviewer)**: O(N²) `items.find()` in `refetchAndPatchLiveState` — 1M comparisons per broadcast at 1000 items. Fixed: pre-built `itemMap` from response array for O(1) lookup.
+- **B-054 H-3 (qa-reviewer)**: Nested group drag reorder assigned sort orders to child group sections (`.group-section--child`), corrupting sub-group hierarchy. Fixed: `:not(.group-section--child)` selector filter.
+- **B-018 H-1 (code-reviewer)**: `pruneResolvedFloatingGroups` used stale `records` snapshot in the writeTransaction mutator, silently dropping any records appended by concurrent `appendFloatingGroup` calls. Fixed: mutator uses live `current` parameter; filtering by `resolvedItemIds` Set (stable keys) not positional indices.
+- **B-018 H-2 (code-reviewer)**: `resolvedItemIds.add(record.itemId)` ran before `await claimTabForItem()`. If the claim failed, the record was marked resolved and pruned — permanent data loss. Fixed: mark resolved only after successful claim; on failure, release tab for other records.
+
+### Retrospective
+**Went Well:** R1 pre-existing code scanning (Sprint 9 action item) correctly identified both items as ~95% pre-built, avoiding unnecessary greenfield work. R4 caught 5 HIGH findings across both items — the TOCTOU prune race (H-1 B-018) and premature resolution marking (H-2 B-018) would have been silent data-loss bugs in production, recoverable only by browser restart.
+**To Improve:** B-054's sidepanel.js is 1249 lines — a modularity refactor should be tracked as a backlog item. AC12 (first-paint < 200ms) could not be verified without browser context; a measurement methodology should be defined. No TTL exists on unresolved floating-group records.
+**Action Items:** [product-manager] create backlog item for sidepanel.js modularization; [product-manager] create backlog item for floating-group TTL pruning; [test-engineer] define AC12 measurement methodology for manual UAT.
