@@ -40,6 +40,8 @@ import {
   MSG_NAVIGATE_TO_ITEM,
   MSG_CLOSE_TABS,
   MSG_BULK_CREATE_ITEMS,
+  MSG_BULK_DELETE_ITEMS,
+  MSG_BULK_UPDATE_ITEMS,
 } from '../../shared/messages.js';
 
 import {
@@ -49,6 +51,8 @@ import {
   listItems,
   getItem,
   bulkCreateItems,
+  bulkDeleteItems,
+  bulkUpdateItems,
   createGroup,
   updateGroup,
   deleteGroup,
@@ -85,6 +89,8 @@ const MUTATION_BROADCASTS = {
   [MSG_DELETE_GROUP]: SCOPE.GROUPS,
   [MSG_SET_PREFERENCES]: SCOPE.PREFERENCES,
   [MSG_BULK_CREATE_ITEMS]: SCOPE.ITEMS,
+  [MSG_BULK_DELETE_ITEMS]: SCOPE.ITEMS,
+  [MSG_BULK_UPDATE_ITEMS]: SCOPE.ITEMS,
   [MSG_PROMOTE_TAB]: SCOPE.ITEMS,
   [MSG_DEMOTE_ITEM]: SCOPE.ITEMS,
   [MSG_NAVIGATE_TO_ITEM]: SCOPE.ITEMS, // Included because navigate bumps lastAccessedAt via updateItem — a real storage mutation.
@@ -123,6 +129,10 @@ async function dispatch(type, payload) {
     }
     case MSG_BULK_CREATE_ITEMS:
       return bulkCreateItems(p.inputs);
+    case MSG_BULK_DELETE_ITEMS:
+      return bulkDeleteItems(p.ids);
+    case MSG_BULK_UPDATE_ITEMS:
+      return bulkUpdateItems(p.ids, p.patch);
     case MSG_GET_ITEM:
       return getItem(p.id);
     case MSG_CREATE_GROUP:
@@ -381,7 +391,7 @@ export function registerStorageHandlers(readyPromise) {
       if (isSafeMode()) {
         const writeTypes = new Set([
           MSG_CREATE_ITEM, MSG_UPDATE_ITEM, MSG_DELETE_ITEM,
-          MSG_BULK_CREATE_ITEMS,
+          MSG_BULK_CREATE_ITEMS, MSG_BULK_DELETE_ITEMS, MSG_BULK_UPDATE_ITEMS,
           MSG_CREATE_GROUP, MSG_UPDATE_GROUP, MSG_DELETE_GROUP,
           MSG_SET_PREFERENCES, MSG_PROMOTE_TAB, MSG_DEMOTE_ITEM,
           MSG_NAVIGATE_TO_ITEM, MSG_CLOSE_TABS,

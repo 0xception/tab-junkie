@@ -325,6 +325,123 @@ export async function bulkCreateItems(inputs) {
 }
 
 /**
+ * Bulk-delete items by id array with partial-success semantics.
+ * Unknown ids are reported in `notFound`; found ids are deleted in a single
+ * writeTransaction.
+ *
+ * @param {string[]} ids
+ * @returns {Promise<{deleted: string[], notFound: string[]}>}
+ */
+export async function bulkDeleteItems(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw new StorageError(ERR_VALIDATION, 'bulkDeleteItems: ids must be a non-empty array');
+  }
+  if (ids.length > MAX_BULK_INPUTS) {
+    throw new StorageError(ERR_VALIDATION, `bulkDeleteItems: ids array exceeds maximum of ${MAX_BULK_INPUTS}`);
+  }
+  for (const id of ids) {
+    if (typeof id !== 'string') {
+      throw new StorageError(ERR_VALIDATION, 'bulkDeleteItems: all ids must be strings');
+    }
+  }
+
+  const idSet = new Set(ids);
+  const deleted = [];
+  const notFound = [];
+
+  await writeTransaction([
+    {
+      partition: PARTITION_ITEMS,
+      mutator: (items) => {
+        const existingIds = new Set(items.map((it) => it.id));
+        for (const id of idSet) {
+          if (existingIds.has(id)) {
+            deleted.push(id);
+          } else {
+            notFound.push(id);
+          }
+        }
+        return items.filter((it) => !idSet.has(it.id));
+      },
+    },
+  ]);
+
+  return { deleted, notFound };
+}
+
+/**
+ * Bulk-update items' groupId by id array + patch with partial-success semantics.
+ * Only `groupId` is supported in the patch. Unknown ids are reported in `notFound`.
+ *
+ * @param {string[]} ids
+ * @param {{groupId: string|null}} patch
+ * @returns {Promise<{updated: string[], notFound: string[]}>}
+ */
+export async function bulkUpdateItems(ids, patch) {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw new StorageError(ERR_VALIDATION, 'bulkUpdateItems: ids must be a non-empty array');
+  }
+  if (ids.length > MAX_BULK_INPUTS) {
+    throw new StorageError(ERR_VALIDATION, `bulkUpdateItems: ids array exceeds maximum of ${MAX_BULK_INPUTS}`);
+  }
+  for (const id of ids) {
+    if (typeof id !== 'string') {
+      throw new StorageError(ERR_VALIDATION, 'bulkUpdateItems: all ids must be strings');
+    }
+  }
+  if (!patch || typeof patch !== 'object') {
+    throw new StorageError(ERR_VALIDATION, 'bulkUpdateItems: patch required');
+  }
+  const allowed = ['groupId'];
+  for (const k of Object.keys(patch)) {
+    if (!allowed.includes(k)) {
+      throw new StorageError(ERR_VALIDATION, 'bulkUpdateItems: only groupId is supported in patch');
+    }
+  }
+  if ('groupId' in patch && patch.groupId !== null && typeof patch.groupId !== 'string') {
+    throw new StorageError(ERR_VALIDATION, 'bulkUpdateItems: groupId must be string or null');
+  }
+
+  const idSet = new Set(ids);
+  const updated = [];
+  const notFound = [];
+  const now = Date.now();
+
+  let groupsSnapshot = [];
+  await writeTransaction([
+    {
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        groupsSnapshot = groups;
+        return groups;
+      },
+    },
+    {
+      partition: PARTITION_ITEMS,
+      mutator: (items) => {
+        if ('groupId' in patch) {
+          assertGroupExists(patch.groupId, groupsSnapshot);
+        }
+        const existingIds = new Set(items.map((it) => it.id));
+        for (const id of idSet) {
+          if (existingIds.has(id)) {
+            updated.push(id);
+          } else {
+            notFound.push(id);
+          }
+        }
+        return items.map((it) => {
+          if (!idSet.has(it.id)) return it;
+          return { ...it, ...patch, id: it.id, createdAt: it.createdAt, updatedAt: now };
+        });
+      },
+    },
+  ]);
+
+  return { updated, notFound };
+}
+
+/**
  * @param {{groupId?: string|null}} [filter]
  */
 export async function listItems(filter) {

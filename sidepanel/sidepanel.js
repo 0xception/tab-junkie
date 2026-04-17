@@ -10,6 +10,9 @@ import {
   MSG_DELETE_ITEM,
   MSG_DEMOTE_ITEM,
   MSG_GET_ITEM,
+  MSG_CLOSE_TABS,
+  MSG_BULK_DELETE_ITEMS,
+  MSG_BULK_UPDATE_ITEMS,
 } from '../shared/messages.js';
 
 import {
@@ -58,12 +61,24 @@ const errorDialogEl = document.getElementById('error-dialog');
 const dialogHeadingEl = document.getElementById('dialog-heading');
 const dialogCancelBtnEl = document.getElementById('dialog-cancel-btn');
 const dialogSubmitBtnEl = document.getElementById('dialog-submit-btn');
+const confirmHeadingEl = document.getElementById('confirm-heading');
 const confirmBodyEl = document.getElementById('confirm-body');
 const confirmDeleteBtnEl = document.getElementById('confirm-delete-btn');
 const confirmCancelBtnEl = document.getElementById('confirm-cancel-btn');
 const filterInputEl = document.getElementById('filter-input');
 const filterClearBtnEl = document.getElementById('filter-clear-btn');
 const filterEmptyStateEl = document.getElementById('filter-empty-state');
+const filterEmptyClearBtnEl = document.getElementById('filter-empty-clear-btn');
+const toastEl = document.getElementById('toast');
+const toastMessageEl = document.getElementById('toast-message');
+const toastDismissEl = document.getElementById('toast-dismiss');
+const contextMenuEl = document.getElementById('context-menu');
+const bulkActionBarEl = document.getElementById('bulk-action-bar');
+const bulkCountEl = document.getElementById('bulk-count');
+const bulkMoveBtn = document.getElementById('bulk-move');
+const bulkCloseBtn = document.getElementById('bulk-close');
+const bulkRemoveBtn = document.getElementById('bulk-remove');
+const bulkClearBtn = document.getElementById('bulk-clear');
 
 /* =========================================================================
    Collapsed groups state (panel-lifetime; persisted via MSG_UPDATE_GROUP)
@@ -92,6 +107,12 @@ let _cachedDriftRecords = {};
 let _itemById = new Map();
 
 /* =========================================================================
+   Toast state (B-049)
+   ========================================================================= */
+
+let _toastTimer = null;
+
+/* =========================================================================
    Group drag-to-reorder state (B-008)
    ========================================================================= */
 
@@ -102,6 +123,19 @@ let _pendingGroupsRender = false;
 const dropIndicatorEl = document.createElement('div');
 dropIndicatorEl.className = 'drop-indicator';
 dropIndicatorEl.hidden = true;
+
+/* =========================================================================
+   Multi-select state (B-024)
+   ========================================================================= */
+
+const _selection = new Set();
+let _selectionMode = false;
+let _lastSelectedId = null;
+/* B-024 H-3: dedicated range anchor — written only by _toggleSelection / _selectAll
+   and cleared by _clearSelection. _rangeSelect reads but never writes it. */
+let _rangeAnchorId = null;
+/* B-024 H-6: pending single-click selection timer — cleared by dblclick. */
+let _pendingClickTimer = null;
 
 /* =========================================================================
    Messaging (B3 — null guard)
@@ -158,24 +192,21 @@ function avatarColor(title) {
    Dialog helpers
    ========================================================================= */
 
-async function _populateGroupPicker(selectedGroupId) {
+function _populateGroupPicker(selectedGroupId) {
   fieldGroupEl.replaceChildren();
   const ungroupedOpt = document.createElement('option');
   ungroupedOpt.value = '';
   ungroupedOpt.textContent = 'Ungrouped';
   fieldGroupEl.appendChild(ungroupedOpt);
 
-  try {
-    const groups = await sendMessage(MSG_LIST_GROUPS);
-    const sorted = [...groups].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-    for (const group of sorted) {
-      const opt = document.createElement('option');
-      opt.value = group.id;
-      opt.textContent = group.name;
-      fieldGroupEl.appendChild(opt);
-    }
-  } catch {
-    /* Leave only Ungrouped option on fetch error */
+  /* B-026 H-2: use in-memory _cachedGroups — _cachedGroups stays fresh via
+     MSG_STATE_CHANGED broadcasts, so no per-open IPC is needed. */
+  const sorted = [..._cachedGroups].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  for (const group of sorted) {
+    const opt = document.createElement('option');
+    opt.value = group.id;
+    opt.textContent = group.name;
+    fieldGroupEl.appendChild(opt);
   }
 
   fieldGroupEl.value = selectedGroupId ?? '';
@@ -291,10 +322,14 @@ function closeDialog() {
   }
 }
 
-function openConfirmDialog(item, onConfirm, { triggerEl = null } = {}) {
+function openConfirmDialog(item, onConfirm, { triggerEl = null, heading, body } = {}) {
   _pendingConfirmCallback = onConfirm;
   _dialogTriggerEl = triggerEl;
-  confirmBodyEl.textContent = 'Delete "' + (item.title || 'this bookmark') + '"? This cannot be undone.';
+  /* B-024 C-2: heading + body overrides for bulk callers; single-item path preserves
+     the original "Delete Bookmark?" heading and delete-wording body. */
+  confirmHeadingEl.textContent = heading || 'Delete Bookmark?';
+  confirmBodyEl.textContent =
+    body || ('Delete "' + (item.title || 'this bookmark') + '"? This cannot be undone.');
   bookmarkDialogEl.hidden = true;
   confirmDialogEl.hidden = false;
   dialogOverlayEl.hidden = false;
@@ -455,6 +490,12 @@ function applyFilter() {
       }
     }
 
+    /* B-049: Hide group inline empty state during active filter */
+    const groupEmptyEl = section.querySelector('.group-items-empty');
+    if (groupEmptyEl) {
+      groupEmptyEl.hidden = !!query;
+    }
+
     /* Hide group section entirely if no visible items */
     if (!query) {
       section.hidden = false;
@@ -475,6 +516,157 @@ function applyFilter() {
 
   /* Show/hide clear button */
   filterClearBtnEl.hidden = !_filterQuery;
+}
+
+/* =========================================================================
+   Toast (B-049 — transient error feedback)
+   ========================================================================= */
+
+function showToast(message) {
+  clearTimeout(_toastTimer);
+  toastMessageEl.textContent = message;
+  toastEl.hidden = false;
+  _toastTimer = setTimeout(() => { toastEl.hidden = true; }, 4000);
+}
+
+toastDismissEl.addEventListener('click', () => {
+  clearTimeout(_toastTimer);
+  toastEl.hidden = true;
+});
+
+/* =========================================================================
+   Clear filter helper (B-049 — shared by × button, Escape, and CTA)
+   ========================================================================= */
+
+function clearFilter() {
+  _filterQuery = '';
+  filterInputEl.value = '';
+  filterClearBtnEl.hidden = true;
+  clearTimeout(_filterTimer);
+  applyFilter();
+  filterInputEl.focus();
+}
+
+/* =========================================================================
+   Multi-select helpers (B-024)
+   ========================================================================= */
+
+/**
+ * Update the bulk action bar count, disabled states, and visibility.
+ * Called after every selection change.
+ */
+function _updateBulkBar() {
+  const count = _selection.size;
+  _selectionMode = count > 0;
+
+  if (!_selectionMode) {
+    bulkActionBarEl.hidden = true;
+    itemListEl.classList.remove('has-bulk-bar');
+    return;
+  }
+
+  bulkCountEl.textContent = count + ' selected';
+  bulkActionBarEl.hidden = false;
+  itemListEl.classList.add('has-bulk-bar');
+
+  /* Disable Close tabs when no selected items are live */
+  let hasLive = false;
+  for (const id of _selection) {
+    const ls = _cachedLiveStates[id];
+    if (ls && ls.live) { hasLive = true; break; }
+  }
+  bulkCloseBtn.disabled = !hasLive;
+}
+
+/**
+ * Toggle a single item's selection state. Updates the row attribute and the bar.
+ * B-024 H-3: writes the range anchor (single source of truth for range-select).
+ */
+function _toggleSelection(itemId) {
+  if (_selection.has(itemId)) {
+    _selection.delete(itemId);
+    const row = itemListEl.querySelector(`[data-item-id="${CSS.escape(itemId)}"]`);
+    if (row) delete row.dataset.selected;
+  } else {
+    _selection.add(itemId);
+    const row = itemListEl.querySelector(`[data-item-id="${CSS.escape(itemId)}"]`);
+    if (row) row.dataset.selected = 'true';
+  }
+  _lastSelectedId = itemId;
+  _rangeAnchorId = itemId;
+  _updateBulkBar();
+}
+
+/**
+ * Range-select all visible item rows between _rangeAnchorId and targetId (inclusive).
+ * B-024 H-3: reads _rangeAnchorId only; never writes it, so the anchor stays pinned
+ * to the most recent explicit toggle/select-all.
+ */
+function _rangeSelect(targetId) {
+  const rows = [...itemListEl.querySelectorAll('[data-item-id]:not([hidden])')];
+  const ids = rows.map((r) => r.dataset.itemId);
+  const startIdx = ids.indexOf(_rangeAnchorId);
+  const endIdx = ids.indexOf(targetId);
+  if (startIdx === -1 || endIdx === -1) return;
+  const lo = Math.min(startIdx, endIdx);
+  const hi = Math.max(startIdx, endIdx);
+  for (let i = lo; i <= hi; i++) {
+    _selection.add(ids[i]);
+    rows[i].dataset.selected = 'true';
+  }
+  _updateBulkBar();
+}
+
+/**
+ * Select all visible item rows.
+ * B-024 H-3: writes the range anchor to the last visible row.
+ */
+function _selectAll() {
+  const rows = itemListEl.querySelectorAll('[data-item-id]:not([hidden])');
+  for (const row of rows) {
+    _selection.add(row.dataset.itemId);
+    row.dataset.selected = 'true';
+  }
+  if (rows.length > 0) {
+    _lastSelectedId = rows[rows.length - 1].dataset.itemId;
+    _rangeAnchorId = rows[rows.length - 1].dataset.itemId;
+  }
+  _updateBulkBar();
+}
+
+/**
+ * Clear all selection state.
+ * B-024 H-1: also close any open bulk-move picker so Escape/Clear never leaves an orphan.
+ * B-024 H-3: reset the range anchor alongside the selection set.
+ */
+function _clearSelection() {
+  _closeBulkMovePicker();
+  for (const id of _selection) {
+    const row = itemListEl.querySelector(`[data-item-id="${CSS.escape(id)}"]`);
+    if (row) delete row.dataset.selected;
+  }
+  _selection.clear();
+  _lastSelectedId = null;
+  _rangeAnchorId = null;
+  _updateBulkBar();
+}
+
+/**
+ * After renderAll() rebuilds the DOM, re-apply data-selected from the Set
+ * and prune any IDs that no longer exist.
+ */
+function _reapplySelection() {
+  const toRemove = [];
+  for (const id of _selection) {
+    if (!_itemById.has(id)) {
+      toRemove.push(id);
+      continue;
+    }
+    const row = itemListEl.querySelector(`[data-item-id="${CSS.escape(id)}"]`);
+    if (row) row.dataset.selected = 'true';
+  }
+  for (const id of toRemove) _selection.delete(id);
+  _updateBulkBar();
 }
 
 /* =========================================================================
@@ -570,6 +762,9 @@ function renderAll(items, groups, liveStates, driftRecords) {
 
   /* Re-apply active filter after DOM rebuild (B-021) */
   if (_filterQuery) applyFilter();
+
+  /* Re-apply selection after DOM rebuild (B-024) */
+  _reapplySelection();
 }
 
 /* --- Group section (W2 — unified, handles both real + ungrouped) ------- */
@@ -645,6 +840,36 @@ function buildGroupSection(group, byGroup, liveStates, driftRecords, isChild) {
 
   for (const item of groupItems) {
     itemsContainer.appendChild(buildItemRow(item, liveStates, driftRecords));
+  }
+
+  /* B-049: Inline empty state for groups with zero items */
+  if (groupItems.length === 0 && !_filterQuery) {
+    const emptyEl = document.createElement('div');
+    emptyEl.className = 'group-items-empty';
+    emptyEl.setAttribute('role', 'status');
+    emptyEl.setAttribute('aria-live', 'polite');
+
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.classList.add('group-items-empty-icon');
+    icon.setAttribute('width', '16');
+    icon.setAttribute('height', '16');
+    icon.setAttribute('viewBox', '0 0 16 16');
+    icon.setAttribute('fill', 'none');
+    icon.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M2 3h12v10H2V3zm0 2h12M5 1v2m6-2v2');
+    path.setAttribute('stroke', 'currentColor');
+    path.setAttribute('stroke-width', '1.2');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    icon.appendChild(path);
+
+    const msg = document.createElement('span');
+    msg.textContent = 'No bookmarks in this group yet';
+
+    emptyEl.appendChild(icon);
+    emptyEl.appendChild(msg);
+    itemsContainer.appendChild(emptyEl);
   }
 
   section.appendChild(itemsContainer);
@@ -780,6 +1005,8 @@ async function refetchAndPatchLiveState() {
     itemsResp = await sendMessage(MSG_LIST_ITEMS);
   } catch (err) {
     console.warn('[tab-junkie] refetchAndPatchLiveState: MSG_LIST_ITEMS failed, clearing live indicators', err);
+    /* B-024 C-1: reset cached live states so _updateBulkBar reflects reality. */
+    _cachedLiveStates = {};
     for (const row of itemListEl.querySelectorAll('[data-item-id]')) {
       if (!row.isConnected) continue;
       delete row.dataset.live;
@@ -792,11 +1019,15 @@ async function refetchAndPatchLiveState() {
         indicators.remove();
       }
     }
+    _updateBulkBar();
     return;
   }
   const liveStates = itemsResp.liveStates || {};
   const driftRecords = itemsResp.driftRecords || {};
   const itemMap = new Map(itemsResp.items.map((it) => [it.id, it]));
+  /* B-024 C-1: reassign module-level caches so _updateBulkBar sees fresh data. */
+  _cachedLiveStates = liveStates;
+  _cachedDriftRecords = driftRecords;
 
   const rows = itemListEl.querySelectorAll('[data-item-id]');
   for (const row of rows) {
@@ -855,6 +1086,10 @@ async function refetchAndPatchLiveState() {
     }
     /* If !newFavIconUrl && existingAvatar — already showing avatar, skip */
   }
+
+  /* B-024 C-1: refresh bulk-bar disabled states after every live-state patch so
+     "Close tabs" cannot target already-closed tabs. */
+  _updateBulkBar();
 }
 
 /**
@@ -925,11 +1160,13 @@ document.addEventListener('click', (e) => {
   }
 
   if (e.target === confirmDeleteBtnEl) {
-    if (_pendingConfirmCallback) _pendingConfirmCallback();
+    const cb = _pendingConfirmCallback;
+    closeDialog();
+    if (cb) cb();
     return;
   }
 
-  if (e.target.closest('#add-bookmark-btn') || e.target.closest('.empty-state-cta')) {
+  if (e.target.closest('#add-bookmark-btn') || e.target.closest('.empty-state-cta:not(#filter-empty-clear-btn)')) {
     openCreateDialog({ triggerEl: e.target });
     return;
   }
@@ -943,25 +1180,25 @@ document.addEventListener('click', (e) => {
     if (actionBtn.dataset.action === 'edit') {
       sendMessage(MSG_GET_ITEM, { id: itemId }).then((item) => {
         openEditDialog(item, { triggerEl: actionBtn });
-      }).catch((err) => {
-        console.warn('[tab-junkie] get-item for edit failed:', err?.message);
+      }).catch(() => {
+        showToast('Couldn\u2019t load bookmark \u2014 try again');
       });
       return;
     }
     if (actionBtn.dataset.action === 'delete') {
       if (row.dataset.live === 'true') {
-        sendMessage(MSG_DEMOTE_ITEM, { itemId }).catch((err) => {
-          console.warn('[tab-junkie] demote failed:', err?.message);
+        sendMessage(MSG_DEMOTE_ITEM, { itemId }).catch(() => {
+          showToast('Couldn\u2019t close tab \u2014 try again');
         });
       } else {
         sendMessage(MSG_GET_ITEM, { id: itemId }).then((item) => {
           openConfirmDialog(item, () => {
-            sendMessage(MSG_DELETE_ITEM, { id: itemId }).catch((err) => {
-              console.warn('[tab-junkie] delete failed:', err?.message);
+            sendMessage(MSG_DELETE_ITEM, { id: itemId }).catch(() => {
+              showToast('Couldn\u2019t delete bookmark \u2014 try again');
             });
           }, { triggerEl: actionBtn });
-        }).catch((err) => {
-          console.warn('[tab-junkie] get-item for delete failed:', err?.message);
+        }).catch(() => {
+          showToast('Couldn\u2019t load bookmark \u2014 try again');
         });
       }
       return;
@@ -977,16 +1214,83 @@ document.addEventListener('click', (e) => {
 
   const row = e.target.closest('.item-row');
   if (row) {
+    const itemId = row.dataset.itemId;
+
+    /* B-024: Ctrl/Cmd+Click — toggle individual selection */
+    if (e.ctrlKey || e.metaKey) {
+      _toggleSelection(itemId);
+      return;
+    }
+
+    /* B-024 H-3: Shift+Click while in selection mode with a valid anchor — range select */
+    if (_selectionMode && e.shiftKey && _rangeAnchorId) {
+      _rangeSelect(itemId);
+      return;
+    }
+
+    /* B-024 H-4: Shift+Click with no prior selection starts selection at this item
+       (treat Shift as an explicit "start selection" intent). */
+    if (e.shiftKey && !_selectionMode) {
+      _toggleSelection(itemId);
+      return;
+    }
+
+    /* B-024 H-6: Plain click while in selection mode — defer the toggle so that
+       a follow-up dblclick can cancel it and navigate instead. */
+    if (_selectionMode) {
+      clearTimeout(_pendingClickTimer);
+      _pendingClickTimer = setTimeout(() => {
+        _pendingClickTimer = null;
+        _toggleSelection(itemId);
+      }, 200);
+      return;
+    }
+
+    /* Normal click — navigate */
     navigateToItem(row);
     return;
   }
 });
 
+/* B-024: Double-click navigates even in selection mode.
+   H-6: cancel any pending single-click selection toggle before navigating.
+   H-6: skip navigation when Shift is held — preserves range-select intent. */
+document.addEventListener('dblclick', (e) => {
+  if (!_selectionMode) return;
+  if (e.shiftKey) return;
+  const row = e.target.closest('.item-row');
+  if (row) {
+    if (_pendingClickTimer) {
+      clearTimeout(_pendingClickTimer);
+      _pendingClickTimer = null;
+    }
+    navigateToItem(row);
+  }
+});
+
 document.addEventListener('keydown', (e) => {
+  /* Dialog Escape — highest priority */
   if (e.key === 'Escape' && !dialogOverlayEl.hidden) {
     e.preventDefault();
     closeDialog();
     return;
+  }
+
+  /* B-024: Escape clears selection when in selection mode */
+  if (e.key === 'Escape' && _selectionMode) {
+    e.preventDefault();
+    _clearSelection();
+    return;
+  }
+
+  /* B-024: Ctrl/Cmd+A selects all visible items (when not in a text input) */
+  if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+    const tag = document.activeElement?.tagName;
+    if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
+      e.preventDefault();
+      _selectAll();
+      return;
+    }
   }
 
   if (e.key !== 'Enter') return;
@@ -1040,9 +1344,8 @@ function toggleGroup(header) {
 function navigateToItem(row) {
   const itemId = row.dataset.itemId;
   if (!itemId) return;
-  sendMessage(MSG_NAVIGATE_TO_ITEM, { itemId }).catch((err) => {
-    console.warn('[tab-junkie] navigate failed:', err?.message);
-    /* Navigation failure — panel stays open */
+  sendMessage(MSG_NAVIGATE_TO_ITEM, { itemId }).catch(() => {
+    showToast('Couldn\u2019t open tab \u2014 try again');
   });
 }
 
@@ -1114,8 +1417,8 @@ itemListEl.addEventListener('drop', (e) => {
     }
   });
   if (updates.length > 0) {
-    Promise.all(updates).catch((err) => {
-      console.warn('[tab-junkie] group reorder persistence failed — reverting to stored order', err);
+    Promise.all(updates).catch(() => {
+      showToast('Couldn\u2019t save group order \u2014 reverting');
       Promise.all([sendMessage(MSG_LIST_ITEMS), sendMessage(MSG_LIST_GROUPS)])
         .then(([itemsResp, groups]) => {
           renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords);
@@ -1198,22 +1501,441 @@ filterInputEl.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     e.preventDefault();
     e.stopPropagation();
-    _filterQuery = '';
-    filterInputEl.value = '';
-    filterClearBtnEl.hidden = true;
-    clearTimeout(_filterTimer);
-    applyFilter();
+    clearFilter();
   }
 });
 
 /* Filter: clear button */
-filterClearBtnEl.addEventListener('click', () => {
-  _filterQuery = '';
-  filterInputEl.value = '';
-  filterClearBtnEl.hidden = true;
-  clearTimeout(_filterTimer);
-  applyFilter();
-  filterInputEl.focus();
+filterClearBtnEl.addEventListener('click', clearFilter);
+
+/* Filter: CTA button in filter empty state (B-049) */
+filterEmptyClearBtnEl.addEventListener('click', clearFilter);
+
+/* =========================================================================
+   Bulk action bar listeners (B-024)
+   ========================================================================= */
+
+bulkClearBtn.addEventListener('click', () => {
+  _clearSelection();
+});
+
+bulkRemoveBtn.addEventListener('click', () => {
+  const count = _selection.size;
+  if (count === 0) return;
+
+  /* B-024 C-2 / H-7: bulk-appropriate confirm copy; live tabs are demoted, not closed. */
+  const syntheticItem = { title: count + ' items' };
+  openConfirmDialog(
+    syntheticItem,
+    async () => {
+      const ids = [..._selection];
+
+      /* For live items, demote first (preserves tabs) */
+      const liveIds = ids.filter((id) => {
+        const ls = _cachedLiveStates[id];
+        return ls && ls.live;
+      });
+      const nonLiveIds = ids.filter((id) => {
+        const ls = _cachedLiveStates[id];
+        return !ls || !ls.live;
+      });
+
+      /* B-024 H-5: demote live items in parallel with Promise.allSettled so a
+         single failure does not abort the remaining demotes or the bulk delete.
+         Fulfilled IDs are pruned from _selection; rejected IDs remain selected
+         so the user can retry. */
+      const demoteResults = await Promise.allSettled(
+        liveIds.map((id) =>
+          sendMessage(MSG_DEMOTE_ITEM, { itemId: id }).then(() => id),
+        ),
+      );
+      const demotedOk = [];
+      let demoteFailures = 0;
+      for (let i = 0; i < demoteResults.length; i++) {
+        const r = demoteResults[i];
+        if (r.status === 'fulfilled') {
+          demotedOk.push(liveIds[i]);
+        } else {
+          demoteFailures++;
+        }
+      }
+
+      /* Bulk-delete non-live items */
+      let bulkDeleteOk = false;
+      if (nonLiveIds.length > 0) {
+        try {
+          await sendMessage(MSG_BULK_DELETE_ITEMS, { ids: nonLiveIds });
+          bulkDeleteOk = true;
+        } catch {
+          bulkDeleteOk = false;
+        }
+      } else {
+        bulkDeleteOk = true; // nothing to delete — treat as success
+      }
+
+      /* Prune succeeded IDs from _selection (leave failures selected for retry). */
+      for (const id of demotedOk) {
+        _selection.delete(id);
+        const row = itemListEl.querySelector(`[data-item-id="${CSS.escape(id)}"]`);
+        if (row) delete row.dataset.selected;
+      }
+      if (bulkDeleteOk) {
+        for (const id of nonLiveIds) {
+          _selection.delete(id);
+          const row = itemListEl.querySelector(`[data-item-id="${CSS.escape(id)}"]`);
+          if (row) delete row.dataset.selected;
+        }
+      }
+
+      const totalFailures = demoteFailures + (bulkDeleteOk ? 0 : nonLiveIds.length);
+      if (totalFailures > 0) {
+        showToast('Couldn\u2019t remove ' + totalFailures + ' item(s) \u2014 try again');
+      }
+
+      if (_selection.size === 0) {
+        _clearSelection();
+      } else {
+        _updateBulkBar();
+      }
+    },
+    {
+      heading: 'Remove ' + count + ' items?',
+      body: 'Saved entries will be removed. Live tab(s) in the selection will remain open.',
+    },
+  );
+});
+
+bulkCloseBtn.addEventListener('click', async () => {
+  const tabIds = [];
+  for (const id of _selection) {
+    const ls = _cachedLiveStates[id];
+    if (ls && ls.live && ls.tabId != null) {
+      tabIds.push(ls.tabId);
+    }
+  }
+  if (tabIds.length === 0) return;
+  try {
+    await sendMessage(MSG_CLOSE_TABS, { tabIds });
+    _clearSelection();
+  } catch {
+    showToast('Couldn\u2019t close tabs \u2014 try again');
+  }
+});
+
+/* B-024: Move to group — shows a lightweight group picker popover */
+let _bulkMovePickerEl = null;
+/* B-024 H-2: keep the picker's outside-click handler reachable from
+   _closeBulkMovePicker so every close path (outside click, Escape,
+   change-selection, _clearSelection) unconditionally removes it. */
+let _bulkMovePickerDocClick = null;
+
+function _closeBulkMovePicker() {
+  if (_bulkMovePickerDocClick) {
+    document.removeEventListener('click', _bulkMovePickerDocClick, true);
+    _bulkMovePickerDocClick = null;
+  }
+  if (_bulkMovePickerEl) {
+    _bulkMovePickerEl.remove();
+    _bulkMovePickerEl = null;
+  }
+}
+
+bulkMoveBtn.addEventListener('click', () => {
+  /* Toggle: if picker already open, close it */
+  if (_bulkMovePickerEl) {
+    _closeBulkMovePicker();
+    return;
+  }
+
+  const picker = document.createElement('div');
+  picker.id = 'bulk-move-picker';
+
+  const select = document.createElement('select');
+  select.setAttribute('aria-label', 'Select target group');
+
+  /* Ungrouped option */
+  const ungroupedOpt = document.createElement('option');
+  ungroupedOpt.value = '';
+  ungroupedOpt.textContent = 'Ungrouped';
+  select.appendChild(ungroupedOpt);
+
+  /* B-026 H-2: read from in-memory _cachedGroups instead of re-fetching via IPC.
+     _cachedGroups stays fresh via MSG_STATE_CHANGED broadcasts. */
+  const sorted = [..._cachedGroups].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  for (const group of sorted) {
+    const opt = document.createElement('option');
+    opt.value = group.id;
+    opt.textContent = group.name;
+    select.appendChild(opt);
+  }
+
+  select.addEventListener('change', async () => {
+    const groupId = select.value || null;
+    const ids = [..._selection];
+    _closeBulkMovePicker();
+    try {
+      await sendMessage(MSG_BULK_UPDATE_ITEMS, { ids, patch: { groupId } });
+      _clearSelection();
+    } catch {
+      showToast('Couldn\u2019t move bookmarks \u2014 try again');
+    }
+  });
+
+  /* B-024 H-2: Escape on the picker closes it without bubbling up to the
+     global Escape handler (which would also wipe the selection). */
+  select.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      ev.stopPropagation();
+      _closeBulkMovePicker();
+      bulkMoveBtn.focus();
+    }
+  });
+
+  picker.appendChild(select);
+
+  /* Position above the Move button */
+  const btnRect = bulkMoveBtn.getBoundingClientRect();
+  picker.style.bottom = (window.innerHeight - btnRect.top + 4) + 'px';
+  picker.style.left = btnRect.left + 'px';
+
+  document.body.appendChild(picker);
+  _bulkMovePickerEl = picker;
+  select.focus();
+
+  /* Close picker when clicking outside. Reference is stored module-side so
+     _closeBulkMovePicker() always removes the listener — regardless of which
+     path triggers the close (B-024 H-2). */
+  _bulkMovePickerDocClick = (ev) => {
+    if (!picker.contains(ev.target) && ev.target !== bulkMoveBtn) {
+      _closeBulkMovePicker();
+    }
+  };
+  /* Delay attaching to avoid the current click from closing it */
+  requestAnimationFrame(() => {
+    if (_bulkMovePickerDocClick) {
+      document.addEventListener('click', _bulkMovePickerDocClick, true);
+    }
+  });
+});
+
+/* =========================================================================
+   Context menu (B-026)
+   ========================================================================= */
+
+let _contextMenuTriggerRow = null;
+
+function closeContextMenu() {
+  if (contextMenuEl.hidden) return;
+  contextMenuEl.hidden = true;
+  contextMenuEl.replaceChildren();
+  if (_contextMenuTriggerRow) {
+    _contextMenuTriggerRow.focus();
+    _contextMenuTriggerRow = null;
+  }
+}
+
+/* B-026 H-1 / H-2: build the menu synchronously so no await window can invalidate
+   the initial liveness snapshot. Each action handler re-reads liveness from
+   _cachedLiveStates to stay honest under broadcast churn. Groups come from
+   _cachedGroups — kept fresh via MSG_STATE_CHANGED broadcasts — so no IPC. */
+function openContextMenu(row, x, y) {
+  closeContextMenu();
+
+  const itemId = row.dataset.itemId;
+  if (!itemId) return;
+
+  _contextMenuTriggerRow = row;
+  /* B-026 H-1: derive liveness from _cachedLiveStates (single source of truth),
+     not the row dataset which could be a stale read. */
+  const isLive = !!_cachedLiveStates[itemId]?.live;
+
+  contextMenuEl.replaceChildren();
+
+  /* Navigate */
+  const navBtn = document.createElement('button');
+  navBtn.className = 'context-menu-item';
+  navBtn.setAttribute('role', 'menuitem');
+  navBtn.setAttribute('tabindex', '-1');
+  navBtn.textContent = 'Navigate';
+  navBtn.addEventListener('click', () => {
+    sendMessage(MSG_NAVIGATE_TO_ITEM, { itemId }).catch(() => {});
+    closeContextMenu();
+  });
+  contextMenuEl.appendChild(navBtn);
+
+  /* Edit */
+  const editBtn = document.createElement('button');
+  editBtn.className = 'context-menu-item';
+  editBtn.setAttribute('role', 'menuitem');
+  editBtn.setAttribute('tabindex', '-1');
+  editBtn.textContent = 'Edit';
+  editBtn.addEventListener('click', () => {
+    sendMessage(MSG_GET_ITEM, { id: itemId }).then((item) => {
+      openEditDialog(item, { triggerEl: row });
+    }).catch(() => {});
+    closeContextMenu();
+  });
+  contextMenuEl.appendChild(editBtn);
+
+  /* Move to group */
+  const moveLabel = document.createElement('span');
+  moveLabel.className = 'context-menu-label';
+  moveLabel.textContent = 'Move to group';
+  contextMenuEl.appendChild(moveLabel);
+
+  const moveSelect = document.createElement('select');
+  moveSelect.className = 'context-menu-select';
+  moveSelect.setAttribute('aria-label', 'Move to group');
+
+  const ungroupedOpt = document.createElement('option');
+  ungroupedOpt.value = '';
+  ungroupedOpt.textContent = 'Ungrouped';
+  moveSelect.appendChild(ungroupedOpt);
+
+  /* B-026 H-2: read groups from in-memory cache instead of firing an IPC on
+     every right-click. _cachedGroups stays fresh via MSG_STATE_CHANGED broadcasts. */
+  const sorted = [..._cachedGroups].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  for (const group of sorted) {
+    const opt = document.createElement('option');
+    opt.value = group.id;
+    opt.textContent = group.name;
+    moveSelect.appendChild(opt);
+  }
+
+  /* Pre-select the item's current group */
+  const cachedItem = _itemById.get(itemId);
+  if (cachedItem?.groupId) {
+    moveSelect.value = cachedItem.groupId;
+  }
+
+  moveSelect.addEventListener('change', () => {
+    const groupId = moveSelect.value || null;
+    sendMessage(MSG_UPDATE_ITEM, { id: itemId, patch: { groupId } }).catch(() => {});
+    closeContextMenu();
+  });
+  contextMenuEl.appendChild(moveSelect);
+
+  /* Close tab (only when live at menu-open time) */
+  if (isLive) {
+    const sep1 = document.createElement('div');
+    sep1.className = 'context-menu-separator';
+    contextMenuEl.appendChild(sep1);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'context-menu-item';
+    closeBtn.setAttribute('role', 'menuitem');
+    closeBtn.setAttribute('tabindex', '-1');
+    closeBtn.textContent = 'Close tab';
+    closeBtn.addEventListener('click', () => {
+      /* B-026 H-1: re-read liveness at action time — broadcast may have closed the tab. */
+      const liveState = _cachedLiveStates[itemId];
+      if (liveState?.live && liveState.tabId != null) {
+        sendMessage(MSG_CLOSE_TABS, { tabIds: [liveState.tabId] }).catch(() => {});
+      }
+      closeContextMenu();
+    });
+    contextMenuEl.appendChild(closeBtn);
+  }
+
+  /* Separator before Delete */
+  const sep2 = document.createElement('div');
+  sep2.className = 'context-menu-separator';
+  contextMenuEl.appendChild(sep2);
+
+  /* Delete */
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'context-menu-item context-menu-item--destructive';
+  deleteBtn.setAttribute('role', 'menuitem');
+  deleteBtn.setAttribute('tabindex', '-1');
+  deleteBtn.textContent = 'Delete';
+  deleteBtn.addEventListener('click', () => {
+    /* B-026 H-1: re-read liveness at action time so the right action fires
+       regardless of state changes while the menu was open. */
+    const liveNow = !!_cachedLiveStates[itemId]?.live;
+    if (liveNow) {
+      sendMessage(MSG_DEMOTE_ITEM, { itemId }).catch(() => {});
+      closeContextMenu();
+    } else {
+      sendMessage(MSG_GET_ITEM, { id: itemId }).then((item) => {
+        closeContextMenu();
+        openConfirmDialog(item, () => {
+          sendMessage(MSG_DELETE_ITEM, { id: itemId }).catch(() => {});
+        }, { triggerEl: row });
+      }).catch(() => {
+        closeContextMenu();
+      });
+    }
+  });
+  contextMenuEl.appendChild(deleteBtn);
+
+  /* Position with viewport clamping */
+  contextMenuEl.hidden = false;
+  contextMenuEl.style.left = x + 'px';
+  contextMenuEl.style.top = y + 'px';
+
+  /* Measure and clamp after showing */
+  const rect = contextMenuEl.getBoundingClientRect();
+  if (rect.bottom > window.innerHeight) {
+    contextMenuEl.style.top = Math.max(0, y - rect.height) + 'px';
+  }
+  if (rect.right > window.innerWidth) {
+    contextMenuEl.style.left = Math.max(0, x - rect.width) + 'px';
+  }
+
+  /* Focus first menu item */
+  const firstItem = contextMenuEl.querySelector('[role="menuitem"]');
+  if (firstItem) firstItem.focus();
+}
+
+/* Context menu: right-click on item rows */
+document.addEventListener('contextmenu', (e) => {
+  const row = e.target.closest('.item-row');
+  if (!row) return;
+  e.preventDefault();
+  openContextMenu(row, e.clientX, e.clientY);
+});
+
+/* Context menu: click outside to close */
+document.addEventListener('click', (e) => {
+  if (!contextMenuEl.hidden && !contextMenuEl.contains(e.target)) {
+    closeContextMenu();
+  }
+}, true);
+
+/* Context menu: Escape and arrow key navigation */
+contextMenuEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    closeContextMenu();
+    return;
+  }
+
+  const menuItems = [...contextMenuEl.querySelectorAll('[role="menuitem"]')];
+  if (!menuItems.length) return;
+
+  const currentIdx = menuItems.indexOf(document.activeElement);
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    const next = currentIdx < menuItems.length - 1 ? currentIdx + 1 : 0;
+    menuItems[next].focus();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    const prev = currentIdx > 0 ? currentIdx - 1 : menuItems.length - 1;
+    menuItems[prev].focus();
+  } else if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    if (document.activeElement?.getAttribute('role') === 'menuitem') {
+      document.activeElement.click();
+    }
+  }
+});
+
+/* Context menu: close on scroll of item list */
+itemListEl.addEventListener('scroll', () => {
+  if (!contextMenuEl.hidden) closeContextMenu();
 });
 
 /* =========================================================================

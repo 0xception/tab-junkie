@@ -224,6 +224,7 @@ export function buildLiveStates(items) {
           active: tabEntry.active,
           audible: tabEntry.audible,
           favIconUrl: tabEntry.favIconUrl || null,
+          tabId,
         };
         continue;
       }

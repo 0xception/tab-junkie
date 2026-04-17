@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-16 · **Version:** 1.6 · **Total Items:** 56
+**Updated:** 2026-04-17 · **Version:** 1.7 · **Total Items:** 56
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    █████████░░░░░░░░░░░  43% (24/56)  [0 in progress]
+Overall Progress    █████████░░░░░░░░░░░  48% (27/56)  [0 in progress]
 ```
 
 ### Legend
@@ -56,9 +56,9 @@ Overall Progress    █████████░░░░░░░░░░░
 ✅ B-021 — Inline side-panel filter with debounce & highlight · 🟠 · M
 ⬜ B-022 — Quick search popup with keyboard navigation · 🟠 · L
 ⬜ B-023 — Group jump popup · 🟠 · L
-⬜ B-024 — Multi-select + bulk action bar · 🟠 · M
+✅ B-024 — Multi-select + bulk action bar · 🟠 · M
 ⬜ B-025 — Multi-item drag as single unit · 🟠 · M
-⬜ B-026 — Item context menu · 🟠 · S
+✅ B-026 — Item context menu · 🟠 · S
 ⬜ B-027 — Group header context menu · 🟠 · S
 ⬜ B-028 — Selection context menu · 🟠 · S
 ⬜ B-029 — Group picker modal · 🟠 · M
@@ -81,7 +81,7 @@ Overall Progress    █████████░░░░░░░░░░░
 ⬜ B-046 — Global keyboard shortcuts (popup + standalone) · 🟠 · S
 ⬜ B-047 — In-panel keyboard shortcuts (select-all, clear) · 🟠 · XS
 ⬜ B-048 — Item visual states (live / active / drifted / audible / selected) · 🟠 · M
-⬜ B-049 — Empty states & error feedback · 🟠 · S
+✅ B-049 — Empty states & error feedback · 🟠 · S
 ✅ B-050 — State broadcast to all extension surfaces · 🔴 · M
 ⬜ B-051 — Sort-order normalisation & selection pruning · 🟠 · S
 ⬜ B-052 — Fuzzy search index caching & perf targets · 🟠 · M
@@ -103,7 +103,7 @@ Overall Progress    █████████░░░░░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 24 | 43% |
+| ✅ Done | 27 | 48% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 32 | 57% |
+| ⬜ To Do | 29 | 52% |
 | 🧊 Icebox | 0 | 0% |

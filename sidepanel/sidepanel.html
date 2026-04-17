@@ -76,11 +76,26 @@
 
     <!-- Filter empty state — hidden by default -->
     <div id="filter-empty-state" role="status" aria-live="polite" aria-atomic="true" hidden>
-      <p>No items match your filter.</p>
+      <svg class="filter-empty-state-icon" width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <circle cx="20" cy="20" r="14" stroke="currentColor" stroke-width="2" />
+        <path d="M30 30l10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        <path d="M15 20h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+      </svg>
+      <p class="filter-empty-state-message">No items match your filter.</p>
+      <button id="filter-empty-clear-btn" class="empty-state-cta" type="button">Clear filter</button>
     </div>
 
     <!-- Item list container — hidden by default -->
     <div id="item-list" role="list" aria-label="Bookmarks" hidden></div>
+
+    <!-- Bulk action bar (B-024) — hidden until selection active -->
+    <div id="bulk-action-bar" role="toolbar" aria-label="Bulk actions" hidden>
+      <span id="bulk-count"></span>
+      <button id="bulk-move" type="button">Move to group</button>
+      <button id="bulk-close" type="button">Close tabs</button>
+      <button id="bulk-remove" type="button" class="btn-destructive">Remove</button>
+      <button id="bulk-clear" type="button">Clear</button>
+    </div>
 
     <div id="dialog-overlay" class="dialog-overlay" hidden aria-hidden="true">
       <div id="bookmark-dialog" class="dialog-modal" role="dialog"
@@ -112,7 +127,7 @@
       </div>
       <div id="confirm-dialog" class="dialog-modal" role="alertdialog"
            aria-modal="true" aria-labelledby="confirm-heading" aria-describedby="confirm-body" hidden>
-        <h2 id="confirm-heading" class="dialog-title">Delete Bookmark?</h2>
+        <h2 id="confirm-heading" class="dialog-title"></h2>
         <p id="confirm-body" class="dialog-body"></p>
         <div class="dialog-actions">
           <button type="button" id="confirm-cancel-btn" class="dialog-btn dialog-btn--secondary">Cancel</button>
@@ -120,6 +135,14 @@
         </div>
       </div>
     </div>
+
+    <!-- Toast for transient errors — hidden by default -->
+    <div id="toast" class="toast" role="alert" aria-live="assertive" hidden>
+      <span id="toast-message" class="toast-message"></span>
+      <button id="toast-dismiss" class="toast-dismiss" aria-label="Dismiss" type="button">&times;</button>
+    </div>
+
+    <div id="context-menu" class="context-menu" role="menu" hidden></div>
 
     <script src="sidepanel.js" type="module" defer></script>
   </body>

@@ -4,6 +4,71 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.7.0 — Multi-select, Context Menu, Empty States (2026-04-17)
+
+**Staged on `release/v2` — pending v2 merge to main. Intended tag: `v1.7.0`.**
+
+### What's new
+
+**Multi-select + bulk action bar (B-024)**
+- Click to select, Shift+Click for range, Ctrl/Cmd+Click to toggle, Ctrl/Cmd+A for all visible, Escape to clear selection. Selection state lives entirely in sidepanel memory — never persisted.
+- Bulk action bar appears when one or more items are selected: shows item count, and offers Move to group (picker), Close tabs (live items only, disabled when none selected are live), Remove (demotes live items; fully deletes saved-only items; confirmation required), and Clear.
+- Partial-failure paths: bulk-remove uses `Promise.allSettled` so first-failure does not abort remaining ops; selection is pruned to IDs that succeeded; failure count surfaces as a toast.
+- Two new SW message contracts: `MSG_BULK_DELETE_ITEMS` (bulk delete saved items, `MAX_BULK_INPUTS` cap, partial-success envelope `{ deleted, notFound }`) and `MSG_BULK_UPDATE_ITEMS` (bulk patch `groupId`, same cap, `{ updated, notFound }`). Wire contracts documented in SOLUTION_DESIGN.md §25.
+- `tabId` now surfaced on every `liveStates[itemId]` entry (one-line addition in `background/tabs/tab-claims.js`), enabling the bulk-close and context-menu close flows to dispatch correct Chrome tab IDs without a second IPC round-trip.
+
+**Right-click item context menu (B-026)**
+- Right-click any item row to open a viewport-clamped context menu: Navigate, Edit, Move to group, Close tab (live items only), Delete (visually distinguished in red).
+- No new message contracts — dispatches existing `MSG_NAVIGATE_TO_ITEM`, `MSG_UPDATE_ITEM`, `MSG_BULK_UPDATE_ITEMS`, `MSG_CLOSE_TABS`, `MSG_DELETE_ITEM`.
+- Uses in-memory `_cachedGroups` for the "Move to group" picker — zero extra IPC on menu open.
+- Menu is closed automatically on `MSG_STATE_CHANGED` broadcast (prevents stale row under menu after cross-window data change).
+
+**Empty states + dismissible error toasts (B-049)**
+- Empty bookmark list: icon + "You haven't saved any bookmarks yet" + "Add your first bookmark" CTA.
+- Empty filter: "No results for '<query>'" + "Clear filter" link.
+- Empty group: per-group inline "No items in this group" message.
+- Toast system: 4 s auto-dismiss, manually dismissible, single-toast queue, `role="alert"` + `aria-live="assertive"` — surfaces partial-failure counts and other recoverable errors.
+
+### UAT-discovered defects fixed in-pipeline
+
+Both found during interactive UAT (sprint close UAT session) and fixed before the sprint was closed. Full details in `docs/SPRINT_FINDINGS.md` ("UAT-Discovered Defects" section).
+
+| # | Finding | Fix |
+|---|---------|-----|
+| UAT-D1 | Confirm dialog stayed open after clicking Delete — pre-existing latent bug in the generic `_pendingConfirmCallback` handler; affected single-item delete too. | Capture callback, call `closeDialog()`, then invoke callback. |
+| UAT-D2 | Filter-empty "Clear filter" button also triggered the Add Bookmark dialog — both CTAs shared `.empty-state-cta`, and the document handler matched both. | Narrowed selector to `.empty-state-cta:not(#filter-empty-clear-btn)`. |
+
+### Internal
+
+- New test file: `tests/b024-multi-select.test.js` (+53 tests)
+- Updated: `tests/b010-live-state.test.js`, `tests/enriched-list-items.test.js`
+- +53 new automated tests (374 → 427 total), all passing
+- No storage schema change. No manifest permission change. No migration required.
+- SOLUTION_DESIGN.md updated to v2.6 (§25 B-024, §25.9 B-026 + B-049, §25.10 UAT defects, §25.11 rollback plan)
+
+### Test results
+- Automated: 427/427 passing
+- UAT: PASS — B-024 (12/12 gesture + bulk-bar steps), B-026 (11/11), B-049 (3/3 empty-state paths; error-toast trigger deferred — tracked as Task #7)
+
+### Rollback
+
+No storage schema change — rollback requires no data cleanup.
+
+```
+# On release/v2:
+git revert <commit-sha>   # reverts Sprint 12 commit
+
+# If extension already loaded by users:
+# 1. Unload the extension in edge://extensions (or chrome://extensions)
+# 2. Load prior-version zip (tab-junkie v1.6.1)
+# No storage cleanup needed — bulk ops are additive; reverting the code
+# does not corrupt or orphan any existing data.
+```
+
+Removing the Sprint 12 commit drops `MSG_BULK_DELETE_ITEMS` and `MSG_BULK_UPDATE_ITEMS` from the dispatcher. Any in-flight request from a stale sidepanel will fall through to `ERR_VALIDATION` in the default dispatch branch — benign. The `tabId` field on live states reverts to `undefined`; the bulk-close UI treats that as "not live" (button disabled), not as an error.
+
+---
+
 ## v1.6.1 — Sidepanel Shell Correctness + Floating Tab Persistence Fixes (2026-04-16)
 
 ### Fixed

@@ -2,6 +2,13 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.7.0] — 2026-04-17
+
+### Added
+- Multi-select with bulk action bar: click to navigate, Ctrl/Cmd+Click to toggle, Shift+Click for range, Ctrl/Cmd+A for all visible, Escape to clear. Bulk bar shows selected count with Move to group, Close tabs (live items), Remove, and Clear actions. Bulk Remove demotes live items (tab stays open, saved entry deleted); non-live items are fully deleted. All bulk destructive actions require confirmation (B-024).
+- Right-click context menu on bookmark items: Navigate, Edit, Move to group, Close tab (live items only), Delete. Delete is visually marked as destructive. Menu is clamped to the viewport and dismissed by Escape or clicking outside (B-026).
+- Empty-state messages: empty bookmark list shows an icon, message, and "Add bookmark" CTA; zero-results filter shows "No results for …" with a clear-filter link; empty group shows an inline "No items in this group" message. Failed operations surface a dismissible toast notification (bottom-left, 4 s auto-dismiss) (B-049).
+
 ## [1.6.1] — 2026-04-16
 
 ### Fixed

@@ -43,6 +43,12 @@ export const MSG_NAVIGATE_TO_ITEM = 'tj/navigateToItem';
 // ---- Tab close ----
 export const MSG_CLOSE_TABS = 'tj/closeTabs';
 
+// ---- Bulk operations ----
+/** Bulk-delete saved items by id array. Partial-success semantics. */
+export const MSG_BULK_DELETE_ITEMS = 'tj/bulkDeleteItems';
+/** Bulk-update saved items' groupId by id array + patch. Partial-success semantics. */
+export const MSG_BULK_UPDATE_ITEMS = 'tj/bulkUpdateItems';
+
 // ---- State broadcast ----
 export const MSG_STATE_CHANGED = 'tj/stateChanged';
 

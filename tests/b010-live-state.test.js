@@ -368,6 +368,7 @@ test('B010-15: buildLiveStates returns live+active for a live active tab', async
     active: true,
     audible: false,
     favIconUrl: 'https://active.com/fav.ico',
+    tabId: 100,
   });
 });
 
@@ -387,6 +388,7 @@ test('B010-16: buildLiveStates returns live+audible for non-active audible tab',
     active: false,
     audible: true,
     favIconUrl: null,
+    tabId: 200,
   });
 });
 

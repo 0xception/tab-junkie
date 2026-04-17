@@ -32,6 +32,7 @@ test('AC9: buildLiveStates returns {items, liveStates} shape with correct values
     active: true,
     audible: false,
     favIconUrl: null,
+    tabId: 1,
   });
 
   // Unclaimed item should have all false

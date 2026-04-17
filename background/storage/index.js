@@ -12,6 +12,8 @@ export {
   deleteItem,
   listItems,
   bulkCreateItems,
+  bulkDeleteItems,
+  bulkUpdateItems,
 } from './items.js';
 
 export {

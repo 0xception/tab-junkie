@@ -31,6 +31,8 @@
   --avatar-text: #ffffff;
   --collapse-icon: #8a8f9a;
   --mark-bg: #fef08a;
+  --selected-bg: #dbeafe;
+  --selected-border: #2563eb;
 }
 
 [data-theme="dark"] {
@@ -60,6 +62,8 @@
   --avatar-text: #ffffff;
   --collapse-icon: #6b7280;
   --mark-bg: #713f12;
+  --selected-bg: #1e3a5f;
+  --selected-border: #60a5fa;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -90,6 +94,8 @@
     --avatar-text: #ffffff;
     --collapse-icon: #6b7280;
     --mark-bg: #713f12;
+    --selected-bg: #1e3a5f;
+    --selected-border: #60a5fa;
   }
 }
 
@@ -121,6 +127,8 @@
     --avatar-text: #ffffff;
     --collapse-icon: #8a8f9a;
     --mark-bg: #fef08a;
+    --selected-bg: #dbeafe;
+    --selected-border: #2563eb;
   }
 }
 
@@ -798,6 +806,19 @@ html, body {
   font-size: 14px;
 }
 
+.filter-empty-state-icon {
+  margin-bottom: 12px;
+  color: var(--empty-color);
+  opacity: 0.6;
+}
+
+.filter-empty-state-message {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 12px;
+  color: var(--text-secondary);
+}
+
 mark {
   background-color: var(--mark-bg, #fef08a);
   color: inherit;
@@ -846,4 +867,274 @@ mark {
 
 .item-action-delete:hover {
   color: #dc2626;
+}
+
+/* --- Group inline empty state (B-049) ---------------------------------- */
+
+.group-items-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 12px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.group-items-empty-icon {
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+/* --- Toast (B-049) ----------------------------------------------------- */
+
+.toast {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  right: 16px;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  animation: toast-slide-up 0.2s ease-out;
+}
+
+@keyframes toast-slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.toast-message {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.toast-dismiss {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  padding: 0;
+}
+
+.toast-dismiss:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* --- Context menu (B-026) ---------------------------------------------- */
+
+.context-menu {
+  position: fixed;
+  z-index: 150;
+  min-width: 180px;
+  max-width: 260px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  padding: 4px 0;
+  outline: none;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 7px 12px;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  line-height: 1.4;
+  outline: none;
+}
+
+.context-menu-item:hover,
+.context-menu-item:focus-visible {
+  background: var(--bg-hover);
+}
+
+.context-menu-item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  border-radius: 2px;
+}
+
+.context-menu-item--destructive {
+  color: #dc2626;
+}
+
+.context-menu-item--destructive:hover,
+.context-menu-item--destructive:focus-visible {
+  background: #fef2f2;
+}
+
+.context-menu-select {
+  width: calc(100% - 24px);
+  margin: 4px 12px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+  appearance: auto;
+}
+
+.context-menu-select:focus {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--accent-subtle);
+}
+
+.context-menu-label {
+  display: block;
+  padding: 5px 12px 2px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.context-menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border-subtle);
+}
+
+/* --- Multi-select (B-024) --------------------------------------------- */
+
+.item-row[data-selected="true"] {
+  background: var(--selected-bg);
+  outline: 1px solid var(--selected-border);
+  outline-offset: -1px;
+}
+
+.item-row[data-selected="true"]:hover {
+  background: var(--selected-bg);
+}
+
+.item-row[data-selected="true"]::before {
+  content: '';
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 3px;
+  border: 2px solid var(--selected-border);
+  background: var(--selected-border);
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+/* When bulk bar is visible, add bottom padding so last items are not occluded */
+#item-list.has-bulk-bar {
+  padding-bottom: 56px;
+}
+
+/* --- Bulk action bar (B-024) ------------------------------------------ */
+
+#bulk-action-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-primary);
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
+}
+
+#bulk-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  margin-right: auto;
+}
+
+#bulk-action-bar button {
+  padding: 5px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+#bulk-action-bar button:hover {
+  background: var(--bg-hover);
+}
+
+#bulk-action-bar button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+#bulk-action-bar .btn-destructive {
+  color: #dc2626;
+  border-color: #fca5a5;
+}
+
+#bulk-action-bar .btn-destructive:hover:not(:disabled) {
+  background: #fef2f2;
+}
+
+/* --- Bulk move group picker (B-024) ----------------------------------- */
+
+#bulk-move-picker {
+  position: fixed;
+  z-index: 60;
+  min-width: 180px;
+  max-width: 260px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  padding: 8px;
+}
+
+#bulk-move-picker select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  appearance: auto;
+}
+
+#bulk-move-picker select:focus {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--accent-subtle);
 }
