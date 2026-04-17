@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-16 · **Version:** 1.4 · **Total Items:** 56
+**Updated:** 2026-04-16 · **Version:** 1.6 · **Total Items:** 56
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████░░░░░░░░░░░░░  34% (19/56)  [0 in progress]
+Overall Progress    ████████░░░░░░░░░░░░  40% (22/56)  [1 in progress]
 ```
 
 ### Legend
@@ -37,7 +37,7 @@ Overall Progress    ███████░░░░░░░░░░░░░
 ✅ B-002 — URL normalization & validation · 🟠 · S
 ✅ B-003 — Save / edit / delete saved bookmarks · 🔴 · L
 ✅ B-004 — Favicon auto-capture + letter-avatar fallback · 🟠 · S
-⬜ B-005 — Bulk-create saved items (import primitive) · 🟠 · M
+✅ B-005 — Bulk-create saved items (import primitive) · 🟠 · M
 ✅ B-006 — Create / edit / delete groups with color palette · 🔴 · M
 ⬜ B-007 — Sub-group nesting (depth = 1) · 🟠 · M
 ✅ B-008 — Group reorder & collapse / expand persistence · 🟠 · M
@@ -45,7 +45,7 @@ Overall Progress    ███████░░░░░░░░░░░░░
 ✅ B-010 — Live tab reflection & active-tab highlight · 🔴 · L
 ✅ B-011 — Drift detection & persistence · 🔴 · L
 ✅ B-012 — Audible tab indicator · 🟠 · XS
-⬜ B-013 — Opener-chain group inheritance for new tabs · 🟠 · M
+✅ B-013 — Opener-chain group inheritance for new tabs · 🟠 · M
 ⬜ B-014 — Multi-window awareness & window badge · 🟠 · M
 ✅ B-015 — Tab-tracking cleanup on close · 🟠 · S
 ✅ B-016 — Promote live tab to saved bookmark · 🔴 · S
@@ -85,7 +85,7 @@ Overall Progress    ███████░░░░░░░░░░░░░
 ✅ B-050 — State broadcast to all extension surfaces · 🔴 · M
 ⬜ B-051 — Sort-order normalisation & selection pruning · 🟠 · S
 ⬜ B-052 — Fuzzy search index caching & perf targets · 🟠 · M
-⬜ B-053 — Break circular dep between partitions.js ↔ write-transaction.js (extract shapes module) · 🟡 · S
+✅ B-053 — Break circular dep between partitions.js ↔ write-transaction.js (extract shapes module) · 🟡 · S
 🔄 B-054 — Sidepanel shell: item/group rendering + live states + click-to-navigate + broadcasts · 🔴 · L
 
 ---
@@ -103,7 +103,7 @@ Overall Progress    ███████░░░░░░░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 19 | 34% |
-| 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 37 | 66% |
+| ✅ Done | 22 | 39% |
+| 🔄 In Progress | 1 | 2% |
+| ⬜ To Do | 33 | 59% |
 | 🧊 Icebox | 0 | 0% |

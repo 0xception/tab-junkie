@@ -200,6 +200,7 @@ const tabs = {
       if (idx >= 0) state.mockTabs.splice(idx, 1);
     }
   },
+  onCreated: createEventMock(),
   onUpdated: createEventMock(),
   onActivated: createEventMock(),
   onRemoved: createEventMock(),
@@ -241,6 +242,7 @@ export function __resetMock() {
   runtime.lastError = null;
   runtime.onMessage._listeners = [];
   sendMessageCalls.length = 0;
+  tabs.onCreated._listeners.length = 0;
   tabs.onUpdated._listeners.length = 0;
   tabs.onActivated._listeners.length = 0;
   tabs.onRemoved._listeners.length = 0;

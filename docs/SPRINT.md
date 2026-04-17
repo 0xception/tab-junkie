@@ -1,68 +1,71 @@
 # Current Sprint
 
-*Sprint 9 — Drift Detection, Audible Indicator, Tab Cleanup. Kicked off 2026-04-16.*
+*Sprint 10 — Opener-chain Inheritance, Bulk Create, Circular Dep Fix. Closed 2026-04-16.*
 
 ---
 
 ## Active Items
 
-*(all sprint items complete — see Completed This Sprint below)*
+*(none — sprint closed)*
 
 ---
-
-## Gate 4: ✅ PASSED
-- All R4 findings resolved (no open CRITICAL/HIGH)
-- 296/296 automated tests passing (+11 new tests)
-- UAT PASS: B-011 (13/14 ACs pass, AC12 contrast WARN tracked as M-2), B-012 (regression PASS), B-015 (PASS)
-- SOLUTION_DESIGN.md v2.2 — drift lifecycle, B-012 broadcast, B-015 clearDrift documented
-- manifest.json unchanged — no new permissions
-- build.sh clean (84K, 46 files)
-
----
-
-## Sprint Retrospective — Sprint 9
-
-### Velocity
-- **Planned**: 3 items / XS + S + L effort
-- **Completed**: 3 items / XS + S + L effort
-- **Carried over**: 0 items
-
-### What Went Well
-- Pre-built B-001d code covered 13/14 ACs for B-011 — R1 analysis confirmed this upfront, avoiding redundant build work
-- All three items had pre-existing tests; R5 added 11 targeted new tests covering new behaviors without duplicating existing coverage
-- B-012 and B-015 R4 reviewers caught two non-obvious issues (async drift race in `onRemoved`, `aria-label` jargon) that would have shipped as bugs
-
-### What to Improve
-- The "pre-built but not formally sprinted" pattern (B-001d code satisfying B-011/B-015 ACs) creates confusion at sprint start — R1 should explicitly check if code already exists before defining work
-- B-015 `clearDrift` on tab close was documented in SOLUTION_DESIGN.md §519 but not implemented — design doc and code drifted silently for 8 sprints. Need a "design→code coverage check" step
-- `aria-label="URL drifted"` shipped in the pre-built code (not Sprint 9 build) — security/QA review caught it at R4, but it would have been caught at R1 if accessible label requirements were in the ACs
-
-### Action Items for Next Sprint
-- [ ] [scrum-master] At R1, scan codebase for pre-existing implementations before defining build scope — reduces wasted R3 cycles
-- [ ] [test-engineer] Add spec-compliance check to R5: cross-reference SOLUTION_DESIGN.md design decisions against actual code (catches design→code gaps early)
-- [ ] [product-manager] Add explicit ARIA label requirements to ACs for any new user-visible indicators (not just "accessible")
-
----
-
-## Gate 6: ✅ READY
 
 ## Completed This Sprint
 
-### [B-011] Drift detection & persistence ✅
-- **Tier**: Full (L)
-- **UAT**: PASS (13/14 ACs; AC12 contrast WARN — tracked M-2)
-- **R6**: `docs/SOLUTION_DESIGN.md` v2.2 — §10.7 drift icon lifecycle + D-3 RESOLVED
-- **R7**: Skipped (per user preference)
-- **Files Changed**: `sidepanel/sidepanel.js` (`_ensureIndicators` drift lifecycle, `refetchAndPatchLiveState` call site + catch cleanup, aria-label fix), `tests/b011-drift.test.js` (9 new tests)
+### [B-013] Opener-chain group inheritance for new tabs ✅
+- **Tier**: Full (M)
+- **Closed**: 2026-04-16
+- **Pipeline**: R1 ✅ → R2 ✅ → R3 ✅ → R4 ✅ (1C + 6H fixed) → R5 ✅ (22 tests, 10/10 UAT PASS) → R6 ✅ (SOLUTION_DESIGN.md v2.3 §21)
+- **Files Changed**: `background/tabs/opener-chain.js` (new), `background/tabs/floating-groups.js` (appendFloatingGroup + itemId fix + reassociation fix), `background/tabs/tab-events.js` (onCreated listener, pruning), `background/storage/shapes.js` (MAX_OPENER_MAP_ENTRIES), `tests/b013-opener-chain.test.js` (new, 22 tests), floating-group test fixtures updated
 
-### [B-012] Audible tab indicator ✅
-- **Tier**: Fast Track (XS)
-- **UAT**: PASS (regression check — zero regressions)
-- **R7**: Skipped (per user preference)
-- **Files Changed**: `background/tabs/tab-events.js` (added `tab/audible-changed` broadcast for audible-only changes)
+### [B-005] Bulk-create saved items (import primitive) ✅
+- **Tier**: Full (M)
+- **Closed**: 2026-04-16
+- **Pipeline**: R1 ✅ → R2 ✅ → R3 ✅ → R4 ✅ (4H fixed) → R5 ✅ (18 tests, 10/10 UAT PASS) → R6 ✅ (SOLUTION_DESIGN.md v2.3 §22)
+- **Files Changed**: `background/storage/items.js` (bulkCreateItems), `background/storage/shapes.js` (MAX_BULK_INPUTS=500), `background/messages/storage-handlers.js` (MSG_BULK_CREATE_ITEMS dispatch), `shared/messages.js` (MSG_BULK_CREATE_ITEMS constant), `tests/b005-bulk-create.test.js` (new, 18 tests)
 
-### [B-015] Tab-tracking cleanup on close ✅
+### [B-053] Break circular dep partitions.js ↔ write-transaction.js ✅
 - **Tier**: Fast Track (S)
-- **UAT**: PASS (new drift-cleared assertions pass)
-- **R7**: Skipped (per user preference)
-- **Files Changed**: `background/tabs/tab-events.js` (`clearDrift` awaited in `onRemoved`, `Promise.allSettled` in `windows.onRemoved`), `tests/tab-close-claim.test.js` (+1 test), `tests/window-close-claims.test.js` (+1 test)
+- **Closed**: 2026-04-16
+- **Pipeline**: R1 ✅ → R3 ✅ → R4 ✅ (1H fixed: duplicate import block) → regression 296/296 ✅
+- **Files Changed**: `background/storage/shapes.js` (new), `background/storage/partitions.js` (re-export + local import), `background/storage/write-transaction.js` (import source → shapes.js)
+
+---
+
+## Gate 4 — Release Checklist ✅
+
+- ✅ All R4 review findings resolved (no open CRITICAL/HIGH issues)
+- ✅ All R5 automated tests passing — 332/332 (296 baseline + 22 B-013 + 18 B-005 + 4 floating-group fixture updates = net +40 new tests)
+- ✅ UAT sign-off: B-013 PASS (10/10 ACs), B-005 PASS (10/10 ACs), B-053 regression PASS
+- ✅ No open blockers
+- ✅ `docs/SOLUTION_DESIGN.md` updated to v2.3 by [solution-architect] (§20 B-053, §21 B-013, §22 B-005)
+- ✅ `manifest.json` permissions — no new permissions added
+- ✅ Rollback plan: all changes are additive; no storage schema migration; revert commits to restore prior state
+- ✅ README/STORE_LISTING: no user-facing UI changes — [technical-writer] R7 skipped
+- ✅ `BACKLOG.md` updated — B-005, B-013, B-053 set to `done`
+- ✅ `BACKLOG_BOARD.md` v1.6 — 22/56 done (39%), 1 in progress (B-054), dashboard accurate
+- ✅ `SPRINT.md` "Completed This Sprint" section reflects all three finished items
+
+---
+
+## Gate 7 — Sprint Retrospective
+
+### Velocity
+- Planned: 3 items / 2M + 1S effort
+- Completed: 3 items / 2M + 1S effort
+- Carried over: 0
+
+### What Went Well
+- Parallelization worked cleanly: all three R4 reviews (6 reviewer passes total: code, security, QA × 2 items) ran simultaneously with no merge conflicts and caught a CRITICAL itemId bug (C-1 in B-013) that would have poisoned the claims mirror in production.
+- B-053 Fast Track completed in a single round after the duplicate-import root cause was found; lesson (re-export does not bind locally) documented for the project.
+- R5 test coverage was thorough: 40 new tests covering all ACs including the "tab removed before async IIFE resumes" edge case (AC10 B-013) and the "tx failure routes candidates to skipped" scenario (AC8 B-005).
+
+### What to Improve
+- B-013 R3 build missed `itemId` in the floating-group record — a core data-flow requirement that should have been caught in R2 spec or R3 self-review. The QA reviewer caught it in R4, but it was a CRITICAL that required a fix pass before R5.
+- R4 HIGH-3 for B-013 (openerMap size cap) was a pure security finding from [security-reviewer] — the R2 architecture spec did not call out DoS-resistance requirements for in-memory maps. R2 should explicitly enumerate bounded-size requirements for any new in-memory data structures.
+- The `requireClaimsReady: true` broadcast guard was silently swallowing broadcasts during cold-start windows — a subtle correctness gap that [qa-reviewer] caught. [solution-architect] should add "broadcast guard appropriateness" to the R2 review checklist.
+
+### Action Items for Next Sprint
+- [ ] [solution-architect] Add to R2 checklist: every new in-memory data structure must have a documented size bound and eviction policy.
+- [ ] [product-manager] Ensure floating-group record shape (itemId field) is reflected in B-018 acceptance criteria — B-018 depends on the reassociation path that B-013 corrected.
+- [ ] [scrum-master] Verify B-054 (sidepanel shell, in-progress) readiness for Sprint 11 as the next P0 Critical item.

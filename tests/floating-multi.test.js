@@ -19,8 +19,8 @@ beforeEach(() => {
 test('AC11: two records with same groupId but different positions both re-associate', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-shared', windowId: 1, tabIndex: 0, url: 'https://a.com', savedAt: 1000 },
-      { groupId: 'g-shared-2', windowId: 1, tabIndex: 1, url: 'https://b.com', savedAt: 1000 },
+      { groupId: 'g-shared', itemId: 'g-shared', windowId: 1, tabIndex: 0, url: 'https://a.com', savedAt: 1000 },
+      { groupId: 'g-shared-2', itemId: 'g-shared-2', windowId: 1, tabIndex: 1, url: 'https://b.com', savedAt: 1000 },
     ],
   });
 
@@ -40,8 +40,8 @@ test('AC11: two records with same groupId but different positions both re-associ
 test('AC11: position match for one does not prevent URL fallback for another', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-pos', windowId: 1, tabIndex: 0, url: 'https://pos.com', savedAt: 1000 },
-      { groupId: 'g-url', windowId: 99, tabIndex: 99, url: 'https://url-match.com', savedAt: 2000 },
+      { groupId: 'g-pos', itemId: 'g-pos', windowId: 1, tabIndex: 0, url: 'https://pos.com', savedAt: 1000 },
+      { groupId: 'g-url', itemId: 'g-url', windowId: 99, tabIndex: 99, url: 'https://url-match.com', savedAt: 2000 },
     ],
   });
 
@@ -61,9 +61,9 @@ test('AC11: position match for one does not prevent URL fallback for another', a
 test('AC11: three floating records — all independently matched', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-1', windowId: 1, tabIndex: 0, url: 'https://one.com', savedAt: 1000 },
-      { groupId: 'g-2', windowId: 1, tabIndex: 1, url: 'https://two.com', savedAt: 1000 },
-      { groupId: 'g-3', windowId: 1, tabIndex: 2, url: 'https://three.com', savedAt: 1000 },
+      { groupId: 'g-1', itemId: 'g-1', windowId: 1, tabIndex: 0, url: 'https://one.com', savedAt: 1000 },
+      { groupId: 'g-2', itemId: 'g-2', windowId: 1, tabIndex: 1, url: 'https://two.com', savedAt: 1000 },
+      { groupId: 'g-3', itemId: 'g-3', windowId: 1, tabIndex: 2, url: 'https://three.com', savedAt: 1000 },
     ],
   });
 

@@ -20,6 +20,7 @@ beforeEach(() => {
 test('AC7: well-formed entry round-trips without field mutation', async () => {
   const entry = {
     groupId: 'group-1',
+    itemId: 'item-1',
     windowId: 42,
     tabIndex: 3,
     url: 'https://example.com/page',
@@ -37,6 +38,7 @@ test('AC7: well-formed entry round-trips without field mutation', async () => {
 test('AC7: record shape validation — all required fields present', async () => {
   const entry = {
     groupId: 'g-abc',
+    itemId: 'item-abc',
     windowId: 1,
     tabIndex: 0,
     url: 'https://test.com',
@@ -49,6 +51,7 @@ test('AC7: record shape validation — all required fields present', async () =>
   assert.equal(records.length, 1);
   const r = records[0];
   assert.equal(typeof r.groupId, 'string');
+  assert.equal(typeof r.itemId, 'string');
   assert.equal(typeof r.windowId, 'number');
   assert.ok(Number.isFinite(r.windowId));
   assert.equal(typeof r.tabIndex, 'number');
@@ -59,9 +62,9 @@ test('AC7: record shape validation — all required fields present', async () =>
 
 test('AC7: multiple entries round-trip correctly', async () => {
   const entries = [
-    { groupId: 'g-1', windowId: 1, tabIndex: 0, url: 'https://a.com', savedAt: 1000 },
-    { groupId: 'g-2', windowId: 2, tabIndex: 5, url: 'https://b.com', savedAt: 2000 },
-    { groupId: 'g-1', windowId: 1, tabIndex: 1, url: 'https://c.com', savedAt: 3000 },
+    { groupId: 'g-1', itemId: 'item-1', windowId: 1, tabIndex: 0, url: 'https://a.com', savedAt: 1000 },
+    { groupId: 'g-2', itemId: 'item-2', windowId: 2, tabIndex: 5, url: 'https://b.com', savedAt: 2000 },
+    { groupId: 'g-1', itemId: 'item-3', windowId: 1, tabIndex: 1, url: 'https://c.com', savedAt: 3000 },
   ];
 
   await saveFloatingGroups(entries);
@@ -73,10 +76,10 @@ test('AC7: multiple entries round-trip correctly', async () => {
 
 test('AC7: invalid entries are silently discarded', async () => {
   const entries = [
-    { groupId: 'g-valid', windowId: 1, tabIndex: 0, url: 'https://ok.com', savedAt: 1000 },
-    { groupId: 123, windowId: 1, tabIndex: 0, url: 'https://bad.com', savedAt: 1000 }, // groupId not string
+    { groupId: 'g-valid', itemId: 'item-valid', windowId: 1, tabIndex: 0, url: 'https://ok.com', savedAt: 1000 },
+    { groupId: 123, itemId: 'item-bad', windowId: 1, tabIndex: 0, url: 'https://bad.com', savedAt: 1000 }, // groupId not string
     null,
-    { groupId: 'g-no-url', windowId: 1, tabIndex: 0 }, // missing url and savedAt
+    { groupId: 'g-no-url', windowId: 1, tabIndex: 0 }, // missing url, savedAt, and itemId
   ];
 
   await saveFloatingGroups(entries);

@@ -48,6 +48,7 @@ test('AC13: floating re-association (50 records, 50 tabs) completes in <= 100ms'
   for (let i = 0; i < 50; i++) {
     records.push({
       groupId: `g-${i}`,
+      itemId: `item-${i}`,
       windowId: 1,
       tabIndex: i,
       url: `https://site-${i}.com`,

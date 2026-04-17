@@ -4,6 +4,23 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.6.0 — Opener-chain Inheritance, Bulk-create, Circular Dep Fix (2026-04-16)
+
+### What's new
+- **Opener-chain group inheritance (B-013)** — when a new tab is opened from an existing claimed tab, the new tab is automatically assigned to the same group as the opener. The full opener chain is walked (up to 5 hops) so tabs opened transitively from a group member stay associated. Tab removal is detected asynchronously; stale openerMap entries are pruned with a configurable cap (`MAX_OPENER_MAP_ENTRIES`) to prevent unbounded memory growth.
+- **Bulk-create saved items (B-005)** — new `MSG_BULK_CREATE_ITEMS` message accepts up to 500 items in a single atomic write transaction. Input is validated per-item; invalid candidates are collected and returned in `skipped[]` rather than aborting the whole batch. Enables future import UI and batch-promote workflows.
+
+### Internal (B-053)
+- Broke the circular dependency between `background/storage/partitions.js` and `background/storage/write-transaction.js` by extracting shared constants and shape helpers into a new `background/storage/shapes.js` module. Both modules now import from `shapes.js`; no behavior change.
+- 40 new automated tests (332 total), all passing
+- SOLUTION_DESIGN.md v2.3 (§20 B-053, §21 B-013, §22 B-005)
+
+### Test results
+- Automated: 332/332 passing
+- UAT: PASS — B-013 (10/10 ACs), B-005 (10/10 ACs), B-053 regression PASS
+
+---
+
 ## v1.5.0 — Favicons, Live Tab State, Group Reorder, Inline Filter (2026-04-16)
 
 ### What's new

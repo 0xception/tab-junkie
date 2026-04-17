@@ -20,7 +20,7 @@ test('AC12: storage.session wipe does not lose floating-group records', async ()
   // Seed floating groups in storage.local
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-survive', windowId: 1, tabIndex: 0, url: 'https://survive.com', savedAt: 1000 },
+      { groupId: 'g-survive', itemId: 'g-survive', windowId: 1, tabIndex: 0, url: 'https://survive.com', savedAt: 1000 },
     ],
   });
 
@@ -37,7 +37,7 @@ test('AC12: storage.session wipe does not lose floating-group records', async ()
 test('AC12: re-association works after session wipe + cold start', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-cold', windowId: 1, tabIndex: 0, url: 'https://cold.com', savedAt: 1000 },
+      { groupId: 'g-cold', itemId: 'g-cold', windowId: 1, tabIndex: 0, url: 'https://cold.com', savedAt: 1000 },
     ],
   });
 
@@ -69,7 +69,7 @@ test('AC12: session wipe clears tab claims but floating groups remain', async ()
   await chrome.storage.session.set({ 'tj:tabClaims': { 'item-1': 10 } });
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-persist', windowId: 1, tabIndex: 0, url: 'https://persist.com', savedAt: 1000 },
+      { groupId: 'g-persist', itemId: 'g-persist', windowId: 1, tabIndex: 0, url: 'https://persist.com', savedAt: 1000 },
     ],
   });
 

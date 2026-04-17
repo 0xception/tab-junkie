@@ -1,9 +1,9 @@
 # Tab Junkie — Solution Design
 
-**Version:** 2.2
+**Version:** 2.3
 **Date:** 2026-04-16
 **Owner:** [solution-architect]
-**Status:** Active — B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-003 + B-010 + B-008 + B-021 + B-011 + B-012 + B-015 landed.
+**Status:** Active — B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-003 + B-010 + B-008 + B-021 + B-011 + B-012 + B-015 + B-053 + B-013 + B-005 landed.
 
 > This document is the current source of truth for what has actually shipped.
 > For the R2 *plan* (pre-build design) see `docs/design/B-001a.md`; deviations
@@ -13,7 +13,7 @@
 
 ## 1. Project Structure
 
-Current build-relevant layout on `feature/rebuild-from-prd` (paths shipped through B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020):
+Current build-relevant layout on `feature/rebuild-from-prd` (paths shipped through B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-053 + B-013 + B-005):
 
 ```
 junkie/
@@ -27,23 +27,25 @@ junkie/
 │   │   └── storage-handlers.js            runtime.onMessage dispatcher + sender guard + safe-mode write gate
 │   ├── storage/
 │   │   ├── index.js                       Public barrel (no writeTransaction export — M3)
-│   │   ├── partitions.js                  Partition keys, defaults, shape validators, read helpers, length caps
+│   │   ├── shapes.js                      Partition key constants, defaults, shape validators, length caps (extracted from partitions.js; B-053)
+│   │   ├── partitions.js                  Re-exports shapes.js + readPartition + initializePartitions (B-053 refactor)
 │   │   ├── ids.js                         Zero-dep ULID generator (strict-monotonic)
 │   │   ├── errors.js                      StorageError + ERR_* constants (incl. ERR_SAFE_MODE) + isQuotaError
 │   │   ├── write-transaction.js           Serialized atomic batcher — SOLE write path
 │   │   ├── migration.js                   Migration runner · KNOWN_VERSION · safe-mode · quota monitor (B-001b)
-│   │   ├── items.js                       Item CRUD
+│   │   ├── items.js                       Item CRUD + bulkCreateItems (B-005)
 │   │   ├── groups.js                      Group CRUD + depth/cycle enforcement + cascade on delete
 │   │   └── preferences.js                 Preferences CRUD
 │   └── tabs/
 │       ├── index.js                       Barrel · exports registerTabEventListeners, initializeLiveState, buildLiveStates (B-001c)
 │       ├── live-tab-index.js              SW-memory Map<tabId,{url,windowId,active,audible,index}> — never written to storage.local (B-001c)
 │       ├── tab-claims.js                  storage.session TabClaims mirror + reconcile/release/reevaluate + buildLiveStates + claimTabForItem (B-001c/d)
-│       ├── tab-events.js                  chrome.tabs/windows event handlers + drift detection hook — zero storage.local writes (B-001c/d)
+│       ├── tab-events.js                  chrome.tabs/windows event handlers + drift detection hook + opener-chain inheritance in onCreated (B-001c/d + B-013)
 │       ├── drift.js                       Drift write/clear logic; driftedToUrl normalized via shared/url.js; fragment stripped before storage (B-001d)
-│       └── floating-groups.js             Floating-group re-association: position-match → URL-fallback → retain unresolved (B-002)
+│       ├── opener-chain.js                Ephemeral openerMap + walkOpenerChain with cycle guard and size cap (B-013)
+│       └── floating-groups.js             Floating-group re-association + appendFloatingGroup atomic append (B-002 + B-013)
 ├── shared/
-│   ├── messages.js                        MSG_* constants (18 total, incl. MSG_GET_STATUS, MSG_PROMOTE_TAB, MSG_DEMOTE_ITEM, MSG_STATE_CHANGED, MSG_NAVIGATE_TO_ITEM, MSG_CLOSE_TABS) + envelope typedefs incl. ListItemsResponse (NO storage logic)
+│   ├── messages.js                        MSG_* constants (19 total, incl. MSG_GET_STATUS, MSG_PROMOTE_TAB, MSG_DEMOTE_ITEM, MSG_STATE_CHANGED, MSG_NAVIGATE_TO_ITEM, MSG_CLOSE_TABS, MSG_BULK_CREATE_ITEMS) + envelope typedefs incl. ListItemsResponse (NO storage logic)
 │   ├── constants.js                       GROUP_COLORS — 9-color allowlist palette for group color values (B-006)
 │   ├── url.js                             URL normalization — normalizeUrl(url, mode) with forStorage/forMatch modes; scheme allowlist; protocol defaulting; hostname lowercasing (B-001d)
 │   └── errors.js                          Canonical home for StorageError + ERR_* constants (moved from background/storage/errors.js, which now re-exports from here) (B-001d)
@@ -74,7 +76,7 @@ All state lives under six partitioned keys in `chrome.storage.local`, plus one k
 | `tj:groups` | All groups (flat list, adjacency list via `parentId`) | `Group[]` | `[]` | `storage.local` |
 | `tj:prefs` | User preferences | `Preferences` | see DEFAULT_PREFERENCES below | `storage.local` |
 | `tj:drift` | Drift records keyed by item id (B-001d) | `Record<string, DriftRecord>` — shape: `{ itemId: string, driftedToUrl: string (scheme-validated + MAX_URL, normalized via shared/url.js), detectedAt: number }` | `{}` | `storage.local` |
-| `tj:floatingGroups` | Floating-group re-association records (B-002) | `FloatingGroup[]` — shape: `{ groupId: string, windowId: number, tabIndex: number, url: string, savedAt: number }` | `[]` | `storage.local` |
+| `tj:floatingGroups` | Floating-group re-association records (B-002 + B-013) | `FloatingGroup[]` — shape: `{ groupId: string, itemId: string, windowId: number, tabIndex: number, url: string, savedAt: number }` *(B-013 added `itemId`; `assertShape` treats `itemId` as optional for backward compatibility with pre-B-013 records)* | `[]` | `storage.local` |
 | `tj:tabClaims` | Item-to-tab disambiguation table (B-001c) | `Record<string, number>` (itemId → tabId) | `{}` | `storage.session` — cleared on browser restart |
 
 Per R0 spike decision #2, **only `drifted` is persisted**. `live`, `active`,
@@ -276,7 +278,7 @@ envelope. Any thrown non-`StorageError` is coerced to an envelope with code
 
 ### Message types — full registry
 
-Defined in `shared/messages.js`. **18 constants total** (12 from B-001a + `MSG_GET_STATUS` added in B-001b + `MSG_PROMOTE_TAB` added in B-016 + `MSG_DEMOTE_ITEM` added in B-017 + `MSG_STATE_CHANGED` added in B-050 + `MSG_NAVIGATE_TO_ITEM` added in B-019 + `MSG_CLOSE_TABS` added in B-020). **UI must never import any file under `background/`**; the only contract is this module + `chrome.runtime.sendMessage`.
+Defined in `shared/messages.js`. **19 constants total** (12 from B-001a + `MSG_GET_STATUS` added in B-001b + `MSG_PROMOTE_TAB` added in B-016 + `MSG_DEMOTE_ITEM` added in B-017 + `MSG_STATE_CHANGED` added in B-050 + `MSG_NAVIGATE_TO_ITEM` added in B-019 + `MSG_CLOSE_TABS` added in B-020 + `MSG_BULK_CREATE_ITEMS` added in B-005). **UI must never import any file under `background/`**; the only contract is this module + `chrome.runtime.sendMessage`.
 
 | Constant | Value | Request payload | Success `data` | Allowed senders |
 |---|---|---|---|---|
@@ -297,6 +299,7 @@ Defined in `shared/messages.js`. **18 constants total** (12 from B-001a + `MSG_G
 | `MSG_DEMOTE_ITEM` | `tj/demoteItem` | `{id}` | `null` | sidepanel, popup *(B-017; operation order: delete item → clearDrift → saveFloating → releaseClaim; partial atomicity — see §5 note below)* |
 | `MSG_STATE_CHANGED` | `tj/stateChanged` | `{mutation: string, payload: any}` | — *(SW → UI push; fire-and-forget; no response expected)* | SW only *(B-050)* |
 | `MSG_NAVIGATE_TO_ITEM` | `tj/navigateToItem` | `{id}` | `null` | sidepanel, newtab, popup *(B-019; switches to claimed tab or opens new tab; immediate claim on new-tab path)* |
+| `MSG_BULK_CREATE_ITEMS` | `tj/bulkCreateItems` | `{inputs: Array<{title, url, groupId?}>}` | `{created: Item[], skipped: {input, reason}[]}` | sidepanel, newtab, popup *(B-005; partial-success semantics; MAX_BULK_INPUTS=500 cap; subject to safe-mode write gate)* |
 | `MSG_CLOSE_TABS` | `tj/closeTabs` | `{ids: string[]}` | `null` | sidepanel, newtab, popup *(B-020; partitions ids into valid vs gone; closes valid tabs; onRemoved handles claim cleanup)* |
 
 **Note on `MSG_LIST_ITEMS` response shape change (B-001c + B-001d):** The success `data` is now a `ListItemsResponse` object `{ items, liveStates, driftRecords }` rather than a bare `Item[]`. The `liveStates` map is built at read time from `LiveTabIndex` + `TabClaims`; items with no claim receive `{ live: false, active: false, audible: false }`. The `driftRecords` map is read from `tj:drift`; items with no drift record are absent from the map. No live-state or drift field is stored on `Item` objects in `tj:items`.
@@ -457,7 +460,7 @@ patch list (M2 fix) and always recomputed by the mutator.
 
 ---
 
-## 10. What B-001a Did NOT Ship (updated through B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-021 + B-011 + B-012 + B-015)
+## 10. What B-001a Did NOT Ship (updated through B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-021 + B-011 + B-012 + B-015 + B-053 + B-013 + B-005)
 
 Items fully resolved by B-001b, B-001c, B-001d, B-002, B-006, B-016, B-017, B-050, B-019, or B-020 are marked **DONE**. The entire B-001 family (a/b/c/d) is now complete. Remaining items are open.
 
@@ -635,7 +638,7 @@ The drift icon DOM is managed by `_ensureIndicators(row, live, isDrifted)` in `s
 
 ### Resolution strategy
 
-For each `FloatingGroup` record (`{ groupId, windowId, tabIndex, url, savedAt }`):
+For each `FloatingGroup` record (`{ groupId, itemId, windowId, tabIndex, url, savedAt }` — `itemId` added in B-013):
 
 1. **Position-match:** find a live tab in `liveTabIndex` with matching `windowId` and `tabIndex`. If found and its URL matches `record.url` (via `normalizeUrl` forMatch), claim it.
 2. **URL-fallback:** if the position match fails (tab moved), scan all unclaimed tabs in `liveTabIndex` whose normalized URL matches `record.url`. First match wins (first-in-array order).
@@ -644,7 +647,7 @@ For each `FloatingGroup` record (`{ groupId, windowId, tabIndex, url, savedAt }`
 ### Tie-break and claim propagation
 
 - **First-in-array-wins:** when multiple `FloatingGroup` records could claim the same tab, the record that appears first in the `tj:floatingGroups` array wins. Subsequent records fall through to URL-fallback or remain unresolved.
-- **Claim propagation:** a successful match calls `claimTabForItem(itemId, tabId)` from `tab-claims.js`, writing the claim to `claimsMirror` and flushing to `storage.session`. The resolved record is then removed from `tj:floatingGroups` via `writeTransaction`.
+- **Claim propagation:** a successful match calls `claimTabForItem(record.itemId, tabId)` from `tab-claims.js`, writing the claim to `claimsMirror` and flushing to `storage.session`. Records lacking a valid `itemId` (pre-B-013 orphans) are silently pruned without claim propagation. The resolved record is then removed from `tj:floatingGroups` via `writeTransaction`.
 
 ### Known limitation
 
@@ -2091,3 +2094,245 @@ No new permissions required. The filter reads only from in-memory cached data po
 | C-3 | Service worker cold-start safe | PASS | No SW dependency. If SW restarts, `renderAll()` re-populates the cache from a fresh storage fetch, and `applyFilter()` re-runs. |
 | C-4 | ID stability | PASS | Uses existing `item.id` via `data-item-id` attributes and `_itemById` Map. No new identity concerns. |
 | C-5 | Manifest file references resolvable | N/A | No new files or manifest entries. |
+
+---
+
+## 20. B-053 — Break Circular Dependency partitions.js / write-transaction.js (R6 Close)
+
+### Problem
+
+`partitions.js` imported `writeTransaction` from `write-transaction.js`, and `write-transaction.js` imported `partitionKey`, `defaultShape`, and `assertShape` from `partitions.js`. This created a circular ES module dependency. While Chrome's V8 engine can resolve static circular imports via live bindings, the cycle made the module graph fragile and triggered false-positive warnings in `jsconfig.json`-based tooling.
+
+### Solution: Extract `shapes.js`
+
+A new module `background/storage/shapes.js` was extracted from `partitions.js`. It contains all partition constants, defaults, and validators that were previously co-located with the `readPartition` and `initializePartitions` functions.
+
+**Exports from `shapes.js`:**
+
+| Export | Kind | Description |
+|--------|------|-------------|
+| `PARTITION_ITEMS`, `PARTITION_GROUPS`, `PARTITION_PREFS`, `PARTITION_META`, `PARTITION_DRIFT`, `PARTITION_FLOATING_GROUPS` | `const string` | Partition name constants |
+| `ALL_PARTITIONS` | `const string[]` | Ordered tuple of all six partition names |
+| `MAX_TITLE`, `MAX_URL`, `MAX_NAME`, `MAX_COLOR` | `const number` | Field length caps (2048, 4096, 256, 32) |
+| `MAX_BULK_INPUTS` | `const number` | Upper bound on `bulkCreateItems` inputs (500; added for B-005) |
+| `DEFAULT_PREFERENCES` | `const object` | Frozen default preferences shape |
+| `partitionKey(partition)` | `function` | Returns `tj:${partition}` |
+| `defaultShape(partition)` | `function` | Returns the default empty value for a partition |
+| `assertShape(partitionOrKey, value)` | `function` | Validates a partition value; throws `ERR_CORRUPT_DATA` on failure |
+
+**Dependency graph (now acyclic):**
+
+```
+shapes.js ──→ errors.js
+          └──→ shared/url.js (for normalizeUrl in drift validator)
+
+write-transaction.js ──→ shapes.js (partitionKey, defaultShape, assertShape)
+                     └──→ errors.js
+
+partitions.js ──→ shapes.js (re-exports ALL shape exports)
+              └──→ write-transaction.js (imports writeTransaction)
+```
+
+### Re-export pattern in `partitions.js`
+
+`partitions.js` uses `export { ... } from './shapes.js'` to re-export every public name from `shapes.js`. This ensures existing consumers of `partitions.js` require zero import-path changes. The re-export syntax does **not** bind names into the local module scope, so `partitions.js` also has a separate `import { ALL_PARTITIONS, partitionKey, defaultShape, assertShape } from './shapes.js'` for its own `readPartition` and `initializePartitions` functions. This dual-import/re-export pattern is an intentional design decision — not duplication.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `background/storage/shapes.js` | **New.** Extracted constants, defaults, validators from `partitions.js`. Added `MAX_BULK_INPUTS = 500` for B-005. |
+| `background/storage/partitions.js` | Removed all constant/validator definitions. Re-exports from `shapes.js`. Local import for internal use. |
+| `background/storage/write-transaction.js` | Changed import source from `partitions.js` to `shapes.js` for `partitionKey`, `defaultShape`, `assertShape`. |
+
+### Manifest permissions — No changes
+
+### Rollback plan
+
+**Risk:** Low — pure refactor, no behavioral change. `git revert <commit-sha>` restores the original single-file layout. No storage schema changes, no migration needed.
+
+### R2 Correctness Checklist (Post-Build Verification)
+
+| # | Check | Status | Notes |
+|---|-------|--------|-------|
+| C-1 | Storage schema versioned | N/A | No schema change. Pure module extraction. |
+| C-2 | Message contracts typed | N/A | No new message types. |
+| C-3 | Service worker cold-start safe | PASS | Import graph is acyclic; all modules resolve before SW `install` event. |
+| C-4 | ID stability | N/A | No identity changes. |
+| C-5 | Manifest file references resolvable | N/A | No new manifest entries. |
+
+---
+
+## 21. B-013 — Opener-Chain Group Inheritance (R6 Close)
+
+### Overview
+
+When a user opens a new tab from an existing tab (e.g., Ctrl+click, middle-click, "Open in new tab"), the new tab inherits the group membership of its opener's saved item. This enables automatic group propagation without manual user intervention.
+
+### Architecture
+
+#### New module: `background/tabs/opener-chain.js`
+
+Maintains an ephemeral in-memory `Map<tabId, openerTabId>` and provides a pure walk function to find the nearest grouped ancestor.
+
+**Exports:**
+
+| Export | Kind | Description |
+|--------|------|-------------|
+| `recordOpener(tabId, openerTabId)` | `function` | Records opener relationship; no-op when map is at capacity |
+| `pruneOpener(tabId)` | `function` | Removes the child's entry; does NOT remove entries where tabId appears as a value (children maintain their opener references even after parent closes) |
+| `pruneOpenersByWindow(tabIds[])` | `function` | Bulk prune for window close |
+| `walkOpenerChain(tabId, claimsMirror, items, maxHops?)` | `function` | Pure function; walks up opener chain looking for nearest grouped ancestor; returns `{ groupId, itemId }` or `null` |
+| `__resetOpenerMap()` | `function` | Test hatch — clears the map between tests |
+
+**Design constraints:**
+
+- **`MAX_OPENER_MAP_ENTRIES = 512`**: Hard cap prevents unbounded memory growth over long browser sessions. When the cap is reached, new opener relationships are silently dropped — the tab opens normally without group inheritance.
+- **Cycle guard**: `walkOpenerChain` uses a `visited` Set initialized with the starting tabId. If a cycle is detected (openerMap points back to an already-visited tabId), the walk terminates immediately.
+- **Max hops = 3** (default): Limits the walk depth. O(N * hops) linear scan of `claimsMirror` per hop, where N = number of claimed items. Acceptable for expected claim counts (< 1000 items).
+- **Ephemeral**: The openerMap is lost on service worker restart. This is intentional and consistent with Chrome's own behavior — opener relationships (`tab.openerTabId`) are not persisted by Chrome across restarts. Consequence: tabs whose `onCreated` fired before a SW restart and whose `onRemoved` fires after will not have their opener relationships available. This is an accepted limitation.
+
+#### Changes to `background/tabs/tab-events.js`
+
+The `tabs.onCreated` listener now:
+
+1. **Synchronous phase** (before any `await`): calls `updateTabEntry(tab.id, ...)` to register the tab in LiveTabIndex, then calls `recordOpener(tab.id, tab.openerTabId)` if the tab has an opener.
+2. **Async IIFE**: awaits `readyPromise`, reads items, gets `claimsMirror`, calls `walkOpenerChain`. If a grouped ancestor is found:
+   - Re-reads live state from `getLiveTabIndex().get(tab.id)` after the async gap (the tab's URL and index may have settled from the creation-time `about:blank` to the actual navigation target).
+   - Bails out if the tab was removed during the async gap.
+   - Calls `appendFloatingGroup` with the live URL, windowId, and tabIndex — not the stale creation-time values.
+   - Broadcasts `tab/opener-inherited` without the `requireClaimsReady` guard (so the UI is notified even if claims haven't fully reconciled yet).
+
+The `tabs.onRemoved` listener calls `pruneOpener(tabId)`.
+The `windows.onRemoved` listener calls `pruneOpenersByWindow(removedTabIds)`.
+
+#### Changes to `background/tabs/floating-groups.js`
+
+- **`appendFloatingGroup(entry)`** (new): Atomic append via `writeTransaction` mutator. Unlike `saveFloatingGroups` which replaces the entire `tj:floatingGroups` partition, `appendFloatingGroup` reads-then-appends inside a single mutator, avoiding race conditions with concurrent appends.
+- **Floating-group record shape**: Now includes `itemId: string` (required on write) and `savedAt: number` (required). The `assertShape` validator in `shapes.js` treats `itemId` as optional for backward compatibility with records written before B-013.
+- **`reassociateFloatingGroups`**: Now calls `claimTabForItem(record.itemId, matchedTabId)` instead of using `record.groupId`. Records lacking a valid `itemId` (pre-B-013 orphans) are silently pruned without claim propagation to prevent poisoning the claims mirror with `undefined`.
+
+### Data flow
+
+```
+tabs.onCreated(tab)
+  |-- [sync] updateTabEntry(tab.id, {...})
+  |-- [sync] recordOpener(tab.id, tab.openerTabId)
+  +-- [async IIFE]
+       |-- await readyPromise
+       |-- items = await listItems()
+       |-- claimsMirror = getClaimsMirror()
+       |-- result = walkOpenerChain(tab.id, claimsMirror, items)
+       |-- if result:
+       |    |-- liveEntry = getLiveTabIndex().get(tab.id)  // re-read after async gap
+       |    |-- if !liveEntry -> return (tab was removed)
+       |    |-- await appendFloatingGroup({groupId, itemId, windowId, tabIndex, url, savedAt})
+       |    +-- broadcast(SCOPE.LIVE_STATE, 'tab/opener-inherited')
+       +-- catch -> console.warn (non-fatal)
+```
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `background/tabs/opener-chain.js` | **New.** openerMap, recordOpener, pruneOpener, pruneOpenersByWindow, walkOpenerChain, __resetOpenerMap. |
+| `background/tabs/tab-events.js` | `onCreated` listener: synchronous recordOpener + async inheritance IIFE. `onRemoved`: pruneOpener. `windows.onRemoved`: pruneOpenersByWindow. |
+| `background/tabs/floating-groups.js` | `appendFloatingGroup` added. `saveFloatingGroups` and `reassociateFloatingGroups` updated for `itemId` field. Orphan guard for records lacking `itemId`. |
+| `background/storage/shapes.js` | `assertShape` for `floatingGroups` partition: `itemId` validated on write but treated as optional in the shape validator for backward compatibility. |
+
+### Manifest permissions — No changes
+
+No new permissions required. `tabs` permission (already declared) provides `tab.openerTabId`.
+
+### Rollback plan
+
+**Risk:** Low — openerMap is ephemeral; floating-group records with `itemId` are backward-compatible (assertShape treats `itemId` as optional). `git revert <commit-sha>` removes opener-chain logic. Existing floating-group records with `itemId` are harmless — the extra field is ignored by pre-B-013 code. No storage migration needed.
+
+### R2 Correctness Checklist (Post-Build Verification)
+
+| # | Check | Status | Notes |
+|---|-------|--------|-------|
+| C-1 | Storage schema versioned | PASS | `tj:floatingGroups` shape extended with optional `itemId`. No schema version bump needed — `assertShape` treats `itemId` as optional for backward compatibility. |
+| C-2 | Message contracts typed | N/A | No new message types. `tab/opener-inherited` is a broadcast event, not a request/response message. |
+| C-3 | Service worker cold-start safe | PASS | openerMap starts empty on every cold start — no stale state. `readyPromise` gate ensures items and claims are loaded before walking the chain. |
+| C-4 | ID stability | PASS | `itemId` in floating-group records is the ULID of the opener's item — stable across URL drift and window moves. |
+| C-5 | Manifest file references resolvable | N/A | No new manifest entries. |
+
+---
+
+## 22. B-005 — Bulk-Create Saved Items (R6 Close)
+
+### Overview
+
+`bulkCreateItems` provides a batch-create API for saved items with partial-success semantics. Individual input failures (validation errors, missing group FK) do not abort the entire batch — valid items are created and invalid ones are reported as skipped.
+
+### API contract
+
+```js
+/**
+ * @param {Array<{title: string, url: string, groupId?: string|null}>} inputs
+ * @returns {Promise<{created: Item[], skipped: {input: Object, reason: string}[]}>}
+ */
+async function bulkCreateItems(inputs)
+```
+
+**Edge cases:**
+
+| Input | Behavior |
+|-------|----------|
+| Non-array | Returns `{ created: [], skipped: [] }` (no throw) |
+| Empty array | Returns `{ created: [], skipped: [] }` (early return) |
+| Length > `MAX_BULK_INPUTS` (500) | Throws `ERR_VALIDATION` (hard cap to prevent quota exhaustion) |
+| Individual input fails validation | Skipped with reason; other inputs proceed |
+| Individual input references nonexistent groupId | Skipped with reason; other inputs proceed |
+| Transaction failure (quota exceeded, shape assertion) | All validated candidates moved to `skipped`; `created` stays empty |
+
+### Two-phase architecture
+
+**Phase 1 — Pre-validation (outside transaction):**
+Iterates all inputs, calls `validateNewItem` on each. Valid inputs become candidates with pre-generated ULIDs and timestamps. Invalid inputs are immediately added to the `skipped` array with the error message.
+
+**Phase 2 — Single writeTransaction (two ops):**
+1. **GROUPS op** (read-only): captures a snapshot of all groups for FK validation.
+2. **ITEMS op** (mutating): for each candidate, checks `assertGroupExists(item.groupId, groupsSnapshot)`. Passing candidates are appended to the items array. Failing candidates are added to `txGroupSkipped`.
+
+**Post-transaction merge:** Only after `await writeTransaction(...)` resolves successfully are `txCreated` items merged into the outer `created` array and `txGroupSkipped` into the outer `skipped` array. This prevents phantom entries in `created` if the transaction throws (e.g., quota exceeded after mutator runs but before `storage.local.set` commits).
+
+**Transaction failure path:** If `writeTransaction` throws, all validated candidates are moved to `skipped` with the error message. The `created` array remains empty. No phantom items leak.
+
+### Message handler
+
+| Constant | Value | Request payload | Success `data` |
+|----------|-------|-----------------|----------------|
+| `MSG_BULK_CREATE_ITEMS` | `tj/bulkCreateItems` | `{ inputs: Array<{title, url, groupId?}> }` | `{ created: Item[], skipped: {input, reason}[] }` |
+
+Registered in `MUTATION_BROADCASTS` with `SCOPE.ITEMS` — a successful bulk create triggers a state broadcast so all UI surfaces refresh. Listed in the `writeTypes` set for the safe-mode write gate.
+
+### Constants
+
+`MAX_BULK_INPUTS = 500` is defined in `background/storage/shapes.js` and imported by `items.js`. The cap prevents a single API call from writing enough data to exhaust the 10 MB `chrome.storage.local` quota.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `background/storage/shapes.js` | Added `MAX_BULK_INPUTS = 500` export. |
+| `background/storage/items.js` | Added `bulkCreateItems` function. Imports `MAX_BULK_INPUTS` from `shapes.js`. |
+| `shared/messages.js` | Added `MSG_BULK_CREATE_ITEMS = 'tj/bulkCreateItems'` constant. |
+| `background/messages/storage-handlers.js` | Added `MSG_BULK_CREATE_ITEMS` import, dispatch case, `MUTATION_BROADCASTS` entry (SCOPE.ITEMS), and `writeTypes` entry. |
+
+### Manifest permissions — No changes
+
+### Rollback plan
+
+**Risk:** Low — no storage schema changes. `bulkCreateItems` writes to `tj:items` using the existing `Item` shape. `git revert <commit-sha>` removes the function and message handler. Any items created via bulk-create are standard `Item` objects indistinguishable from single-create items — no cleanup needed.
+
+### R2 Correctness Checklist (Post-Build Verification)
+
+| # | Check | Status | Notes |
+|---|-------|--------|-------|
+| C-1 | Storage schema versioned | N/A | No schema change. Uses existing `Item` shape. |
+| C-2 | Message contracts typed | PASS | `MSG_BULK_CREATE_ITEMS` added to `shared/messages.js` with documented request/response shapes. |
+| C-3 | Service worker cold-start safe | PASS | `bulkCreateItems` is stateless — reads items and groups from storage on every call via `writeTransaction`. No in-memory state dependency. |
+| C-4 | ID stability | PASS | Each item gets a fresh ULID via the existing `ulid()` generator. |
+| C-5 | Manifest file references resolvable | N/A | No new manifest entries. |

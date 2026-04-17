@@ -2,6 +2,21 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.6.0] — 2026-04-16
+
+### Added
+- Opener-chain group inheritance: new tabs opened from a claimed tab inherit its group automatically; chain walked up to 5 hops (B-013)
+- `background/tabs/opener-chain.js` — new module managing the openerMap with `MAX_OPENER_MAP_ENTRIES` cap and async pruning on tab removal
+- `bulkCreateItems` storage operation accepting up to 500 items in a single atomic write; invalid candidates returned in `skipped[]` without aborting the batch (B-005)
+- `MSG_BULK_CREATE_ITEMS` message type in `shared/messages.js` and dispatch in `background/messages/storage-handlers.js`
+- `background/storage/shapes.js` — extracted shared constants and shape helpers from partitions/write-transaction circular dep (B-053)
+- 40 new automated tests (332 total)
+
+### Fixed
+- Circular dependency between `partitions.js` and `write-transaction.js` resolved via `shapes.js` extraction (B-053)
+- `appendFloatingGroup` and `itemId` field bug in floating-group record fixed during B-013 build (R4 CRITICAL)
+- `requireClaimsReady` broadcast guard was silently swallowing broadcasts during cold-start windows — corrected in B-013 R4
+
 ## [1.5.0] — 2026-04-16
 
 ### Added

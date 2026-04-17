@@ -14,6 +14,9 @@ export const MSG_DELETE_ITEM = 'tj/deleteItem';
 export const MSG_LIST_ITEMS = 'tj/listItems';
 export const MSG_GET_ITEM = 'tj/getItem';
 
+/** Bulk-create multiple saved items with partial-success semantics. */
+export const MSG_BULK_CREATE_ITEMS = 'tj/bulkCreateItems';
+
 // ---- Group operations ----
 export const MSG_CREATE_GROUP = 'tj/createGroup';
 export const MSG_UPDATE_GROUP = 'tj/updateGroup';

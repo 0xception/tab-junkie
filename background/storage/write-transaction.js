@@ -27,7 +27,7 @@ import {
   ERR_QUOTA_EXCEEDED,
   ERR_DIRECT_WRITE,
 } from './errors.js';
-import { partitionKey, defaultShape, assertShape } from './partitions.js';
+import { partitionKey, defaultShape, assertShape } from './shapes.js';
 
 /**
  * Module-level serialization anchor. Re-initialized to a resolved promise

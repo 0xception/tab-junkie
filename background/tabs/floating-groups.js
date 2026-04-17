@@ -29,9 +29,11 @@ export async function saveFloatingGroups(entries) {
   const valid = entries.filter((e) =>
     e && typeof e === 'object'
     && typeof e.groupId === 'string'
+    && typeof e.itemId === 'string' && e.itemId.length > 0
     && typeof e.windowId === 'number' && Number.isFinite(e.windowId)
     && typeof e.tabIndex === 'number' && Number.isFinite(e.tabIndex)
-    && typeof e.url === 'string' && e.url.length <= MAX_URL,
+    && typeof e.url === 'string' && e.url.length <= MAX_URL
+    && typeof e.savedAt === 'number' && Number.isFinite(e.savedAt),
   );
   await writeTransaction([{
     partition: PARTITION_FLOATING_GROUPS,
@@ -96,11 +98,17 @@ export async function reassociateFloatingGroups(liveTabIndex, existingClaims) {
     }
 
     if (matchedTabId !== null) {
+      // C-1: if record lacks a valid itemId, prune the orphan rather than
+      // calling claimTabForItem with undefined (which would poison the mirror).
+      if (!record.itemId) {
+        resolvedIndices.add(i);
+        continue;
+      }
       claimedTabIds.add(matchedTabId);
       resolvedIndices.add(i);
       // H7 (AC10): propagate re-association to claimsMirror + storage.session
       // so buildLiveStates correctly reflects the re-associated claim.
-      await claimTabForItem(record.groupId, matchedTabId);
+      await claimTabForItem(record.itemId, matchedTabId);
     }
   }
 
@@ -108,6 +116,33 @@ export async function reassociateFloatingGroups(liveTabIndex, existingClaims) {
   if (resolvedIndices.size > 0) {
     await pruneResolvedFloatingGroups(records, resolvedIndices);
   }
+}
+
+/**
+ * Append a single floating-group entry atomically using a writeTransaction
+ * mutator. Avoids race conditions with concurrent appends (unlike the
+ * read-modify-write of saveFloatingGroups).
+ *
+ * @param {{groupId: string, windowId: number, tabIndex: number, url: string, savedAt: number}} entry
+ * @returns {Promise<void>}
+ */
+export async function appendFloatingGroup(entry) {
+  if (!entry || typeof entry !== 'object'
+    || typeof entry.groupId !== 'string'
+    || typeof entry.itemId !== 'string' || entry.itemId.length === 0
+    || typeof entry.windowId !== 'number' || !Number.isFinite(entry.windowId)
+    || typeof entry.tabIndex !== 'number' || !Number.isFinite(entry.tabIndex)
+    || typeof entry.url !== 'string' || entry.url.length > MAX_URL
+    || typeof entry.savedAt !== 'number' || !Number.isFinite(entry.savedAt)) {
+    return;
+  }
+  await writeTransaction([{
+    partition: PARTITION_FLOATING_GROUPS,
+    mutator: (current) => {
+      const arr = Array.isArray(current) ? current : [];
+      return [...arr, entry];
+    },
+  }]);
 }
 
 /**

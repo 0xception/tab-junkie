@@ -19,7 +19,7 @@ beforeEach(() => {
 test('AC9: URL fallback when position does not match', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-fall', windowId: 99, tabIndex: 0, url: 'https://fallback.com/page', savedAt: 1000 },
+      { groupId: 'g-fall', itemId: 'g-fall', windowId: 99, tabIndex: 0, url: 'https://fallback.com/page', savedAt: 1000 },
     ],
   });
 
@@ -38,7 +38,7 @@ test('AC9: URL fallback when position does not match', async () => {
 test('AC9: URL fallback uses normalized comparison', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-norm', windowId: 99, tabIndex: 0, url: 'https://Example.COM/path', savedAt: 1000 },
+      { groupId: 'g-norm', itemId: 'g-norm', windowId: 99, tabIndex: 0, url: 'https://Example.COM/path', savedAt: 1000 },
     ],
   });
 
@@ -56,8 +56,8 @@ test('AC9: URL fallback uses normalized comparison', async () => {
 test('AC9: unresolved records remain in tj:floatingGroups', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-resolved', windowId: 1, tabIndex: 0, url: 'https://found.com', savedAt: 1000 },
-      { groupId: 'g-unresolved', windowId: 99, tabIndex: 99, url: 'https://missing.com', savedAt: 2000 },
+      { groupId: 'g-resolved', itemId: 'g-resolved', windowId: 1, tabIndex: 0, url: 'https://found.com', savedAt: 1000 },
+      { groupId: 'g-unresolved', itemId: 'g-unresolved', windowId: 99, tabIndex: 99, url: 'https://missing.com', savedAt: 2000 },
     ],
   });
 
@@ -78,7 +78,7 @@ test('AC9: unresolved records remain in tj:floatingGroups', async () => {
 test('AC9: no match at all — record fully retained', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-orphan', windowId: 5, tabIndex: 5, url: 'https://gone.com', savedAt: 1000 },
+      { groupId: 'g-orphan', itemId: 'g-orphan', windowId: 5, tabIndex: 5, url: 'https://gone.com', savedAt: 1000 },
     ],
   });
 

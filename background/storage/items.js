@@ -15,6 +15,7 @@ import {
   MAX_URL,
   readPartition,
 } from './partitions.js';
+import { MAX_BULK_INPUTS } from './shapes.js';
 import { writeTransaction } from './write-transaction.js';
 import { ulid } from './ids.js';
 import { normalizeUrl } from '../../shared/url.js';
@@ -218,6 +219,109 @@ export async function deleteItem(id) {
       },
     },
   ]);
+}
+
+/**
+ * Bulk-create saved items with partial-success semantics.
+ * Validates each input independently; writes all passing items in a
+ * single writeTransaction (one storage.get + one storage.set).
+ *
+ * @param {Array<{title: string, url: string, groupId?: string|null}>} inputs
+ * @returns {Promise<{created: import('./partitions.js').Item[], skipped: {input: Object, reason: string}[]}>}
+ */
+export async function bulkCreateItems(inputs) {
+  // H-4: non-array → return partial-success envelope (no-op, no throw)
+  if (!Array.isArray(inputs)) {
+    return { created: [], skipped: [] };
+  }
+  if (inputs.length === 0) {
+    return { created: [], skipped: [] };
+  }
+  // H-2: upper bound on inputs to prevent quota-exhaustion
+  if (inputs.length > MAX_BULK_INPUTS) {
+    throw new StorageError(ERR_VALIDATION, `bulkCreateItems: inputs array exceeds maximum of ${MAX_BULK_INPUTS}`);
+  }
+
+  const now = Date.now();
+  const candidates = [];
+  const skipped = [];
+
+  // Phase 1: pre-validate outside transaction (title/url format, length)
+  for (const input of inputs) {
+    try {
+      const normalizedUrl = validateNewItem(input);
+      candidates.push({
+        item: {
+          id: ulid(),
+          title: input.title,
+          url: normalizedUrl,
+          groupId: input.groupId ?? null,
+          sortOrder: 0,
+          createdAt: now,
+          updatedAt: now,
+        },
+        originalInput: input,
+      });
+    } catch (err) {
+      skipped.push({ input, reason: err.message });
+    }
+  }
+
+  if (candidates.length === 0) {
+    return { created: [], skipped };
+  }
+
+  // Phase 2: single writeTransaction (groups read + items append)
+  // H-1/H-3: collect results inside mutator into local vars; only merge into
+  // outer arrays after writeTransaction resolves successfully. This prevents
+  // phantom entries in `created` if the transaction throws (e.g. quota exceeded
+  // or assertShape failure).
+  let groupsSnapshot = [];
+  const created = [];
+
+  let txCreated = [];
+  let txGroupSkipped = [];
+
+  try {
+    await writeTransaction([
+      {
+        partition: PARTITION_GROUPS,
+        mutator: (groups) => {
+          groupsSnapshot = groups;
+          return groups;
+        },
+      },
+      {
+        partition: PARTITION_ITEMS,
+        mutator: (items) => {
+          txCreated = [];
+          txGroupSkipped = [];
+          const toAppend = [];
+          for (const { item, originalInput } of candidates) {
+            try {
+              assertGroupExists(item.groupId, groupsSnapshot);
+              // Strip _originalInput from stored shape if ever present
+              toAppend.push(item);
+              txCreated.push(item);
+            } catch (err) {
+              txGroupSkipped.push({ input: originalInput, reason: err.message });
+            }
+          }
+          return [...items, ...toAppend];
+        },
+      },
+    ]);
+    // Transaction succeeded — safe to surface results
+    created.push(...txCreated);
+    skipped.push(...txGroupSkipped);
+  } catch (err) {
+    // Transaction failed — all validated candidates are effectively skipped
+    for (const { originalInput } of candidates) {
+      skipped.push({ input: originalInput, reason: err.message });
+    }
+  }
+
+  return { created, skipped };
 }
 
 /**

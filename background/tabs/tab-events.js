@@ -17,10 +17,12 @@ import {
   removeTabsByWindow,
   getLiveTabIndex,
 } from './live-tab-index.js';
-import { releaseClaimByTab, reevaluateTab, isClaimsReady } from './tab-claims.js';
+import { releaseClaimByTab, reevaluateTab, isClaimsReady, getClaimsMirror } from './tab-claims.js';
 import { detectDriftForTab, clearDrift } from './drift.js';
 import { listItems } from '../storage/items.js';
 import { broadcast, SCOPE } from '../broadcast.js';
+import { recordOpener, pruneOpener, pruneOpenersByWindow, walkOpenerChain } from './opener-chain.js';
+import { appendFloatingGroup } from './floating-groups.js';
 
 /** @type {Map<number, ReturnType<typeof setTimeout>>} per-tab debounce timers (H2) */
 const reevalTimers = new Map();
@@ -93,6 +95,55 @@ export function registerTabEventListeners(readyPromise) {
   });
 
   /**
+   * tabs.onCreated: capture opener relationship and attempt group inheritance.
+   * - openerMap populated synchronously (before any await)
+   * - inheritance logic gated on readyPromise (needs items + claims)
+   */
+  chrome.tabs.onCreated.addListener((tab) => {
+    updateTabEntry(tab.id, {
+      url: tab.url || '',
+      windowId: tab.windowId,
+      active: tab.active || false,
+      audible: false,
+      index: typeof tab.index === 'number' ? tab.index : 0,
+      favIconUrl: '',
+    });
+
+    if (typeof tab.openerTabId === 'number') {
+      recordOpener(tab.id, tab.openerTabId);
+
+      (async () => {
+        try {
+          await readyPromise;
+          const items = await listItems();
+          const claimsMirror = getClaimsMirror();
+          const result = walkOpenerChain(tab.id, claimsMirror, items);
+          if (result) {
+            // H-4/H-5: re-read live state after async gap; bail if tab was removed
+            const liveEntry = getLiveTabIndex().get(tab.id);
+            if (!liveEntry) return;
+            const liveUrl = liveEntry.url || '';
+            const liveIndex = liveEntry.index ?? tab.index;
+            const liveWindowId = liveEntry.windowId ?? tab.windowId;
+            await appendFloatingGroup({
+              groupId: result.groupId,
+              itemId: result.itemId,
+              windowId: liveWindowId,
+              tabIndex: typeof liveIndex === 'number' ? liveIndex : 0,
+              url: liveUrl,
+              savedAt: Date.now(),
+            });
+            // H-6: remove requireClaimsReady so broadcast always fires
+            broadcast(SCOPE.LIVE_STATE, 'tab/opener-inherited');
+          }
+        } catch (err) {
+          console.warn('[tab-junkie] opener-chain inheritance failed', err);
+        }
+      })();
+    }
+  });
+
+  /**
    * tabs.onActivated: update active flags in LiveTabIndex.
    * Deactivate the previously active tab in the same window, activate the
    * new one.
@@ -114,6 +165,7 @@ export function registerTabEventListeners(readyPromise) {
    * tabs.onRemoved: remove from LiveTabIndex, release claim.
    */
   chrome.tabs.onRemoved.addListener((tabId) => {
+    pruneOpener(tabId);
     if (reevalTimers.has(tabId)) {
       clearTimeout(reevalTimers.get(tabId));
       reevalTimers.delete(tabId);
@@ -172,6 +224,7 @@ export function registerTabEventListeners(readyPromise) {
    */
   chrome.windows.onRemoved.addListener((windowId) => {
     const removedTabIds = removeTabsByWindow(windowId);
+    pruneOpenersByWindow(removedTabIds);
     for (const tabId of removedTabIds) {
       if (reevalTimers.has(tabId)) {
         clearTimeout(reevalTimers.get(tabId));

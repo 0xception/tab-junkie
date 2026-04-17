@@ -39,6 +39,7 @@ import {
   MSG_DEMOTE_ITEM,
   MSG_NAVIGATE_TO_ITEM,
   MSG_CLOSE_TABS,
+  MSG_BULK_CREATE_ITEMS,
 } from '../../shared/messages.js';
 
 import {
@@ -47,6 +48,7 @@ import {
   deleteItem,
   listItems,
   getItem,
+  bulkCreateItems,
   createGroup,
   updateGroup,
   deleteGroup,
@@ -82,6 +84,7 @@ const MUTATION_BROADCASTS = {
   [MSG_UPDATE_GROUP]: SCOPE.GROUPS,
   [MSG_DELETE_GROUP]: SCOPE.GROUPS,
   [MSG_SET_PREFERENCES]: SCOPE.PREFERENCES,
+  [MSG_BULK_CREATE_ITEMS]: SCOPE.ITEMS,
   [MSG_PROMOTE_TAB]: SCOPE.ITEMS,
   [MSG_DEMOTE_ITEM]: SCOPE.ITEMS,
   [MSG_NAVIGATE_TO_ITEM]: SCOPE.ITEMS, // Included because navigate bumps lastAccessedAt via updateItem — a real storage mutation.
@@ -118,6 +121,8 @@ async function dispatch(type, payload) {
       const driftRecords = await getDriftRecords();
       return { items, liveStates, driftRecords };
     }
+    case MSG_BULK_CREATE_ITEMS:
+      return bulkCreateItems(p.inputs);
     case MSG_GET_ITEM:
       return getItem(p.id);
     case MSG_CREATE_GROUP:
@@ -223,6 +228,7 @@ async function dispatch(type, payload) {
         if (tabEntry) {
           await saveFloatingGroups([{
             groupId: item.groupId,
+            itemId: p.itemId,
             windowId: tabEntry.windowId,
             tabIndex: tabEntry.index,
             url: tabEntry.url,
@@ -375,6 +381,7 @@ export function registerStorageHandlers(readyPromise) {
       if (isSafeMode()) {
         const writeTypes = new Set([
           MSG_CREATE_ITEM, MSG_UPDATE_ITEM, MSG_DELETE_ITEM,
+          MSG_BULK_CREATE_ITEMS,
           MSG_CREATE_GROUP, MSG_UPDATE_GROUP, MSG_DELETE_GROUP,
           MSG_SET_PREFERENCES, MSG_PROMOTE_TAB, MSG_DEMOTE_ITEM,
           MSG_NAVIGATE_TO_ITEM, MSG_CLOSE_TABS,

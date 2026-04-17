@@ -21,7 +21,7 @@ test('AC8: position match (windowId+tabIndex) succeeds on cold start', async () 
   // Seed floating groups with a record at window 1, index 2
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-1', windowId: 1, tabIndex: 2, url: 'https://old-url.com', savedAt: 1000 },
+      { groupId: 'g-1', itemId: 'g-1', windowId: 1, tabIndex: 2, url: 'https://old-url.com', savedAt: 1000 },
     ],
   });
 
@@ -41,7 +41,7 @@ test('AC8: position match (windowId+tabIndex) succeeds on cold start', async () 
 test('AC8: position match takes priority over URL match', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-pos', windowId: 1, tabIndex: 0, url: 'https://match.com', savedAt: 1000 },
+      { groupId: 'g-pos', itemId: 'g-pos', windowId: 1, tabIndex: 0, url: 'https://match.com', savedAt: 1000 },
     ],
   });
 
@@ -62,7 +62,7 @@ test('AC8: position match takes priority over URL match', async () => {
 test('AC8: already-claimed tab is excluded from position match', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-new', windowId: 1, tabIndex: 0, url: 'https://x.com', savedAt: 1000 },
+      { groupId: 'g-new', itemId: 'g-new', windowId: 1, tabIndex: 0, url: 'https://x.com', savedAt: 1000 },
     ],
   });
 

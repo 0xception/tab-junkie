@@ -23,7 +23,7 @@ beforeEach(() => {
 test('AC10: buildLiveStates reflects re-associated claims after reassociate resolves', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-float', windowId: 1, tabIndex: 0, url: 'https://live.com', savedAt: 1000 },
+      { groupId: 'g-float', itemId: 'g-float', windowId: 1, tabIndex: 0, url: 'https://live.com', savedAt: 1000 },
     ],
   });
 
@@ -47,8 +47,8 @@ test('AC10: buildLiveStates reflects re-associated claims after reassociate reso
 test('AC10: re-association is synchronously visible — no race window', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-a', windowId: 1, tabIndex: 0, url: 'https://a.com', savedAt: 1000 },
-      { groupId: 'g-b', windowId: 1, tabIndex: 1, url: 'https://b.com', savedAt: 1000 },
+      { groupId: 'g-a', itemId: 'g-a', windowId: 1, tabIndex: 0, url: 'https://a.com', savedAt: 1000 },
+      { groupId: 'g-b', itemId: 'g-b', windowId: 1, tabIndex: 1, url: 'https://b.com', savedAt: 1000 },
     ],
   });
 
