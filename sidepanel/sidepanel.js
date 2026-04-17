@@ -159,7 +159,7 @@ function avatarColor(title) {
    ========================================================================= */
 
 async function _populateGroupPicker(selectedGroupId) {
-  fieldGroupEl.innerHTML = '';
+  fieldGroupEl.replaceChildren();
   const ungroupedOpt = document.createElement('option');
   ungroupedOpt.value = '';
   ungroupedOpt.textContent = 'Ungrouped';
@@ -651,6 +651,26 @@ function buildGroupSection(group, byGroup, liveStates, driftRecords, isChild) {
   return section;
 }
 
+/* --- Indicator icon factories (H-1: single source of truth) ----------- */
+
+function _createAudibleIcon() {
+  const span = document.createElement('span');
+  span.className = 'item-audible-icon';
+  span.setAttribute('aria-label', 'Playing audio');
+  span.innerHTML =
+    '<svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 5h2l3-3v10L4 9H2a1 1 0 01-1-1V6a1 1 0 011-1z" fill="currentColor"/><path d="M9.5 4.5a3.5 3.5 0 010 5" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg>';
+  return span;
+}
+
+function _createDriftedIcon() {
+  const span = document.createElement('span');
+  span.className = 'item-drifted-icon';
+  span.setAttribute('aria-label', 'Tab has navigated away from its saved URL');
+  span.innerHTML =
+    '<svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1l6 11H1L7 1z" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/><path d="M7 5v3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="7" cy="10" r="0.8" fill="currentColor"/></svg>';
+  return span;
+}
+
 /* --- Item row ---------------------------------------------------------- */
 
 function buildItemRow(item, liveStates, driftRecords) {
@@ -718,21 +738,11 @@ function buildItemRow(item, liveStates, driftRecords) {
     indicators.className = 'item-indicators';
 
     if (needsAudible) {
-      const audibleIcon = document.createElement('span');
-      audibleIcon.className = 'item-audible-icon';
-      audibleIcon.setAttribute('aria-label', 'Playing audio');
-      audibleIcon.innerHTML =
-        '<svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 5h2l3-3v10L4 9H2a1 1 0 01-1-1V6a1 1 0 011-1z" fill="currentColor"/><path d="M9.5 4.5a3.5 3.5 0 010 5" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg>';
-      indicators.appendChild(audibleIcon);
+      indicators.appendChild(_createAudibleIcon());
     }
 
     if (needsDrifted) {
-      const driftedIcon = document.createElement('span');
-      driftedIcon.className = 'item-drifted-icon';
-      driftedIcon.setAttribute('aria-label', 'Tab has navigated away from its saved URL');
-      driftedIcon.innerHTML =
-        '<svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1l6 11H1L7 1z" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/><path d="M7 5v3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="7" cy="10" r="0.8" fill="currentColor"/></svg>';
-      indicators.appendChild(driftedIcon);
+      indicators.appendChild(_createDriftedIcon());
     }
 
     row.appendChild(indicators);
@@ -786,6 +796,7 @@ async function refetchAndPatchLiveState() {
   }
   const liveStates = itemsResp.liveStates || {};
   const driftRecords = itemsResp.driftRecords || {};
+  const itemMap = new Map(itemsResp.items.map((it) => [it.id, it]));
 
   const rows = itemListEl.querySelectorAll('[data-item-id]');
   for (const row of rows) {
@@ -825,7 +836,7 @@ async function refetchAndPatchLiveState() {
       img.onerror = () => {
         const fallback = document.createElement('div');
         fallback.className = 'item-avatar';
-        const itemData = itemsResp.items.find((it) => it.id === id);
+        const itemData = itemMap.get(id);
         const fbLetter = (itemData?.title || '?').charAt(0);
         fallback.textContent = fbLetter;
         fallback.style.backgroundColor = avatarColor(itemData?.title || '');
@@ -836,7 +847,7 @@ async function refetchAndPatchLiveState() {
       /* Favicon gone or unsafe — swap back to letter avatar */
       const avatar = document.createElement('div');
       avatar.className = 'item-avatar';
-      const itemData = itemsResp.items.find((it) => it.id === id);
+      const itemData = itemMap.get(id);
       const letter = (itemData?.title || '?').charAt(0);
       avatar.textContent = letter;
       avatar.style.backgroundColor = avatarColor(itemData?.title || '');
@@ -867,11 +878,7 @@ function _ensureIndicators(row, live, isDrifted) {
         row.appendChild(indicators);
       }
     }
-    audibleIcon = document.createElement('span');
-    audibleIcon.className = 'item-audible-icon';
-    audibleIcon.setAttribute('aria-label', 'Playing audio');
-    audibleIcon.innerHTML =
-      '<svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 5h2l3-3v10L4 9H2a1 1 0 01-1-1V6a1 1 0 011-1z" fill="currentColor"/><path d="M9.5 4.5a3.5 3.5 0 010 5" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg>';
+    audibleIcon = _createAudibleIcon();
     indicators.appendChild(audibleIcon);
   } else if (!needsAudible && audibleIcon) {
     audibleIcon.remove();
@@ -893,11 +900,7 @@ function _ensureIndicators(row, live, isDrifted) {
         row.appendChild(indicators);
       }
     }
-    driftedIcon = document.createElement('span');
-    driftedIcon.className = 'item-drifted-icon';
-    driftedIcon.setAttribute('aria-label', 'Tab has navigated away from its saved URL');
-    driftedIcon.innerHTML =
-      '<svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1l6 11H1L7 1z" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/><path d="M7 5v3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="7" cy="10" r="0.8" fill="currentColor"/></svg>';
+    driftedIcon = _createDriftedIcon();
     indicators.appendChild(driftedIcon);
   } else if (!needsDrifted && driftedIcon) {
     driftedIcon.remove();
@@ -1100,7 +1103,7 @@ itemListEl.addEventListener('drop', (e) => {
 
   itemListEl.insertBefore(srcSection, dropIndicatorEl);
 
-  const realSections = [...itemListEl.querySelectorAll('[data-group-id]')];
+  const realSections = [...itemListEl.querySelectorAll('[data-group-id]:not(.group-section--child)')];
   const updates = [];
   realSections.forEach((sec, idx) => {
     const newOrder = idx * 1000;

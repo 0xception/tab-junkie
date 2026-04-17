@@ -1,9 +1,9 @@
 # Tab Junkie — Solution Design
 
-**Version:** 2.3
+**Version:** 2.5
 **Date:** 2026-04-16
 **Owner:** [solution-architect]
-**Status:** Active — B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-003 + B-010 + B-008 + B-021 + B-011 + B-012 + B-015 + B-053 + B-013 + B-005 landed.
+**Status:** Active — B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-003 + B-010 + B-008 + B-021 + B-011 + B-012 + B-015 + B-053 + B-013 + B-005 + B-054 landed.
 
 > This document is the current source of truth for what has actually shipped.
 > For the R2 *plan* (pre-build design) see `docs/design/B-001a.md`; deviations
@@ -13,7 +13,7 @@
 
 ## 1. Project Structure
 
-Current build-relevant layout on `feature/rebuild-from-prd` (paths shipped through B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-053 + B-013 + B-005):
+Current build-relevant layout on `feature/rebuild-from-prd` (paths shipped through B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-053 + B-013 + B-005 + B-054):
 
 ```
 junkie/
@@ -50,7 +50,10 @@ junkie/
 │   ├── url.js                             URL normalization — normalizeUrl(url, mode) with forStorage/forMatch modes; scheme allowlist; protocol defaulting; hostname lowercasing (B-001d)
 │   └── errors.js                          Canonical home for StorageError + ERR_* constants (moved from background/storage/errors.js, which now re-exports from here) (B-001d)
 ├── sidepanel/
-│   └── sidepanel.html                     Placeholder stub — overwritten by B-022
+│   ├── sidepanel.html                     Shell HTML: header, filter, group list, dialogs, skeleton, empty state (B-054)
+│   ├── sidepanel.js                       Main module: renderAll, refetchAndPatchLiveState, drag/drop, keyboard nav, CRUD dialogs (B-054, 1249 lines)
+│   ├── sidepanel.css                      Full stylesheet: layout, indicators, themes, skeletons, dialogs, drag states (B-054)
+│   └── theme-init.js                      Synchronous theme class application before first paint (B-054)
 ├── newtab/
 │   └── newtab.html                        Placeholder stub — overwritten by B-035
 ├── popup/
@@ -58,10 +61,11 @@ junkie/
 └── tests/                                 R5 test suite (unit · integration · perf · UAT notes)
 ```
 
-The HTML stubs exist only so Chrome's manifest validator can resolve
-`default_path` / `chrome_url_overrides.newtab` / `action.default_popup` at
-extension load time. They have no script content and will be replaced
-wholesale when the corresponding UI backlog items land.
+The sidepanel is fully implemented (B-054). The HTML stubs in `newtab/` and
+`popup/` exist only so Chrome's manifest validator can resolve
+`chrome_url_overrides.newtab` / `action.default_popup` at extension load
+time. They have no script content and will be replaced when the
+corresponding UI backlog items land.
 
 ---
 
@@ -460,7 +464,7 @@ patch list (M2 fix) and always recomputed by the mutator.
 
 ---
 
-## 10. What B-001a Did NOT Ship (updated through B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-021 + B-011 + B-012 + B-015 + B-053 + B-013 + B-005)
+## 10. What B-001a Did NOT Ship (updated through B-001d + B-002 + B-006 + B-016 + B-017 + B-050 + B-019 + B-020 + B-021 + B-011 + B-012 + B-015 + B-053 + B-013 + B-005 + B-054 + B-018)
 
 Items fully resolved by B-001b, B-001c, B-001d, B-002, B-006, B-016, B-017, B-050, B-019, or B-020 are marked **DONE**. The entire B-001 family (a/b/c/d) is now complete. Remaining items are open.
 
@@ -481,7 +485,7 @@ Items fully resolved by B-001b, B-001c, B-001d, B-002, B-006, B-016, B-017, B-05
 | State broadcast to all surfaces | **B-050** | **DONE** | `background/broadcast.js` with `SCOPE` enum; `MSG_STATE_CHANGED` push on every mutation + tab event; fire-and-forget delivery; cold-start suppression via `isClaimsReady` gate; `MUTATION_BROADCASTS` table maps handler names to broadcast payloads. `lastAccessedAt` added to `updateItem` allowed fields (latent bug fix). See §10.10. |
 | Navigate to item | **B-019** | **DONE** | `MSG_NAVIGATE_TO_ITEM` handler; switches to claimed tab or opens new tab with immediate `claimTabForItem` call on new-tab path. |
 | Close tabs | **B-020** | **DONE** | `MSG_CLOSE_TABS` handler; partitions `ids` array into valid vs already-gone; closes valid tabs via `chrome.tabs.remove`; `onRemoved` handles claim cleanup. |
-| Sidepanel UI | **B-022** | pending | Currently a stub `sidepanel.html`. |
+| Sidepanel UI | **B-022 / B-054** | **DONE** | Full sidepanel implementation: group tree rendering, live-state patching, drag reorder, keyboard navigation, CRUD dialogs, filter, theme support, skeleton loader, empty state. See §23. |
 | Newtab UI | **B-035** | pending | Currently a stub `newtab.html`. |
 | Popup UI | **B-036** | pending | Currently a stub `popup.html`. |
 | ESLint allowlist refactor + circular-dep extraction | **B-053** | pending | Flip denylist → allowlist (only `background/**` may reach `background/storage/**`); resolve the circular `partitions.js` ↔ `write-transaction.js` import that `jsconfig.json` currently papers over. |
@@ -617,7 +621,7 @@ The drift icon DOM is managed by `_ensureIndicators(row, live, isDrifted)` in `s
 
 **Behavior:**
 - **`isConnected` guard:** Early-returns if `row.isConnected` is false, preventing DOM manipulation on detached nodes during rapid re-renders or race conditions.
-- **Drift false-to-true:** When `isDrifted` is truthy and no `.item-drifted-icon` exists, creates the icon span inside `.item-indicators` (creating the container div if needed, inserted before `.item-actions`). Sets `aria-label="Tab has navigated away from its saved URL"`. SVG markup is hardcoded (no user data).
+- **Drift false-to-true:** When `isDrifted` is truthy and no `.item-drifted-icon` exists, creates the icon span via `_createDriftedIcon()` factory (B-054 R4 fix — extracted from inline SVG to shared factory) inside `.item-indicators` (creating the container div if needed, inserted before `.item-actions`). Sets `aria-label="Tab has navigated away from its saved URL"`. SVG markup is hardcoded (no user data).
 - **Drift true-to-false:** When `isDrifted` is falsy and `.item-drifted-icon` exists, removes the icon. If the `.item-indicators` container is now empty, removes it too.
 - **Call site:** Invoked from `refetchAndPatchLiveState` as `_ensureIndicators(row, live, !!drifted)` where `drifted = driftRecords[id]`.
 
@@ -648,6 +652,15 @@ For each `FloatingGroup` record (`{ groupId, itemId, windowId, tabIndex, url, sa
 
 - **First-in-array-wins:** when multiple `FloatingGroup` records could claim the same tab, the record that appears first in the `tj:floatingGroups` array wins. Subsequent records fall through to URL-fallback or remain unresolved.
 - **Claim propagation:** a successful match calls `claimTabForItem(record.itemId, tabId)` from `tab-claims.js`, writing the claim to `claimsMirror` and flushing to `storage.session`. Records lacking a valid `itemId` (pre-B-013 orphans) are silently pruned without claim propagation. The resolved record is then removed from `tj:floatingGroups` via `writeTransaction`.
+
+### B-018 correctness fixes
+
+B-018 (verification item) confirmed the persistence-across-restart flow and fixed two race conditions found in R4:
+
+1. **TOCTOU in `pruneResolvedFloatingGroups`:** the prune function was filtering against a stale `records` snapshot captured before the `writeTransaction` callback. Fixed: the mutator now reads the live `current` value from `writeTransaction` and filters by a `resolvedItemIds` Set (stable keys, not positional indices).
+2. **Premature resolution marking:** `resolvedItemIds.add(record.itemId)` executed before `await claimTabForItem()` returned. If the claim failed, the record was already marked resolved and would be pruned. Fixed: the `add` call was moved to after successful claim; on failure the tab is released and a warning is logged.
+
+These fixes do not change the resolution strategy, tie-break rules, or storage schema.
 
 ### Known limitation
 
@@ -822,12 +835,11 @@ shipped code is captured here.
 
 ### Unanticipated additions (not in R2 at all)
 
-- **Placeholder HTML stubs** in `sidepanel/`, `newtab/`, and `popup/`.
-  Chrome's manifest validator resolves `default_path`,
-  `chrome_url_overrides.newtab`, and `action.default_popup` at extension
-  load time — loading the unpacked extension for UAT failed until the
-  stubs existed. These are empty placeholders and will be overwritten by
-  B-022 / B-035 / B-036.
+- **Placeholder HTML stubs** in `newtab/` and `popup/` (sidepanel stub replaced by full implementation in B-054).
+  Chrome's manifest validator resolves `chrome_url_overrides.newtab` and
+  `action.default_popup` at extension load time — loading the unpacked
+  extension for UAT failed until the stubs existed. Remaining stubs will
+  be overwritten by B-035 / B-036.
 - **`jsconfig.json`** — added to suppress TypeScript-checker false-positive
   warnings arising from a circular import (`partitions.js` imports
   `writeTransaction` for the init path, and `write-transaction.js` imports
@@ -2336,3 +2348,215 @@ Registered in `MUTATION_BROADCASTS` with `SCOPE.ITEMS` — a successful bulk cre
 | C-3 | Service worker cold-start safe | PASS | `bulkCreateItems` is stateless — reads items and groups from storage on every call via `writeTransaction`. No in-memory state dependency. |
 | C-4 | ID stability | PASS | Each item gets a fresh ULID via the existing `ulid()` generator. |
 | C-5 | Manifest file references resolvable | N/A | No new manifest entries. |
+
+---
+
+## 23. B-054 — Sidepanel Shell Verification (R6 Close)
+
+B-054 is a verification item confirming the full sidepanel implementation built across Sprints 6-10. The sidepanel replaced the original `sidepanel.html` stub and delivers 17 acceptance criteria covering the complete bookmark management UI surface.
+
+### 23.1 Architecture Overview
+
+The sidepanel follows a **message-based architecture** with no direct storage access. All reads and writes go through `chrome.runtime.sendMessage` to the service worker, enforced by the ESLint write-boundary denylist (§6). The render lifecycle has two distinct paths:
+
+**Initial load (skeleton to render):**
+1. `sidepanel.html` loads `theme-init.js` synchronously (sets theme class before first paint, preventing flash).
+2. `DOMContentLoaded` fires. The skeleton loader (CSS-animated placeholder rows) is visible immediately.
+3. `sidepanel.js` sends `MSG_LIST_ITEMS` and `MSG_LIST_GROUPS` in parallel via `Promise.all`.
+4. On response, `renderAll()` builds the full group tree using a `DocumentFragment`, appends it in a single DOM write, then hides the skeleton.
+
+**Broadcast-driven updates (two paths):**
+- **Full re-render** (`MSG_STATE_CHANGED { scope: 'items' | 'groups' }`): calls `renderAll()` which rebuilds the entire tree. Used when the item or group collection changes (CRUD, bulk operations, group reorder).
+- **Targeted live-state patch** (`MSG_STATE_CHANGED { scope: 'liveState' }`): calls `refetchAndPatchLiveState()` which fetches fresh data and patches existing DOM rows in-place without rebuilding the tree. Used for tab events (active, audible, drift, favicon changes).
+
+### 23.2 Key Patterns
+
+#### DocumentFragment single-append rendering
+
+`renderAll()` constructs the entire group tree (groups, sub-groups, item rows) inside a `DocumentFragment`, then appends it to the live DOM in one operation. This avoids incremental layout thrashing during large renders. Each group section is built by `buildGroupSection()`, which recursively handles sub-group indentation via CSS class `.group-section--child`.
+
+#### `_ensureIndicators` patch lifecycle
+
+`_ensureIndicators(row, live, isDrifted)` is the sole function responsible for creating and removing audible and drifted indicator icons on item rows after initial render. It guards against detached-node DOM operations via `row.isConnected`. It creates or removes the `.item-indicators` container as needed, and inserts it before `.item-actions` to maintain correct DOM order. SVG markup is hardcoded (no user data interpolation — XSS-safe).
+
+**R4 fix (Sprint 11):** SVG icon factory functions `_createAudibleIcon()` and `_createDriftedIcon()` were extracted to eliminate duplication between `buildItemRow()` (initial render) and `_ensureIndicators()` (patch path). Both call sites now use the same factories.
+
+#### `_pendingGroupsRender` drag guard
+
+During drag-and-drop reorder operations, a `MSG_STATE_CHANGED` broadcast can arrive mid-drag (because the `MSG_UPDATE_GROUP` that persists the new `sortOrder` triggers a broadcast). The `_pendingGroupsRender` flag suppresses `renderAll()` during active drag operations and queues a single re-render for when the drag completes. This prevents the DOM from being rebuilt under the user's cursor.
+
+#### `refetchAndPatchLiveState` with O(1) `itemMap` lookup
+
+This function handles high-frequency live-state broadcasts (tab activated, audible changed, drift detected) without full re-renders. It fetches `MSG_LIST_ITEMS` and iterates the response to patch `data-live`, `data-active`, `data-audible`, `data-drifted` attributes and favicon/avatar transitions on existing rows.
+
+**R4 fix (Sprint 11):** The original implementation used `items.find(i => i.id === id)` inside the row-patching loop, resulting in O(N x M) complexity where N = rows and M = items. This was replaced with a pre-built `Map<id, item>` (`itemMap`) for O(1) lookups per row, reducing complexity to O(N + M).
+
+#### Nested group drag reorder
+
+Group sections are reorderable via drag-and-drop with `sortOrder` persistence. The drag handler uses `querySelectorAll('.group-section')` to enumerate draggable sections.
+
+**R4 fix (Sprint 11):** The original selector included child (sub-group) sections, causing nested groups to be independently draggable and producing incorrect `sortOrder` values. The fix changed the selector to exclude `.group-section--child`, ensuring only top-level groups participate in reorder operations.
+
+### 23.3 File Inventory
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `sidepanel/sidepanel.html` | ~180 | Shell HTML: header with filter input, group list container, CRUD dialog (static, `hidden`), confirmation dialog (static, `hidden`), skeleton loader, empty-state placeholder |
+| `sidepanel/sidepanel.js` | 1249 | Main module: `renderAll`, `buildGroupSection`, `buildItemRow`, `refetchAndPatchLiveState`, `_ensureIndicators`, drag/drop handlers, keyboard navigation, CRUD dialog logic, filter with debounce, broadcast listener |
+| `sidepanel/sidepanel.css` | ~500 | Layout, group/item styling, indicator icons, theme variables (light/dark), skeleton animation, dialog overlay, drag ghost states, focus indicators |
+| `sidepanel/theme-init.js` | ~10 | Synchronous theme class application from `chrome.storage.local` before first paint |
+
+### 23.4 Acceptance Criteria Delivered
+
+| # | AC | Status |
+|---|-----|--------|
+| AC1 | HTML shell with header, group list, skeleton, empty state | PASS |
+| AC2 | Parallel `MSG_LIST_ITEMS` + `MSG_LIST_GROUPS` fetch on load | PASS |
+| AC3 | Group sections rendered with name + color bar | PASS |
+| AC4 | Sub-group indentation via `.group-section--child` | PASS |
+| AC5 | Item rows with favicon (safe-URL guard) or letter avatar | PASS |
+| AC6 | Live indicator (green border via `[data-live]` CSS) | PASS |
+| AC7 | Active indicator (`[data-active]` styling) | PASS |
+| AC8 | Audible indicator (speaker icon via `_ensureIndicators`) | PASS |
+| AC9 | Drifted indicator (drift icon via `_ensureIndicators`) | PASS |
+| AC10 | Collapse/expand groups with persisted state | PASS |
+| AC11 | Click-to-navigate via `MSG_NAVIGATE_TO_ITEM` | PASS |
+| AC12 | Broadcast-driven re-render (full + targeted patch) | PASS |
+| AC13 | Empty state: icon + message + CTA | PASS |
+| AC14 | Loading skeleton (CSS-animated, not spinner) | PASS |
+| AC15 | Theme support (light/dark, flash-free via `theme-init.js`) | PASS |
+| AC16 | Keyboard navigation (arrow keys, Enter to activate, Tab for actions) | PASS |
+| AC17 | ARIA roles (`role="tree"`, `role="treeitem"`, `aria-expanded`, focus indicators) | PASS |
+
+### 23.5 Message Types Used
+
+No new message types introduced. The sidepanel consumes the existing contract:
+
+| Message | Direction | Purpose |
+|---------|-----------|---------|
+| `MSG_LIST_ITEMS` | sidepanel -> SW | Fetch items + liveStates + driftRecords |
+| `MSG_LIST_GROUPS` | sidepanel -> SW | Fetch group tree |
+| `MSG_CREATE_ITEM` | sidepanel -> SW | Bookmark CRUD |
+| `MSG_UPDATE_ITEM` | sidepanel -> SW | Bookmark CRUD |
+| `MSG_DELETE_ITEM` | sidepanel -> SW | Bookmark CRUD |
+| `MSG_GET_ITEM` | sidepanel -> SW | Pre-fill edit dialog |
+| `MSG_CREATE_GROUP` | sidepanel -> SW | Group CRUD |
+| `MSG_UPDATE_GROUP` | sidepanel -> SW | Group CRUD (incl. sortOrder, collapsed) |
+| `MSG_DELETE_GROUP` | sidepanel -> SW | Group CRUD |
+| `MSG_PROMOTE_TAB` | sidepanel -> SW | Save live tab as bookmark |
+| `MSG_DEMOTE_ITEM` | sidepanel -> SW | Demote bookmark to floating tab |
+| `MSG_NAVIGATE_TO_ITEM` | sidepanel -> SW | Open/switch to tab |
+| `MSG_CLOSE_TABS` | sidepanel -> SW | Close live tabs |
+| `MSG_BULK_CREATE_ITEMS` | sidepanel -> SW | Bulk import |
+| `MSG_SET_PREFERENCES` | sidepanel -> SW | Theme preference |
+| `MSG_STATE_CHANGED` | SW -> sidepanel | Broadcast trigger for re-render/patch |
+
+### 23.6 Storage Schema — No Changes
+
+No new partitions, no schema version bump, no migration. The sidepanel is a pure consumer of existing message contracts.
+
+### 23.7 Manifest Permissions — No Changes
+
+No new permissions. `sidePanel` permission and `side_panel.default_path` were already declared in `manifest.json`.
+
+### 23.8 Known Limitations
+
+| # | Limitation | Severity | Notes |
+|---|-----------|----------|-------|
+| 1 | AC12 performance not formally measured | LOW | The performance standard (< 200ms first paint on 500 items, < 50ms search P95 on 1000 items) has not been benchmarked with instrumentation. UAT showed no perceptible lag but formal measurement is deferred. |
+| 2 | `sidepanel.js` is 1249 lines | MEDIUM | The file handles rendering, patching, drag/drop, keyboard nav, CRUD dialogs, and filter logic in a single module. Recommended for future modularity improvement: extract dialog logic, drag handlers, and keyboard navigation into separate modules under `sidepanel/`. |
+| 3 | Full re-render on item/group mutations | LOW | `renderAll()` rebuilds the entire group tree on any item or group change. Targeted DOM patching for single-item CRUD would reduce work but adds complexity. Acceptable at current collection sizes (< 1000 items). |
+| 4 | Broadcast amplification on live-state events | MEDIUM | Inherited from B-010 (§17.8 finding #1). Each live-state broadcast triggers `MSG_LIST_ITEMS` refetch even though only indicator attributes changed. A dedicated lightweight `MSG_GET_LIVE_STATES` message could reduce payload. |
+
+### 23.9 R4 Fixes Applied (Sprint 11)
+
+| # | Finding | File | Fix |
+|---|---------|------|-----|
+| H-1 | Duplicate SVG markup for audible/drifted icons between `buildItemRow` and `_ensureIndicators` | `sidepanel/sidepanel.js` | Extracted `_createAudibleIcon()` and `_createDriftedIcon()` factory functions; both render paths now call the same factories |
+| H-2 | O(N x M) complexity in `refetchAndPatchLiveState` from `items.find()` inside row loop | `sidepanel/sidepanel.js` | Pre-built `Map<id, item>` (`itemMap`) before the loop; lookups are now O(1) |
+| H-3 | Nested group sections included in drag reorder `querySelectorAll` | `sidepanel/sidepanel.js` | Changed selector to exclude `.group-section--child`; only top-level groups participate in reorder |
+
+### 23.10 Rollback Plan
+
+No storage schema changes. No new permissions. No durable state changes beyond what the existing CRUD message handlers already persist. Rollback = `git revert` the B-054 commits; the sidepanel reverts to its stub state. No data migration needed.
+
+### 23.11 R2 Correctness Checklist (Post-Build Verification)
+
+| # | Check | Status | Notes |
+|---|-------|--------|-------|
+| C-1 | Storage schema versioned | N/A | No schema change. Sidepanel is a pure consumer of existing message contracts. |
+| C-2 | Message contracts typed | PASS | No new message types. All 16 consumed messages pre-existed in `shared/messages.js` with sidepanel listed as allowed sender. |
+| C-3 | Service worker cold-start safe | PASS | Sidepanel sends `MSG_LIST_ITEMS` + `MSG_LIST_GROUPS` on every load; these handlers `await readyPromise` in the SW, so a cold-start SW correctly gates the response until migrations complete. |
+| C-4 | ID stability | N/A | No changes to item identity or matching logic. |
+| C-5 | Manifest file references resolvable | PASS | `side_panel.default_path: "sidepanel/sidepanel.html"` resolves to the implemented HTML file (no longer a stub). |
+
+---
+
+## 24. B-018 — Floating Tab Group Persistence Across Restart (R6 Close)
+
+### 24.1 Summary
+
+B-018 is a verification item confirming that floating-group records in `tj:floatingGroups` survive service-worker restarts and browser restarts, and that `reassociateFloatingGroups` correctly re-claims tabs on cold start. The core persistence logic was pre-built in B-001d (drift/claim infrastructure) and B-002 (floating-group re-association). B-018 verified the end-to-end flow and fixed two race conditions found during R4 review.
+
+### 24.2 Architecture Confirmed
+
+The cold-start sequence for floating-group persistence:
+
+1. Service worker wakes (cold start or browser restart).
+2. `readyPromise` gates on `runMigrations()` completing.
+3. `reconcileClaims()` rebuilds `claimsMirror` from `storage.session` and `liveTabIndex`.
+4. `reassociateFloatingGroups(liveTabIndex, existingClaims)` runs post-`reconcileClaims`.
+5. For each `tj:floatingGroups` record: position match (`windowId` + `tabIndex`) first, URL fallback second.
+6. Disambiguation: first-record-wins via `claimedTabIds` Set prevents multiple records from claiming the same tab.
+7. Resolved records are pruned from `tj:floatingGroups`; unresolved records are retained.
+
+No post-restart broadcast is needed. The sidepanel uses a pull-on-open pattern (`MSG_LIST_ITEMS` on every `DOMContentLoaded`), so it always fetches current state including any claims established during re-association.
+
+### 24.3 R4 Fixes
+
+| # | Severity | Finding | File | Fix |
+|---|----------|---------|------|-----|
+| H-1 | HIGH | TOCTOU in `pruneResolvedFloatingGroups`: stale `records` snapshot used inside `writeTransaction` callback | `background/tabs/floating-groups.js` | Mutator reads live `current` from `writeTransaction`; filters by `resolvedItemIds` Set (stable keys) instead of positional indices |
+| H-2 | HIGH | Premature resolution marking: `resolvedItemIds.add()` called before `await claimTabForItem()` succeeded | `background/tabs/floating-groups.js` | Moved `add` to after successful claim; on failure, releases the tab and logs warning |
+
+### 24.4 Storage Schema — No Changes
+
+No new partitions. No schema version bump. `tj:floatingGroups` shape (`FloatingGroup[]`) is unchanged from B-002/B-013. `KNOWN_VERSION` remains at `1`.
+
+### 24.5 Message Contracts — No New Types
+
+No new message types. The re-association flow is internal to the service worker cold-start sequence and does not use `chrome.runtime.onMessage`.
+
+### 24.6 Manifest Permissions — No Changes
+
+No new permissions required.
+
+### 24.7 Test Coverage
+
+9 new tests added (374 total), covering:
+- Position-match resolution on cold start
+- URL-fallback resolution when tab position has changed
+- Disambiguation (first-record-wins via `claimedTabIds`)
+- TOCTOU fix: prune uses live `current` not stale snapshot
+- Premature-resolution fix: failed claim does not mark record as resolved
+- Unresolved records retained across restart cycles
+
+### 24.8 Known Deferred Items
+
+| # | Item | Severity | Notes |
+|---|------|----------|-------|
+| 1 | No TTL on unresolved `FloatingGroup` records | LOW | Inherited from B-002 (§10.8). Records for permanently closed windows accumulate indefinitely. Cleanup job tracked as tech debt. |
+
+### 24.9 Rollback Plan
+
+No storage schema changes. No new permissions. Reverting B-018 code changes reverts the two race-condition fixes (H-1 and H-2); the pre-B-018 code still functions but has the TOCTOU and premature-resolution bugs under concurrent-write and claim-failure edge cases. No data migration needed.
+
+### 24.10 R2 Correctness Checklist (Post-Build Verification)
+
+| # | Check | Status | Notes |
+|---|-------|--------|-------|
+| C-1 | Storage schema versioned | N/A | No schema change. Verification item only. |
+| C-2 | Message contracts typed | N/A | No new message types. |
+| C-3 | Service worker cold-start safe | PASS | `reassociateFloatingGroups` runs after `reconcileClaims` completes; `readyPromise` gates all message handlers. The two race-condition fixes (H-1, H-2) improve cold-start correctness. |
+| C-4 | ID stability | PASS | `resolvedItemIds` Set uses `record.itemId` (stable bookmark ID). No positional-index dependency. |
+| C-5 | Manifest file references resolvable | N/A | No manifest changes. |

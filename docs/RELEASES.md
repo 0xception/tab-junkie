@@ -4,6 +4,30 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.6.1 — Sidepanel Shell Correctness + Floating Tab Persistence Fixes (2026-04-16)
+
+### Fixed
+
+**Sidepanel shell (B-054)**
+- SVG icon factories (`_createAudibleIcon`, `_createDriftedIcon`) extracted and corrected — icons were previously inlined incorrectly and would fail to render in strict CSP environments
+- `itemMap` lookup converted from O(N²) linear scan to O(1) Map — eliminates render lag with large collections
+- Nested-group drag selector fixed — drag operations on items inside nested groups no longer silently no-op
+- `replaceChildren` applied consistently across all list renders — prevents residual DOM nodes from stale renders
+
+**Floating tab persistence (B-018)**
+- `pruneResolvedFloatingGroups` race fixed — now reads the live current record rather than a stale snapshot captured before concurrent appends; prevents silent record loss under concurrent writes (TOCTOU)
+- Claim-failure path corrected — a tab that fails to claim no longer gets marked as resolved; floating-group records are retained for the next reconciliation pass instead of being permanently dropped
+
+### Internal
+- 42 new automated tests (374 total: 332 baseline + 33 B-054 + 9 B-018), all passing
+- SOLUTION_DESIGN.md v2.5 (§23 B-054, §24 B-018)
+
+### Test results
+- Automated: 374/374 passing
+- UAT: PASS — B-054 (16/17 ACs; AC12 SKIP — requires browser environment), B-018 (13/13 ACs)
+
+---
+
 ## v1.6.0 — Opener-chain Inheritance, Bulk-create, Circular Dep Fix (2026-04-16)
 
 ### What's new

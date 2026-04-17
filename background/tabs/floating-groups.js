@@ -66,7 +66,10 @@ export async function reassociateFloatingGroups(liveTabIndex, existingClaims) {
 
   // Build set of already-claimed tabIds for exclusion
   const claimedTabIds = new Set(Object.values(existingClaims));
-  const resolvedIndices = new Set();
+  // H-1 fix: collect resolved itemIds (stable keys) instead of positional
+  // indices so the prune mutator can filter the live `current` array rather
+  // than relying on a stale snapshot.
+  const resolvedItemIds = new Set();
 
   // H5: First record in array order wins for duplicate windowId+tabIndex.
   // Matches R2 ruling #3 and reconcileClaims first-unclaimed-wins pattern.
@@ -101,20 +104,30 @@ export async function reassociateFloatingGroups(liveTabIndex, existingClaims) {
       // C-1: if record lacks a valid itemId, prune the orphan rather than
       // calling claimTabForItem with undefined (which would poison the mirror).
       if (!record.itemId) {
-        resolvedIndices.add(i);
+        resolvedItemIds.add(record.itemId);
         continue;
       }
+      // H-2 fix: add claimedTabIds guard synchronously (in-memory disambiguation)
+      // but only mark as resolved AFTER claimTabForItem succeeds.
       claimedTabIds.add(matchedTabId);
-      resolvedIndices.add(i);
-      // H7 (AC10): propagate re-association to claimsMirror + storage.session
-      // so buildLiveStates correctly reflects the re-associated claim.
-      await claimTabForItem(record.itemId, matchedTabId);
+      try {
+        // H7 (AC10): propagate re-association to claimsMirror + storage.session
+        // so buildLiveStates correctly reflects the re-associated claim.
+        await claimTabForItem(record.itemId, matchedTabId);
+        // H-2: only mark resolved after the claim is persisted
+        resolvedItemIds.add(record.itemId);
+      } catch (err) {
+        // H-2: claim failed — release the tab so another record can claim it
+        claimedTabIds.delete(matchedTabId);
+        // eslint-disable-next-line no-console
+        console.warn('[tab-junkie:floating-groups] claimTabForItem failed for item %s, tab %d:', record.itemId, matchedTabId, err);
+      }
     }
   }
 
   // Remove resolved records, keep unresolved ones (AC9 last clause)
-  if (resolvedIndices.size > 0) {
-    await pruneResolvedFloatingGroups(records, resolvedIndices);
+  if (resolvedItemIds.size > 0) {
+    await pruneResolvedFloatingGroups(resolvedItemIds);
   }
 }
 
@@ -148,14 +161,19 @@ export async function appendFloatingGroup(entry) {
 /**
  * Remove resolved floating-group records from storage.
  *
- * @param {Array<Object>} records — full records array from storage
- * @param {Set<number>} resolvedIndices — indices to remove
+ * H-1 fix: accepts a Set of resolved itemIds (stable keys) instead of
+ * positional indices. The mutator filters the live `current` value from
+ * writeTransaction, avoiding TOCTOU with concurrent appendFloatingGroup calls.
+ *
+ * @param {Set<string>} resolvedItemIds — itemIds to remove
  * @returns {Promise<void>}
  */
-export async function pruneResolvedFloatingGroups(records, resolvedIndices) {
-  const remaining = records.filter((_, idx) => !resolvedIndices.has(idx));
+export async function pruneResolvedFloatingGroups(resolvedItemIds) {
   await writeTransaction([{
     partition: PARTITION_FLOATING_GROUPS,
-    mutator: () => remaining,
+    mutator: (current) => {
+      const arr = Array.isArray(current) ? current : [];
+      return arr.filter((entry) => !resolvedItemIds.has(entry.itemId));
+    },
   }]);
 }

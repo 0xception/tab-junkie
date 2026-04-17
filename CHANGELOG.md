@@ -2,6 +2,17 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.6.1] — 2026-04-16
+
+### Fixed
+- B-054: `_createAudibleIcon` / `_createDriftedIcon` SVG factory extraction — icons now render correctly under strict CSP (was inlined incorrectly)
+- B-054: `itemMap` O(N²) linear scan replaced with O(1) Map lookup — eliminates render lag on large collections
+- B-054: nested-group drag selector corrected — drag on items inside nested groups no longer silently no-ops
+- B-054: `replaceChildren` applied consistently — prevents residual DOM nodes from stale renders
+- B-018: `pruneResolvedFloatingGroups` TOCTOU race — reads live current record, not stale snapshot; prevents silent record loss under concurrent appends
+- B-018: claim-failure path — failed claim no longer permanently marks a floating-group record as resolved; record is retained for next reconciliation pass
+- 42 new automated tests (374 total), all passing
+
 ## [1.6.0] — 2026-04-16
 
 ### Added

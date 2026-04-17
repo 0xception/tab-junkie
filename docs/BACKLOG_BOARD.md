@@ -7,7 +7,7 @@
 ## Progress Dashboard
 
 ```
-Overall Progress    ████████░░░░░░░░░░░░  40% (22/56)  [1 in progress]
+Overall Progress    █████████░░░░░░░░░░░  43% (24/56)  [0 in progress]
 ```
 
 ### Legend
@@ -50,7 +50,7 @@ Overall Progress    ████████░░░░░░░░░░░░
 ✅ B-015 — Tab-tracking cleanup on close · 🟠 · S
 ✅ B-016 — Promote live tab to saved bookmark · 🔴 · S
 ✅ B-017 — Demote saved bookmark (preserve live tab) · 🔴 · S
-⬜ B-018 — Floating tab group persistence across restart · 🔴 · M
+✅ B-018 — Floating tab group persistence across restart · 🔴 · M
 ✅ B-019 — Click-to-navigate with tab reuse & window focus · 🔴 · S
 ✅ B-020 — Close tab from UI (individual + bulk) · 🔴 · S
 ✅ B-021 — Inline side-panel filter with debounce & highlight · 🟠 · M
@@ -86,7 +86,7 @@ Overall Progress    ████████░░░░░░░░░░░░
 ⬜ B-051 — Sort-order normalisation & selection pruning · 🟠 · S
 ⬜ B-052 — Fuzzy search index caching & perf targets · 🟠 · M
 ✅ B-053 — Break circular dep between partitions.js ↔ write-transaction.js (extract shapes module) · 🟡 · S
-🔄 B-054 — Sidepanel shell: item/group rendering + live states + click-to-navigate + broadcasts · 🔴 · L
+✅ B-054 — Sidepanel shell: item/group rendering + live states + click-to-navigate + broadcasts · 🔴 · L
 
 ---
 
@@ -103,7 +103,7 @@ Overall Progress    ████████░░░░░░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 22 | 39% |
-| 🔄 In Progress | 1 | 2% |
-| ⬜ To Do | 33 | 59% |
+| ✅ Done | 24 | 43% |
+| 🔄 In Progress | 0 | 0% |
+| ⬜ To Do | 32 | 57% |
 | 🧊 Icebox | 0 | 0% |
