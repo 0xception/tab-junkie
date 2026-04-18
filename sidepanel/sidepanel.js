@@ -27,6 +27,11 @@ import { GROUP_COLORS } from '../shared/constants.js';
 
 import { pruneSelection } from '../shared/selection.js';
 
+/* B-014 M-1: compare broadcast scopes against the canonical constant rather
+   than bare string literals. Only the WINDOW_MAP branch uses SCOPE for now —
+   the other bare-string comparisons are out of scope per R4 findings. */
+import { SCOPE } from '../shared/scopes.js';
+
 /**
  * Returns true only for favicon URLs that are safe to assign to img.src.
  * Rejects javascript:, data:text/, and any unknown schemes.
@@ -84,6 +89,8 @@ const bulkMoveBtn = document.getElementById('bulk-move');
 const bulkCloseBtn = document.getElementById('bulk-close');
 const bulkRemoveBtn = document.getElementById('bulk-remove');
 const bulkClearBtn = document.getElementById('bulk-clear');
+/* B-014 */
+const windowFilterRowEl = document.getElementById('window-filter-row');
 
 /* =========================================================================
    Collapsed groups state (panel-lifetime; persisted via MSG_UPDATE_GROUP)
@@ -125,6 +132,24 @@ let _cachedOpenTabsById = new Map();
 function _setCachedOpenTabs(next) {
   _cachedOpenTabs = Array.isArray(next) ? next : [];
   _cachedOpenTabsById = new Map(_cachedOpenTabs.map((t) => [t.tabId, t]));
+}
+
+/* =========================================================================
+   B-014 — Window ordinal map, panel window identity, and window filter state.
+   All three are UI-lifetime only — re-initialised on panel reload. The
+   ordinal map is refreshed from every MSG_LIST_ITEMS response; the panel
+   windowId is also refreshed on every MSG_LIST_ITEMS to self-heal
+   detached-panel moves (AC5).
+   ========================================================================= */
+/** @type {Record<string, number>} stringified rawWindowId → ordinal */
+let _windowOrdinalMap = {};
+/** @type {number|null} this sidepanel's own rawWindowId, or null when unknown */
+let _panelWindowId = null;
+/** @type {number|null} rawWindowId currently filtered — null means "All windows" */
+let _activeWindowFilter = null;
+
+function _setWindowOrdinalMap(next) {
+  _windowOrdinalMap = (next && typeof next === 'object') ? next : {};
 }
 
 /* =========================================================================
@@ -385,7 +410,10 @@ async function _handleFormSubmit(e) {
     /* Fallback re-render in case MSG_STATE_CHANGED broadcast is lost */
     Promise.all([sendMessage(MSG_LIST_ITEMS), sendMessage(MSG_LIST_GROUPS)])
       .then(([itemsResp, groups]) => {
+        /* B-014: keep the ordinal map fresh on fallback re-renders too. */
+        _setWindowOrdinalMap(itemsResp.windowMap || {});
         renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
+        _applyWindowMapToUI();
       })
       .catch(() => {});
   } catch (err) {
@@ -589,13 +617,62 @@ function applyFilter() {
     totalVisible += (query ? visibleTabs : _cachedOpenTabs.length);
   }
 
+  /* B-014 AC11: window-filter constraint. Layered on top of the text filter —
+     rows already hidden by the query remain hidden; rows visible to the text
+     filter are additionally hidden when their windowId does not match the
+     active chip. Saved-item rows with no live claim (no `data-window-id`)
+     are hidden under any specific-window filter per AC11. Short-circuit on
+     the common case (`_activeWindowFilter === null`) so we don't re-scan the
+     DOM on every text-filter keystroke. */
+  if (_activeWindowFilter !== null) {
+    const wanted = String(_activeWindowFilter);
+    let windowVisible = 0;
+
+    /* Saved-item rows. */
+    for (const row of itemListEl.querySelectorAll('.item-row[data-item-id]:not([data-live-only])')) {
+      if (row.hidden) continue;
+      const rowWin = row.dataset.windowId;
+      if (!rowWin || rowWin !== wanted) {
+        row.hidden = true;
+      } else {
+        windowVisible++;
+      }
+    }
+
+    /* Open-tab rows. */
+    const openTabsSectionEl = document.getElementById(OPEN_TABS_SECTION_ID);
+    if (openTabsSectionEl) {
+      let openTabsVisible = 0;
+      for (const row of openTabsSectionEl.querySelectorAll('[data-tab-id]')) {
+        if (row.hidden) continue;
+        if (row.dataset.windowId !== wanted) {
+          row.hidden = true;
+        } else {
+          openTabsVisible++;
+          windowVisible++;
+        }
+      }
+      const countBadge = openTabsSectionEl.querySelector('#' + OPEN_TABS_COUNT_ID);
+      if (countBadge) countBadge.textContent = String(openTabsVisible);
+      if (openTabsVisible === 0) openTabsSectionEl.hidden = true;
+    }
+
+    /* Hide group sections that now have zero visible items. */
+    for (const section of itemListEl.querySelectorAll('.group-section')) {
+      const anyVisible = section.querySelector('[data-item-id]:not([hidden])');
+      if (!anyVisible) section.hidden = true;
+    }
+
+    totalVisible = windowVisible;
+  }
+
   /* Reset scroll to top on filter apply (AC10) */
   itemListEl.scrollTop = 0;
 
   /* Show/hide filter empty state */
-  filterEmptyStateEl.hidden = !query || totalVisible > 0;
+  filterEmptyStateEl.hidden = (!query && _activeWindowFilter === null) || totalVisible > 0;
   /* Also hide the regular empty state during filter */
-  if (query) emptyStateEl.hidden = true;
+  if (query || _activeWindowFilter !== null) emptyStateEl.hidden = true;
 
   /* Show/hide clear button */
   filterClearBtnEl.hidden = !_filterQuery;
@@ -966,8 +1043,11 @@ function renderAll(items, groups, liveStates, driftRecords, openTabs) {
   itemListEl.hidden = false;
   panelHeaderEl.hidden = false;
 
-  /* Re-apply active filter after DOM rebuild (B-021) */
-  if (_filterQuery) applyFilter();
+  /* Re-apply active filter after DOM rebuild (B-021).
+     B-014 H-2: also re-apply when a window chip is active but no text query —
+     otherwise a broadcast-driven renderAll restores all rows while the chip
+     visually remains selected. */
+  if (_filterQuery || _activeWindowFilter !== null) applyFilter();
 
   /* Re-apply selection after DOM rebuild (B-024) */
   _reapplySelection();
@@ -1118,6 +1198,12 @@ function buildItemRow(item, liveStates, driftRecords) {
   if (live?.active) row.dataset.active = 'true';
   if (live?.audible) row.dataset.audible = 'true';
   if (drifted) row.dataset.drifted = 'true';
+  /* B-014: stamp the row's windowId when a live claim exists so applyFilter
+     (§28.5.2) can gate visibility on `_activeWindowFilter`. Absent when the
+     item has no live claim. */
+  if (live?.live && live?.windowId != null) {
+    row.dataset.windowId = String(live.windowId);
+  }
 
   /* B-004: favicon from live tab state, letter-avatar fallback */
   const favIconUrl = liveStates?.[item.id]?.favIconUrl;
@@ -1163,10 +1249,20 @@ function buildItemRow(item, liveStates, driftRecords) {
   /* Indicators — only create when state is active */
   const needsAudible = live?.audible;
   const needsDrifted = !!drifted;
+  /* B-014: cross-window badge is needed when the claim lives in another
+     window than this sidepanel. */
+  const needsWindowBadge = live?.live
+    && live?.windowId != null
+    && (_panelWindowId == null || live.windowId !== _panelWindowId);
 
-  if (needsAudible || needsDrifted) {
+  if (needsAudible || needsDrifted || needsWindowBadge) {
     const indicators = document.createElement('div');
     indicators.className = 'item-indicators';
+
+    /* B-014: window badge is prepended (reads naturally as "W2 [audio] [drift]"). */
+    if (needsWindowBadge) {
+      _renderWindowBadge(indicators, live.windowId, ITEM_WINDOW_BADGE_CLASS);
+    }
 
     if (needsAudible) {
       indicators.appendChild(_createAudibleIcon());
@@ -1234,19 +1330,68 @@ function _buildOpenTabFavicon(tab) {
   return avatar;
 }
 
-function _createWindowBadge(windowId) {
-  const badge = document.createElement('span');
-  badge.className = 'open-tab-window-badge';
-  badge.textContent = 'W' + windowId;
-  badge.setAttribute('aria-label', 'Window ' + windowId);
-  return badge;
+/* B-014: resolve a rawWindowId to the session ordinal label (e.g. "W2").
+ * Falls back to the raw id when the ordinal map has not arrived yet — a
+ * "W<rawId>" badge is strictly better than no badge for the sub-second window
+ * before the next MSG_LIST_ITEMS response patches it. */
+function _windowOrdinalLabel(rawWindowId) {
+  const ord = _windowOrdinalMap[String(rawWindowId)];
+  if (typeof ord === 'number') return { label: 'W' + ord, aria: 'Window ' + ord };
+  return { label: 'W' + rawWindowId, aria: 'Window ' + rawWindowId };
 }
+
+/**
+ * B-014: render or patch the cross-window badge for a row.
+ * Rules:
+ *  - No badge when `rawWindowId == null`, or when it equals `_panelWindowId`
+ *    (same-window rows never show a badge per AC4).
+ *  - Otherwise render `W<ordinal>` using `_windowOrdinalMap`.
+ *
+ * `badgeClass` lets saved-item and open-tab rows use different class names
+ * so per-row-type CSS can diverge. The helper creates the badge via
+ * `textContent` — rawWindowIds are integers so not a security surface, but
+ * the contract is preserved for consistency with other untrusted-string paths.
+ *
+ * @param {HTMLElement} indicatorsEl — the `.item-indicators` container
+ * @param {number|null|undefined} rawWindowId
+ * @param {string} badgeClass — `'open-tab-window-badge'` or `'item-window-badge'`
+ */
+function _renderWindowBadge(indicatorsEl, rawWindowId, badgeClass) {
+  if (!indicatorsEl) return;
+  const suppress = rawWindowId == null
+    || (_panelWindowId != null && rawWindowId === _panelWindowId);
+  const existing = indicatorsEl.querySelector('.' + badgeClass);
+  if (suppress) {
+    if (existing) existing.remove();
+    return;
+  }
+  const { label, aria } = _windowOrdinalLabel(rawWindowId);
+  let badge = existing;
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.className = badgeClass;
+    indicatorsEl.prepend(badge);
+  }
+  if (badge.textContent !== label) badge.textContent = label;
+  badge.setAttribute('aria-label', aria);
+}
+
+/* B-014: saved-item rows use `.item-window-badge`; open-tab rows use
+ * `.open-tab-window-badge`. Both resolve through `_renderWindowBadge`. */
+const ITEM_WINDOW_BADGE_CLASS = 'item-window-badge';
+const OPEN_TAB_WINDOW_BADGE_CLASS = 'open-tab-window-badge';
 
 /**
  * Build a single Open Tabs row. Uses textContent everywhere — tab titles and
  * URLs are untrusted per the security review.
+ *
+ * B-014: the window badge is rendered via `_renderWindowBadge` which
+ * suppresses the badge when `tab.windowId === _panelWindowId` (AC4). The
+ * multi-window / single-window visibility is therefore a per-row decision,
+ * not a section-level decision — legacy `multiWindow` flag kept for caller
+ * compatibility but ignored by the badge path.
  */
-function buildOpenTabRow(tab, { multiWindow }) {
+function buildOpenTabRow(tab /* , { multiWindow } */) {
   const row = document.createElement('li');
   row.className = 'item-row';
   row.setAttribute('role', 'listitem');
@@ -1275,10 +1420,11 @@ function buildOpenTabRow(tab, { multiWindow }) {
   textBlock.appendChild(url);
   row.appendChild(textBlock);
 
-  /* Indicators column: window badge + audible icon */
+  /* Indicators column: window badge + audible icon. Badge is suppressed per-row
+     when the tab's window matches the sidepanel's own window. */
   const indicators = document.createElement('div');
   indicators.className = 'item-indicators';
-  if (multiWindow) indicators.appendChild(_createWindowBadge(tab.windowId));
+  _renderWindowBadge(indicators, tab.windowId, OPEN_TAB_WINDOW_BADGE_CLASS);
   if (tab.audible) indicators.appendChild(_createAudibleIcon());
   if (indicators.children.length > 0) row.appendChild(indicators);
 
@@ -1328,9 +1474,11 @@ function buildOpenTabsSection(openTabs) {
   list.className = 'open-tabs-list';
   list.setAttribute('role', 'list');
 
-  const multiWindow = _openTabsWindowsCount(openTabs) > 1;
+  /* B-014: window badge visibility is now a per-row function of
+     `_panelWindowId` (resolved inside `_renderWindowBadge`). No need to
+     compute a section-level `multiWindow` flag. */
   for (const tab of openTabs) {
-    list.appendChild(buildOpenTabRow(tab, { multiWindow }));
+    list.appendChild(buildOpenTabRow(tab));
   }
   section.appendChild(list);
 
@@ -1349,12 +1497,6 @@ function buildOpenTabsSection(openTabs) {
 
   wrapper.appendChild(section);
   return wrapper;
-}
-
-function _openTabsWindowsCount(openTabs) {
-  const seen = new Set();
-  for (const t of openTabs) seen.add(t.windowId);
-  return seen.size;
 }
 
 function _toggleOpenTabsEmpty(sectionEl, isEmpty) {
@@ -1396,16 +1538,14 @@ function patchOpenTabsSection(nextOpenTabs) {
     }
   }
 
-  const multiWindow = _openTabsWindowsCount(nextOpenTabs) > 1;
-
   /* Walk the sorted next array and ensure DOM matches order. */
   for (let i = 0; i < nextOpenTabs.length; i++) {
     const tab = nextOpenTabs[i];
     let row = existing.get(tab.tabId);
     if (row) {
-      _patchOpenTabRow(row, tab, { multiWindow });
+      _patchOpenTabRow(row, tab);
     } else {
-      row = buildOpenTabRow(tab, { multiWindow });
+      row = buildOpenTabRow(tab);
     }
     /* Insert at sorted-position index (AC9). */
     const currentChild = list.children[i];
@@ -1435,8 +1575,12 @@ function patchOpenTabsSection(nextOpenTabs) {
 /**
  * Patch a single existing Open Tabs row with new field values.
  * Touches only the attributes and text that changed.
+ *
+ * B-014: window badge rendering is delegated to `_renderWindowBadge`, which
+ * handles create, update, and removal in one call. The legacy `multiWindow`
+ * flag is ignored — badge visibility is a per-row function of `_panelWindowId`.
  */
-function _patchOpenTabRow(row, tab, { multiWindow }) {
+function _patchOpenTabRow(row, tab /* , { multiWindow } */) {
   if (tab.active) row.dataset.active = 'true'; else delete row.dataset.active;
   if (tab.audible) row.dataset.audible = 'true'; else delete row.dataset.audible;
   if (tab.windowId != null) row.dataset.windowId = String(tab.windowId);
@@ -1461,29 +1605,19 @@ function _patchOpenTabRow(row, tab, { multiWindow }) {
   if (titleEl && titleEl.textContent !== nextTitle) titleEl.textContent = nextTitle;
   if (urlEl && urlEl.textContent !== nextUrl) urlEl.textContent = nextUrl;
 
-  /* Indicators: window badge + audible icon */
+  /* Indicators: window badge + audible icon. Create the container lazily
+     since the badge or the audible icon may be absent for a given row. */
   let indicators = row.querySelector('.item-indicators');
-  const needIndicators = multiWindow || !!tab.audible;
+  const willShowBadge = tab.windowId != null
+    && (_panelWindowId == null || tab.windowId !== _panelWindowId);
+  const needIndicators = willShowBadge || !!tab.audible;
   if (needIndicators && !indicators) {
     indicators = document.createElement('div');
     indicators.className = 'item-indicators';
     row.appendChild(indicators);
   }
   if (indicators) {
-    const existingBadge = indicators.querySelector('.open-tab-window-badge');
-    if (multiWindow) {
-      if (!existingBadge) {
-        indicators.prepend(_createWindowBadge(tab.windowId));
-      } else {
-        const label = 'W' + tab.windowId;
-        if (existingBadge.textContent !== label) {
-          existingBadge.textContent = label;
-          existingBadge.setAttribute('aria-label', 'Window ' + tab.windowId);
-        }
-      }
-    } else if (existingBadge) {
-      existingBadge.remove();
-    }
+    _renderWindowBadge(indicators, tab.windowId, OPEN_TAB_WINDOW_BADGE_CLASS);
 
     const existingAudibleIcon = indicators.querySelector('.item-audible-icon');
     if (tab.audible && !existingAudibleIcon) {
@@ -1517,6 +1651,10 @@ async function refetchAndPatchLiveState() {
       delete row.dataset.active;
       delete row.dataset.audible;
       delete row.dataset.drifted;
+      /* B-014: a failed refetch means we don't know the claim's window any
+         more — drop the attribute so applyFilter's window-constraint branch
+         treats the row as "no live claim" (hidden under a specific filter). */
+      delete row.dataset.windowId;
       const indicators = row.querySelector('.item-indicators');
       if (indicators) {
         indicators.replaceChildren();
@@ -1534,6 +1672,13 @@ async function refetchAndPatchLiveState() {
   _cachedDriftRecords = driftRecords;
   /* B-055: keep the Open Tabs cache in sync and apply a targeted DOM diff. */
   _setCachedOpenTabs(itemsResp.openTabs);
+  /* B-014: every MSG_LIST_ITEMS carries the current ordinal map. Refresh
+     before patching rows so the badge helper resolves ordinals against the
+     freshest data. Also refresh `_panelWindowId` to self-heal detached-panel
+     moves (AC5). */
+  _setWindowOrdinalMap(itemsResp.windowMap || {});
+  _refreshPanelWindowId();
+  _applyWindowMapToUI();
 
   /* B-055: if the panel was previously showing the empty state (no DOM list)
      and a tab now qualifies, a targeted patch cannot mount the section — fall
@@ -1545,6 +1690,7 @@ async function refetchAndPatchLiveState() {
     try {
       const groupsResp = await sendMessage(MSG_LIST_GROUPS);
       renderAll(itemsResp.items, groupsResp, liveStates, driftRecords, _cachedOpenTabs);
+      _applyWindowMapToUI();
     } catch (err) {
       console.warn('[tab-junkie] full-render fallback failed', err);
     }
@@ -1567,9 +1713,19 @@ async function refetchAndPatchLiveState() {
     if (live?.active) row.dataset.active = 'true'; else delete row.dataset.active;
     if (live?.audible) row.dataset.audible = 'true'; else delete row.dataset.audible;
     if (drifted) row.dataset.drifted = 'true'; else delete row.dataset.drifted;
+    /* B-014: keep the row's windowId in sync so applyFilter + badge helper
+       can find it. Absent when the item has no live claim. */
+    if (live?.live && live?.windowId != null) {
+      row.dataset.windowId = String(live.windowId);
+    } else {
+      delete row.dataset.windowId;
+    }
 
     /* H-8, B-011: Ensure indicator DOM nodes exist when state transitions false→true */
     _ensureIndicators(row, live, !!drifted);
+    /* B-014: keep the cross-window badge current on every live-state patch
+       — handles tab moves between windows as well as initial badge insertion. */
+    _patchItemWindowBadge(row, live);
 
     /* B-004: patch favicon / letter-avatar without full rebuild */
     const newFavIconUrl = live?.favIconUrl || null;
@@ -1616,6 +1772,12 @@ async function refetchAndPatchLiveState() {
   /* B-024 C-1: refresh bulk-bar disabled states after every live-state patch so
      "Close tabs" cannot target already-closed tabs. */
   _updateBulkBar();
+
+  /* B-014 UAT: after a live-state broadcast patches row windowIds (tab moved
+     between windows), re-apply the filter so window-filtered views hide rows
+     that crossed into a non-matching window. applyFilter is cheap (CSS hide
+     only). */
+  if (_filterQuery || _activeWindowFilter !== null) applyFilter();
 }
 
 /**
@@ -1668,6 +1830,224 @@ function _ensureIndicators(row, live, isDrifted) {
     const indicators = row.querySelector('.item-indicators');
     if (indicators && indicators.children.length === 0) indicators.remove();
   }
+}
+
+/* =========================================================================
+   B-014 — Cross-window badge + filter row helpers
+   ========================================================================= */
+
+/**
+ * Patch the cross-window badge on a saved-item row after a live-state change.
+ * Creates the `.item-indicators` container lazily if needed, and cleans it up
+ * when every indicator child has been removed. Mirrors the pattern used by
+ * `_ensureIndicators` for audible/drifted icons.
+ */
+function _patchItemWindowBadge(row, live) {
+  if (!row.isConnected) return;
+  const rawWindowId = live?.live ? live.windowId : null;
+  const willShow = rawWindowId != null
+    && (_panelWindowId == null || rawWindowId !== _panelWindowId);
+  let indicators = row.querySelector('.item-indicators');
+  if (willShow && !indicators) {
+    indicators = document.createElement('div');
+    indicators.className = 'item-indicators';
+    const actions = row.querySelector('.item-actions');
+    if (actions) row.insertBefore(indicators, actions);
+    else row.appendChild(indicators);
+  }
+  if (indicators) {
+    _renderWindowBadge(indicators, rawWindowId, ITEM_WINDOW_BADGE_CLASS);
+    if (indicators.children.length === 0) indicators.remove();
+  }
+}
+
+/**
+ * AC5 helper: (re-)fetch the sidepanel's own rawWindowId via
+ * `chrome.windows.getCurrent()`. Self-healing for the rare case of the panel
+ * being dragged to a different window mid-session (Edge allows this).
+ *
+ * Fire-and-forget — any failure leaves `_panelWindowId` at its previous value.
+ * On first-ever failure (`_panelWindowId === null`) the badge helper falls
+ * back to "always render" so the user sees *something* while the lookup races.
+ */
+function _refreshPanelWindowId() {
+  try {
+    const p = chrome.windows?.getCurrent?.();
+    if (p && typeof p.then === 'function') {
+      p.then((win) => {
+        if (win && typeof win.id === 'number') _panelWindowId = win.id;
+      }).catch(() => { /* keep previous value */ });
+    }
+  } catch { /* noop */ }
+}
+
+/**
+ * Apply the latest `_windowOrdinalMap` to the UI without a full re-render.
+ *  (a) Rebuild the filter row's chip set from the new map.
+ *  (b) Re-render every live row's window badge (saved-item + open-tab rows).
+ *  (c) AC12: auto-reset `_activeWindowFilter` when the filtered window has
+ *      closed, then re-apply the filter pipeline.
+ */
+function _applyWindowMapToUI() {
+  _rebuildWindowFilterRow();
+
+  /* Re-render badges on saved-item rows. Also resync `row.dataset.windowId`
+     so the window-filter branch in applyFilter sees the fresh windowId when
+     a tab is dragged between windows. */
+  for (const row of itemListEl.querySelectorAll('[data-item-id]:not([data-live-only])')) {
+    const id = row.dataset.itemId;
+    const live = _cachedLiveStates[id];
+    if (live?.live && live?.windowId != null) {
+      row.dataset.windowId = String(live.windowId);
+    } else {
+      delete row.dataset.windowId;
+    }
+    _patchItemWindowBadge(row, live);
+  }
+  /* Re-render badges on open-tab rows by touching the indicators container
+     directly. We don't know per-row cached tabs here without the lookup. */
+  for (const row of itemListEl.querySelectorAll('[data-live-only="true"][data-tab-id]')) {
+    const raw = Number(row.dataset.windowId);
+    if (!Number.isFinite(raw)) continue;
+    let indicators = row.querySelector('.item-indicators');
+    const willShow = _panelWindowId == null || raw !== _panelWindowId;
+    if (willShow && !indicators) {
+      indicators = document.createElement('div');
+      indicators.className = 'item-indicators';
+      row.appendChild(indicators);
+    }
+    if (indicators) {
+      _renderWindowBadge(indicators, raw, OPEN_TAB_WINDOW_BADGE_CLASS);
+      if (indicators.children.length === 0) indicators.remove();
+    }
+  }
+
+  /* AC12: if the currently-filtered window has closed, reset and re-apply. */
+  if (_activeWindowFilter !== null) {
+    const key = String(_activeWindowFilter);
+    if (!Object.prototype.hasOwnProperty.call(_windowOrdinalMap, key)) {
+      _activeWindowFilter = null;
+      applyFilter();
+    }
+  }
+}
+
+/**
+ * (Re)build the chip set inside `#window-filter-row` from the current
+ * `_windowOrdinalMap`. Hidden when < 2 windows are open (AC8).
+ */
+function _rebuildWindowFilterRow() {
+  if (!windowFilterRowEl) return;
+
+  const entries = Object.entries(_windowOrdinalMap)
+    .map(([rawId, ordinal]) => [Number(rawId), ordinal])
+    .filter(([rawId]) => Number.isFinite(rawId))
+    .sort((a, b) => a[1] - b[1]); // ordinal ascending
+
+  if (entries.length < 2) {
+    windowFilterRowEl.hidden = true;
+    windowFilterRowEl.replaceChildren();
+    if (_activeWindowFilter !== null) {
+      _activeWindowFilter = null;
+      applyFilter();
+    }
+    return;
+  }
+
+  windowFilterRowEl.hidden = false;
+
+  const fragment = document.createDocumentFragment();
+
+  const allChip = document.createElement('button');
+  allChip.type = 'button';
+  allChip.className = 'window-filter-chip';
+  allChip.setAttribute('role', 'tab');
+  allChip.dataset.filterWindow = 'all';
+  allChip.textContent = 'All windows';
+  const isAll = _activeWindowFilter === null;
+  allChip.setAttribute('aria-selected', String(isAll));
+  allChip.tabIndex = isAll ? 0 : -1;
+  fragment.appendChild(allChip);
+
+  for (const [rawId, ordinal] of entries) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'window-filter-chip';
+    chip.setAttribute('role', 'tab');
+    chip.dataset.filterWindow = String(rawId);
+    chip.textContent = 'W' + ordinal;
+    chip.setAttribute('aria-label', 'Window ' + ordinal);
+    const selected = _activeWindowFilter === rawId;
+    chip.setAttribute('aria-selected', String(selected));
+    chip.tabIndex = selected ? 0 : -1;
+    fragment.appendChild(chip);
+  }
+
+  windowFilterRowEl.replaceChildren(fragment);
+}
+
+/**
+ * Activate a chip given its `data-filter-window` value. Updates ARIA state,
+ * roving tabindex, `_activeWindowFilter`, then re-applies the filter pipeline.
+ */
+function _activateWindowFilterChip(chip) {
+  if (!chip || !windowFilterRowEl) return;
+  const raw = chip.dataset.filterWindow;
+  /* B-014 H-1: `Number(raw) || null` silently coerces windowId 0 to null (falsy).
+     Use an explicit finite-number guard so a real windowId=0 survives. */
+  _activeWindowFilter = raw === 'all' ? null : (Number.isFinite(Number(raw)) ? Number(raw) : null);
+
+  for (const c of windowFilterRowEl.querySelectorAll('[role="tab"]')) {
+    const selected = c === chip;
+    c.setAttribute('aria-selected', String(selected));
+    c.tabIndex = selected ? 0 : -1;
+  }
+  applyFilter();
+}
+
+/* Click activation (AC9/AC11). */
+if (windowFilterRowEl) {
+  windowFilterRowEl.addEventListener('click', (e) => {
+    const chip = e.target.closest('[role="tab"]');
+    if (!chip || !windowFilterRowEl.contains(chip)) return;
+    _activateWindowFilterChip(chip);
+    chip.focus();
+  });
+
+  /* AC10 — W3C Tabs-with-Automatic-Activation keyboard pattern. */
+  windowFilterRowEl.addEventListener('keydown', (e) => {
+    const chips = [...windowFilterRowEl.querySelectorAll('[role="tab"]')];
+    if (chips.length === 0) return;
+    const currentIdx = chips.indexOf(document.activeElement);
+    if (currentIdx === -1 && e.key !== 'Home' && e.key !== 'End') return;
+
+    let next = currentIdx;
+    if (e.key === 'ArrowLeft') {
+      next = currentIdx <= 0 ? chips.length - 1 : currentIdx - 1;
+    } else if (e.key === 'ArrowRight') {
+      next = currentIdx >= chips.length - 1 ? 0 : currentIdx + 1;
+    } else if (e.key === 'Home') {
+      next = 0;
+    } else if (e.key === 'End') {
+      next = chips.length - 1;
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      const target = document.activeElement?.closest('[role="tab"]');
+      if (target && windowFilterRowEl.contains(target)) {
+        e.preventDefault();
+        _activateWindowFilterChip(target);
+      }
+      return;
+    } else {
+      return; /* Tab and other keys: let the browser handle focus exit. */
+    }
+
+    e.preventDefault();
+    const target = chips[next];
+    if (target) {
+      _activateWindowFilterChip(target);
+      target.focus();
+    }
+  });
 }
 
 /* =========================================================================
@@ -1962,7 +2342,10 @@ itemListEl.addEventListener('drop', (e) => {
       showToast('Couldn\u2019t save group order \u2014 reverting');
       Promise.all([sendMessage(MSG_LIST_ITEMS), sendMessage(MSG_LIST_GROUPS)])
         .then(([itemsResp, groups]) => {
+          /* B-014 */
+          _setWindowOrdinalMap(itemsResp.windowMap || {});
           renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
+          _applyWindowMapToUI();
         })
         .catch(() => {});
     });
@@ -1979,7 +2362,10 @@ itemListEl.addEventListener('dragend', () => {
     _pendingGroupsRender = false;
     Promise.all([sendMessage(MSG_LIST_ITEMS), sendMessage(MSG_LIST_GROUPS)])
       .then(([itemsResp, groups]) => {
+        /* B-014 */
+        _setWindowOrdinalMap(itemsResp.windowMap || {});
         renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
+        _applyWindowMapToUI();
       })
       .catch(() => {});
   }
@@ -2003,6 +2389,33 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     return;
   }
 
+  /* B-014 AC17: windowMap scope — refresh only the ordinal map, filter row,
+     and existing badges. Does NOT call renderAll. */
+  if (scope === SCOPE.WINDOW_MAP) {
+    sendMessage(MSG_LIST_ITEMS).then((itemsResp) => {
+      _setWindowOrdinalMap(itemsResp.windowMap || {});
+      _refreshPanelWindowId();
+      /* Keep caches in sync so a subsequent text-filter application reads
+         the freshest windowId data. */
+      _cachedLiveStates = itemsResp.liveStates || {};
+      _setCachedOpenTabs(itemsResp.openTabs);
+      /* B-014 M-3: refresh Open Tabs DOM (specifically `data-window-id`
+         attributes) BEFORE `_applyWindowMapToUI` so the badge pass reads the
+         up-to-date values. Without this, the badge pass can render stale
+         ordinals when a tab moves between windows and the windowMap
+         broadcast arrives before the liveState broadcast. */
+      patchOpenTabsSection(_cachedOpenTabs);
+      _applyWindowMapToUI();
+      /* B-014 UAT: re-apply filter so a window-filtered view stays in sync
+         after the map changes (e.g., the filtered window closed, or a tab
+         moved between windows). */
+      if (_filterQuery || _activeWindowFilter !== null) applyFilter();
+    }).catch((err) => {
+      console.warn('[tab-junkie] windowMap broadcast re-fetch failed:', err);
+    });
+    return;
+  }
+
   if (scope === 'items' || scope === 'groups') {
     if (scope === 'groups' && _dragSrcGroupId) {
       _pendingGroupsRender = true;
@@ -2012,7 +2425,12 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       sendMessage(MSG_LIST_ITEMS),
       sendMessage(MSG_LIST_GROUPS),
     ]).then(([itemsResp, groups]) => {
+      /* B-014: every list response carries the current map. Apply before
+         rendering so fresh rows are built with the correct badges. */
+      _setWindowOrdinalMap(itemsResp.windowMap || {});
+      _refreshPanelWindowId();
       renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
+      _applyWindowMapToUI();
     }).catch((err) => {
       console.warn('[tab-junkie] broadcast re-fetch failed:', err);
     });
@@ -2817,6 +3235,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     collapsedGroups.add('__ungrouped__');
   }
 
+  /* B-014: start the panel-window-id lookup early — concurrent with the rest
+     of the cold-open path — so badges render correctly on first paint in the
+     common case. First-paint race is still possible on a sub-200ms cold open;
+     `_renderWindowBadge` falls back to "always show" when `_panelWindowId`
+     is null so the user sees the badge immediately; `refetchAndPatchLiveState`
+     corrects it on the next broadcast. */
+  _refreshPanelWindowId();
+
   try {
     const prefs = await sendMessage(MSG_GET_PREFERENCES);
     applyTheme(prefs.theme);
@@ -2831,7 +3257,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (g.collapsed) collapsedGroups.add(g.id);
     }
 
+    /* B-014: apply the window map + refresh panel window id before rendering
+       so the initial DOM carries correct badges + filter row. */
+    _setWindowOrdinalMap(itemsResp.windowMap || {});
+    _refreshPanelWindowId();
     renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
+    _applyWindowMapToUI();
   } catch {
     /* B5 — Show error state instead of empty state on init failure */
     skeletonEl.hidden = true;

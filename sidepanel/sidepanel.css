@@ -545,7 +545,11 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 44px;
+  /* B-014: allow the window-filter-row to wrap onto its own line. Height
+     changes from a fixed 44px to `auto` with min-height so the core controls
+     row retains its original look when the filter row is hidden. */
+  flex-wrap: wrap;
+  min-height: 44px;
   padding: 0 12px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-primary);
@@ -1187,6 +1191,80 @@ mark {
   background: var(--group-count-bg);
   border-radius: 9px;
   flex-shrink: 0;
+  /* B-014 risk 2: defensive wrap-avoidance for double-digit ordinals. */
+  white-space: nowrap;
+}
+
+/* B-014: the same badge visual used for saved-item rows. Kept as a separate
+   class so row-type styling can diverge in future sprints without breaking
+   the open-tab path. */
+.item-window-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--group-count-text);
+  background: var(--group-count-bg);
+  border-radius: 9px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* B-014: window filter row (absorbed B-034). Sits below the core header
+   controls when ≥ 2 browser windows are open. Hidden otherwise. */
+.window-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 0 8px 0;
+  order: 2; /* paint on the second flex row of .panel-header */
+}
+
+.window-filter-row[hidden] {
+  display: none;
+}
+
+.window-filter-chip {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 5px 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.window-filter-chip:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.window-filter-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-color: var(--accent);
+}
+
+.window-filter-chip[aria-selected="true"] {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
+.window-filter-chip[aria-selected="true"]:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #ffffff;
 }
 
 /* AC10: empty-state block — matches B-049 pattern. */

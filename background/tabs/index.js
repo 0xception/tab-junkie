@@ -19,6 +19,8 @@ import { buildLiveTabIndex, getLiveTabIndex } from './live-tab-index.js';
 import { reconcileClaims, getClaimsMirror } from './tab-claims.js';
 import { reassociateFloatingGroups } from './floating-groups.js';
 import { listItems } from '../storage/items.js';
+/* B-014 */
+import { initWindowOrdinals } from './window-ordinals.js';
 
 /**
  * Initialize the live-state subsystem:
@@ -32,8 +34,12 @@ import { listItems } from '../storage/items.js';
  */
 export async function initializeLiveState(readyPromise) {
   // M2: run index build and migration concurrently
-  const [, items] = await Promise.all([
+  // B-014: `initWindowOrdinals` is part of the same cold-start fan-out so
+  // MSG_LIST_ITEMS (which awaits readyPromise and then runs buildLiveStates +
+  // getWindowMap) never observes a half-built ordinal map.
+  const [, , items] = await Promise.all([
     buildLiveTabIndex(),
+    initWindowOrdinals(),
     readyPromise.then(() => listItems()),
   ]);
   await reconcileClaims(items);

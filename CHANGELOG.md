@@ -2,6 +2,14 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.9.0] — 2026-04-17
+
+### Added
+- Multi-window awareness and window filter (B-014): saved-item rows and Open Tabs rows now display a window badge (W1, W2, …) when the associated tab is in a different browser window than the side panel. Ordinals are assigned in first-seen order, are gap-preserving on window close, and are session-only (never written to storage). When two or more windows are open, a filter row appears in the panel header with an "All" chip and one chip per open window; selecting a chip narrows the panel to that window. The filter row is fully keyboard-navigable (Arrow keys, Home/End, Enter/Space) following the ARIA tablist pattern. The filter resets to "All" automatically if the filtered window closes.
+
+### Research / Planning
+- URL-scheme allowlist and duplicate-URL policy spike (B-057): completed a research spike documenting the current URL allowlist behavior and the costs of the existing `ERR_DUPLICATE_URL` rejection policy. Decisions accepted: expand the allowlist to cover `chrome://`, `edge://`, `chrome-extension://`, `about:`, and `view-source:` schemes; replace the hard `ERR_DUPLICATE_URL` rejection in `MSG_PROMOTE_TAB` with a soft-warn UI. Implementation is deferred to Sprint 15 (B-058, B-059, B-060, B-061). No user-visible behavior changes this sprint.
+
 ## [1.8.0] — 2026-04-17
 
 ### Added

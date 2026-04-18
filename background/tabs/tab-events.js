@@ -23,6 +23,8 @@ import { listItems } from '../storage/items.js';
 import { broadcast, SCOPE } from '../broadcast.js';
 import { recordOpener, pruneOpener, pruneOpenersByWindow, walkOpenerChain } from './opener-chain.js';
 import { appendFloatingGroup } from './floating-groups.js';
+/* B-014 */
+import { registerWindow, unregisterWindow } from './window-ordinals.js';
 
 /** @type {Map<number, ReturnType<typeof setTimeout>>} per-tab debounce timers (H2) */
 const reevalTimers = new Map();
@@ -247,6 +249,12 @@ export function registerTabEventListeners(readyPromise) {
    * windows.onRemoved: bulk remove all tabs for the window, release claims.
    * M4: Early return if claims haven't been reconciled yet — reconcileClaims
    * will handle everything when it runs.
+   *
+   * B-014: also unregister the ordinal mapping for this windowId and broadcast
+   * SCOPE.WINDOW_MAP so sidepanel surfaces can patch their filter row + badges
+   * without a full re-render. The WINDOW_MAP broadcast is NOT gated on
+   * `requireClaimsReady` — if a window closes during cold start, already-loaded
+   * surfaces need to hear about it immediately (§28.3.7).
    */
   chrome.windows.onRemoved.addListener((windowId) => {
     const removedTabIds = removeTabsByWindow(windowId);
@@ -257,6 +265,15 @@ export function registerTabEventListeners(readyPromise) {
         reevalTimers.delete(tabId);
       }
     }
+
+    /* B-014: drop the ordinal mapping regardless of claims readiness. The
+       map change must be observable to any surface that already loaded
+       state; suppressing it would leave stale badges in the UI. */
+    const hadOrdinal = unregisterWindow(windowId);
+    if (hadOrdinal) {
+      broadcast(SCOPE.WINDOW_MAP, 'window/removed');
+    }
+
     if (removedTabIds.length === 0) return;
     if (!isClaimsReady()) return;
     Promise.allSettled(removedTabIds.map(async (tabId) => {
@@ -267,5 +284,50 @@ export function registerTabEventListeners(readyPromise) {
     }).catch((err) => {
       console.warn('[tab-junkie] batch releaseClaimByTab failed on window removal', err);
     });
+  });
+
+  /**
+   * B-014: windows.onCreated — assign the next ordinal and broadcast
+   * SCOPE.WINDOW_MAP. Gated on `requireClaimsReady` (§28.3.7) so the
+   * bootstrap sequence does not flood surfaces before the first coherent
+   * state has been reconciled.
+   */
+  chrome.windows.onCreated.addListener((win) => {
+    if (!win || typeof win.id !== 'number') return;
+    const assigned = registerWindow(win.id);
+    if (assigned == null) return;
+    broadcast(SCOPE.WINDOW_MAP, 'window/created', { requireClaimsReady: true });
+  });
+
+  /**
+   * B-014 H-3 / AC13: tabs.onDetached fires when a user drags a tab out of a
+   * window (to create or attach to another). Chrome does NOT fire onUpdated
+   * for this motion — so LiveTabIndex.windowId would otherwise remain stale
+   * until a full reload. We leave the entry in place during the brief
+   * detach→attach gap; onAttached is authoritative for the new windowId.
+   */
+  chrome.tabs.onDetached.addListener((tabId, detachInfo) => {
+    // Transitional — windowId will be authoritative on onAttached.
+    // Leave the entry in place; clients tolerate stale windowId for the
+    // ~ms between detach and attach.
+    void tabId; void detachInfo;
+  });
+
+  /**
+   * B-014 H-3 / AC13: tabs.onAttached fires when a dragged tab lands in a
+   * (possibly new) window. Patch LiveTabIndex and broadcast LIVE_STATE first
+   * so the sidepanel re-fetches liveStates and patches saved-item
+   * `data-window-id` attributes; then broadcast WINDOW_MAP so the badge pass
+   * reads the fresh attributes (R2 §28.3.7 ordering).
+   */
+  chrome.tabs.onAttached.addListener((tabId, attachInfo) => {
+    if (!attachInfo || typeof attachInfo.newWindowId !== 'number') return;
+    const patch = { windowId: attachInfo.newWindowId };
+    if (typeof attachInfo.newPosition === 'number') {
+      patch.index = attachInfo.newPosition;
+    }
+    updateTabEntry(tabId, patch);
+    broadcast(SCOPE.LIVE_STATE, 'tab/attached', { requireClaimsReady: true });
+    broadcast(SCOPE.WINDOW_MAP, 'tab/attached');
   });
 }

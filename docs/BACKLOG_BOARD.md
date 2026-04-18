@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-17 · **Version:** 1.9 · **Total Items:** 59
+**Updated:** 2026-04-17 · **Version:** 2.0 · **Total Items:** 63
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████░░░░░░░░░░  53% (31/59)  [0 in progress]
+Overall Progress    ██████████░░░░░░░░░░  52% (33/63)  [0 in progress]
 ```
 
 ### Legend
@@ -46,7 +46,7 @@ Overall Progress    ██████████░░░░░░░░░░
 ✅ B-011 — Drift detection & persistence · 🔴 · L
 ✅ B-012 — Audible tab indicator · 🟠 · XS
 ✅ B-013 — Opener-chain group inheritance for new tabs · 🟠 · M
-⬜ B-014 — Multi-window awareness & window badge · 🟠 · M
+✅ B-014 — Multi-window awareness & window badge · 🟠 · M
 ✅ B-015 — Tab-tracking cleanup on close · 🟠 · S
 ✅ B-016 — Promote live tab to saved bookmark · 🔴 · S
 ✅ B-017 — Demote saved bookmark (preserve live tab) · 🔴 · S
@@ -66,7 +66,7 @@ Overall Progress    ██████████░░░░░░░░░░
 ⬜ B-031 — Group drag-reorder & nesting via drag · 🟠 · M
 ⬜ B-032 — Auto-scroll during drag · 🟡 · S
 ⬜ B-033 — Drag saved+live item to Open Tabs → demote · 🟡 · S
-⬜ B-034 — Window filter row (2+ windows) · 🟡 · S
+🧊 B-034 — Window filter row (2+ windows) · 🟡 · S [absorbed into B-014]
 ⬜ B-035 — Standalone window display mode · 🟡 · M
 ⬜ B-036 — New tab page replacement (optional) · ⚪ · L
 ⬜ B-037 — Theme selection (≥12 themes) · 🟡 · M
@@ -88,8 +88,12 @@ Overall Progress    ██████████░░░░░░░░░░
 ✅ B-053 — Break circular dep between partitions.js ↔ write-transaction.js (extract shapes module) · 🟡 · S
 ✅ B-054 — Sidepanel shell: item/group rendering + live states + click-to-navigate + broadcasts · 🔴 · L
 ✅ B-055 — Open Tabs section: render live-only ungrouped tabs in the sidepanel · 🟠 · M
-⬜ B-056 — Visually distinguish unsavable tabs in Open Tabs section · 🟡 · S
-⬜ B-057 — SPIKE: URL-scheme allowlist + duplicate-URL policy review · 🟡 · XL
+🧊 B-056 — Visually distinguish unsavable tabs in Open Tabs section · 🟡 · S [replaced by B-061 per B-057 spike]
+✅ B-057 — SPIKE: URL-scheme allowlist + duplicate-URL policy review · 🟡 · XL
+⬜ B-058 — Relax URL-scheme allowlist (chrome://, edge://, chrome-extension://, about:, view-source:) · 🟡 · S
+⬜ B-059 — Allow duplicate URLs with soft-warn UI · 🟡 · M
+⬜ B-060 — Import duplicate-handling with skip/allow override · 🟡 · S
+⬜ B-061 — Dim javascript:/data: rows in Open Tabs (replaces B-056) · ⚪ · XS
 
 ---
 
@@ -106,7 +110,7 @@ Overall Progress    ██████████░░░░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 31 | 53% |
+| ✅ Done | 33 | 52% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 28 | 47% |
-| 🧊 Icebox | 0 | 0% |
+| ⬜ To Do | 28 | 44% |
+| 🧊 Icebox | 2 | 3% |

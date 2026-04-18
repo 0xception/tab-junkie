@@ -4,6 +4,73 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.9.0 — Multi-window Awareness + URL Policy Spike (2026-04-17)
+
+**Staged on `release/v2` — pending v2 merge to main. Intended tag: `v1.9.0`.**
+
+**Staging commit**: current HEAD on `release/v2` (Sprint 14 feat commit — see `git log --oneline -1`).
+
+### What's new
+
+**Multi-window awareness & window badge (B-014)**
+- Session-ordinal window numbering assigns stable labels (W1, W2, …) to browser windows in first-seen order. Ordinals are gap-preserving — closing W2 while W3 is open keeps W3 labelled W3. Ordinals are never written to storage; they are rebuilt on every service worker cold start via `chrome.windows.getAll`.
+- Saved-item and Open Tabs rows now display a window badge (W1, W2, …) when the associated tab lives in a different browser window than the side panel.
+- When two or more windows are open, a filter row appears in the panel header: an "All" chip and one chip per open window. Selecting a chip narrows the panel to that window's tabs. The filter row is keyboard-navigable (Arrow keys, Home/End, Enter/Space) following the ARIA `role="tablist"` pattern. The active filter resets to "All" automatically if the filtered window closes.
+- `MSG_LIST_ITEMS` response extended with a `windowMap` field (`{ [windowId]: ordinal }`) so the sidepanel can resolve ordinals without a separate IPC round-trip.
+- New `SCOPE.WINDOW_MAP` broadcast fires whenever window-to-ordinal mapping changes (window open, close, or focus change). Sidepanel updates all row badges in response.
+- `tabs.onAttached` handler added to detect cross-window tab drags and retrigger ordinal re-assignment.
+- New modules: `background/tabs/window-ordinals.js` (154 lines — ordinal registry + `initWindowOrdinals`), `shared/scopes.js` (new SSOT for all broadcast scope constants, eliminating bare-string comparisons).
+- Absorbed **B-034** (window label filter row) — no separate sprint item needed.
+
+**URL-scheme allowlist + duplicate-URL policy spike (B-057)**
+- Completed a research-only Spike-First (XL) item documenting the current URL allowlist behavior and the cost of the existing `ERR_DUPLICATE_URL` hard-rejection policy in `MSG_PROMOTE_TAB`.
+- Decisions accepted: (1) Expand the allowlist to cover `chrome://`, `edge://`, `chrome-extension://`, `about:`, and `view-source:` schemes; keep hard-reject for `javascript:` / `data:`. (2) Replace the hard `ERR_DUPLICATE_URL` rejection with a soft-warn UI.
+- Implementation deferred to Sprint 15 (B-058 S, B-059 M, B-060 S, B-061 XS). B-056 retired to icebox.
+- Spike output: `docs/spikes/B-057-url-policy-spike.md` (277 lines).
+- No user-visible behavior changes this sprint from the spike.
+
+### UAT-discovered in-sprint improvements
+
+| # | Finding | Fix |
+|---|---------|-----|
+| UAT-D1 | Window filter chip `:focus-visible` outline was invisible in dark mode — `--accent-subtle` (`#1e293b`) too close to the panel background. | Switched to `outline: 2px solid var(--accent)` on the chip element. |
+| UAT-D2 | Dragging a tab between windows while a window filter was active left the row visible in the wrong filter view — `refetchAndPatchLiveState` and the `SCOPE.WINDOW_MAP` broadcast handler patched `data-window-id` but never re-ran `applyFilter()`. | Added `if (_filterQuery \|\| _activeWindowFilter !== null) applyFilter();` to both handler paths. |
+
+### Internal
+
+| Item | Files added | Files changed |
+|------|-------------|---------------|
+| B-014 | `shared/scopes.js`, `background/tabs/window-ordinals.js`, `tests/window-ordinals.test.js` (12 tests), `tests/b014-multi-window.test.js` (25 tests), `docs/user-manual/multi-window.md` | `shared/messages.js`, `background/broadcast.js`, `background/tabs/index.js`, `background/tabs/tab-claims.js`, `background/tabs/tab-events.js`, `background/messages/storage-handlers.js`, `sidepanel/sidepanel.js`, `sidepanel/sidepanel.css`, `sidepanel/sidepanel.html`, `tests/b010-live-state.test.js`, `tests/enriched-list-items.test.js`, `tests/chrome-mock.js` |
+| B-057 | `docs/spikes/B-057-url-policy-spike.md` | — |
+
+- +51 new automated tests (481 → 532 total), all passing
+- No storage schema change. No manifest permission change. No migration required.
+- SOLUTION_DESIGN.md updated §28.12 (R6 Close — B-014, B-057).
+
+### Test results
+- Automated: 532/532 passing
+- UAT: PASS — B-014 (12/14 steps; 2 skipped — 3+ window edge cases not exercisable in single-session UAT, but logic covered by `tests/window-ordinals.test.js`). B-057 spike: no UAT required (research-only item).
+
+### Rollback
+
+No storage schema change — rollback requires no data cleanup.
+
+```
+# On release/v2:
+git revert HEAD   # reverts Sprint 14 feat commit
+
+# If extension already loaded by users:
+# 1. Unload the extension in edge://extensions
+# 2. Load prior-version zip (tab-junkie v1.8.0)
+# No storage cleanup needed — windowMap is runtime-only (never persisted);
+# shared/scopes.js is a pure constant module; window-ordinals state is rebuilt
+# on every cold start from chrome.windows.getAll.
+```
+
+Reverting the Sprint 14 commit removes the window badge, the window filter row, and `shared/scopes.js`. The `windowMap` field on `MSG_LIST_ITEMS` responses reverts to `undefined`; the sidepanel treats that as "single-window mode" and hides the filter row — benign. The `SCOPE.WINDOW_MAP` broadcast handler is also removed; any stale sidepanel that receives a rogue broadcast will hit an unrecognised scope and no-op safely.
+
+---
+
 ## v1.8.0 — Open Tabs Section, Selection Menu, Keyboard Shortcuts (2026-04-17)
 
 **Staged on `release/v2` — pending v2 merge to main. Intended tag: `v1.8.0`.**

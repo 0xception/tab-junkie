@@ -1,15 +1,22 @@
 import './_setup.js';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { __resetMock, __setMockTabs, seedPartitions } from './chrome-mock.js';
+import { __resetMock, __setMockTabs, __setMockWindows, seedPartitions } from './chrome-mock.js';
 import { buildLiveTabIndex, __resetLiveTabIndex } from '../background/tabs/live-tab-index.js';
 import { reconcileClaims, buildLiveStates, __resetTabClaims } from '../background/tabs/tab-claims.js';
 import { buildOpenTabs } from '../background/tabs/open-tabs.js';
+/* B-014 */
+import { initWindowOrdinals, __resetWindowOrdinals, getWindowMap } from '../background/tabs/window-ordinals.js';
+import { registerStorageHandlers } from '../background/messages/storage-handlers.js';
+import { runMigrations, _resetMigrationStateForTest, _clearMigrationStepsForTest } from '../background/storage/migration.js';
+import { MSG_LIST_ITEMS } from '../shared/messages.js';
 
 beforeEach(() => {
   __resetMock();
   __resetLiveTabIndex();
   __resetTabClaims();
+  /* B-014 */
+  __resetWindowOrdinals();
 });
 
 test('AC9: buildLiveStates returns {items, liveStates} shape with correct values', async () => {
@@ -28,12 +35,14 @@ test('AC9: buildLiveStates returns {items, liveStates} shape with correct values
   const liveStates = buildLiveStates(items);
 
   // Claimed item should be live
+  // B-014: `windowId` is widened into the live-state shape.
   assert.deepStrictEqual(liveStates['claimed-item'], {
     live: true,
     active: true,
     audible: false,
     favIconUrl: null,
     tabId: 1,
+    windowId: 1,
   });
 
   // Unclaimed item should have all false
@@ -193,4 +202,117 @@ test('B-055: OpenTab favIconUrl is null when LiveTabIndex entry has no favicon',
   await reconcileClaims([]);
   const [t] = buildOpenTabs();
   assert.equal(t.favIconUrl, null, 'empty favicon normalizes to null in the OpenTab shape');
+});
+
+/* =========================================================================
+   B-014 — MSG_LIST_ITEMS response carries windowMap + widened liveStates.
+   Exercised through the real storage-handlers dispatcher so the wire shape
+   is validated end-to-end.
+   ========================================================================= */
+
+/** Helper: fire a message through the registered dispatcher and await the
+ *  typed envelope. Mirrors the pattern used by broadcast.test.js. */
+function sendMsg(type, payload = {}) {
+  const listeners = chrome.runtime.onMessage._listeners;
+  return new Promise((resolve) => {
+    listeners[listeners.length - 1](
+      { type, payload },
+      { id: chrome.runtime.id },
+      resolve,
+    );
+  });
+}
+
+test('B-014 AC14: MSG_LIST_ITEMS response includes a windowMap field', async () => {
+  _resetMigrationStateForTest();
+  _clearMigrationStepsForTest();
+  const ready = runMigrations();
+  registerStorageHandlers(ready);
+  await ready;
+
+  // Two windows open; tabs span both.
+  __setMockWindows([{ id: 100 }, { id: 200 }]);
+  __setMockTabs([
+    { id: 10, url: 'https://a.com', title: 'A', windowId: 100, active: true, audible: false, index: 0 },
+    { id: 20, url: 'https://b.com', title: 'B', windowId: 200, active: false, audible: false, index: 0 },
+  ]);
+
+  await buildLiveTabIndex();
+  await initWindowOrdinals();
+  await reconcileClaims([]);
+
+  const resp = await sendMsg(MSG_LIST_ITEMS, {});
+  assert.equal(resp.ok, true);
+  assert.ok(resp.data.windowMap, 'windowMap must be present');
+  assert.deepStrictEqual(
+    resp.data.windowMap,
+    { '100': 1, '200': 2 },
+    'ordinals match ascending raw id',
+  );
+});
+
+test('B-014 AC14: windowMap is {} (never null/undefined) when no windows tracked', async () => {
+  _resetMigrationStateForTest();
+  _clearMigrationStepsForTest();
+  const ready = runMigrations();
+  registerStorageHandlers(ready);
+  await ready;
+
+  // Intentionally skip initWindowOrdinals → ordinalMap is empty.
+  __setMockTabs([]);
+  await buildLiveTabIndex();
+  await reconcileClaims([]);
+
+  const resp = await sendMsg(MSG_LIST_ITEMS, {});
+  assert.equal(resp.ok, true);
+  assert.deepStrictEqual(resp.data.windowMap, {}, 'empty map, not null');
+  // getWindowMap() returns the same defensive-copy shape directly.
+  assert.deepStrictEqual(getWindowMap(), {});
+});
+
+test('B-014 AC7: MSG_LIST_ITEMS response carries liveStates[].windowId for claimed items', async () => {
+  _resetMigrationStateForTest();
+  _clearMigrationStepsForTest();
+  const ready = runMigrations();
+  registerStorageHandlers(ready);
+  await ready;
+
+  const items = [{ id: 'item-claimed', url: 'https://claimed.test', title: 'C', groupId: null, sortOrder: 0, createdAt: 1, updatedAt: 1 }];
+  seedPartitions({ items });
+
+  __setMockWindows([{ id: 42 }]);
+  __setMockTabs([
+    { id: 5, url: 'https://claimed.test', title: 'C', windowId: 42, active: true, audible: false, index: 0 },
+  ]);
+  await buildLiveTabIndex();
+  await initWindowOrdinals();
+  await reconcileClaims(items);
+
+  const resp = await sendMsg(MSG_LIST_ITEMS, {});
+  assert.equal(resp.ok, true);
+  const live = resp.data.liveStates['item-claimed'];
+  assert.ok(live, 'live-state entry for the claimed item');
+  assert.equal(live.live, true);
+  assert.equal(live.tabId, 5);
+  assert.equal(live.windowId, 42, 'B-014: widened liveStates carries the claim\'s windowId');
+});
+
+test('B-014: liveStates[].windowId is absent for unclaimed items', async () => {
+  _resetMigrationStateForTest();
+  _clearMigrationStepsForTest();
+  const ready = runMigrations();
+  registerStorageHandlers(ready);
+  await ready;
+
+  const items = [{ id: 'item-no-claim', url: 'https://no.claim', title: 'N', groupId: null, sortOrder: 0, createdAt: 1, updatedAt: 1 }];
+  seedPartitions({ items });
+  __setMockTabs([]);
+  await buildLiveTabIndex();
+  await reconcileClaims(items);
+
+  const resp = await sendMsg(MSG_LIST_ITEMS, {});
+  assert.equal(resp.ok, true);
+  const live = resp.data.liveStates['item-no-claim'];
+  assert.equal(live.live, false);
+  assert.equal(live.windowId, undefined, 'windowId absent when no claim');
 });

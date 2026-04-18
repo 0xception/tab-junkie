@@ -77,6 +77,8 @@ import { clearDrift } from '../tabs/drift.js';
 import { saveFloatingGroups } from '../tabs/floating-groups.js';
 import { getLiveTabIndex } from '../tabs/live-tab-index.js';
 import { buildOpenTabs } from '../tabs/open-tabs.js';
+/* B-014 */
+import { getWindowMap } from '../tabs/window-ordinals.js';
 import { safeNormalizeForMatch } from '../../shared/url.js';
 import { broadcast, SCOPE } from '../broadcast.js';
 
@@ -154,7 +156,12 @@ async function dispatch(type, payload) {
       const driftRecords = await getDriftRecords();
       // B-055: enriched response includes every live tab not claimed by a saved item.
       const openTabs = buildOpenTabs();
-      return { items, liveStates, driftRecords, openTabs };
+      /* B-014: every MSG_LIST_ITEMS response carries the current window
+         ordinal map (rawWindowId string → ordinal). Empty object `{}` when no
+         windows are open. Never null/undefined — defensive copy from
+         window-ordinals.js. */
+      const windowMap = getWindowMap();
+      return { items, liveStates, driftRecords, openTabs, windowMap };
     }
     case MSG_BULK_CREATE_ITEMS:
       return bulkCreateItems(p.inputs);

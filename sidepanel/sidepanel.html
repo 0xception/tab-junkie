@@ -26,6 +26,13 @@
           <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
         </svg>
       </button>
+      <!-- B-014: window filter row. Populated at runtime by
+           _rebuildWindowFilterRow; hidden until ≥ 2 browser windows are open. -->
+      <div id="window-filter-row"
+           class="window-filter-row"
+           role="tablist"
+           aria-label="Filter by window"
+           hidden></div>
     </div>
 
     <!-- Loading skeleton — visible by default -->

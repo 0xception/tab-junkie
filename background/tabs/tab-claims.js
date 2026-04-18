@@ -201,7 +201,10 @@ export async function reevaluateTab(tabId, newUrl, items) {
  * LiveTabIndex. Pure synchronous function.
  *
  * @param {Array<{id: string}>} items
- * @returns {Record<string, {live: boolean, active: boolean, audible: boolean, favIconUrl: string|null}>}
+ * @returns {Record<string, {live: boolean, active: boolean, audible: boolean, favIconUrl: string|null, tabId?: number, windowId?: number}>}
+ *   `tabId` and `windowId` are present only when `live === true` (B-014 /
+ *   B-026 widened the shape so the sidepanel can render the cross-window
+ *   badge and dispatch tabId-scoped actions without an extra round-trip).
  */
 export function buildLiveStates(items) {
   // H3: before reconcileClaims has run, return explicit not-ready defaults
@@ -225,6 +228,10 @@ export function buildLiveStates(items) {
           audible: tabEntry.audible,
           favIconUrl: tabEntry.favIconUrl || null,
           tabId,
+          /* B-014: surface the claim's current windowId so the sidepanel can
+             render the cross-window badge on saved-item rows (AC7) without a
+             second round-trip. Ephemeral — never persisted. */
+          windowId: tabEntry.windowId,
         };
         continue;
       }

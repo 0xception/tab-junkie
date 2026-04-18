@@ -53,6 +53,15 @@ export const MSG_BULK_UPDATE_ITEMS = 'tj/bulkUpdateItems';
 export const MSG_STATE_CHANGED = 'tj/stateChanged';
 
 /**
+ * Broadcast scopes surfaced via `MSG_STATE_CHANGED` (see `background/broadcast.js`):
+ *   - `'items'` / `'groups'` / `'preferences'` — storage mutations.
+ *   - `'liveState'` — tab / window live-state transitions (LiveTabIndex + TabClaims).
+ *   - `'windowMap'` — B-014. Fires on `chrome.windows.onCreated` and
+ *     `chrome.windows.onRemoved` only. Payload carries `{ scope, trigger }`
+ *     — the full map is NOT embedded; receivers re-fetch via MSG_LIST_ITEMS.
+ */
+
+/**
  * @typedef {Object} MessageRequest
  * @property {string} type       // one of the MSG_* constants
  * @property {Object} [payload]  // shape depends on `type`
@@ -74,17 +83,29 @@ export const MSG_STATE_CHANGED = 'tj/stateChanged';
 /**
  * @typedef {Object} ListItemsResponse
  * @property {Array<Object>} items        The stored items (optionally filtered by groupId)
- * @property {Record<string, {live: boolean, active: boolean, audible: boolean, favIconUrl: string|null, tabId?: number}>} liveStates
+ * @property {Record<string, {live: boolean, active: boolean, audible: boolean, favIconUrl: string|null, tabId?: number, windowId?: number}>} liveStates
  *   Per-item live state derived from LiveTabIndex + TabClaims. Items with no
  *   claim have `{ live: false, active: false, audible: false }`. No live-state
  *   field is stored on the Item object in `tj:items` — this is computed at
  *   read time (B-001c AC9).
+ *   `tabId` and `windowId` are present iff `live === true`. `windowId` is
+ *   ephemeral (not stable across browser restart) and used by the sidepanel
+ *   window badge (B-014 AC7). Saved-item rows with no live claim omit
+ *   `windowId`; badge suppression is the default.
  * @property {Record<string, Object>} driftRecords  Per-item drift record keyed by itemId.
  * @property {OpenTab[]} openTabs
  *   Live browser tabs NOT claimed by any saved item and NOT rendered as a
  *   resolved floating-group member (B-055). Empty array `[]` when none qualify —
  *   never null/undefined. Recomputed on every MSG_LIST_ITEMS call. `tabId` and
  *   `windowId` are ephemeral and must not be persisted.
+ * @property {Record<string, number>} windowMap
+ *   Session-scoped human-readable window ordinals (B-014). Key = stringified
+ *   rawWindowId; value = ordinal (1, 2, 3, …). Gaps are preserved on window
+ *   close (if W2 closes, remaining windows stay W1 and W3). Empty object `{}`
+ *   when no windows are open (rare — only observable during the brief window
+ *   of SW suspend/resume). Never null/undefined. Callers MUST treat
+ *   rawWindowIds as ephemeral (not stable across browser restart) and never
+ *   persist either key or value. Ordinals are UI-only.
  */
 
 /**

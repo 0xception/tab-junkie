@@ -20,6 +20,8 @@ const state = {
   sessionStore: {},
   /** @type {Array<{id: number, url: string, windowId: number, active: boolean, audible: boolean}>} */
   mockTabs: [],
+  /** @type {Array<{id: number}>} B-014 — window-ordinal test fixtures */
+  mockWindows: [],
 };
 
 function deepClone(v) {
@@ -204,6 +206,10 @@ const tabs = {
   onUpdated: createEventMock(),
   onActivated: createEventMock(),
   onRemoved: createEventMock(),
+  /* B-014 H-3: onDetached / onAttached fire when a tab is dragged between
+     windows. Chrome does NOT fire onUpdated for this motion. */
+  onDetached: createEventMock(),
+  onAttached: createEventMock(),
 };
 
 const windows = {
@@ -213,6 +219,16 @@ const windows = {
     void windowId; void props;
     return { id: windowId };
   },
+  /* B-014: window-ordinal tests seed `state.mockWindows` via __setMockWindows. */
+  async getAll(_opts) {
+    return deepClone(state.mockWindows);
+  },
+  async getCurrent() {
+    // First entry, if any — otherwise a synthetic id
+    if (state.mockWindows.length > 0) return deepClone(state.mockWindows[0]);
+    return { id: 1 };
+  },
+  onCreated: createEventMock(),
   onRemoved: createEventMock(),
   onFocusChanged: createEventMock(),
 };
@@ -238,6 +254,7 @@ export function __resetMock() {
   state.bytesInUseOverride = null;
   state.sessionStore = {};
   state.mockTabs = [];
+  state.mockWindows = [];
   _nextTabId = 1000;
   runtime.lastError = null;
   runtime.onMessage._listeners = [];
@@ -246,6 +263,9 @@ export function __resetMock() {
   tabs.onUpdated._listeners.length = 0;
   tabs.onActivated._listeners.length = 0;
   tabs.onRemoved._listeners.length = 0;
+  tabs.onDetached._listeners.length = 0;
+  tabs.onAttached._listeners.length = 0;
+  windows.onCreated._listeners.length = 0;
   windows.onRemoved._listeners.length = 0;
   windows.onFocusChanged._listeners.length = 0;
 }
@@ -277,6 +297,11 @@ export function __setBytesInUse(n) {
 /** Set mock tabs returned by chrome.tabs.query. */
 export function __setMockTabs(tabs) {
   state.mockTabs = deepClone(tabs);
+}
+
+/** B-014: seed the windows returned by chrome.windows.getAll(). */
+export function __setMockWindows(wins) {
+  state.mockWindows = deepClone(wins);
 }
 
 /** Seed session storage keys directly. */
