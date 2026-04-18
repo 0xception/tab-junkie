@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-18 · **Version:** 2.0 · **Total Items:** 64
+**Updated:** 2026-04-18 · **Version:** 2.0 · **Total Items:** 65
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ████████████░░░░░░░░  58% (37/64)  [0 in progress]
+Overall Progress    ████████████░░░░░░░░  57% (37/65)  [0 in progress]
 ```
 
 ### Legend
@@ -95,6 +95,7 @@ Overall Progress    ████████████░░░░░░░░
 ⬜ B-060 — Import duplicate-handling with skip/allow override · 🟡 · S
 ✅ B-061 — Dim javascript:/data: rows in Open Tabs (replaces B-056) · ⚪ · XS
 ⬜ B-062 — Dark-theme primary-button contrast audit (WCAG AA) · 🟠 · S
+⬜ B-063 — Close open context menu when the side panel loses focus (click-off) · 🟡 · S
 
 ---
 
@@ -111,7 +112,7 @@ Overall Progress    ████████████░░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 37 | 58% |
+| ✅ Done | 37 | 57% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 25 | 39% |
+| ⬜ To Do | 26 | 40% |
 | 🧊 Icebox | 2 | 3% |
