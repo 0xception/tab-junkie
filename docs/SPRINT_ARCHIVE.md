@@ -375,3 +375,58 @@ Historical completed sprint items. Appended by [scrum-master] at the close of ea
 **Went Well:** Parallel build of three co-located items worked cleanly thanks to `/* B-XXX */` comment markers preserving per-item attribution. The 7-agent R4 pass produced actionable de-duplicated findings; [qa-reviewer] caught both CRITICAL state-machine defects that code/security review missed. Interactive UAT surfaced two real bugs (one pre-existing) in under 15 minutes.
 **To Improve:** Pre-existing confirm-dialog-close bug survived prior sprints because UAT exercised cancel paths more than confirm paths. Two R4 reviewers flagged the parallel build as "scope bleed" without seeing the SPRINT.md parallel-opportunity note. B-049 AC4 error-toast verification could not be triggered manually — deferred to future sprint.
 **Action Items:** Pass SPRINT.md item context into R4 review agent prompts to prevent scope-creep false positives. Require UAT scripts to exercise confirm/commit on every dialog. Revisit B-049 error-toast UAT when a naturally failing op is available (import work or storage-quota stress).
+
+---
+
+## Sprint 13 — Open Tabs + Selection Polish (2026-04-17)
+
+**Theme:** Close the PRD "Open Tabs section" gap, polish multi-select UX, and formalise storage hygiene.
+**Release:** v1.8.0 · Commit `0f7e54d` (+ `7311a7a` fixup) on `release/v2` (tag staged, pending v2→main merge)
+**Tests:** 427 → 481 (+54 new: 7 enriched-list, 5 B-047, 12 B-028, 18 B-051, 12 B-047 misc.)
+**SOLUTION_DESIGN.md:** §26 added (R2 design + R6 Close §26.12 post-build verification)
+
+### Completed Items
+
+| ID | Title | Tier | UAT | New Tests |
+|----|-------|------|-----|-----------|
+| B-055 | Open Tabs section: render live-only ungrouped tabs in the sidepanel | Full (M) | PASS (16/18 steps, 2 skipped — safe-mode ACs require storage corruption to test; code path verified by review) | 7 + broadcast + navigate coverage |
+| B-028 | Selection context menu | Fast Track (S) | PASS | 12 |
+| B-047 | In-panel keyboard shortcuts (Ctrl+A, Esc) | Fast Track (XS) | PASS (verified as part of B-055 UAT) | 17 (5 R4 remediation) |
+| B-051 | Sort-order normalisation & selection pruning | Fast Track (S) | PASS (implicit via B-055 promote flow) | 18 |
+
+### Files Changed
+- `shared/messages.js` — `OpenTab` typedef, widened `ListItemsResponse`, `MSG_NAVIGATE_TO_ITEM` dual payload docs
+- `shared/selection.js` (new) — `pruneSelection` cross-boundary helper
+- `shared/errors.js` — re-export `ERR_SAFE_MODE`, `ERR_DUPLICATE_URL` for sidepanel consumption
+- `background/tabs/open-tabs.js` (new) — pure `buildOpenTabs()` derivation helper
+- `background/tabs/live-tab-index.js` — added `title` field
+- `background/tabs/tab-events.js` — `tab/created` + `tab/title-changed` broadcasts
+- `background/messages/storage-handlers.js` — `openTabs` assembly in `MSG_LIST_ITEMS`, tabId-only navigate variant, `WRITE_MESSAGE_TYPES` Set + `isWriteType(message)` predicate (B-055 H-1), `MSG_CLOSE_TABS` unconditionally allowed in safe mode, Chrome API try/catch wrap
+- `background/storage/items.js` — `normaliseGroupSortOrders` in create/delete/bulk paths, `bulkUpdateItems` `itemById` Map (B-051 M-2)
+- `sidepanel/sidepanel.js` — prefix-key selection refactor (`item:<id>`/`tab:<number>`), `_cachedOpenTabs` + `_cachedOpenTabsById` Map, `buildOpenTabsSection`/`patchOpenTabsSection`/`buildOpenTabRow`, `_openOpenTabContextMenu`, `_openSelectionContextMenu` (B-028), extracted `_bulkRemove`/`_bulkClose`/`_bulkMoveToGroup` helpers, `_setRowSelected` + `aria-selected` sync (B-055 M-4), `pruneSelection` wire-up (B-051 M-1), `_listitem` wrapper for ARIA role="list" child rule (B-055 H-2), safe-mode toast in bulk promote (B-055 H-3), error-code constants (B-055 H-4), categorised bulk-Save toast (UAT diagnostic improvement)
+- `sidepanel/sidepanel.css` — Open Tabs section, row styles, `data-live-only` selectors, window badge, empty-state
+- `tests/b024-multi-select.test.js` — 17 new tests (12 B-047 verify + 5 R4 remediation)
+- `tests/b028-selection-context-menu.test.js` (new, 12 tests)
+- `tests/b051-normalisation.test.js` (new, 18 tests)
+- `tests/enriched-list-items.test.js` — 7 new tests for `openTabs` shape
+- `tests/navigate-to-item.test.js` — tabId-only variant coverage
+- `tests/live-tab-index.test.js`, `tests/b010-live-state.test.js`, `tests/b005-bulk-create.test.js` — shape/contract updates
+- `CHANGELOG.md`, `STORE_LISTING.md`, `docs/user-manual/managing-items.md`, `docs/user-manual/open-tabs.md` (new) — R7 technical-writer updates
+
+### Notable R4 Findings Fixed
+- **B-055 H-1 (code+security+qa consensus)**: `MSG_CLOSE_TABS` and tabId-only `MSG_NAVIGATE_TO_ITEM` were blocked by safe-mode write gate, but neither performs a storage write — AC14 violation. Fixed: replaced inline `writeTypes` Set with `WRITE_MESSAGE_TYPES: Set` + `isWriteType(message)` predicate that inspects payload shape. `MSG_CLOSE_TABS` is unconditionally allowed; `MSG_NAVIGATE_TO_ITEM` is write-classified only when `payload.itemId !== undefined`.
+- **B-055 H-2 (qa)**: `<section role="region">` was a direct child of `div#item-list[role="list"]` — invalid per ARIA `aria-required-children` rule (would fail axe-core audit for AC15). Fixed: wrapped section in `<div role="listitem">` so outer element satisfies list-membership contract.
+- **B-055 H-3 (qa)**: Bulk "Save to group" on all-tabs selection swallowed `ERR_SAFE_MODE` into the generic "check URL scheme or duplicates" toast. Fixed: inspect `r.reason?.code` in Promise.allSettled results; short-circuit with "Cannot save while in safe mode" when any result carries ERR_SAFE_MODE.
+- **B-055 H-4 (code)**: Error codes compared as string literals instead of imported constants in `_openOpenTabContextMenu`. Fixed: added `ERR_SAFE_MODE` + `ERR_DUPLICATE_URL` to the existing `../shared/errors.js` import.
+- **B-047 H-1 (code)**: Test-local `_selectAll(ctx)` helper queried only `[data-item-id]:not([hidden])` — wouldn't cover B-055's `[data-tab-id]` rows. Fixed: extended `_matchesSelector` and helper to handle both row types with prefixed selection keys.
+- **B-047 H-2 (code)**: `handleGlobalKeydownReal` test helper lacked the dialog-open Escape guard present in production. Fixed: added `dialogOpen` parameter mirroring the `propagationStopped` pattern.
+- **B-051 M-1 (code)**: `pruneSelection` exported but not wired — AC3 library-only. Fixed: imported into `sidepanel.js`, called at top of `_bulkRemove`/`_bulkClose`/`_bulkMoveToGroup` before the selection snapshot. Scoped to `item:*` partition only; `tab:*` entries self-clean via `tabs.onRemoved`.
+
+### UAT-Discovered Improvements (mid-sprint)
+- **Categorised bulk-Save toast**: Original toast said "Couldn't save N tab(s) — check URL scheme or duplicates". During UAT, 9/12 tabs failed and the user couldn't tell which rejection class dominated. Improved the toast to categorise by error code: `"Couldn't save 9 tab(s) (X already saved, Y restricted URL, Z other error)"`. This diagnostic improvement revealed the root cause: a mix of `edge://` tabs (ERR_VALIDATION) and URL duplicates (ERR_DUPLICATE_URL) in the selection — both expected failures given the current PRD/backlog policy.
+- **Two new follow-up items created**: B-056 (visually distinguish unsavable tabs in Open Tabs section) and B-057 (SPIKE: URL-scheme allowlist + duplicate-URL policy review). Both scheduled for Sprint 14 to address the broader UX question the UAT exposed.
+
+### Retrospective
+**Went Well:** The sequenced-then-parallel pipeline (B-055 R3 alone → Fast Track trio in parallel) avoided `sidepanel.js` contention during the atomic prefix-key selection refactor. 9-agent R4 R4 pass produced actionable findings; two reviewers independently caught B-055 H-1 (safe-mode write-gate) — cross-agent consensus strengthened confidence. UAT surfaced a real product-design question (unsavable tabs) that produced a properly-scoped SPIKE (B-057) and adjacent implementation item (B-056).
+**To Improve:** The generic bulk-Save toast had to be categorised mid-UAT — prior R4 should have caught the pattern gap against the single-tab context-menu path. Cross-item code attribution was noisy (code-reviewer B-028 flagged findings actually belonging to `_openOpenTabContextMenu` in B-055). Safe-mode testing required skipping 2/18 UAT steps — there is no dev-only force-safe-mode lever.
+**Action Items:** (1) R4 prompts for shared files should map each item to its specific function/section markers. (2) Audit other bulk-action toasts for the uncategorised-failure pattern (`_bulkClose`, `_bulkRemove` — currently generic). (3) Consider a dev-only safe-mode force toggle or update UAT playbook with manual storage-corruption steps.
