@@ -16,7 +16,8 @@ KEY FEATURES
 • Multi-window mode — Multiple instances stay synchronized across browser windows
 • Drag-and-drop — Reorder bookmarks, move between groups, nest sub-groups
 • Multi-select — Shift+click, Ctrl+click, Ctrl+A for bulk move, close, or remove
-• Right-click menu — Context menu on any bookmark for quick edit, move, close tab, and delete actions
+• Right-click menu — Context menu on any bookmark for quick edit, move, close tab, and delete actions; right-click a multi-selection to act on all selected items at once
+• Open Tabs section — Live view of every browser tab not yet saved or grouped; click to focus, right-click to save or close; updates in real time
 • Clear feedback — Empty-state messages with CTAs and dismissible error notifications for failed operations
 • Quick search (Alt+J) — Fuzzy search across all bookmarks and tabs from a popup
 • Group search and drill-in — Browse groups and view their contents inline from the popup

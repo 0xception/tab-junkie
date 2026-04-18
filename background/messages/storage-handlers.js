@@ -76,6 +76,7 @@ import { getClaimsMirror, getItemIdForTab, claimTabForItem, releaseClaimByTab } 
 import { clearDrift } from '../tabs/drift.js';
 import { saveFloatingGroups } from '../tabs/floating-groups.js';
 import { getLiveTabIndex } from '../tabs/live-tab-index.js';
+import { buildOpenTabs } from '../tabs/open-tabs.js';
 import { safeNormalizeForMatch } from '../../shared/url.js';
 import { broadcast, SCOPE } from '../broadcast.js';
 
@@ -95,6 +96,32 @@ const MUTATION_BROADCASTS = {
   [MSG_DEMOTE_ITEM]: SCOPE.ITEMS,
   [MSG_NAVIGATE_TO_ITEM]: SCOPE.ITEMS, // Included because navigate bumps lastAccessedAt via updateItem — a real storage mutation.
 };
+
+/**
+ * B-055 H-1: safe-mode write classification.
+ *
+ * Pure storage writes are always classified as writes. MSG_CLOSE_TABS is a
+ * pure tab operation (no storage mutation) and is NOT blocked by safe mode.
+ * MSG_NAVIGATE_TO_ITEM has two variants: the itemId form bumps `lastAccessedAt`
+ * (a real storage write, blocked in safe mode) while the tabId-only form is a
+ * pure tab focus and must be allowed in safe mode.
+ */
+const WRITE_MESSAGE_TYPES = new Set([
+  MSG_CREATE_ITEM, MSG_UPDATE_ITEM, MSG_DELETE_ITEM,
+  MSG_BULK_CREATE_ITEMS, MSG_BULK_DELETE_ITEMS, MSG_BULK_UPDATE_ITEMS,
+  MSG_CREATE_GROUP, MSG_UPDATE_GROUP, MSG_DELETE_GROUP,
+  MSG_SET_PREFERENCES, MSG_PROMOTE_TAB, MSG_DEMOTE_ITEM,
+]);
+
+function isWriteType(message) {
+  if (WRITE_MESSAGE_TYPES.has(message.type)) return true;
+  if (message.type === MSG_NAVIGATE_TO_ITEM) {
+    // Only the itemId variant writes (bumps lastAccessedAt). The tabId-only
+    // variant is a pure tab focus and must pass through in safe mode.
+    return message.payload?.itemId !== undefined;
+  }
+  return false;
+}
 
 /**
  * Build a typed error envelope regardless of whether the thrown value is a
@@ -125,7 +152,9 @@ async function dispatch(type, payload) {
       const items = await listItems('groupId' in p ? { groupId: p.groupId } : undefined);
       const liveStates = buildLiveStates(items);
       const driftRecords = await getDriftRecords();
-      return { items, liveStates, driftRecords };
+      // B-055: enriched response includes every live tab not claimed by a saved item.
+      const openTabs = buildOpenTabs();
+      return { items, liveStates, driftRecords, openTabs };
     }
     case MSG_BULK_CREATE_ITEMS:
       return bulkCreateItems(p.inputs);
@@ -255,6 +284,30 @@ async function dispatch(type, payload) {
       return null;
     }
     case MSG_NAVIGATE_TO_ITEM: {
+      // B-055: tabId-only variant (open-tab row click — no saved item involved).
+      // Callers pass `{ tabId, windowId }`; this path is a pure tab focus with
+      // no storage mutation, so it does NOT broadcast (see dispatcher below).
+      if (p.itemId === undefined && typeof p.tabId === 'number') {
+        if (typeof p.windowId !== 'number') {
+          throw new StorageError(ERR_VALIDATION, 'navigateToItem: windowId required with tabId');
+        }
+        const liveIndex = getLiveTabIndex();
+        const liveEntry = liveIndex.get(p.tabId);
+        if (!liveEntry) {
+          throw new StorageError(ERR_NOT_FOUND, 'navigateToItem: tab not in live index');
+        }
+        /* B-055 M-3: a late tab-close race can cause chrome.tabs.update /
+           chrome.windows.update to reject with a raw Chrome error. Normalise
+           to ERR_NOT_FOUND to mirror the itemId-path contract. */
+        try {
+          await chrome.tabs.update(p.tabId, { active: true });
+          await chrome.windows.update(p.windowId, { focused: true });
+        } catch {
+          throw new StorageError(ERR_NOT_FOUND, 'Tab not found');
+        }
+        return { tabId: p.tabId, opened: false };
+      }
+
       // AC1: validate itemId
       if (typeof p.itemId !== 'string' || p.itemId.length === 0) {
         throw new StorageError(ERR_VALIDATION, 'navigateToItem: itemId must be a non-empty string');
@@ -388,24 +441,15 @@ export function registerStorageHandlers(readyPromise) {
       // Safe-mode write gate: when the stored schema version is newer than
       // KNOWN_VERSION, block all write operations to prevent data corruption.
       // Read operations (list, get, getPreferences) are still allowed.
-      if (isSafeMode()) {
-        const writeTypes = new Set([
-          MSG_CREATE_ITEM, MSG_UPDATE_ITEM, MSG_DELETE_ITEM,
-          MSG_BULK_CREATE_ITEMS, MSG_BULK_DELETE_ITEMS, MSG_BULK_UPDATE_ITEMS,
-          MSG_CREATE_GROUP, MSG_UPDATE_GROUP, MSG_DELETE_GROUP,
-          MSG_SET_PREFERENCES, MSG_PROMOTE_TAB, MSG_DEMOTE_ITEM,
-          MSG_NAVIGATE_TO_ITEM, MSG_CLOSE_TABS,
-        ]);
-        if (writeTypes.has(message.type)) {
-          sendResponse({
-            ok: false,
-            error: {
-              code: ERR_SAFE_MODE,
-              message: 'Extension is in read-only safe mode — update to the latest version to restore write access',
-            },
-          });
-          return;
-        }
+      if (isSafeMode() && isWriteType(message)) {
+        sendResponse({
+          ok: false,
+          error: {
+            code: ERR_SAFE_MODE,
+            message: 'Extension is in read-only safe mode — update to the latest version to restore write access',
+          },
+        });
+        return;
       }
 
       try {
@@ -414,7 +458,17 @@ export function registerStorageHandlers(readyPromise) {
         sendResponse({ ok: true, data });
         const broadcastScope = MUTATION_BROADCASTS[message.type];
         if (broadcastScope !== undefined) {
-          broadcast(broadcastScope, message.type);
+          // B-055: the MSG_NAVIGATE_TO_ITEM tabId-only variant is a no-op on
+          // storage (pure tab focus), so suppress its broadcast. Otherwise
+          // every Open-Tabs-row click would trigger a full `items` invalidation
+          // and re-render every open surface — defeating AC16's performance budget.
+          const p = message.payload || {};
+          const isNavigateTabIdOnly = message.type === MSG_NAVIGATE_TO_ITEM
+            && p.itemId === undefined
+            && typeof p.tabId === 'number';
+          if (!isNavigateTabIdOnly) {
+            broadcast(broadcastScope, message.type);
+          }
         }
       } catch (err) {
         sendResponse(errorEnvelope(err));

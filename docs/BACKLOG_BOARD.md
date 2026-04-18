@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-17 · **Version:** 1.7 · **Total Items:** 56
+**Updated:** 2026-04-17 · **Version:** 1.9 · **Total Items:** 59
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    █████████░░░░░░░░░░░  48% (27/56)  [0 in progress]
+Overall Progress    ██████████░░░░░░░░░░  53% (31/59)  [0 in progress]
 ```
 
 ### Legend
@@ -28,7 +28,7 @@ Overall Progress    █████████░░░░░░░░░░░
 
 ## Sprint 1 — Foundation Spike
 
-> 1/56 done · 0 in progress
+> 1/57 done · 0 in progress
 
 ✅ B-001a — Partitioned storage schema + CRUD + ULIDs · 🔴 · M
 ✅ B-001b — Schema version + migration runner + safe-mode · 🔴 · M
@@ -60,7 +60,7 @@ Overall Progress    █████████░░░░░░░░░░░
 ⬜ B-025 — Multi-item drag as single unit · 🟠 · M
 ✅ B-026 — Item context menu · 🟠 · S
 ⬜ B-027 — Group header context menu · 🟠 · S
-⬜ B-028 — Selection context menu · 🟠 · S
+✅ B-028 — Selection context menu · 🟠 · S
 ⬜ B-029 — Group picker modal · 🟠 · M
 ⬜ B-030 — Item drag-reorder within / between groups · 🟠 · L
 ⬜ B-031 — Group drag-reorder & nesting via drag · 🟠 · M
@@ -79,14 +79,17 @@ Overall Progress    █████████░░░░░░░░░░░
 ⬜ B-044 — Import HTML with count preview & flattening · 🟠 · M
 ⬜ B-045 — Import JSON with validation & repair · 🟠 · M
 ⬜ B-046 — Global keyboard shortcuts (popup + standalone) · 🟠 · S
-⬜ B-047 — In-panel keyboard shortcuts (select-all, clear) · 🟠 · XS
+✅ B-047 — In-panel keyboard shortcuts (select-all, clear) · 🟠 · XS
 ⬜ B-048 — Item visual states (live / active / drifted / audible / selected) · 🟠 · M
 ✅ B-049 — Empty states & error feedback · 🟠 · S
 ✅ B-050 — State broadcast to all extension surfaces · 🔴 · M
-⬜ B-051 — Sort-order normalisation & selection pruning · 🟠 · S
+✅ B-051 — Sort-order normalisation & selection pruning · 🟠 · S
 ⬜ B-052 — Fuzzy search index caching & perf targets · 🟠 · M
 ✅ B-053 — Break circular dep between partitions.js ↔ write-transaction.js (extract shapes module) · 🟡 · S
 ✅ B-054 — Sidepanel shell: item/group rendering + live states + click-to-navigate + broadcasts · 🔴 · L
+✅ B-055 — Open Tabs section: render live-only ungrouped tabs in the sidepanel · 🟠 · M
+⬜ B-056 — Visually distinguish unsavable tabs in Open Tabs section · 🟡 · S
+⬜ B-057 — SPIKE: URL-scheme allowlist + duplicate-URL policy review · 🟡 · XL
 
 ---
 
@@ -95,7 +98,7 @@ Overall Progress    █████████░░░░░░░░░░░
 | Priority | Count | % |
 |----------|-------|---|
 | 🔴 P0 Critical | 14 | 25% |
-| 🟠 P1 High | 30 | 54% |
+| 🟠 P1 High | 31 | 54% |
 | 🟡 P2 Medium | 8 | 14% |
 | ⚪ P3 Nice-to-have | 4 | 7% |
 
@@ -103,7 +106,7 @@ Overall Progress    █████████░░░░░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 27 | 48% |
+| ✅ Done | 31 | 53% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 29 | 52% |
+| ⬜ To Do | 28 | 47% |
 | 🧊 Icebox | 0 | 0% |

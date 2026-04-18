@@ -1,6 +1,6 @@
 # Managing Bookmarks — Select, Act, and Navigate
 
-This page covers three related features shipped in Sprint 12: selecting multiple items at once, the right-click context menu for individual items, and the feedback messages you see when lists are empty or an operation fails.
+This page covers selecting multiple items at once, right-click context menus, keyboard shortcuts, and the feedback messages you see when lists are empty or an operation fails.
 
 ---
 
@@ -20,6 +20,8 @@ You can select one or more items in the side panel and act on all of them in a s
 
 Double-clicking navigates to an item even when a selection is active.
 
+**Keyboard shortcuts note:** Ctrl/Cmd+A and Escape work anywhere in the panel except when your cursor is inside a text field (the filter bar, for example). This prevents the shortcuts from interfering with normal typing.
+
 ### Bulk action bar
 
 Once one or more items are selected, a bar appears at the bottom of the panel showing how many items are selected and offering the following actions:
@@ -35,7 +37,9 @@ If you apply a filter before using Ctrl+A, only the filtered (visible) items are
 
 ## Right-click context menu
 
-Right-clicking any bookmark row opens a small context menu with actions for that single item.
+### Single-item menu
+
+Right-clicking any bookmark row (with no multi-item selection active) opens a context menu for that single item.
 
 | Action | Description |
 |--------|-------------|
@@ -45,7 +49,17 @@ Right-clicking any bookmark row opens a small context menu with actions for that
 | Close tab | Close the browser tab for this item. Only available when the item's tab is currently open. |
 | Delete | Remove the bookmark permanently. This action is shown in red to indicate it is destructive. |
 
-**Closing the menu:** press Escape or click anywhere outside the menu.
+### Selection context menu
+
+When two or more items are selected, right-clicking any selected row opens the selection context menu instead. Every action in this menu operates on all selected items at once — the same operations as the bulk action bar, reachable from the keyboard or mouse without moving to the bottom of the panel.
+
+| Action | Description |
+|--------|-------------|
+| Move to group | Reassign all selected items to a different group |
+| Close tabs | Close the browser tabs for every selected item that is currently open |
+| Remove | Delete the saved entries for all selected items (with confirmation) |
+
+**Closing either menu:** press Escape or click anywhere outside the menu.
 
 The menu automatically adjusts its position so it never renders partially off-screen, even near the edges of the panel.
 

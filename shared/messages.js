@@ -60,13 +60,42 @@ export const MSG_STATE_CHANGED = 'tj/stateChanged';
  */
 
 /**
+ * @typedef {Object} OpenTab
+ * @property {number} tabId         Browser-assigned tab id (ephemeral, NOT stable across browser restart).
+ * @property {number} windowId      Browser-assigned window id (ephemeral).
+ * @property {string} title         Tab title — untrusted; must be rendered via textContent.
+ * @property {string} url           Tab URL — untrusted.
+ * @property {string|null} favIconUrl  Tab favicon URL, or null when the browser has not provided one.
+ * @property {boolean} audible      Audio indicator for the tab.
+ * @property {boolean} active       True when this is the focused tab in its window.
+ * @property {number} tabIndex      Position in the window's tab strip (used for sort — B-055 AC9).
+ */
+
+/**
  * @typedef {Object} ListItemsResponse
  * @property {Array<Object>} items        The stored items (optionally filtered by groupId)
- * @property {Record<string, {live: boolean, active: boolean, audible: boolean}>} liveStates
+ * @property {Record<string, {live: boolean, active: boolean, audible: boolean, favIconUrl: string|null, tabId?: number}>} liveStates
  *   Per-item live state derived from LiveTabIndex + TabClaims. Items with no
  *   claim have `{ live: false, active: false, audible: false }`. No live-state
  *   field is stored on the Item object in `tj:items` — this is computed at
  *   read time (B-001c AC9).
+ * @property {Record<string, Object>} driftRecords  Per-item drift record keyed by itemId.
+ * @property {OpenTab[]} openTabs
+ *   Live browser tabs NOT claimed by any saved item and NOT rendered as a
+ *   resolved floating-group member (B-055). Empty array `[]` when none qualify —
+ *   never null/undefined. Recomputed on every MSG_LIST_ITEMS call. `tabId` and
+ *   `windowId` are ephemeral and must not be persisted.
+ */
+
+/**
+ * MSG_NAVIGATE_TO_ITEM request payload is one of:
+ *   (a) { itemId: string }                     — navigate to a saved item (may open a new tab).
+ *   (b) { tabId: number, windowId: number }    — focus an existing live tab (B-055).
+ * The tabId-only variant does NOT perform any storage mutation and therefore
+ * is intentionally excluded from the broadcast path — see
+ * `background/messages/storage-handlers.js` for the suppression logic.
+ *
+ * @typedef {({itemId: string} | {tabId: number, windowId: number})} NavigateToItemPayload
  */
 
 /**

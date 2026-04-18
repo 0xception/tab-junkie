@@ -42,19 +42,22 @@ function resetAll() {
    1. LiveTabIndex — buildLiveTabIndex
    ========================================================================= */
 
-test('B010-1: buildLiveTabIndex captures url, windowId, active, audible, favIconUrl', async () => {
+test('B010-1: buildLiveTabIndex captures url, title, windowId, active, audible, favIconUrl', async () => {
   resetAll();
   __setMockTabs([
-    { id: 1, url: 'https://a.com', windowId: 10, active: true, audible: false, favIconUrl: 'https://a.com/fav.ico', index: 0 },
-    { id: 2, url: 'https://b.com', windowId: 10, active: false, audible: true, favIconUrl: '', index: 1 },
+    { id: 1, url: 'https://a.com', title: 'A', windowId: 10, active: true, audible: false, favIconUrl: 'https://a.com/fav.ico', index: 0 },
+    { id: 2, url: 'https://b.com', title: '', windowId: 10, active: false, audible: true, favIconUrl: '', index: 1 },
   ]);
 
   await buildLiveTabIndex();
   const idx = getLiveTabIndex();
 
+  // B-055: LiveTabIndex entries carry `title` so the Open Tabs section can
+  // render row titles without per-tab chrome.tabs.get round-trips.
   assert.equal(idx.size, 2);
   assert.deepStrictEqual(idx.get(1), {
     url: 'https://a.com',
+    title: 'A',
     windowId: 10,
     active: true,
     audible: false,
@@ -63,6 +66,7 @@ test('B010-1: buildLiveTabIndex captures url, windowId, active, audible, favIcon
   });
   assert.deepStrictEqual(idx.get(2), {
     url: 'https://b.com',
+    title: '',
     windowId: 10,
     active: false,
     audible: true,

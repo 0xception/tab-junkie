@@ -111,6 +111,54 @@ function assertGroupExists(groupId, groups) {
 }
 
 /**
+ * B-051: Normalise sort orders within a single group so they are sequential
+ * integers starting at 0 with no gaps or duplicates.
+ *
+ * Input: a full items array and the groupId bucket to normalise (null = ungrouped).
+ * Output: a new items array with sortOrder mutations applied in-place.
+ *         If the bucket is already sequential, the original array is returned
+ *         unchanged (idempotency fast-path — no unnecessary writes).
+ *
+ * Rules:
+ * - Items are sorted by their current sortOrder before renumbering so relative
+ *   order is preserved.
+ * - Items not in the target groupId are passed through unmodified.
+ * - An already-sequential bucket (0, 1, 2, …) produces zero mutations.
+ *
+ * @param {string|null} groupId
+ * @param {import('./partitions.js').Item[]} items
+ * @returns {import('./partitions.js').Item[]}
+ */
+function normaliseGroupSortOrders(groupId, items) {
+  // Collect items in this bucket, preserving their indices in the original array.
+  const bucketEntries = [];
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].groupId === groupId) {
+      bucketEntries.push({ idx: i, item: items[i] });
+    }
+  }
+
+  if (bucketEntries.length === 0) return items;
+
+  // Sort by current sortOrder to preserve relative order.
+  bucketEntries.sort((a, b) => a.item.sortOrder - b.item.sortOrder);
+
+  // Idempotency check: are values already 0, 1, 2, … ?
+  const alreadyNormalised = bucketEntries.every((e, pos) => e.item.sortOrder === pos);
+  if (alreadyNormalised) return items;
+
+  // Apply sequential renumbering.
+  const out = items.slice();
+  for (let pos = 0; pos < bucketEntries.length; pos++) {
+    const { idx, item } = bucketEntries[pos];
+    if (item.sortOrder !== pos) {
+      out[idx] = { ...item, sortOrder: pos };
+    }
+  }
+  return out;
+}
+
+/**
  * @param {{title: string, url: string, groupId: string|null}} input
  * @returns {Promise<import('./partitions.js').Item>}
  */
@@ -145,7 +193,16 @@ export async function createItem(input) {
       partition: PARTITION_ITEMS,
       mutator: (items) => {
         assertGroupExists(item.groupId, groupsSnapshot);
-        return [...items, item];
+        // B-051 AC1/AC2: assign sortOrder = current bucket size so the new item
+        // appends at the end, then normalise to close any pre-existing gaps.
+        const bucketSize = items.filter((it) => it.groupId === item.groupId).length;
+        const itemWithOrder = { ...item, sortOrder: bucketSize };
+        const appended = [...items, itemWithOrder];
+        const normalised = normaliseGroupSortOrders(item.groupId, appended);
+        // Update item's sortOrder to reflect what was actually persisted.
+        const persisted = normalised.find((it) => it.id === item.id);
+        if (persisted) item.sortOrder = persisted.sortOrder;
+        return normalised;
       },
     },
   ]);
@@ -213,9 +270,11 @@ export async function deleteItem(id) {
       mutator: (items) => {
         const idx = items.findIndex((it) => it.id === id);
         if (idx < 0) return items; // idempotent no-op on unknown id
+        // B-051 AC1/AC2: capture groupId before removal, then normalise that bucket.
+        const deletedGroupId = items[idx].groupId;
         const out = items.slice();
         out.splice(idx, 1);
-        return out;
+        return normaliseGroupSortOrders(deletedGroupId, out);
       },
     },
   ]);
@@ -307,7 +366,35 @@ export async function bulkCreateItems(inputs) {
               txGroupSkipped.push({ input: originalInput, reason: err.message });
             }
           }
-          return [...items, ...toAppend];
+          if (toAppend.length === 0) return items;
+          // B-051 AC1/AC2: assign sortOrders relative to existing bucket sizes,
+          // then normalise every affected bucket to close any pre-existing gaps.
+          const bucketSizes = new Map();
+          for (const it of items) {
+            bucketSizes.set(it.groupId, (bucketSizes.get(it.groupId) ?? 0) + 1);
+          }
+          const orderedAppend = toAppend.map((item) => {
+            const current = bucketSizes.get(item.groupId) ?? 0;
+            bucketSizes.set(item.groupId, current + 1);
+            return { ...item, sortOrder: current };
+          });
+          // Update txCreated sortOrders to match what will be stored.
+          for (let i = 0; i < txCreated.length; i++) {
+            txCreated[i] = orderedAppend[i];
+          }
+          let merged = [...items, ...orderedAppend];
+          // Normalise each distinct groupId bucket that received new items.
+          const affectedGroups = new Set(orderedAppend.map((it) => it.groupId));
+          for (const gid of affectedGroups) {
+            merged = normaliseGroupSortOrders(gid, merged);
+          }
+          // Sync txCreated sortOrders to final normalised values.
+          const mergedById = new Map(merged.map((it) => [it.id, it]));
+          for (let i = 0; i < txCreated.length; i++) {
+            const normalised = mergedById.get(txCreated[i].id);
+            if (normalised) txCreated[i] = normalised;
+          }
+          return merged;
         },
       },
     ]);
@@ -423,17 +510,33 @@ export async function bulkUpdateItems(ids, patch) {
           assertGroupExists(patch.groupId, groupsSnapshot);
         }
         const existingIds = new Set(items.map((it) => it.id));
+        // B-051 M-2: pre-build id→item map to avoid O(n×m) linear scan.
+        const itemById = new Map(items.map((it) => [it.id, it]));
+        // Track source groupIds before the patch so we can normalise them too.
+        const sourceGroups = new Set();
         for (const id of idSet) {
           if (existingIds.has(id)) {
             updated.push(id);
+            const src = itemById.get(id);
+            if (src && 'groupId' in patch && src.groupId !== patch.groupId) {
+              sourceGroups.add(src.groupId);
+            }
           } else {
             notFound.push(id);
           }
         }
-        return items.map((it) => {
+        let out = items.map((it) => {
           if (!idSet.has(it.id)) return it;
           return { ...it, ...patch, id: it.id, createdAt: it.createdAt, updatedAt: now };
         });
+        // B-051 AC1/AC2: normalise destination group and all vacated source groups.
+        if ('groupId' in patch) {
+          out = normaliseGroupSortOrders(patch.groupId, out);
+          for (const gid of sourceGroups) {
+            out = normaliseGroupSortOrders(gid, out);
+          }
+        }
+        return out;
       },
     },
   ]);

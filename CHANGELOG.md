@@ -2,6 +2,19 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.8.0] — 2026-04-17
+
+### Added
+- Open Tabs section: a pinned "Open Tabs" section at the bottom of the side panel surfaces every browser tab that is not yet saved or grouped. Click any row to focus that tab; right-click for Save to group or Close tab. The section updates in real time as tabs open, close, or navigate, and participates in the inline filter, multi-select, and bulk action bar (B-055).
+- Selection context menu: right-clicking while multiple items are selected opens a selection-aware context menu offering Move to group, Close tabs, and Remove — the same operations as the bulk action bar, now reachable via right-click (B-028).
+- Keyboard shortcuts: Ctrl/Cmd+A selects all currently visible items (including Open Tabs rows); Escape clears the selection. Shortcuts are suppressed when focus is inside a text field such as the filter bar (B-047).
+
+### Changed
+- Sort-order normalisation: item sort positions within each group are kept sequential and gap-free after every create, delete, move, or bulk operation. Selection sets are pruned of stale IDs before bulk actions run. No user-visible change; lays the groundwork for drag-reorder reliability (B-051).
+
+### Known limitations (Open Tabs section)
+- Tabs with restricted URL schemes (edge://, chrome://, about:, etc.) and tabs whose URL duplicates an existing saved bookmark cannot be saved via Save to group. A categorised error toast explains the failure reason. Visual dimming and proactive skip behaviour for these rows are planned for Sprint 14 (B-056, B-057).
+
 ## [1.7.0] — 2026-04-17
 
 ### Added

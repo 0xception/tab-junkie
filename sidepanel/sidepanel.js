@@ -13,14 +13,19 @@ import {
   MSG_CLOSE_TABS,
   MSG_BULK_DELETE_ITEMS,
   MSG_BULK_UPDATE_ITEMS,
+  MSG_PROMOTE_TAB,
 } from '../shared/messages.js';
 
 import {
   ERR_NOT_FOUND,
   ERR_VALIDATION,
+  ERR_SAFE_MODE,
+  ERR_DUPLICATE_URL,
 } from '../shared/errors.js';
 
 import { GROUP_COLORS } from '../shared/constants.js';
+
+import { pruneSelection } from '../shared/selection.js';
 
 /**
  * Returns true only for favicon URLs that are safe to assign to img.src.
@@ -105,6 +110,22 @@ let _cachedGroups = [];
 let _cachedLiveStates = {};
 let _cachedDriftRecords = {};
 let _itemById = new Map();
+
+/* =========================================================================
+   Open Tabs cache (B-055) — parallel to _cachedLiveStates to keep saved-item
+   paths unchanged. Populated by renderAll / refetchAndPatchLiveState from
+   the enriched MSG_LIST_ITEMS response (`openTabs`).
+   `_cachedOpenTabsById` (B-055 M-1) mirrors `_itemById` for O(1) tabId lookup
+   during filter passes. Rebuilt every time `_cachedOpenTabs` is assigned —
+   callers MUST use `_setCachedOpenTabs()` to keep them in sync.
+   ========================================================================= */
+let _cachedOpenTabs = [];
+let _cachedOpenTabsById = new Map();
+
+function _setCachedOpenTabs(next) {
+  _cachedOpenTabs = Array.isArray(next) ? next : [];
+  _cachedOpenTabsById = new Map(_cachedOpenTabs.map((t) => [t.tabId, t]));
+}
 
 /* =========================================================================
    Toast state (B-049)
@@ -364,7 +385,7 @@ async function _handleFormSubmit(e) {
     /* Fallback re-render in case MSG_STATE_CHANGED broadcast is lost */
     Promise.all([sendMessage(MSG_LIST_ITEMS), sendMessage(MSG_LIST_GROUPS)])
       .then(([itemsResp, groups]) => {
-        renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords);
+        renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
       })
       .catch(() => {});
   } catch (err) {
@@ -506,6 +527,68 @@ function applyFilter() {
     totalVisible += visibleInGroup;
   }
 
+  /* B-055 AC11: filter Open Tabs rows by title OR url (case-insensitive). */
+  const openTabsSection = document.getElementById(OPEN_TABS_SECTION_ID);
+  if (openTabsSection) {
+    const rows = openTabsSection.querySelectorAll('[data-tab-id]');
+    let visibleTabs = 0;
+    for (const row of rows) {
+      const tabId = Number(row.dataset.tabId);
+      /* B-055 M-1: O(1) lookup via pre-built map. */
+      const tab = _cachedOpenTabsById.get(tabId);
+      if (!query) {
+        row.hidden = false;
+        /* Restore original title/url text (no highlight on non-matching cases) */
+        if (tab) {
+          const titleEl = row.querySelector('.item-title');
+          const urlEl = row.querySelector('.item-url');
+          if (titleEl) titleEl.textContent = tab.title || tab.url || 'Untitled tab';
+          if (urlEl) urlEl.textContent = tab.url || '';
+        }
+        visibleTabs++;
+        continue;
+      }
+      if (!tab) { row.hidden = true; continue; }
+      const titleMatch = (tab.title || '').toLowerCase().includes(query);
+      const urlMatch = (tab.url || '').toLowerCase().includes(query);
+      if (titleMatch || urlMatch) {
+        row.hidden = false;
+        visibleTabs++;
+        const titleEl = row.querySelector('.item-title');
+        const urlEl = row.querySelector('.item-url');
+        if (titleEl) {
+          titleEl.textContent = '';
+          titleEl.appendChild(buildHighlightedText(tab.title || tab.url || 'Untitled tab', query));
+        }
+        if (urlEl) {
+          urlEl.textContent = '';
+          urlEl.appendChild(buildHighlightedText(tab.url || '', query));
+        }
+      } else {
+        row.hidden = true;
+      }
+    }
+
+    const countBadge = openTabsSection.querySelector('#' + OPEN_TABS_COUNT_ID);
+    if (countBadge) {
+      countBadge.textContent = String(query ? visibleTabs : _cachedOpenTabs.length);
+    }
+
+    /* AC11: hide section entirely when filter hides every row. Show again on clear. */
+    if (!query) {
+      openTabsSection.hidden = false;
+      /* Empty-state only re-appears when there are no tabs at all. */
+      _toggleOpenTabsEmpty(openTabsSection, _cachedOpenTabs.length === 0);
+    } else {
+      openTabsSection.hidden = visibleTabs === 0;
+      /* Hide empty-state during filter — it's reserved for "no tabs at all". */
+      const empty = openTabsSection.querySelector('.open-tabs-empty');
+      if (empty) empty.hidden = true;
+    }
+
+    totalVisible += (query ? visibleTabs : _cachedOpenTabs.length);
+  }
+
   /* Reset scroll to top on filter apply (AC10) */
   itemListEl.scrollTop = 0;
 
@@ -552,6 +635,85 @@ function clearFilter() {
    ========================================================================= */
 
 /**
+ * B-055: canonical selection keys are prefixed strings to unify saved-item and
+ * open-tab entries in a single Set<string>.
+ *
+ *   item:<uuid>     — saved item row
+ *   tab:<number>    — open-tab row (no saved item)
+ *
+ * Every call site uses `_selectionKeyForRow(row)` to build the key and
+ * `_partitionSelection()` to split the Set before dispatching bulk actions.
+ */
+function _selectionKeyForRow(row) {
+  if (row.dataset.liveOnly === 'true' && row.dataset.tabId) {
+    return 'tab:' + row.dataset.tabId;
+  }
+  if (row.dataset.itemId) return 'item:' + row.dataset.itemId;
+  return null;
+}
+
+function _rowForSelectionKey(key) {
+  if (key.startsWith('item:')) {
+    return itemListEl.querySelector(`[data-item-id="${CSS.escape(key.slice(5))}"]:not([data-live-only])`);
+  }
+  if (key.startsWith('tab:')) {
+    return itemListEl.querySelector(`[data-tab-id="${CSS.escape(key.slice(4))}"][data-live-only]`);
+  }
+  return null;
+}
+
+/**
+ * B-055 M-4: keep `data-selected` and `aria-selected` in sync on every write.
+ * `data-selected` drives CSS; `aria-selected` lets screen readers expose the
+ * state programmatically.
+ */
+function _setRowSelected(row, selected) {
+  if (!row) return;
+  if (selected) {
+    row.dataset.selected = 'true';
+    row.setAttribute('aria-selected', 'true');
+  } else {
+    delete row.dataset.selected;
+    row.removeAttribute('aria-selected');
+  }
+}
+
+function _partitionSelection() {
+  const itemIds = [];
+  const tabIds = [];
+  for (const key of _selection) {
+    if (key.startsWith('item:')) itemIds.push(key.slice(5));
+    else if (key.startsWith('tab:')) tabIds.push(Number(key.slice(4)));
+  }
+  return { itemIds, tabIds };
+}
+
+/**
+ * B-051 M-1: prune stale `item:*` keys from _selection prior to a bulk dispatch.
+ *
+ * We prune only the saved-item partition because open-tab (`tab:*`) entries
+ * self-clean via tabs.onRemoved → MSG_STATE_CHANGED re-render; saved items
+ * can go stale between user gesture and action dispatch via a concurrent
+ * delete broadcast. In-place mutation of the Set keeps _selection as the
+ * single source of truth.
+ */
+function _pruneStaleSelection() {
+  /* Extract the item-key partition, feed it through pruneSelection, then
+     rebuild the Set keeping every tab key intact. */
+  const itemKeys = new Set();
+  for (const key of _selection) {
+    if (key.startsWith('item:')) itemKeys.add(key.slice(5));
+  }
+  const pruned = pruneSelection(itemKeys, _cachedItems);
+  for (const key of [..._selection]) {
+    if (key.startsWith('item:')) {
+      const id = key.slice(5);
+      if (!pruned.has(id)) _selection.delete(key);
+    }
+  }
+}
+
+/**
  * Update the bulk action bar count, disabled states, and visibility.
  * Called after every selection change.
  */
@@ -569,67 +731,96 @@ function _updateBulkBar() {
   bulkActionBarEl.hidden = false;
   itemListEl.classList.add('has-bulk-bar');
 
-  /* Disable Close tabs when no selected items are live */
+  /* B-055 AC12: compute valid-action intersection for the current selection. */
+  const { itemIds, tabIds } = _partitionSelection();
+  const hasItems = itemIds.length > 0;
+  const hasTabs = tabIds.length > 0;
+  const mixed = hasItems && hasTabs;
+  const onlyTabs = hasTabs && !hasItems;
+
+  /* Close: enabled when at least one live target exists (saved-item live row
+     or an open-tab row). Open-tab rows always have a live tab by definition. */
   let hasLive = false;
-  for (const id of _selection) {
-    const ls = _cachedLiveStates[id];
-    if (ls && ls.live) { hasLive = true; break; }
+  if (hasTabs) {
+    hasLive = true;
+  } else {
+    for (const id of itemIds) {
+      const ls = _cachedLiveStates[id];
+      if (ls && ls.live) { hasLive = true; break; }
+    }
   }
   bulkCloseBtn.disabled = !hasLive;
+
+  /* Move to group: visible for all-saved or all-open-tab selections, hidden
+     for mixed. The mixed-selection "Move to group" hide is intentional —
+     see SOLUTION_DESIGN §26.6 "mixed hide" rationale. */
+  bulkMoveBtn.hidden = mixed;
+
+  /* Remove: NOT valid for open-tab rows (they have no saved item). Hide when
+     any open-tab row is selected, including the mixed case. */
+  bulkRemoveBtn.hidden = hasTabs;
+
+  /* AC7 note: the bulk bar is the Move/Close/Remove action set. "Save to group"
+     for an all-open-tab selection re-uses the Move button (which dispatches
+     MSG_PROMOTE_TAB when the selection is all tabs — see bulkMoveBtn handler). */
+  bulkMoveBtn.textContent = onlyTabs ? 'Save to group' : 'Move to group';
 }
 
 /**
- * Toggle a single item's selection state. Updates the row attribute and the bar.
+ * Toggle a single row's selection state. Updates the row attribute and the bar.
  * B-024 H-3: writes the range anchor (single source of truth for range-select).
  */
-function _toggleSelection(itemId) {
-  if (_selection.has(itemId)) {
-    _selection.delete(itemId);
-    const row = itemListEl.querySelector(`[data-item-id="${CSS.escape(itemId)}"]`);
-    if (row) delete row.dataset.selected;
+function _toggleSelection(key) {
+  const row = _rowForSelectionKey(key);
+  if (_selection.has(key)) {
+    _selection.delete(key);
+    _setRowSelected(row, false);
   } else {
-    _selection.add(itemId);
-    const row = itemListEl.querySelector(`[data-item-id="${CSS.escape(itemId)}"]`);
-    if (row) row.dataset.selected = 'true';
+    _selection.add(key);
+    _setRowSelected(row, true);
   }
-  _lastSelectedId = itemId;
-  _rangeAnchorId = itemId;
+  _lastSelectedId = key;
+  _rangeAnchorId = key;
   _updateBulkBar();
 }
 
 /**
- * Range-select all visible item rows between _rangeAnchorId and targetId (inclusive).
- * B-024 H-3: reads _rangeAnchorId only; never writes it, so the anchor stays pinned
- * to the most recent explicit toggle/select-all.
+ * Range-select all visible rows between _rangeAnchorId and targetKey (inclusive).
+ * Traverses saved-item AND open-tab rows in DOM order so a Shift+Click can
+ * span the two row families (AC12 "mixed selection").
  */
-function _rangeSelect(targetId) {
-  const rows = [...itemListEl.querySelectorAll('[data-item-id]:not([hidden])')];
-  const ids = rows.map((r) => r.dataset.itemId);
-  const startIdx = ids.indexOf(_rangeAnchorId);
-  const endIdx = ids.indexOf(targetId);
+function _rangeSelect(targetKey) {
+  const rows = [...itemListEl.querySelectorAll('[data-item-id]:not([hidden]), [data-tab-id]:not([hidden])')];
+  const keys = rows.map(_selectionKeyForRow);
+  const startIdx = keys.indexOf(_rangeAnchorId);
+  const endIdx = keys.indexOf(targetKey);
   if (startIdx === -1 || endIdx === -1) return;
   const lo = Math.min(startIdx, endIdx);
   const hi = Math.max(startIdx, endIdx);
   for (let i = lo; i <= hi; i++) {
-    _selection.add(ids[i]);
-    rows[i].dataset.selected = 'true';
+    if (!keys[i]) continue;
+    _selection.add(keys[i]);
+    _setRowSelected(rows[i], true);
   }
   _updateBulkBar();
 }
 
 /**
- * Select all visible item rows.
+ * Select all visible rows (saved-item + open-tab).
  * B-024 H-3: writes the range anchor to the last visible row.
  */
 function _selectAll() {
-  const rows = itemListEl.querySelectorAll('[data-item-id]:not([hidden])');
+  const rows = itemListEl.querySelectorAll('[data-item-id]:not([hidden]), [data-tab-id]:not([hidden])');
   for (const row of rows) {
-    _selection.add(row.dataset.itemId);
-    row.dataset.selected = 'true';
+    const key = _selectionKeyForRow(row);
+    if (!key) continue;
+    _selection.add(key);
+    _setRowSelected(row, true);
   }
   if (rows.length > 0) {
-    _lastSelectedId = rows[rows.length - 1].dataset.itemId;
-    _rangeAnchorId = rows[rows.length - 1].dataset.itemId;
+    const lastKey = _selectionKeyForRow(rows[rows.length - 1]);
+    _lastSelectedId = lastKey;
+    _rangeAnchorId = lastKey;
   }
   _updateBulkBar();
 }
@@ -641,9 +832,9 @@ function _selectAll() {
  */
 function _clearSelection() {
   _closeBulkMovePicker();
-  for (const id of _selection) {
-    const row = itemListEl.querySelector(`[data-item-id="${CSS.escape(id)}"]`);
-    if (row) delete row.dataset.selected;
+  for (const key of _selection) {
+    const row = _rowForSelectionKey(key);
+    _setRowSelected(row, false);
   }
   _selection.clear();
   _lastSelectedId = null;
@@ -653,19 +844,27 @@ function _clearSelection() {
 
 /**
  * After renderAll() rebuilds the DOM, re-apply data-selected from the Set
- * and prune any IDs that no longer exist.
+ * and prune any keys that no longer resolve to a row (stale items, closed tabs).
  */
 function _reapplySelection() {
   const toRemove = [];
-  for (const id of _selection) {
-    if (!_itemById.has(id)) {
-      toRemove.push(id);
-      continue;
+  const liveTabIds = new Set(_cachedOpenTabs.map((t) => t.tabId));
+  for (const key of _selection) {
+    if (key.startsWith('item:')) {
+      const id = key.slice(5);
+      if (!_itemById.has(id)) { toRemove.push(key); continue; }
+      const row = itemListEl.querySelector(`[data-item-id="${CSS.escape(id)}"]:not([data-live-only])`);
+      _setRowSelected(row, true);
+    } else if (key.startsWith('tab:')) {
+      const tabId = Number(key.slice(4));
+      if (!liveTabIds.has(tabId)) { toRemove.push(key); continue; }
+      const row = itemListEl.querySelector(`[data-tab-id="${CSS.escape(String(tabId))}"][data-live-only]`);
+      _setRowSelected(row, true);
+    } else {
+      toRemove.push(key);
     }
-    const row = itemListEl.querySelector(`[data-item-id="${CSS.escape(id)}"]`);
-    if (row) row.dataset.selected = 'true';
   }
-  for (const id of toRemove) _selection.delete(id);
+  for (const key of toRemove) _selection.delete(key);
   _updateBulkBar();
 }
 
@@ -673,15 +872,19 @@ function _reapplySelection() {
    Rendering
    ========================================================================= */
 
-function renderAll(items, groups, liveStates, driftRecords) {
+function renderAll(items, groups, liveStates, driftRecords, openTabs) {
   /* Cache data for filter (B-021) */
   _cachedItems = items;
   _cachedGroups = groups;
   _cachedLiveStates = liveStates || {};
   _cachedDriftRecords = driftRecords || {};
+  _setCachedOpenTabs(openTabs);
   _itemById = new Map(items.map((it) => [it.id, it]));
 
-  if (!items.length && !groups.length) {
+  /* B-055 AC4: the empty state only shows when NOTHING qualifies — no saved
+     items, no groups, AND no open tabs. If open tabs exist we still need the
+     list container visible so the section can mount. */
+  if (!items.length && !groups.length && _cachedOpenTabs.length === 0) {
     skeletonEl.hidden = true;
     emptyStateEl.hidden = false;
     errorStateEl.hidden = true;
@@ -751,6 +954,9 @@ function renderAll(items, groups, liveStates, driftRecords) {
     const section = buildGroupSection(syntheticGroup, byGroup, liveStates, driftRecords, false);
     fragment.appendChild(section);
   }
+
+  /* B-055 AC4: Open Tabs section is always last, always mounted. */
+  fragment.appendChild(buildOpenTabsSection(_cachedOpenTabs));
 
   itemListEl.replaceChildren(fragment);
   itemListEl.appendChild(dropIndicatorEl);
@@ -996,6 +1202,301 @@ function buildItemRow(item, liveStates, driftRecords) {
 }
 
 /* =========================================================================
+   Open Tabs section (B-055)
+   ========================================================================= */
+
+const OPEN_TABS_SECTION_ID = 'open-tabs-section';
+const OPEN_TABS_LIST_ID = 'open-tabs-list';
+const OPEN_TABS_COUNT_ID = 'open-tabs-count';
+const OPEN_TABS_EMPTY_ID = 'open-tabs-empty';
+
+function _buildOpenTabFavicon(tab) {
+  if (isSafeFaviconUrl(tab.favIconUrl)) {
+    const img = document.createElement('img');
+    img.className = 'item-favicon';
+    img.alt = '';
+    img.src = tab.favIconUrl;
+    const fallbackLabel = tab.title || tab.url || '?';
+    img.onerror = () => {
+      const fallback = document.createElement('div');
+      fallback.className = 'item-avatar';
+      fallback.textContent = fallbackLabel.charAt(0);
+      fallback.style.backgroundColor = avatarColor(fallbackLabel);
+      img.replaceWith(fallback);
+    };
+    return img;
+  }
+  const avatar = document.createElement('div');
+  avatar.className = 'item-avatar';
+  const label = tab.title || tab.url || '?';
+  avatar.textContent = label.charAt(0);
+  avatar.style.backgroundColor = avatarColor(label);
+  return avatar;
+}
+
+function _createWindowBadge(windowId) {
+  const badge = document.createElement('span');
+  badge.className = 'open-tab-window-badge';
+  badge.textContent = 'W' + windowId;
+  badge.setAttribute('aria-label', 'Window ' + windowId);
+  return badge;
+}
+
+/**
+ * Build a single Open Tabs row. Uses textContent everywhere — tab titles and
+ * URLs are untrusted per the security review.
+ */
+function buildOpenTabRow(tab, { multiWindow }) {
+  const row = document.createElement('li');
+  row.className = 'item-row';
+  row.setAttribute('role', 'listitem');
+  row.setAttribute('tabindex', '0');
+  row.dataset.liveOnly = 'true';
+  row.dataset.tabId = String(tab.tabId);
+  row.dataset.windowId = String(tab.windowId);
+  row.dataset.live = 'true';
+  if (tab.active) row.dataset.active = 'true';
+  if (tab.audible) row.dataset.audible = 'true';
+
+  row.appendChild(_buildOpenTabFavicon(tab));
+
+  const textBlock = document.createElement('div');
+  textBlock.className = 'item-text';
+
+  const title = document.createElement('div');
+  title.className = 'item-title';
+  title.textContent = tab.title || tab.url || 'Untitled tab';
+
+  const url = document.createElement('div');
+  url.className = 'item-url';
+  url.textContent = tab.url || '';
+
+  textBlock.appendChild(title);
+  textBlock.appendChild(url);
+  row.appendChild(textBlock);
+
+  /* Indicators column: window badge + audible icon */
+  const indicators = document.createElement('div');
+  indicators.className = 'item-indicators';
+  if (multiWindow) indicators.appendChild(_createWindowBadge(tab.windowId));
+  if (tab.audible) indicators.appendChild(_createAudibleIcon());
+  if (indicators.children.length > 0) row.appendChild(indicators);
+
+  return row;
+}
+
+/**
+ * Build the Open Tabs section — always mounted (AC4).
+ * Uses a <section> for the region role (AC15).
+ * B-055 H-2 fix: the parent `#item-list` carries `role="list"`, whose children
+ * must be `role="listitem"`. Wrap the `<section>` in a listitem div so the
+ * outer wrapper satisfies the list-membership contract while the inner
+ * section remains the ARIA landmark.
+ */
+function buildOpenTabsSection(openTabs) {
+  const wrapper = document.createElement('div');
+  wrapper.setAttribute('role', 'listitem');
+  wrapper.className = 'open-tabs-wrapper';
+
+  const section = document.createElement('section');
+  section.id = OPEN_TABS_SECTION_ID;
+  section.className = 'open-tabs-section';
+  section.setAttribute('role', 'region');
+  section.setAttribute('aria-label', 'Open Tabs');
+
+  const header = document.createElement('div');
+  header.className = 'group-header open-tabs-header';
+  header.setAttribute('role', 'heading');
+  header.setAttribute('aria-level', '2');
+
+  const name = document.createElement('span');
+  name.className = 'group-header-name';
+  name.textContent = 'Open Tabs';
+
+  const count = document.createElement('span');
+  count.id = OPEN_TABS_COUNT_ID;
+  count.className = 'group-header-count';
+  count.textContent = String(openTabs.length);
+  count.setAttribute('aria-live', 'polite');
+
+  header.appendChild(name);
+  header.appendChild(count);
+  section.appendChild(header);
+
+  const list = document.createElement('ul');
+  list.id = OPEN_TABS_LIST_ID;
+  list.className = 'open-tabs-list';
+  list.setAttribute('role', 'list');
+
+  const multiWindow = _openTabsWindowsCount(openTabs) > 1;
+  for (const tab of openTabs) {
+    list.appendChild(buildOpenTabRow(tab, { multiWindow }));
+  }
+  section.appendChild(list);
+
+  /* AC10 empty state */
+  const empty = document.createElement('div');
+  empty.id = OPEN_TABS_EMPTY_ID;
+  empty.className = 'open-tabs-empty';
+  empty.setAttribute('role', 'status');
+  empty.setAttribute('aria-live', 'polite');
+  const emptyMsg = document.createElement('span');
+  emptyMsg.textContent = 'No untracked tabs — all open tabs are saved or grouped';
+  empty.appendChild(emptyMsg);
+  section.appendChild(empty);
+
+  _toggleOpenTabsEmpty(section, openTabs.length === 0);
+
+  wrapper.appendChild(section);
+  return wrapper;
+}
+
+function _openTabsWindowsCount(openTabs) {
+  const seen = new Set();
+  for (const t of openTabs) seen.add(t.windowId);
+  return seen.size;
+}
+
+function _toggleOpenTabsEmpty(sectionEl, isEmpty) {
+  if (!sectionEl) return;
+  const list = sectionEl.querySelector('.open-tabs-list');
+  const empty = sectionEl.querySelector('.open-tabs-empty');
+  if (list) list.hidden = isEmpty;
+  if (empty) empty.hidden = !isEmpty;
+}
+
+/**
+ * Targeted DOM diff for the Open Tabs section (AC8 / AC16).
+ * Full re-renders on every liveState broadcast would be expensive at 50 rows.
+ * This keyed diff removes, inserts, and patches individual rows only.
+ */
+function patchOpenTabsSection(nextOpenTabs) {
+  const section = document.getElementById(OPEN_TABS_SECTION_ID);
+  if (!section) return;
+
+  const list = section.querySelector('.open-tabs-list');
+  const countBadge = section.querySelector('#' + OPEN_TABS_COUNT_ID);
+  if (!list) return;
+
+  /* Index existing rows by tabId */
+  const existing = new Map();
+  for (const row of list.children) {
+    const tabId = Number(row.dataset.tabId);
+    if (!Number.isNaN(tabId)) existing.set(tabId, row);
+  }
+
+  const nextById = new Map();
+  for (const tab of nextOpenTabs) nextById.set(tab.tabId, tab);
+
+  /* Remove rows that no longer qualify */
+  for (const [tabId, row] of existing) {
+    if (!nextById.has(tabId)) {
+      row.remove();
+      existing.delete(tabId);
+    }
+  }
+
+  const multiWindow = _openTabsWindowsCount(nextOpenTabs) > 1;
+
+  /* Walk the sorted next array and ensure DOM matches order. */
+  for (let i = 0; i < nextOpenTabs.length; i++) {
+    const tab = nextOpenTabs[i];
+    let row = existing.get(tab.tabId);
+    if (row) {
+      _patchOpenTabRow(row, tab, { multiWindow });
+    } else {
+      row = buildOpenTabRow(tab, { multiWindow });
+    }
+    /* Insert at sorted-position index (AC9). */
+    const currentChild = list.children[i];
+    if (currentChild !== row) {
+      list.insertBefore(row, currentChild || null);
+    }
+  }
+
+  /* Pop any extra trailing children (defensive — should be rare). */
+  while (list.children.length > nextOpenTabs.length) {
+    list.lastElementChild.remove();
+  }
+
+  if (countBadge) countBadge.textContent = String(nextOpenTabs.length);
+  _toggleOpenTabsEmpty(section, nextOpenTabs.length === 0);
+
+  /* Re-apply selection on any freshly-inserted rows. */
+  for (const tab of nextOpenTabs) {
+    const key = 'tab:' + tab.tabId;
+    if (_selection.has(key)) {
+      const row = list.querySelector(`[data-tab-id="${CSS.escape(String(tab.tabId))}"]`);
+      _setRowSelected(row, true);
+    }
+  }
+}
+
+/**
+ * Patch a single existing Open Tabs row with new field values.
+ * Touches only the attributes and text that changed.
+ */
+function _patchOpenTabRow(row, tab, { multiWindow }) {
+  if (tab.active) row.dataset.active = 'true'; else delete row.dataset.active;
+  if (tab.audible) row.dataset.audible = 'true'; else delete row.dataset.audible;
+  if (tab.windowId != null) row.dataset.windowId = String(tab.windowId);
+
+  /* Favicon swap */
+  const existingImg = row.querySelector('.item-favicon');
+  const existingAvatar = row.querySelector('.item-avatar');
+  const faviconOk = isSafeFaviconUrl(tab.favIconUrl);
+  if (faviconOk && existingImg) {
+    if (existingImg.getAttribute('src') !== tab.favIconUrl) existingImg.src = tab.favIconUrl;
+  } else if (faviconOk && existingAvatar) {
+    existingAvatar.replaceWith(_buildOpenTabFavicon(tab));
+  } else if (!faviconOk && existingImg) {
+    existingImg.replaceWith(_buildOpenTabFavicon(tab));
+  }
+
+  /* Title and URL — patch only if changed. */
+  const titleEl = row.querySelector('.item-title');
+  const urlEl = row.querySelector('.item-url');
+  const nextTitle = tab.title || tab.url || 'Untitled tab';
+  const nextUrl = tab.url || '';
+  if (titleEl && titleEl.textContent !== nextTitle) titleEl.textContent = nextTitle;
+  if (urlEl && urlEl.textContent !== nextUrl) urlEl.textContent = nextUrl;
+
+  /* Indicators: window badge + audible icon */
+  let indicators = row.querySelector('.item-indicators');
+  const needIndicators = multiWindow || !!tab.audible;
+  if (needIndicators && !indicators) {
+    indicators = document.createElement('div');
+    indicators.className = 'item-indicators';
+    row.appendChild(indicators);
+  }
+  if (indicators) {
+    const existingBadge = indicators.querySelector('.open-tab-window-badge');
+    if (multiWindow) {
+      if (!existingBadge) {
+        indicators.prepend(_createWindowBadge(tab.windowId));
+      } else {
+        const label = 'W' + tab.windowId;
+        if (existingBadge.textContent !== label) {
+          existingBadge.textContent = label;
+          existingBadge.setAttribute('aria-label', 'Window ' + tab.windowId);
+        }
+      }
+    } else if (existingBadge) {
+      existingBadge.remove();
+    }
+
+    const existingAudibleIcon = indicators.querySelector('.item-audible-icon');
+    if (tab.audible && !existingAudibleIcon) {
+      indicators.appendChild(_createAudibleIcon());
+    } else if (!tab.audible && existingAudibleIcon) {
+      existingAudibleIcon.remove();
+    }
+
+    if (indicators.children.length === 0) indicators.remove();
+  }
+}
+
+/* =========================================================================
    B1 — Patch live state without full re-render
    ========================================================================= */
 
@@ -1007,7 +1508,10 @@ async function refetchAndPatchLiveState() {
     console.warn('[tab-junkie] refetchAndPatchLiveState: MSG_LIST_ITEMS failed, clearing live indicators', err);
     /* B-024 C-1: reset cached live states so _updateBulkBar reflects reality. */
     _cachedLiveStates = {};
-    for (const row of itemListEl.querySelectorAll('[data-item-id]')) {
+    /* B-055: only wipe saved-item row state here. Open Tabs rows live in
+       `_cachedOpenTabs`; their teardown happens via patchOpenTabsSection on the
+       next successful refetch. */
+    for (const row of itemListEl.querySelectorAll('[data-item-id]:not([data-live-only])')) {
       if (!row.isConnected) continue;
       delete row.dataset.live;
       delete row.dataset.active;
@@ -1028,8 +1532,30 @@ async function refetchAndPatchLiveState() {
   /* B-024 C-1: reassign module-level caches so _updateBulkBar sees fresh data. */
   _cachedLiveStates = liveStates;
   _cachedDriftRecords = driftRecords;
+  /* B-055: keep the Open Tabs cache in sync and apply a targeted DOM diff. */
+  _setCachedOpenTabs(itemsResp.openTabs);
 
-  const rows = itemListEl.querySelectorAll('[data-item-id]');
+  /* B-055: if the panel was previously showing the empty state (no DOM list)
+     and a tab now qualifies, a targeted patch cannot mount the section — fall
+     back to a full renderAll so the section appears. Same escape hatch if the
+     Open Tabs section is missing from the DOM for any other reason. */
+  const needsFullRender = itemListEl.hidden
+    || !document.getElementById(OPEN_TABS_SECTION_ID);
+  if (needsFullRender) {
+    try {
+      const groupsResp = await sendMessage(MSG_LIST_GROUPS);
+      renderAll(itemsResp.items, groupsResp, liveStates, driftRecords, _cachedOpenTabs);
+    } catch (err) {
+      console.warn('[tab-junkie] full-render fallback failed', err);
+    }
+    return;
+  }
+
+  patchOpenTabsSection(_cachedOpenTabs);
+
+  /* B-055: saved-item rows only — skip `[data-live-only]` (Open Tabs rows live
+     in `_cachedOpenTabs` and are patched separately by `patchOpenTabsSection`). */
+  const rows = itemListEl.querySelectorAll('[data-item-id]:not([data-live-only])');
   for (const row of rows) {
     if (!itemListEl.contains(row)) continue; // skip if a concurrent re-render detached this row
     const id = row.dataset.itemId;
@@ -1214,24 +1740,25 @@ document.addEventListener('click', (e) => {
 
   const row = e.target.closest('.item-row');
   if (row) {
-    const itemId = row.dataset.itemId;
+    const key = _selectionKeyForRow(row);
+    if (!key) return;
 
     /* B-024: Ctrl/Cmd+Click — toggle individual selection */
     if (e.ctrlKey || e.metaKey) {
-      _toggleSelection(itemId);
+      _toggleSelection(key);
       return;
     }
 
     /* B-024 H-3: Shift+Click while in selection mode with a valid anchor — range select */
     if (_selectionMode && e.shiftKey && _rangeAnchorId) {
-      _rangeSelect(itemId);
+      _rangeSelect(key);
       return;
     }
 
     /* B-024 H-4: Shift+Click with no prior selection starts selection at this item
        (treat Shift as an explicit "start selection" intent). */
     if (e.shiftKey && !_selectionMode) {
-      _toggleSelection(itemId);
+      _toggleSelection(key);
       return;
     }
 
@@ -1241,7 +1768,7 @@ document.addEventListener('click', (e) => {
       clearTimeout(_pendingClickTimer);
       _pendingClickTimer = setTimeout(() => {
         _pendingClickTimer = null;
-        _toggleSelection(itemId);
+        _toggleSelection(key);
       }, 200);
       return;
     }
@@ -1342,6 +1869,20 @@ function toggleGroup(header) {
 }
 
 function navigateToItem(row) {
+  /* B-055 AC6: Open Tabs row — focus the live tab via the tabId-only variant.
+     The SW handler intentionally suppresses the state-changed broadcast for
+     this variant (no storage mutation) so the click does not cascade into a
+     full re-render on every open surface. */
+  if (row.dataset.liveOnly === 'true') {
+    const tabId = Number(row.dataset.tabId);
+    const windowId = Number(row.dataset.windowId);
+    if (!Number.isFinite(tabId) || !Number.isFinite(windowId)) return;
+    sendMessage(MSG_NAVIGATE_TO_ITEM, { tabId, windowId }).catch(() => {
+      showToast('Couldn\u2019t focus tab \u2014 try again');
+    });
+    return;
+  }
+
   const itemId = row.dataset.itemId;
   if (!itemId) return;
   sendMessage(MSG_NAVIGATE_TO_ITEM, { itemId }).catch(() => {
@@ -1421,7 +1962,7 @@ itemListEl.addEventListener('drop', (e) => {
       showToast('Couldn\u2019t save group order \u2014 reverting');
       Promise.all([sendMessage(MSG_LIST_ITEMS), sendMessage(MSG_LIST_GROUPS)])
         .then(([itemsResp, groups]) => {
-          renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords);
+          renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
         })
         .catch(() => {});
     });
@@ -1438,7 +1979,7 @@ itemListEl.addEventListener('dragend', () => {
     _pendingGroupsRender = false;
     Promise.all([sendMessage(MSG_LIST_ITEMS), sendMessage(MSG_LIST_GROUPS)])
       .then(([itemsResp, groups]) => {
-        renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords);
+        renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
       })
       .catch(() => {});
   }
@@ -1471,7 +2012,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       sendMessage(MSG_LIST_ITEMS),
       sendMessage(MSG_LIST_GROUPS),
     ]).then(([itemsResp, groups]) => {
-      renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords);
+      renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
     }).catch((err) => {
       console.warn('[tab-junkie] broadcast re-fetch failed:', err);
     });
@@ -1519,23 +2060,40 @@ bulkClearBtn.addEventListener('click', () => {
   _clearSelection();
 });
 
-bulkRemoveBtn.addEventListener('click', () => {
-  const count = _selection.size;
-  if (count === 0) return;
+/* -------------------------------------------------------------------------
+   B-028: named bulk handlers shared by the bulk action bar AND the
+   selection-aware context menu. Both entry points dispatch through the
+   same functions so mixed-selection rules stay in one place.
+   ------------------------------------------------------------------------- */
+
+/**
+ * B-028: bulk Remove — saved-items only. Demotes live items and bulk-deletes
+ * non-live items. Partial-failure tolerant. Triggered by bulk bar and by the
+ * selection context menu's "Remove bookmarks" action.
+ */
+function _bulkRemove() {
+  /* B-051 M-1: drop item keys that no longer resolve to a live saved item
+     before snapshotting. Open-tab keys are untouched — they self-clean on
+     tabs.onRemoved. */
+  _pruneStaleSelection();
+  /* B-055 AC12: "Remove" is only valid for saved-item selections. The button
+     is hidden whenever an open-tab row is in the selection, but guard again
+     here defensively in case an event races a selection change. */
+  const { itemIds, tabIds } = _partitionSelection();
+  if (tabIds.length > 0 || itemIds.length === 0) return;
+  const count = itemIds.length;
 
   /* B-024 C-2 / H-7: bulk-appropriate confirm copy; live tabs are demoted, not closed. */
   const syntheticItem = { title: count + ' items' };
   openConfirmDialog(
     syntheticItem,
     async () => {
-      const ids = [..._selection];
-
       /* For live items, demote first (preserves tabs) */
-      const liveIds = ids.filter((id) => {
+      const liveIds = itemIds.filter((id) => {
         const ls = _cachedLiveStates[id];
         return ls && ls.live;
       });
-      const nonLiveIds = ids.filter((id) => {
+      const nonLiveIds = itemIds.filter((id) => {
         const ls = _cachedLiveStates[id];
         return !ls || !ls.live;
       });
@@ -1575,15 +2133,17 @@ bulkRemoveBtn.addEventListener('click', () => {
 
       /* Prune succeeded IDs from _selection (leave failures selected for retry). */
       for (const id of demotedOk) {
-        _selection.delete(id);
-        const row = itemListEl.querySelector(`[data-item-id="${CSS.escape(id)}"]`);
-        if (row) delete row.dataset.selected;
+        const key = 'item:' + id;
+        _selection.delete(key);
+        const row = itemListEl.querySelector(`[data-item-id="${CSS.escape(id)}"]:not([data-live-only])`);
+        _setRowSelected(row, false);
       }
       if (bulkDeleteOk) {
         for (const id of nonLiveIds) {
-          _selection.delete(id);
-          const row = itemListEl.querySelector(`[data-item-id="${CSS.escape(id)}"]`);
-          if (row) delete row.dataset.selected;
+          const key = 'item:' + id;
+          _selection.delete(key);
+          const row = itemListEl.querySelector(`[data-item-id="${CSS.escape(id)}"]:not([data-live-only])`);
+          _setRowSelected(row, false);
         }
       }
 
@@ -1603,23 +2163,106 @@ bulkRemoveBtn.addEventListener('click', () => {
       body: 'Saved entries will be removed. Live tab(s) in the selection will remain open.',
     },
   );
-});
+}
 
-bulkCloseBtn.addEventListener('click', async () => {
-  const tabIds = [];
-  for (const id of _selection) {
+/**
+ * B-028: bulk Close — closes every live tab in the current selection.
+ * Includes open-tab rows (always live) and saved-item rows whose liveStates
+ * entry is `live: true`. Safe for mixed selections.
+ */
+async function _bulkClose() {
+  /* B-051 M-1: prune stale item keys before snapshotting. */
+  _pruneStaleSelection();
+  /* B-055 AC12: include BOTH saved-item live tabs and open-tab rows. */
+  const { itemIds, tabIds } = _partitionSelection();
+  const liveTabIds = [...tabIds];
+  for (const id of itemIds) {
     const ls = _cachedLiveStates[id];
     if (ls && ls.live && ls.tabId != null) {
-      tabIds.push(ls.tabId);
+      liveTabIds.push(ls.tabId);
     }
   }
-  if (tabIds.length === 0) return;
+  if (liveTabIds.length === 0) return;
   try {
-    await sendMessage(MSG_CLOSE_TABS, { tabIds });
+    await sendMessage(MSG_CLOSE_TABS, { tabIds: liveTabIds });
     _clearSelection();
   } catch {
     showToast('Couldn\u2019t close tabs \u2014 try again');
   }
+}
+
+/**
+ * B-028: core "Move / Save to group" dispatch — applied to whatever the
+ * current selection partitions into. Mixed selections are rejected per
+ * §26.6 (the caller should hide the control entirely for mixed selections,
+ * but the guard stays here defensively).
+ *
+ * @param {string|null} groupId — target group id, or null for Ungrouped
+ */
+async function _bulkMoveToGroup(groupId) {
+  /* B-051 M-1: prune stale item keys before snapshotting. */
+  _pruneStaleSelection();
+  const { itemIds, tabIds } = _partitionSelection();
+
+  /* B-055 AC12: mixed selection has no valid Move action. */
+  if (itemIds.length > 0 && tabIds.length > 0) return;
+
+  if (tabIds.length > 0) {
+    /* All-open-tabs: promote each tab individually. Partial-failure tolerant —
+       MSG_PROMOTE_TAB runs per-tab and may reject for restricted schemes or
+       duplicate URLs (§26.6). */
+    const results = await Promise.allSettled(
+      tabIds.map((tabId) => sendMessage(MSG_PROMOTE_TAB, { tabId, groupId })),
+    );
+    let failures = 0;
+    let safeModeHit = false;
+    let duplicates = 0;
+    let restrictedSchemes = 0;
+    let otherFailures = 0;
+    for (const r of results) {
+      if (r.status === 'rejected') {
+        failures++;
+        const code = r.reason?.code;
+        if (code === ERR_SAFE_MODE) safeModeHit = true;
+        else if (code === ERR_DUPLICATE_URL) duplicates++;
+        else if (code === ERR_VALIDATION) restrictedSchemes++;
+        else otherFailures++;
+      }
+    }
+    _clearSelection();
+    if (safeModeHit) {
+      showToast('Cannot save while in safe mode');
+      return;
+    }
+    if (failures > 0) {
+      /* Categorised toast surfaces the dominant failure reason instead of a
+         generic message — makes bulk-promote failures actionable. */
+      const parts = [];
+      if (duplicates > 0) parts.push(duplicates + ' already saved');
+      if (restrictedSchemes > 0) parts.push(restrictedSchemes + ' restricted URL');
+      if (otherFailures > 0) parts.push(otherFailures + ' other error');
+      const detail = parts.length > 0 ? ' (' + parts.join(', ') + ')' : '';
+      showToast('Couldn\u2019t save ' + failures + ' tab(s)' + detail);
+    }
+    return;
+  }
+
+  if (itemIds.length > 0) {
+    try {
+      await sendMessage(MSG_BULK_UPDATE_ITEMS, { ids: itemIds, patch: { groupId } });
+      _clearSelection();
+    } catch {
+      showToast('Couldn\u2019t move bookmarks \u2014 try again');
+    }
+  }
+}
+
+bulkRemoveBtn.addEventListener('click', () => {
+  _bulkRemove();
+});
+
+bulkCloseBtn.addEventListener('click', () => {
+  _bulkClose();
 });
 
 /* B-024: Move to group — shows a lightweight group picker popover */
@@ -1669,16 +2312,10 @@ bulkMoveBtn.addEventListener('click', () => {
     select.appendChild(opt);
   }
 
-  select.addEventListener('change', async () => {
+  select.addEventListener('change', () => {
     const groupId = select.value || null;
-    const ids = [..._selection];
     _closeBulkMovePicker();
-    try {
-      await sendMessage(MSG_BULK_UPDATE_ITEMS, { ids, patch: { groupId } });
-      _clearSelection();
-    } catch {
-      showToast('Couldn\u2019t move bookmarks \u2014 try again');
-    }
+    _bulkMoveToGroup(groupId);
   });
 
   /* B-024 H-2: Escape on the picker closes it without bubbling up to the
@@ -1735,11 +2372,243 @@ function closeContextMenu() {
   }
 }
 
+/**
+ * B-028: selection-aware context menu. Opens when the clicked row is part of
+ * a multi-item selection (_selection.size >= 2). Exposes the same action set
+ * as the bulk action bar — Move / Save to group, Close tabs, Remove
+ * bookmarks — and dispatches through the shared _bulkMove/_bulkClose/
+ * _bulkRemove helpers so mixed-selection rules (§26.6) stay in one place.
+ *
+ * Mixed-selection visibility (mirrors _updateBulkBar):
+ *   - Move/Save: hidden for mixed; label toggles "Save to group" when all-tabs,
+ *                "Move to group" otherwise.
+ *   - Close tabs: shown whenever any live target exists (an open-tab row is
+ *                 always live; saved-item rows must have `live: true`).
+ *   - Remove bookmarks: hidden whenever any open-tab row is in the selection.
+ */
+function _openSelectionContextMenu(row, x, y) {
+  closeContextMenu();
+  _contextMenuTriggerRow = row;
+
+  contextMenuEl.replaceChildren();
+
+  const { itemIds, tabIds } = _partitionSelection();
+  const count = itemIds.length + tabIds.length;
+  const hasItems = itemIds.length > 0;
+  const hasTabs = tabIds.length > 0;
+  const mixed = hasItems && hasTabs;
+  const onlyTabs = hasTabs && !hasItems;
+
+  /* Heading label — "N selected" for context. */
+  const heading = document.createElement('span');
+  heading.className = 'context-menu-label';
+  heading.textContent = count + ' selected';
+  contextMenuEl.appendChild(heading);
+
+  /* Move to group / Save to group — hidden for mixed selections per §26.6. */
+  if (!mixed) {
+    const moveLabel = document.createElement('span');
+    moveLabel.className = 'context-menu-label';
+    moveLabel.textContent = onlyTabs ? 'Save to group' : 'Move to group';
+    contextMenuEl.appendChild(moveLabel);
+
+    const moveSelect = document.createElement('select');
+    moveSelect.className = 'context-menu-select';
+    moveSelect.setAttribute('aria-label', onlyTabs ? 'Save to group' : 'Move to group');
+
+    const ungroupedOpt = document.createElement('option');
+    ungroupedOpt.value = '';
+    ungroupedOpt.textContent = 'Ungrouped';
+    moveSelect.appendChild(ungroupedOpt);
+
+    const sorted = [..._cachedGroups].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    for (const group of sorted) {
+      const opt = document.createElement('option');
+      opt.value = group.id;
+      opt.textContent = group.name;
+      moveSelect.appendChild(opt);
+    }
+
+    moveSelect.addEventListener('change', () => {
+      const groupId = moveSelect.value || null;
+      closeContextMenu();
+      _bulkMoveToGroup(groupId);
+    });
+    contextMenuEl.appendChild(moveSelect);
+  }
+
+  /* Close tabs — enabled when at least one live target exists. Destructive. */
+  let hasLive = hasTabs; // open-tab rows are always live
+  if (!hasLive) {
+    for (const id of itemIds) {
+      const ls = _cachedLiveStates[id];
+      if (ls && ls.live) { hasLive = true; break; }
+    }
+  }
+  if (hasLive) {
+    const sep = document.createElement('div');
+    sep.className = 'context-menu-separator';
+    contextMenuEl.appendChild(sep);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'context-menu-item context-menu-item--destructive';
+    closeBtn.setAttribute('role', 'menuitem');
+    closeBtn.setAttribute('tabindex', '-1');
+    closeBtn.textContent = 'Close tabs';
+    closeBtn.addEventListener('click', () => {
+      closeContextMenu();
+      _bulkClose();
+    });
+    contextMenuEl.appendChild(closeBtn);
+  }
+
+  /* Remove bookmarks — saved-items only, hidden whenever any tab row is selected. */
+  if (!hasTabs && hasItems) {
+    const sep2 = document.createElement('div');
+    sep2.className = 'context-menu-separator';
+    contextMenuEl.appendChild(sep2);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'context-menu-item context-menu-item--destructive';
+    removeBtn.setAttribute('role', 'menuitem');
+    removeBtn.setAttribute('tabindex', '-1');
+    removeBtn.textContent = 'Remove bookmarks';
+    removeBtn.addEventListener('click', () => {
+      closeContextMenu();
+      _bulkRemove();
+    });
+    contextMenuEl.appendChild(removeBtn);
+  }
+
+  /* Position with viewport clamping (same pattern as other menus). */
+  contextMenuEl.hidden = false;
+  contextMenuEl.style.left = x + 'px';
+  contextMenuEl.style.top = y + 'px';
+
+  const rect = contextMenuEl.getBoundingClientRect();
+  if (rect.bottom > window.innerHeight) {
+    contextMenuEl.style.top = Math.max(0, y - rect.height) + 'px';
+  }
+  if (rect.right > window.innerWidth) {
+    contextMenuEl.style.left = Math.max(0, x - rect.width) + 'px';
+  }
+
+  /* Focus first focusable element (select or menuitem). */
+  const firstFocusable = contextMenuEl.querySelector('[role="menuitem"], select');
+  if (firstFocusable) firstFocusable.focus();
+}
+
+/* B-055: if the row is an Open Tabs row (no saved item), open the Open-Tabs
+   context menu instead. Must come before any itemId-only derivations. */
+function _openOpenTabContextMenu(row, x, y) {
+  closeContextMenu();
+  const tabId = Number(row.dataset.tabId);
+  if (!Number.isFinite(tabId)) return;
+  _contextMenuTriggerRow = row;
+
+  contextMenuEl.replaceChildren();
+
+  /* "Save to group" — opens an inline group picker (B-029 full modal deferred). */
+  const saveLabel = document.createElement('span');
+  saveLabel.className = 'context-menu-label';
+  saveLabel.textContent = 'Save to group';
+  contextMenuEl.appendChild(saveLabel);
+
+  const saveSelect = document.createElement('select');
+  saveSelect.className = 'context-menu-select';
+  saveSelect.setAttribute('aria-label', 'Save to group');
+
+  const ungroupedOpt = document.createElement('option');
+  ungroupedOpt.value = '';
+  ungroupedOpt.textContent = 'Ungrouped';
+  saveSelect.appendChild(ungroupedOpt);
+
+  const sorted = [..._cachedGroups].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  for (const group of sorted) {
+    const opt = document.createElement('option');
+    opt.value = group.id;
+    opt.textContent = group.name;
+    saveSelect.appendChild(opt);
+  }
+
+  saveSelect.addEventListener('change', () => {
+    const groupId = saveSelect.value || null;
+    sendMessage(MSG_PROMOTE_TAB, { tabId, groupId }).catch((err) => {
+      const code = err?.code;
+      /* B-055 H-4 fix: compare against imported error constants instead of
+         string literals so a rename of the constant surfaces at import time. */
+      if (code === ERR_SAFE_MODE) {
+        showToast('Cannot save while in safe mode');
+      } else if (code === ERR_DUPLICATE_URL) {
+        showToast('A bookmark with this URL already exists');
+      } else if (code === ERR_VALIDATION) {
+        showToast(err?.message || 'Cannot save this tab');
+      } else {
+        showToast('Couldn\u2019t save tab \u2014 try again');
+      }
+    });
+    /* B-055 H-5: close menu synchronously; error toast (if any) appears
+       asynchronously after the Promise settles. Matches B-026's pattern. */
+    closeContextMenu();
+  });
+  contextMenuEl.appendChild(saveSelect);
+
+  /* Separator before destructive action */
+  const sep = document.createElement('div');
+  sep.className = 'context-menu-separator';
+  contextMenuEl.appendChild(sep);
+
+  /* Close tab — destructive, styled red. */
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'context-menu-item context-menu-item--destructive';
+  closeBtn.setAttribute('role', 'menuitem');
+  closeBtn.setAttribute('tabindex', '-1');
+  closeBtn.textContent = 'Close tab';
+  closeBtn.addEventListener('click', () => {
+    sendMessage(MSG_CLOSE_TABS, { tabIds: [tabId] }).catch(() => {
+      showToast('Couldn\u2019t close tab \u2014 try again');
+    });
+    closeContextMenu();
+  });
+  contextMenuEl.appendChild(closeBtn);
+
+  contextMenuEl.hidden = false;
+  contextMenuEl.style.left = x + 'px';
+  contextMenuEl.style.top = y + 'px';
+
+  const rect = contextMenuEl.getBoundingClientRect();
+  if (rect.bottom > window.innerHeight) {
+    contextMenuEl.style.top = Math.max(0, y - rect.height) + 'px';
+  }
+  if (rect.right > window.innerWidth) {
+    contextMenuEl.style.left = Math.max(0, x - rect.width) + 'px';
+  }
+
+  const firstFocusable = contextMenuEl.querySelector('[role="menuitem"], select');
+  if (firstFocusable) firstFocusable.focus();
+}
+
 /* B-026 H-1 / H-2: build the menu synchronously so no await window can invalidate
    the initial liveness snapshot. Each action handler re-reads liveness from
    _cachedLiveStates to stay honest under broadcast churn. Groups come from
    _cachedGroups — kept fresh via MSG_STATE_CHANGED broadcasts — so no IPC. */
 function openContextMenu(row, x, y) {
+  /* B-028: selection context menu takes priority when the clicked row is part
+     of a multi-item selection. If the right-clicked row is NOT in the active
+     selection, fall through to the single-item menu (do NOT extend the
+     selection — a right-click on a non-selected row is a single-item action). */
+  const selectionKey = _selectionKeyForRow(row);
+  if (_selection.size >= 2 && selectionKey && _selection.has(selectionKey)) {
+    _openSelectionContextMenu(row, x, y);
+    return;
+  }
+
+  /* B-055: Open-Tabs row — distinct action set (Save to group, Close tab). */
+  if (row.dataset.liveOnly === 'true') {
+    _openOpenTabContextMenu(row, x, y);
+    return;
+  }
+
   closeContextMenu();
 
   const itemId = row.dataset.itemId;
@@ -1962,7 +2831,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (g.collapsed) collapsedGroups.add(g.id);
     }
 
-    renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords);
+    renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
   } catch {
     /* B5 — Show error state instead of empty state on init failure */
     skeletonEl.hidden = true;

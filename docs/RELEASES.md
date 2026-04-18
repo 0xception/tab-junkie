@@ -4,6 +4,70 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.8.0 — Open Tabs Section, Selection Menu, Keyboard Shortcuts (2026-04-17)
+
+**Staged on `release/v2` — pending v2 merge to main. Intended tag: `v1.8.0`.**
+
+### What's new
+
+**Open Tabs section (B-055)**
+- New pinned section at the bottom of the side panel surfaces every live browser tab that is not yet saved or grouped. Click any row to focus the tab; right-click for "Save to group" or "Close tab". The section updates in real time as tabs open, close, or navigate and participates in the inline filter, multi-select, and bulk action bar.
+- `MSG_LIST_ITEMS` response extended with `openTabs[]` array (no new message constant; existing contract extended additively).
+- New module: `background/tabs/open-tabs.js` — assembles the open-tabs payload by diffing `LiveTabIndex` against claimed item IDs.
+- UAT surfaced an insufficiently diagnostic error toast for multi-tab save failures; fixed in-sprint with a categorised breakdown: `"…(X already saved, Y restricted URL, Z other error)"`.
+- Known limitation: tabs with restricted URL schemes (`edge://`, `chrome://`, `about:`, etc.) and tabs whose URL matches an existing saved bookmark cannot be saved. Rows are not yet visually distinguished. B-056 (visual dimming) and B-057 (URL/scheme policy SPIKE) are scheduled for Sprint 14.
+
+**Selection context menu (B-028)**
+- Right-clicking while two or more items are selected opens a selection-aware context menu offering Move to group, Close tabs, and Remove — the same operations as the bulk action bar, now reachable via keyboard-free right-click.
+- Reuses B-026 menu infrastructure; dispatch branches by `_selection.size >= 2`. Bulk-bar handlers extracted into shared `_bulkMoveToGroup` / `_bulkClose` / `_bulkRemove` helpers so bar and menu share a single code path.
+- New helper: `shared/selection.js` — `pruneSelection(selection, validIds)` removes stale item IDs from a `Set` before bulk actions run.
+
+**Keyboard shortcuts — verify + regression (B-047)**
+- Audited B-024's existing keydown handlers: all 3 ACs already met (Ctrl/Cmd+A selects all visible items including Open Tabs rows; Escape clears selection; text-input guard via tagName block-list + filter-input `stopPropagation`). Zero production code changes. Added 17 regression tests covering the open-tab mixed-row path, dialog-open guard, and filter-input suppression.
+
+**Sort-order normalisation + selection pruning (B-051)**
+- `normaliseGroupSortOrders` runs after every create, delete, move, bulk-create, and bulk-update operation. Assigns sequential `0..N−1` positions per group bucket; idempotent fast-path skips storage writes when positions are already normalised. Lays the groundwork for reliable drag-reorder.
+- `WRITE_MESSAGE_TYPES` constant and `isWriteType()` helper added to `shared/messages.js` for safe-mode write-gate enforcement.
+
+### UAT-discovered in-sprint improvement
+- Block 2 step 8 (bulk-save to group from Open Tabs) failed due to the generic "Couldn't save N tabs — check URL scheme or duplicates" toast. Fixed before sprint close: toast now reports `"(X already saved, Y restricted URL, Z other error)"` breakdown, matching the single-tab context-menu path.
+
+### Internal
+
+| Item | Files added | Files changed |
+|------|-------------|---------------|
+| B-055 | `background/tabs/open-tabs.js`, `docs/user-manual/open-tabs.md` | `shared/messages.js`, `background/tabs/live-tab-index.js`, `background/tabs/tab-events.js`, `background/messages/storage-handlers.js`, `background/storage/items.js`, `sidepanel/sidepanel.js`, `sidepanel/sidepanel.css`, 5 test files |
+| B-028 | `tests/b028-selection-context-menu.test.js` (12 tests) | `sidepanel/sidepanel.js` |
+| B-047 | — | `tests/b024-multi-select.test.js` (+17 tests) |
+| B-051 | `shared/selection.js`, `tests/b051-normalisation.test.js` (18 tests) | `background/storage/items.js`, `sidepanel/sidepanel.js`, `tests/b005-bulk-create.test.js` |
+
+- +54 new automated tests (427 → 481 total), all passing
+- No storage schema change. No manifest permission change. No migration required.
+- SOLUTION_DESIGN.md updated §26 (B-055), §26.9 (B-028), §26.10 (B-047), §26.11 (B-051), §26.12 R6 Close.
+
+### Test results
+- Automated: 481/481 passing
+- UAT: PASS — B-055 (Block 1: 7/7, Block 2: 3/3 PASS + 2 SKIP, Block 3: 6/6), B-028 (PASS — verified as part of B-055 Block 3 step 16), B-047 (PASS — verified as part of B-055 Block 3 keyboard interactions), B-051 (PASS — verified implicitly by B-055 Block 2 step 9 promote flow)
+
+### Rollback
+
+No storage schema change — rollback requires no data cleanup.
+
+```
+# On release/v2:
+git revert <sprint-13-commit-sha>   # reverts Sprint 13 commit
+
+# If extension already loaded by users:
+# 1. Unload the extension in edge://extensions (or chrome://extensions)
+# 2. Load prior-version zip (tab-junkie v1.7.0)
+# No storage cleanup needed — Open Tabs section is read-only from storage's perspective;
+# selection.js is a pure in-memory helper; sort normalisation writes are non-destructive.
+```
+
+Reverting the Sprint 13 commit removes the Open Tabs section (`openTabs[]` field on `MSG_LIST_ITEMS` response), the selection context menu, and `shared/selection.js`. Any cached `openTabs` state in the sidepanel is re-initialised on next `MSG_STATE_CHANGED` broadcast — benign. The `normaliseGroupSortOrders` write-back is also reverted; existing normalised sort values remain as written and cause no corruption.
+
+---
+
 ## v1.7.0 — Multi-select, Context Menu, Empty States (2026-04-17)
 
 **Staged on `release/v2` — pending v2 merge to main. Intended tag: `v1.7.0`.**

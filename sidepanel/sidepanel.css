@@ -1138,3 +1138,69 @@ mark {
   border-color: var(--focus-ring);
   box-shadow: 0 0 0 2px var(--accent-subtle);
 }
+
+/* --- Open Tabs section (B-055) ---------------------------------------- */
+
+.open-tabs-section {
+  display: block;
+  border-top: 1px solid var(--border-primary);
+  margin-top: 4px;
+}
+
+.open-tabs-header {
+  /* Inherits .group-header layout; no collapse toggle, no drag handle. */
+  cursor: default;
+}
+
+.open-tabs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.open-tabs-list[hidden] {
+  display: none;
+}
+
+/* Open-tab rows look like saved-item rows but with a subtler live stripe
+   (they are ALWAYS live so always show the green accent). */
+.item-row[data-live-only="true"] {
+  /* Keep base layout identical to saved item rows — inherits from .item-row. */
+  border-left-color: var(--live-indicator);
+}
+
+.item-row[data-live-only="true"] .item-url {
+  font-style: italic;
+  color: var(--text-tertiary);
+}
+
+.open-tab-window-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--group-count-text);
+  background: var(--group-count-bg);
+  border-radius: 9px;
+  flex-shrink: 0;
+}
+
+/* AC10: empty-state block — matches B-049 pattern. */
+.open-tabs-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 12px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.open-tabs-empty[hidden] {
+  display: none;
+}

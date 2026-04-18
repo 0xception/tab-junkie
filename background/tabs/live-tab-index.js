@@ -5,10 +5,14 @@
  * by the tab/window event handlers in `tab-events.js`. Never written to
  * `chrome.storage.local` (AC4).
  *
- * Shape: Map<number, {url: string, windowId: number, active: boolean, audible: boolean, index: number, favIconUrl: string}>
+ * Shape: Map<number, {url: string, title: string, windowId: number, active: boolean, audible: boolean, index: number, favIconUrl: string}>
+ *
+ * B-055: `title` was added so the Open Tabs section can be rendered without a
+ * per-tab `chrome.tabs.get` round-trip. It is purely in-memory; nothing
+ * persisted. `tab-events.js onUpdated` propagates `changeInfo.title` here.
  */
 
-/** @type {Map<number, {url: string, windowId: number, active: boolean, audible: boolean, index: number, favIconUrl: string}>} */
+/** @type {Map<number, {url: string, title: string, windowId: number, active: boolean, audible: boolean, index: number, favIconUrl: string}>} */
 const liveTabIndex = new Map();
 
 /**
@@ -22,6 +26,7 @@ export async function buildLiveTabIndex() {
   for (const tab of tabs) {
     liveTabIndex.set(tab.id, {
       url: tab.url || '',
+      title: tab.title || '',
       windowId: tab.windowId,
       active: tab.active || false,
       audible: tab.audible || false,
@@ -33,7 +38,7 @@ export async function buildLiveTabIndex() {
 
 /**
  * Return the live index map (read-only contract — callers should not mutate).
- * @returns {Map<number, {url: string, windowId: number, active: boolean, audible: boolean, favIconUrl: string}>}
+ * @returns {Map<number, {url: string, title: string, windowId: number, active: boolean, audible: boolean, index: number, favIconUrl: string}>}
  */
 export function getLiveTabIndex() {
   return liveTabIndex;
@@ -42,7 +47,7 @@ export function getLiveTabIndex() {
 /**
  * Update a single entry in the index. Creates the entry if it does not exist.
  * @param {number} tabId
- * @param {Partial<{url: string, windowId: number, active: boolean, audible: boolean, index: number, favIconUrl: string}>} patch
+ * @param {Partial<{url: string, title: string, windowId: number, active: boolean, audible: boolean, index: number, favIconUrl: string}>} patch
  */
 export function updateTabEntry(tabId, patch) {
   const existing = liveTabIndex.get(tabId);
@@ -52,6 +57,7 @@ export function updateTabEntry(tabId, patch) {
     // M1: spread first, then apply fallbacks to avoid undefined overwrites
     const entry = { ...patch };
     entry.url = entry.url ?? '';
+    entry.title = entry.title ?? '';
     entry.windowId = entry.windowId ?? 0;
     entry.active = entry.active ?? false;
     entry.audible = entry.audible ?? false;

@@ -47,16 +47,19 @@ test('AC1: buildLiveTabIndex completes in under 100ms for 50 tabs', async () => 
   assert.ok(elapsed < 100, `buildLiveTabIndex took ${elapsed.toFixed(2)}ms, should be < 100ms`);
 });
 
-test('AC1: buildLiveTabIndex stores url, windowId, active, audible per tab', async () => {
+test('AC1: buildLiveTabIndex stores url, title, windowId, active, audible per tab', async () => {
   __setMockTabs([
-    { id: 10, url: 'https://example.com', windowId: 3, active: true, audible: true },
+    { id: 10, url: 'https://example.com', title: 'Example', windowId: 3, active: true, audible: true },
   ]);
 
   await buildLiveTabIndex();
   const entry = getLiveTabIndex().get(10);
 
+  // B-055: `title` was added to the LiveTabIndex entry shape so the Open Tabs
+  // section can render row titles without a per-tab chrome.tabs.get round-trip.
   assert.deepStrictEqual(entry, {
     url: 'https://example.com',
+    title: 'Example',
     windowId: 3,
     active: true,
     audible: true,

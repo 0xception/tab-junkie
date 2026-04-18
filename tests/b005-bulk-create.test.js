@@ -250,11 +250,15 @@ test('URL normalization: bare domain gets https:// prepended', async () => {
   assert.ok(result.created[0].url.startsWith('https://'), 'URL should be normalized to https://');
 });
 
-test('sortOrder defaults to 0 for all created items', async () => {
+test('sortOrder is sequential (0, 1, 2, ...) across created items in the same bucket — B-051', async () => {
+  // B-051: normalisation assigns sequential sortOrders within each group bucket.
+  // Items in the same bucket get 0, 1, 2, ... not all 0.
   const inputs = [
     { title: 'Item X', url: 'https://x.com', groupId: null },
     { title: 'Item Y', url: 'https://y.com', groupId: null },
   ];
   const result = await bulkCreateItems(inputs);
-  assert.ok(result.created.every((it) => it.sortOrder === 0));
+  assert.equal(result.created.length, 2);
+  const orders = result.created.map((it) => it.sortOrder).sort((a, b) => a - b);
+  assert.deepStrictEqual(orders, [0, 1], 'items in same bucket must have sequential sortOrders');
 });

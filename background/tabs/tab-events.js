@@ -47,12 +47,19 @@ export function registerTabEventListeners(readyPromise) {
     if ('url' in changeInfo) patch.url = changeInfo.url;
     if ('audible' in changeInfo) patch.audible = changeInfo.audible;
     if ('favIconUrl' in changeInfo) patch.favIconUrl = changeInfo.favIconUrl || '';
+    // B-055: keep LiveTabIndex title current for the Open Tabs section.
+    if ('title' in changeInfo) patch.title = changeInfo.title || '';
 
     // Also capture windowId, active, and index from the full tab object
     if (tab) {
       patch.windowId = tab.windowId;
       if ('active' in tab) patch.active = tab.active;
       if (typeof tab.index === 'number') patch.index = tab.index;
+      // B-055 fallback: some Chromium versions may set only the tab.title
+      // rather than changeInfo.title on title mutations. Keep index current.
+      if (!('title' in changeInfo) && typeof tab.title === 'string') {
+        patch.title = tab.title;
+      }
     }
 
     if (Object.keys(patch).length > 0) {
@@ -71,6 +78,20 @@ export function registerTabEventListeners(readyPromise) {
     // Same pattern as favIconUrl above — the URL-change path already broadcasts.
     if ('audible' in changeInfo && !('url' in changeInfo)) {
       broadcast(SCOPE.LIVE_STATE, 'tab/audible-changed', { requireClaimsReady: true });
+    }
+
+    // B-055: broadcast a title change so the Open Tabs section's title text
+    // re-renders. Suppress when a URL change is present (the URL path already
+    // broadcasts tab/updated; a second broadcast would double-patch). Suppress
+    // when favIconUrl/audible were also present because those branches already
+    // fired their own broadcast for this update.
+    if (
+      'title' in changeInfo
+      && !('url' in changeInfo)
+      && !('favIconUrl' in changeInfo)
+      && !('audible' in changeInfo)
+    ) {
+      broadcast(SCOPE.LIVE_STATE, 'tab/title-changed', { requireClaimsReady: true });
     }
 
     // H1: Only re-evaluate when URL is a non-empty string
@@ -102,12 +123,17 @@ export function registerTabEventListeners(readyPromise) {
   chrome.tabs.onCreated.addListener((tab) => {
     updateTabEntry(tab.id, {
       url: tab.url || '',
+      title: tab.title || '',
       windowId: tab.windowId,
       active: tab.active || false,
       audible: false,
       index: typeof tab.index === 'number' ? tab.index : 0,
       favIconUrl: '',
     });
+    // B-055: a new tab may qualify for the Open Tabs section; surfaces need to
+    // know even before any URL resolves. Broadcast LIVE_STATE so the sidepanel
+    // re-fetches openTabs (AC8). Gated on claimsReady to avoid cold-start bursts.
+    broadcast(SCOPE.LIVE_STATE, 'tab/created', { requireClaimsReady: true });
 
     if (typeof tab.openerTabId === 'number') {
       recordOpener(tab.id, tab.openerTabId);

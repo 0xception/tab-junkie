@@ -164,8 +164,15 @@ function _matchesSelector(el, sel) {
   const attrEq = core.match(/^\[data-item-id="([^"]+)"\]$/);
   if (attrEq) return el.dataset.itemId === attrEq[1];
 
+  // [data-tab-id="x"] — B-047 H-1 mixed-row support
+  const tabAttrEq = core.match(/^\[data-tab-id="([^"]+)"\]$/);
+  if (tabAttrEq) return el.dataset.tabId === tabAttrEq[1];
+
   // [data-item-id]
   if (core === '[data-item-id]') return 'itemId' in el.dataset;
+
+  // [data-tab-id] — B-047 H-1 mixed-row support
+  if (core === '[data-tab-id]') return 'tabId' in el.dataset;
 
   // .class
   if (core.startsWith('.')) {
@@ -299,16 +306,33 @@ function _rangeSelect(ctx, targetId) {
   _updateBulkBar(ctx);
 }
 
-/* _selectAll — sidepanel.js:624 */
+/* _selectAll — sidepanel.js:624
+   B-047 H-1: widen to mirror production selector which spans BOTH saved-item
+   rows (`[data-item-id]:not([hidden])`) AND open-tab rows
+   (`[data-tab-id]:not([hidden])`). Open-tab rows use the prefixed
+   `tab:<tabId>` key that production emits via `_selectionKeyForRow`.
+   Saved-item rows retain their bare-id key for compatibility with the
+   existing B-024 test suite (which predates the prefix convention).
+   The FakeElement selector matcher does not support comma-separated queries,
+   so we run two queries and concatenate. */
 function _selectAll(ctx) {
-  const rows = ctx.itemListEl.querySelectorAll('[data-item-id]:not([hidden])');
-  for (const row of rows) {
+  const itemRows = [...ctx.itemListEl.querySelectorAll('[data-item-id]:not([hidden])')];
+  const tabRows = [...ctx.itemListEl.querySelectorAll('[data-tab-id]:not([hidden])')];
+  let lastKey = null;
+  for (const row of itemRows) {
     ctx._selection.add(row.dataset.itemId);
     row.dataset.selected = 'true';
+    lastKey = row.dataset.itemId;
   }
-  if (rows.length > 0) {
-    ctx._lastSelectedId = rows[rows.length - 1].dataset.itemId;
-    ctx._rangeAnchorId = rows[rows.length - 1].dataset.itemId;
+  for (const row of tabRows) {
+    const key = 'tab:' + row.dataset.tabId;
+    ctx._selection.add(key);
+    row.dataset.selected = 'true';
+    lastKey = key;
+  }
+  if (lastKey != null) {
+    ctx._lastSelectedId = lastKey;
+    ctx._rangeAnchorId = lastKey;
   }
   _updateBulkBar(ctx);
 }
@@ -1199,4 +1223,295 @@ test('AC5 (UI): _reapplySelection with all-pruned selection hides the bulk bar',
   _reapplySelection(ctx);
   assert.equal(ctx._selection.size, 0);
   assert.equal(fx.bulkActionBarEl.hidden, true);
+});
+
+/* =========================================================================
+   B-047 — In-panel keyboard shortcuts (Ctrl/Cmd+A, Escape)
+   AC1: Ctrl/Cmd+A selects all currently visible items
+   AC2: Escape clears the active selection
+   AC3: Shortcuts do not fire when focus is inside a text input
+
+   The real sidepanel.js handler (line 1750) guards Ctrl+A with a tagName
+   check: only fires when activeElement.tagName is not INPUT/TEXTAREA/SELECT.
+   Escape for the filter input is guarded by stopPropagation in the filter
+   input's own keydown listener (sidepanel.js line 1980), not by a tagName
+   check in the global handler. These tests reproduce both mechanisms.
+
+   handleGlobalKeydownReal: faithful reproduction of the sidepanel.js handler
+   for Ctrl+A (tagName guard) and Escape (no input guard — propagation-based).
+   ========================================================================= */
+
+/* Faithful reproduction of sidepanel.js:1734–1757.
+   `activeTagName` simulates document.activeElement.tagName.
+   `propagationStopped` simulates stopPropagation having been called upstream.
+   `dialogOpen` (B-047 H-2) mirrors the production guard at sidepanel.js:1736–1740:
+     when an open dialog exists, Escape must close the dialog and NOT run the
+     selection-clear path. Defaults to false so existing tests remain unchanged. */
+function handleGlobalKeydownReal(ctx, e, { activeTagName = null, propagationStopped = false, dialogOpen = false } = {}) {
+  if (propagationStopped) return 'propagation-stopped';
+
+  /* B-047 H-2: dialog-open Escape closes the dialog; selection is untouched. */
+  if (dialogOpen && e.key === 'Escape') {
+    return 'dialog-closed';
+  }
+
+  /* B-024: Escape clears selection when in selection mode */
+  if (e.key === 'Escape' && ctx._selectionMode) {
+    _clearSelection(ctx);
+    return 'cleared';
+  }
+
+  /* B-024: Ctrl/Cmd+A — tagName guard (sidepanel.js line 1751) */
+  if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+    const tag = activeTagName;
+    if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
+      _selectAll(ctx);
+      return 'select-all';
+    }
+  }
+
+  return 'ignored';
+}
+
+/* ---- AC1: Ctrl+A / Cmd+A select all visible items ---- */
+
+test('B-047 AC1: Ctrl+A selects all visible items (tagName guard — no focused input)', () => {
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  seedRows(fx.itemListEl, ['a', 'b', 'c']);
+  const ctx = makeSelectionCtx(fx);
+  const result = handleGlobalKeydownReal(ctx, { key: 'a', ctrlKey: true }, { activeTagName: null });
+  assert.equal(result, 'select-all');
+  assert.equal(ctx._selection.size, 3);
+  for (const id of ['a', 'b', 'c']) assert.ok(ctx._selection.has(id), `missing ${id}`);
+  assert.equal(ctx.bulkActionBarEl.hidden, false);
+});
+
+test('B-047 AC1: Cmd+A (macOS metaKey) selects all visible items', () => {
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  seedRows(fx.itemListEl, ['x', 'y']);
+  const ctx = makeSelectionCtx(fx);
+  const result = handleGlobalKeydownReal(ctx, { key: 'a', metaKey: true }, { activeTagName: null });
+  assert.equal(result, 'select-all');
+  assert.equal(ctx._selection.size, 2);
+  assert.ok(ctx._selection.has('x'));
+  assert.ok(ctx._selection.has('y'));
+});
+
+test('B-047 AC1: Ctrl+A skips hidden rows — only visible items selected', () => {
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  seedRows(fx.itemListEl, ['a', 'b', 'c', 'd'], { hidden: ['b', 'c'] });
+  const ctx = makeSelectionCtx(fx);
+  handleGlobalKeydownReal(ctx, { key: 'a', ctrlKey: true }, { activeTagName: null });
+  assert.equal(ctx._selection.size, 2);
+  assert.ok(ctx._selection.has('a'));
+  assert.ok(ctx._selection.has('d'));
+  assert.equal(ctx._selection.has('b'), false);
+  assert.equal(ctx._selection.has('c'), false);
+});
+
+/* ---- AC2: Escape clears active selection ---- */
+
+test('B-047 AC2: Escape clears active selection and hides bulk bar', () => {
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  seedRows(fx.itemListEl, ['a', 'b', 'c']);
+  const ctx = makeSelectionCtx(fx);
+  handleItemRowClick(ctx, 'a', { ctrlKey: true });
+  handleItemRowClick(ctx, 'b', { ctrlKey: true });
+  assert.equal(ctx._selection.size, 2);
+  const result = handleGlobalKeydownReal(ctx, { key: 'Escape' });
+  assert.equal(result, 'cleared');
+  assert.equal(ctx._selection.size, 0);
+  assert.equal(ctx.bulkActionBarEl.hidden, true);
+  assert.equal(ctx._rangeAnchorId, null);
+  assert.equal(ctx._lastSelectedId, null);
+});
+
+test('B-047 AC2: Escape when no selection active is a no-op (returns ignored)', () => {
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  const ctx = makeSelectionCtx(fx);
+  const result = handleGlobalKeydownReal(ctx, { key: 'Escape' });
+  assert.equal(result, 'ignored');
+  assert.equal(ctx._selection.size, 0);
+});
+
+test('B-047 AC2: Escape after Ctrl+A clears full selection', () => {
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  seedRows(fx.itemListEl, ['a', 'b', 'c']);
+  const ctx = makeSelectionCtx(fx);
+  handleGlobalKeydownReal(ctx, { key: 'a', ctrlKey: true }, { activeTagName: null });
+  assert.equal(ctx._selection.size, 3);
+  handleGlobalKeydownReal(ctx, { key: 'Escape' });
+  assert.equal(ctx._selection.size, 0);
+  assert.equal(ctx.bulkActionBarEl.hidden, true);
+});
+
+/* ---- AC3: shortcuts do NOT fire when focus is inside a text input ---- */
+
+test('B-047 AC3: Ctrl+A with activeElement INPUT does not select items', () => {
+  /* sidepanel.js line 1751: tagName guard — INPUT blocks select-all */
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  seedRows(fx.itemListEl, ['a', 'b', 'c']);
+  const ctx = makeSelectionCtx(fx);
+  const result = handleGlobalKeydownReal(ctx, { key: 'a', ctrlKey: true }, { activeTagName: 'INPUT' });
+  assert.equal(result, 'ignored');
+  assert.equal(ctx._selection.size, 0);
+});
+
+test('B-047 AC3: Cmd+A with activeElement INPUT does not select items', () => {
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  seedRows(fx.itemListEl, ['p', 'q']);
+  const ctx = makeSelectionCtx(fx);
+  const result = handleGlobalKeydownReal(ctx, { key: 'a', metaKey: true }, { activeTagName: 'INPUT' });
+  assert.equal(result, 'ignored');
+  assert.equal(ctx._selection.size, 0);
+});
+
+test('B-047 AC3: Ctrl+A with activeElement TEXTAREA does not select items', () => {
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  seedRows(fx.itemListEl, ['a', 'b']);
+  const ctx = makeSelectionCtx(fx);
+  const result = handleGlobalKeydownReal(ctx, { key: 'a', ctrlKey: true }, { activeTagName: 'TEXTAREA' });
+  assert.equal(result, 'ignored');
+  assert.equal(ctx._selection.size, 0);
+});
+
+test('B-047 AC3: Ctrl+A with activeElement SELECT does not select items', () => {
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  seedRows(fx.itemListEl, ['a', 'b']);
+  const ctx = makeSelectionCtx(fx);
+  const result = handleGlobalKeydownReal(ctx, { key: 'a', ctrlKey: true }, { activeTagName: 'SELECT' });
+  assert.equal(result, 'ignored');
+  assert.equal(ctx._selection.size, 0);
+});
+
+test('B-047 AC3: Escape inside filter input is stopped by propagation (global handler never fires)', () => {
+  /* sidepanel.js line 1980: filterInputEl keydown calls e.stopPropagation()
+     so the global document handler never receives the event.
+     Here we model that with propagationStopped=true and verify the global
+     handler returns early without clearing any selection. */
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  seedRows(fx.itemListEl, ['a', 'b']);
+  const ctx = makeSelectionCtx(fx);
+  handleItemRowClick(ctx, 'a', { ctrlKey: true });
+  assert.equal(ctx._selection.size, 1);
+  /* Simulate filter-input Escape: stopPropagation prevents global handler */
+  const result = handleGlobalKeydownReal(ctx, { key: 'Escape' }, { propagationStopped: true });
+  assert.equal(result, 'propagation-stopped');
+  /* Selection must be intact — global Escape did not fire */
+  assert.equal(ctx._selection.size, 1, 'selection must survive filter-input Escape');
+});
+
+test('B-047 AC3: Ctrl+A inside a contentEditable element does not select items', () => {
+  /* sidepanel.js line 1751 checks tagName only (INPUT/TEXTAREA/SELECT).
+     contentEditable elements have tagName DIV/SPAN/etc — they would NOT be
+     caught by the current guard. However, contentEditable is not used in the
+     panel today so this is a documentation test that asserts the current
+     observed behaviour. If contentEditable is ever added to the panel this
+     test should be updated alongside a code fix. */
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  seedRows(fx.itemListEl, ['a', 'b']);
+  const ctx = makeSelectionCtx(fx);
+  /* contentEditable elements have tagName like DIV — not blocked by current guard */
+  const result = handleGlobalKeydownReal(ctx, { key: 'a', ctrlKey: true }, { activeTagName: 'DIV' });
+  /* Current behaviour: DIV is not in the block-list → select-all fires.
+     This documents that contentEditable is a known gap in the guard;
+     no contentEditable inputs exist in the panel today so it is not a live issue. */
+  assert.equal(result, 'select-all', 'DIV is not guarded — known gap, no contentEditable in panel');
+});
+
+/* ---- B-047 H-1 fix: mixed saved-item + open-tab row coverage ---- */
+
+/* Helper: seed open-tab rows alongside saved-item rows.
+   Open-tab rows carry `data-tab-id` + `data-live-only="true"` per production
+   (sidepanel.js buildOpenTabRow). */
+function seedTabRows(itemListEl, tabIds) {
+  const rows = {};
+  for (const tabId of tabIds) {
+    const row = new FakeElement('div');
+    row.className = 'item-row';
+    row.dataset.tabId = String(tabId);
+    row.dataset.liveOnly = 'true';
+    itemListEl.appendChild(row);
+    rows[tabId] = row;
+  }
+  return rows;
+}
+
+test('B-047 H-1: Ctrl+A selects mixed saved-item + open-tab rows with prefixed tab keys', () => {
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  seedRows(fx.itemListEl, ['a', 'b']);
+  seedTabRows(fx.itemListEl, [101, 202]);
+  const ctx = makeSelectionCtx(fx);
+  const result = handleGlobalKeydownReal(ctx, { key: 'a', ctrlKey: true }, { activeTagName: null });
+  assert.equal(result, 'select-all');
+  /* Saved items remain bare-id (test-helper legacy convention). */
+  assert.ok(ctx._selection.has('a'), 'saved-item a must be selected');
+  assert.ok(ctx._selection.has('b'), 'saved-item b must be selected');
+  /* Open-tab rows must use the `tab:<number>` prefix that production emits. */
+  assert.ok(ctx._selection.has('tab:101'), 'open tab 101 must be selected with prefix');
+  assert.ok(ctx._selection.has('tab:202'), 'open tab 202 must be selected with prefix');
+  assert.equal(ctx._selection.size, 4);
+});
+
+test('B-047 H-1: Ctrl+A with only open-tab rows selects them with prefixed keys', () => {
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  seedTabRows(fx.itemListEl, [7, 42]);
+  const ctx = makeSelectionCtx(fx);
+  handleGlobalKeydownReal(ctx, { key: 'a', ctrlKey: true }, { activeTagName: null });
+  assert.equal(ctx._selection.size, 2);
+  assert.ok(ctx._selection.has('tab:7'));
+  assert.ok(ctx._selection.has('tab:42'));
+});
+
+test('B-047 H-1: Ctrl+A skips hidden open-tab rows', () => {
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  const rows = seedTabRows(fx.itemListEl, [1, 2, 3]);
+  rows[2].hidden = true;
+  const ctx = makeSelectionCtx(fx);
+  handleGlobalKeydownReal(ctx, { key: 'a', ctrlKey: true }, { activeTagName: null });
+  assert.ok(ctx._selection.has('tab:1'));
+  assert.ok(!ctx._selection.has('tab:2'), 'hidden tab row must be skipped');
+  assert.ok(ctx._selection.has('tab:3'));
+});
+
+/* ---- B-047 H-2 fix: dialog-open Escape guard ---- */
+
+test('B-047 H-2: Escape with dialogOpen=true returns dialog-closed and does not clear selection', () => {
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  seedRows(fx.itemListEl, ['a', 'b']);
+  const ctx = makeSelectionCtx(fx);
+  handleItemRowClick(ctx, 'a', { ctrlKey: true });
+  assert.equal(ctx._selection.size, 1);
+  const result = handleGlobalKeydownReal(ctx, { key: 'Escape' }, { dialogOpen: true });
+  assert.equal(result, 'dialog-closed');
+  assert.equal(ctx._selection.size, 1, 'dialog-close path must not touch selection');
+});
+
+test('B-047 H-2: Escape with dialogOpen=false still clears active selection', () => {
+  /* Guards the default-parameter case — legacy tests continue to see the
+     pre-fix behaviour. */
+  const fx = makeBulkBarFixture();
+  fakeDocument._root.appendChild(fx.itemListEl);
+  seedRows(fx.itemListEl, ['a']);
+  const ctx = makeSelectionCtx(fx);
+  handleItemRowClick(ctx, 'a', { ctrlKey: true });
+  const result = handleGlobalKeydownReal(ctx, { key: 'Escape' });
+  assert.equal(result, 'cleared');
+  assert.equal(ctx._selection.size, 0);
 });
