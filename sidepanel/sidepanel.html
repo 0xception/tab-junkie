@@ -141,6 +141,29 @@
           <button type="button" id="confirm-delete-btn" class="dialog-btn dialog-btn--danger">Delete</button>
         </div>
       </div>
+      <!-- B-027: Group edit dialog -->
+      <div id="group-dialog" class="dialog-modal" role="dialog"
+           aria-modal="true" aria-labelledby="group-dialog-heading" hidden>
+        <h2 id="group-dialog-heading" class="dialog-title">Edit Group</h2>
+        <form id="group-form" class="dialog-form" novalidate>
+          <div class="dialog-field">
+            <label for="group-field-name" class="dialog-label">Name</label>
+            <input id="group-field-name" name="name" type="text" class="dialog-input"
+                   autocomplete="off" maxlength="256" required />
+            <span id="group-error-name" class="dialog-field-error" aria-live="polite" hidden></span>
+          </div>
+          <div class="dialog-field">
+            <label class="dialog-label">Color</label>
+            <div id="group-color-swatches" class="group-color-swatches" role="radiogroup" aria-label="Group color"></div>
+            <span id="group-error-color" class="dialog-field-error" aria-live="polite" hidden></span>
+          </div>
+          <span id="group-error-dialog" class="dialog-level-error" aria-live="assertive" hidden></span>
+          <div class="dialog-actions">
+            <button type="button" id="group-cancel-btn" class="dialog-btn dialog-btn--secondary">Cancel</button>
+            <button type="submit" id="group-submit-btn" class="dialog-btn dialog-btn--primary">Save</button>
+          </div>
+        </form>
+      </div>
     </div>
 
     <!-- Toast for transient errors — hidden by default -->

@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-17 · **Version:** 2.0 · **Total Items:** 63
+**Updated:** 2026-04-18 · **Version:** 2.0 · **Total Items:** 64
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████░░░░░░░░░░  52% (33/63)  [0 in progress]
+Overall Progress    ████████████░░░░░░░░  58% (37/64)  [0 in progress]
 ```
 
 ### Legend
@@ -59,7 +59,7 @@ Overall Progress    ██████████░░░░░░░░░░
 ✅ B-024 — Multi-select + bulk action bar · 🟠 · M
 ⬜ B-025 — Multi-item drag as single unit · 🟠 · M
 ✅ B-026 — Item context menu · 🟠 · S
-⬜ B-027 — Group header context menu · 🟠 · S
+✅ B-027 — Group header context menu · 🟠 · S
 ✅ B-028 — Selection context menu · 🟠 · S
 ⬜ B-029 — Group picker modal · 🟠 · M
 ⬜ B-030 — Item drag-reorder within / between groups · 🟠 · L
@@ -90,10 +90,11 @@ Overall Progress    ██████████░░░░░░░░░░
 ✅ B-055 — Open Tabs section: render live-only ungrouped tabs in the sidepanel · 🟠 · M
 🧊 B-056 — Visually distinguish unsavable tabs in Open Tabs section · 🟡 · S [replaced by B-061 per B-057 spike]
 ✅ B-057 — SPIKE: URL-scheme allowlist + duplicate-URL policy review · 🟡 · XL
-⬜ B-058 — Relax URL-scheme allowlist (chrome://, edge://, chrome-extension://, about:, view-source:) · 🟡 · S
-⬜ B-059 — Allow duplicate URLs with soft-warn UI · 🟡 · M
+✅ B-058 — Relax URL-scheme allowlist (chrome://, edge://, chrome-extension://, about:, view-source:) · 🟡 · S
+✅ B-059 — Allow duplicate URLs with soft-warn UI · 🟡 · M
 ⬜ B-060 — Import duplicate-handling with skip/allow override · 🟡 · S
-⬜ B-061 — Dim javascript:/data: rows in Open Tabs (replaces B-056) · ⚪ · XS
+✅ B-061 — Dim javascript:/data: rows in Open Tabs (replaces B-056) · ⚪ · XS
+⬜ B-062 — Dark-theme primary-button contrast audit (WCAG AA) · 🟠 · S
 
 ---
 
@@ -110,7 +111,7 @@ Overall Progress    ██████████░░░░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 33 | 52% |
+| ✅ Done | 37 | 58% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 28 | 44% |
+| ⬜ To Do | 25 | 39% |
 | 🧊 Icebox | 2 | 3% |

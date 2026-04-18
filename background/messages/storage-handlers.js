@@ -67,7 +67,6 @@ import {
   ERR_TX_CONFLICT,
   ERR_VALIDATION,
   ERR_SAFE_MODE,
-  ERR_DUPLICATE_URL,
 } from '../storage/index.js';
 
 import { getSystemStatus, isSafeMode } from '../storage/migration.js';
@@ -79,7 +78,6 @@ import { getLiveTabIndex } from '../tabs/live-tab-index.js';
 import { buildOpenTabs } from '../tabs/open-tabs.js';
 /* B-014 */
 import { getWindowMap } from '../tabs/window-ordinals.js';
-import { safeNormalizeForMatch } from '../../shared/url.js';
 import { broadcast, SCOPE } from '../broadcast.js';
 
 /** Lookup table: message type → broadcast scope for write operations. */
@@ -207,29 +205,19 @@ async function dispatch(type, payload) {
         throw new StorageError(ERR_NOT_FOUND, 'tab not found');
       }
 
-      // AC3: reject restricted URL schemes
+      // AC3 (B-058): scheme validation is now owned entirely by normalizeUrl
+      // inside createItem → validateNewItem. ALLOWED_URL_SCHEMES is the single
+      // source of truth; the old prefix block-list is removed to eliminate
+      // drift (it also incorrectly rejected file: which the allowlist allowed).
+      // NOTE: javascript:/data: are still rejected inside normalizeUrl via
+      // ALLOWED_URL_SCHEMES — no XSS/data-smuggling regression from this change.
       const url = tab.url || '';
-      if (
-        url.startsWith('chrome://') ||
-        url.startsWith('about:') ||
-        url.startsWith('chrome-extension://') ||
-        url.startsWith('file:')
-      ) {
-        throw new StorageError(ERR_VALIDATION, 'promoteTab: restricted URL scheme cannot be saved');
-      }
-
-      // AC4: duplicate detection — check ALL stored items for a matching URL,
-      // regardless of whether the tab is currently claimed.
-      const normalizedTabUrl = safeNormalizeForMatch(url);
-      const allItems = await listItems();
-      const duplicate = allItems.find(
-        (it) => safeNormalizeForMatch(it.url) === normalizedTabUrl,
-      );
-      if (duplicate) {
-        throw new StorageError(ERR_DUPLICATE_URL, 'promoteTab: an item with this URL already exists');
-      }
-
-      // AC5-6: create item (URL normalization happens inside createItem)
+      // B-059: duplicate-URL detection has moved to the UI layer as a pre-dispatch
+      // soft-warn (sidepanel `_findDuplicateSavedItem`). The storage layer
+      // unconditionally accepts a promote request for any valid URL — duplicate
+      // saved items are now allowed by product design (PRD §3.3; SOLUTION_DESIGN §29).
+      // ERR_DUPLICATE_URL is retained in shared/errors.js for deploy-window stability
+      // but is no longer thrown from this handler.
       const newItem = await createItem({
         title: tab.title || url,
         url,

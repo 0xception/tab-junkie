@@ -2,6 +2,17 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.10.0] — 2026-04-18
+
+### Added
+- Expanded URL-scheme support: you can now save `chrome://`, `edge://`, `chrome-extension://`, `about:`, and `view-source:` URLs as bookmarks. `javascript:` and `data:` URLs remain blocked for security reasons. Note that browser-specific URLs (for example, an `edge://` page) will not work if the bookmark is later opened in a different browser.
+- Group header context menu: right-click on any named group's header to open actions for the whole group — Open all bookmarks, Close all open tabs, Select all / Select open / Select bookmarked, Edit group, and Delete group. Right-clicking the Ungrouped header shows the browser's native menu instead.
+- Duplicate URLs are now allowed with a confirmation prompt: saving a URL that already exists no longer fails outright. A "URL already saved — save anyway?" dialog appears so you can keep the duplicate or cancel. The bulk Save-to-group flow shows an aggregate prompt when some tabs in the batch are already saved.
+- Visual dimming for unsavable Open Tabs rows: tabs with `javascript:` or `data:` URLs now appear dimmed with a "Cannot be saved" tooltip, so you can see at a glance which tabs cannot be bookmarked.
+
+### Known limitations
+- In the dark theme, the primary-button contrast (including the "Save anyway" button) falls below WCAG AA. A fix is scheduled for the next release.
+
 ## [1.9.0] — 2026-04-17
 
 ### Added

@@ -46,7 +46,13 @@ Right-clicking an open-tab row opens a context menu with two actions:
 | Save to group | Save the tab as a bookmark and assign it to a group you choose |
 | Close tab | Close the browser tab immediately. This action is shown in red. |
 
-**Save to group** is not available for tabs with restricted URL schemes (such as `edge://`, `chrome://`, `about:`, or `chrome-extension://`) or when the tab's URL already matches an existing saved bookmark. Attempting to save these tabs shows a categorised error toast that explains the reason (for example, "1 already saved, 1 restricted URL"). Visual indicators to make unsavable tabs obvious before you try to save them are planned for a future release.
+**Save to group** works for most URL schemes, including `http`, `https`, `file`, `chrome://`, `edge://`, `chrome-extension://`, `about:`, and `view-source:`. Only `javascript:` and `data:` URLs are rejected outright (they are blocked for security reasons).
+
+**Dimmed rows:** tabs with a `javascript:` or `data:` URL appear dimmed in the Open Tabs section. Hovering over a dimmed row shows the tooltip "Cannot be saved — this URL scheme is not supported." These rows still navigate and close like any other tab; only Save to group is unavailable.
+
+**Duplicate URLs:** saving a tab whose URL is already bookmarked no longer fails. Instead, a dialog asks "URL already saved — save anyway?" Confirming creates an additional saved copy; cancelling leaves your existing bookmarks unchanged. For bulk Save-to-group operations, the dialog aggregates across the batch (for example, "3 of 5 tabs already saved — save anyway?").
+
+**Cross-browser note:** browser-specific URLs like `edge://settings` are saved as-is. If you open the same bookmark in a different browser, the URL may not resolve — there is no automatic translation between, for example, `edge://` and `chrome://`.
 
 ---
 

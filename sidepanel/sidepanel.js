@@ -3,6 +3,7 @@ import {
   MSG_LIST_GROUPS,
   MSG_GET_PREFERENCES,
   MSG_UPDATE_GROUP,
+  MSG_DELETE_GROUP,
   MSG_NAVIGATE_TO_ITEM,
   MSG_STATE_CHANGED,
   MSG_CREATE_ITEM,
@@ -26,6 +27,11 @@ import {
 import { GROUP_COLORS } from '../shared/constants.js';
 
 import { pruneSelection } from '../shared/selection.js';
+
+/* B-059: client-side duplicate-URL pre-check primitive. Shared with drift,
+   claims, and floating-group reassociation — the same normalization policy
+   everywhere. */
+import { safeNormalizeForMatch, isUnsavableScheme } from '../shared/url.js';
 
 /* B-014 M-1: compare broadcast scopes against the canonical constant rather
    than bare string literals. Only the WINDOW_MAP branch uses SCOPE for now —
@@ -91,6 +97,16 @@ const bulkRemoveBtn = document.getElementById('bulk-remove');
 const bulkClearBtn = document.getElementById('bulk-clear');
 /* B-014 */
 const windowFilterRowEl = document.getElementById('window-filter-row');
+/* B-027: Group edit dialog */
+const groupDialogEl = document.getElementById('group-dialog');
+const groupFormEl = document.getElementById('group-form');
+const groupFieldNameEl = document.getElementById('group-field-name');
+const groupColorSwatchesEl = document.getElementById('group-color-swatches');
+const groupErrorNameEl = document.getElementById('group-error-name');
+const groupErrorColorEl = document.getElementById('group-error-color');
+const groupErrorDialogEl = document.getElementById('group-error-dialog');
+const groupCancelBtnEl = document.getElementById('group-cancel-btn');
+const groupSubmitBtnEl = document.getElementById('group-submit-btn');
 
 /* =========================================================================
    Collapsed groups state (panel-lifetime; persisted via MSG_UPDATE_GROUP)
@@ -105,6 +121,9 @@ const collapsedGroups = new Set();
 let _editingItemId = null;
 let _dialogTriggerEl = null;
 let _pendingConfirmCallback = null;
+/* B-027: group dialog state */
+let _editingGroupId = null;
+let _selectedGroupColor = null;
 
 /* =========================================================================
    Filter state (B-021)
@@ -359,8 +378,10 @@ function closeDialog() {
   dialogOverlayEl.setAttribute('aria-hidden', 'true');
   bookmarkDialogEl.hidden = true;
   confirmDialogEl.hidden = true;
+  groupDialogEl.hidden = true; /* B-027: ensure group dialog is closed too */
   _deactivateFocusTrap();
   _editingItemId = null;
+  _editingGroupId = null;
   _pendingConfirmCallback = null;
   if (_dialogTriggerEl) {
     _dialogTriggerEl.focus();
@@ -368,7 +389,164 @@ function closeDialog() {
   }
 }
 
-function openConfirmDialog(item, onConfirm, { triggerEl = null, heading, body } = {}) {
+/* B-027: Group edit dialog helpers ---------------------------------------- */
+
+/** Populate the color swatch radio group and mark the currently selected color. */
+function _buildGroupColorSwatches(selectedColor) {
+  groupColorSwatchesEl.replaceChildren();
+  for (const color of GROUP_COLORS) {
+    const swatch = document.createElement('button');
+    swatch.type = 'button';
+    swatch.className = 'group-color-swatch group-color-' + color;
+    swatch.setAttribute('role', 'radio');
+    swatch.setAttribute('aria-label', color);
+    swatch.setAttribute('aria-checked', color === selectedColor ? 'true' : 'false');
+    swatch.dataset.color = color;
+    swatch.addEventListener('click', () => {
+      _selectedGroupColor = color;
+      for (const s of groupColorSwatchesEl.childNodes) {
+        if (s instanceof HTMLElement) {
+          s.setAttribute('aria-checked', s.dataset.color === color ? 'true' : 'false');
+        }
+      }
+    });
+    groupColorSwatchesEl.appendChild(swatch);
+  }
+  _selectedGroupColor = selectedColor || GROUP_COLORS[0];
+}
+
+/** Open the group edit dialog pre-populated with an existing group's data. */
+function openGroupEditDialog(group, { triggerEl = null } = {}) {
+  if (!dialogOverlayEl.hidden) return;
+  _editingGroupId = group.id;
+  _dialogTriggerEl = triggerEl;
+  groupFormEl.reset();
+  groupFieldNameEl.value = group.name ?? '';
+  groupErrorNameEl.hidden = true;
+  groupErrorColorEl.hidden = true;
+  groupErrorDialogEl.hidden = true;
+  document.getElementById('group-dialog-heading').textContent = 'Edit Group';
+  _buildGroupColorSwatches(group.color || GROUP_COLORS[0]);
+  bookmarkDialogEl.hidden = true;
+  confirmDialogEl.hidden = true;
+  groupDialogEl.hidden = false;
+  dialogOverlayEl.hidden = false;
+  dialogOverlayEl.removeAttribute('aria-hidden');
+  _activateFocusTrap(groupDialogEl);
+  groupFieldNameEl.focus();
+}
+
+/** Close the group dialog and restore focus. */
+function closeGroupDialog() {
+  groupDialogEl.hidden = true;
+  dialogOverlayEl.hidden = true;
+  dialogOverlayEl.setAttribute('aria-hidden', 'true');
+  _deactivateFocusTrap();
+  _editingGroupId = null;
+  _selectedGroupColor = null;
+  if (_dialogTriggerEl) {
+    _dialogTriggerEl.focus();
+    _dialogTriggerEl = null;
+  }
+}
+
+/** Handle group form submission (edit only — B-027 does not add group creation). */
+async function _handleGroupFormSubmit(e) {
+  e.preventDefault();
+  const name = groupFieldNameEl.value.trim();
+  if (!name) {
+    groupErrorNameEl.textContent = 'Name is required.';
+    groupErrorNameEl.hidden = false;
+    return;
+  }
+  if (name.length > 256) {
+    groupErrorNameEl.textContent = 'Name must be 256 characters or fewer.';
+    groupErrorNameEl.hidden = false;
+    return;
+  }
+  const color = _selectedGroupColor;
+  if (!GROUP_COLORS.includes(color)) {
+    groupErrorColorEl.textContent = 'Select a valid color.';
+    groupErrorColorEl.hidden = false;
+    return;
+  }
+  groupSubmitBtnEl.disabled = true;
+  try {
+    await sendMessage(MSG_UPDATE_GROUP, { id: _editingGroupId, patch: { name, color } });
+    closeGroupDialog();
+  } catch (err) {
+    const message = err?.message || 'Something went wrong.';
+    groupErrorDialogEl.textContent = message;
+    groupErrorDialogEl.hidden = false;
+  } finally {
+    groupSubmitBtnEl.disabled = false;
+  }
+}
+
+groupFormEl.addEventListener('submit', _handleGroupFormSubmit);
+
+groupCancelBtnEl.addEventListener('click', closeGroupDialog);
+
+/* Close group dialog on Escape — handled by the document keydown handler below
+   (it checks !dialogOverlayEl.hidden, which covers the group dialog too since
+   both share the same overlay). */
+
+/* B-027 end group dialog helpers ------------------------------------------ */
+
+/* =========================================================================
+   B-059 soft-warn helpers — pre-dispatch duplicate-URL detection
+   ========================================================================= */
+
+/**
+ * B-059: pre-dispatch duplicate-URL detection for save flows.
+ * Returns the first existing saved item whose normalized URL matches `url`,
+ * or null. Uses the already-maintained `_cachedItems` snapshot and the shared
+ * `safeNormalizeForMatch` helper — zero IPC, O(n) over cached items.
+ *
+ * @param {string} url raw URL from the tab or form
+ * @returns {Object|null}
+ */
+function _findDuplicateSavedItem(url) {
+  const normalized = safeNormalizeForMatch(url);
+  /* unparseable URL — safeNormalizeForMatch('') returns ''. Early-return so
+     we never match other unparseable URLs against each other. */
+  if (!normalized) return null;
+  for (const it of _cachedItems) {
+    if (safeNormalizeForMatch(it.url) === normalized) return it;
+  }
+  return null;
+}
+
+/**
+ * B-059: friendly group label for the duplicate-URL dialog body. Falls back
+ * to "Ungrouped" when the item has no groupId or the group no longer exists
+ * in the cached groups snapshot.
+ *
+ * @param {{ groupId?: string|null }} item
+ * @returns {string}
+ */
+function _groupLabelForItem(item) {
+  if (!item || !item.groupId) return 'Ungrouped';
+  const g = _cachedGroups.find((gr) => gr.id === item.groupId);
+  return g ? g.name : 'Ungrouped';
+}
+
+function openConfirmDialog(
+  item,
+  onConfirm,
+  {
+    triggerEl = null,
+    heading,
+    body,
+    /* B-059: callers override the confirm button label. Defaults to "Delete"
+       so existing destructive-action callers keep working without change. */
+    confirmLabel,
+    /* B-059: 'primary' | 'destructive' — styles the confirm button. Always
+       written to dataset on every open so a prior primary call cannot leak
+       styling into a subsequent destructive call. */
+    variant = 'destructive',
+  } = {},
+) {
   _pendingConfirmCallback = onConfirm;
   _dialogTriggerEl = triggerEl;
   /* B-024 C-2: heading + body overrides for bulk callers; single-item path preserves
@@ -376,6 +554,8 @@ function openConfirmDialog(item, onConfirm, { triggerEl = null, heading, body } 
   confirmHeadingEl.textContent = heading || 'Delete Bookmark?';
   confirmBodyEl.textContent =
     body || ('Delete "' + (item.title || 'this bookmark') + '"? This cannot be undone.');
+  confirmDeleteBtnEl.textContent = confirmLabel || 'Delete';
+  confirmDeleteBtnEl.dataset.variant = variant;
   bookmarkDialogEl.hidden = true;
   confirmDialogEl.hidden = false;
   dialogOverlayEl.hidden = false;
@@ -1391,6 +1571,9 @@ const OPEN_TAB_WINDOW_BADGE_CLASS = 'open-tab-window-badge';
  * not a section-level decision — legacy `multiWindow` flag kept for caller
  * compatibility but ignored by the badge path.
  */
+/* B-061: `isUnsavableScheme` is imported from shared/url.js — single source of
+   truth, colocated with `ALLOWED_URL_SCHEMES` so the deny/allow pair cannot
+   drift silently. */
 function buildOpenTabRow(tab /* , { multiWindow } */) {
   const row = document.createElement('li');
   row.className = 'item-row';
@@ -1402,6 +1585,10 @@ function buildOpenTabRow(tab /* , { multiWindow } */) {
   row.dataset.live = 'true';
   if (tab.active) row.dataset.active = 'true';
   if (tab.audible) row.dataset.audible = 'true';
+  if (isUnsavableScheme(tab.url)) {
+    row.dataset.unsavable = 'true';
+    row.title = 'Cannot be saved \u2014 unsupported URL scheme.';
+  }
 
   row.appendChild(_buildOpenTabFavicon(tab));
 
@@ -1584,6 +1771,16 @@ function _patchOpenTabRow(row, tab /* , { multiWindow } */) {
   if (tab.active) row.dataset.active = 'true'; else delete row.dataset.active;
   if (tab.audible) row.dataset.audible = 'true'; else delete row.dataset.audible;
   if (tab.windowId != null) row.dataset.windowId = String(tab.windowId);
+
+  /* B-061: re-evaluate unsavable scheme on URL change (navigation moves a tab
+     from `javascript:` / `data:` to http(s) or vice versa). */
+  if (isUnsavableScheme(tab.url)) {
+    row.dataset.unsavable = 'true';
+    row.title = 'Cannot be saved \u2014 unsupported URL scheme.';
+  } else {
+    delete row.dataset.unsavable;
+    row.removeAttribute('title');
+  }
 
   /* Favicon swap */
   const existingImg = row.querySelector('.item-favicon');
@@ -2626,42 +2823,75 @@ async function _bulkMoveToGroup(groupId) {
   if (itemIds.length > 0 && tabIds.length > 0) return;
 
   if (tabIds.length > 0) {
-    /* All-open-tabs: promote each tab individually. Partial-failure tolerant —
-       MSG_PROMOTE_TAB runs per-tab and may reject for restricted schemes or
-       duplicate URLs (§26.6). */
-    const results = await Promise.allSettled(
-      tabIds.map((tabId) => sendMessage(MSG_PROMOTE_TAB, { tabId, groupId })),
-    );
-    let failures = 0;
-    let safeModeHit = false;
-    let duplicates = 0;
-    let restrictedSchemes = 0;
-    let otherFailures = 0;
-    for (const r of results) {
-      if (r.status === 'rejected') {
-        failures++;
-        const code = r.reason?.code;
-        if (code === ERR_SAFE_MODE) safeModeHit = true;
-        else if (code === ERR_DUPLICATE_URL) duplicates++;
-        else if (code === ERR_VALIDATION) restrictedSchemes++;
-        else otherFailures++;
-      }
+    /* B-059: client-side duplicate pre-scan. If any of the selected tabs' URLs
+       already match a saved item, show a single aggregate confirm before
+       dispatching any MSG_PROMOTE_TAB. See SOLUTION_DESIGN §29.6.4. */
+    const duplicates = [];
+    for (const tabId of tabIds) {
+      const tab = _cachedOpenTabsById.get(tabId);
+      if (!tab) continue;
+      const existing = _findDuplicateSavedItem(tab.url || '');
+      if (existing) duplicates.push({ tabId, existing });
     }
-    _clearSelection();
-    if (safeModeHit) {
-      showToast('Cannot save while in safe mode');
+
+    const proceed = async () => {
+      /* All-open-tabs: promote each tab individually. Partial-failure tolerant —
+         MSG_PROMOTE_TAB runs per-tab and may reject for restricted schemes.
+         B-059: ERR_DUPLICATE_URL is no longer emitted by the SW in steady state;
+         the branch below remains only as a deploy-window fall-through. */
+      const results = await Promise.allSettled(
+        tabIds.map((tabId) => sendMessage(MSG_PROMOTE_TAB, { tabId, groupId })),
+      );
+      let failures = 0;
+      let safeModeHit = false;
+      let restrictedSchemes = 0;
+      let otherFailures = 0;
+      for (const r of results) {
+        if (r.status === 'rejected') {
+          failures++;
+          const code = r.reason?.code;
+          if (code === ERR_SAFE_MODE) safeModeHit = true;
+          else if (code === ERR_VALIDATION) restrictedSchemes++;
+          else otherFailures++;
+        }
+      }
+      _clearSelection();
+      if (safeModeHit) {
+        showToast('Cannot save while in safe mode');
+        return;
+      }
+      if (failures > 0) {
+        /* Categorised toast surfaces the dominant failure reason instead of a
+           generic message — makes bulk-promote failures actionable. */
+        const parts = [];
+        if (restrictedSchemes > 0) parts.push(restrictedSchemes + ' restricted URL');
+        if (otherFailures > 0) parts.push(otherFailures + ' other error');
+        const detail = parts.length > 0 ? ' (' + parts.join(', ') + ')' : '';
+        showToast('Couldn\u2019t save ' + failures + ' tab(s)' + detail);
+      }
+    };
+
+    if (duplicates.length === 0) {
+      proceed();
       return;
     }
-    if (failures > 0) {
-      /* Categorised toast surfaces the dominant failure reason instead of a
-         generic message — makes bulk-promote failures actionable. */
-      const parts = [];
-      if (duplicates > 0) parts.push(duplicates + ' already saved');
-      if (restrictedSchemes > 0) parts.push(restrictedSchemes + ' restricted URL');
-      if (otherFailures > 0) parts.push(otherFailures + ' other error');
-      const detail = parts.length > 0 ? ' (' + parts.join(', ') + ')' : '';
-      showToast('Couldn\u2019t save ' + failures + ' tab(s)' + detail);
-    }
+
+    /* B-059: one dialog, one decision. Cancel aborts everything; "Save all"
+       dispatches the full selection (duplicates included). Per §29.6.3, a
+       separate "Skip duplicates" action is explicitly out of scope. */
+    openConfirmDialog(
+      { title: tabIds.length + ' tabs' },
+      proceed,
+      {
+        heading: duplicates.length + ' of ' + tabIds.length + ' tabs already saved',
+        body:
+          duplicates.length + ' of the ' + tabIds.length +
+          ' selected tabs have URLs that are already saved. ' +
+          'Saving will create additional copies alongside the existing ones.',
+        confirmLabel: 'Save all ' + tabIds.length,
+        variant: 'primary',
+      },
+    );
     return;
   }
 
@@ -2788,6 +3018,207 @@ function closeContextMenu() {
     _contextMenuTriggerRow.focus();
     _contextMenuTriggerRow = null;
   }
+}
+
+/* B-027: Group header context menu — right-click on a .group-header element.
+ *
+ * Actions:
+ *   1. Open all bookmarks  — MSG_NAVIGATE_TO_ITEM per unsaved item (not live)
+ *   2. Close all open tabs — MSG_CLOSE_TABS with confirm dialog
+ *   3. Select all          — replace _selection with every item key in the group
+ *   4. Select open         — select only items in the group that are live
+ *   5. Select bookmarked   — select only items not currently live
+ *   6. Edit group          — openGroupEditDialog
+ *   7. Delete group        — openConfirmDialog + MSG_DELETE_GROUP
+ *
+ * Destructive actions (Close all open tabs, Delete group) use the
+ * context-menu-item--destructive class. Separators between action groups.
+ * Viewport clamping mirrors B-026 / B-028 / B-055 pattern.
+ */
+function _openGroupContextMenu(header, x, y) {
+  closeContextMenu();
+  _contextMenuTriggerRow = header;
+
+  const groupId = header.dataset.groupId;
+  if (!groupId || groupId === '__ungrouped__') return;
+
+  const group = _cachedGroups.find((g) => g.id === groupId);
+  if (!group) return;
+
+  /* Derive group items and their live states from in-memory caches. */
+  const groupItems = _cachedItems.filter((it) => it.groupId === groupId);
+  const liveTabIds = groupItems
+    .map((it) => _cachedLiveStates[it.id])
+    .filter((ls) => ls && ls.live && ls.tabId != null)
+    .map((ls) => ls.tabId);
+  const openCount = liveTabIds.length;
+
+  contextMenuEl.replaceChildren();
+
+  /* 1. Open all bookmarks — navigates unsaved (not live) items. */
+  const openAllBtn = document.createElement('button');
+  openAllBtn.className = 'context-menu-item';
+  openAllBtn.setAttribute('role', 'menuitem');
+  openAllBtn.setAttribute('tabindex', '-1');
+  openAllBtn.textContent = 'Open all bookmarks';
+  openAllBtn.addEventListener('click', () => {
+    closeContextMenu();
+    const toOpen = groupItems.filter((it) => !_cachedLiveStates[it.id]?.live);
+    Promise.allSettled(
+      toOpen.map((it) => sendMessage(MSG_NAVIGATE_TO_ITEM, { itemId: it.id })),
+    );
+  });
+  contextMenuEl.appendChild(openAllBtn);
+
+  /* 2. Close all open tabs — destructive with confirmation. */
+  const closeAllBtn = document.createElement('button');
+  closeAllBtn.className = 'context-menu-item context-menu-item--destructive';
+  closeAllBtn.setAttribute('role', 'menuitem');
+  closeAllBtn.setAttribute('tabindex', '-1');
+  closeAllBtn.textContent = 'Close all open tabs';
+  closeAllBtn.disabled = openCount === 0;
+  closeAllBtn.addEventListener('click', () => {
+    closeContextMenu();
+    if (openCount === 0) return;
+    /* Re-read live state at action time so count is honest. */
+    const liveIdsNow = groupItems
+      .map((it) => _cachedLiveStates[it.id])
+      .filter((ls) => ls && ls.live && ls.tabId != null)
+      .map((ls) => ls.tabId);
+    if (!liveIdsNow.length) return;
+    openConfirmDialog(
+      { title: group.name },
+      () => {
+        sendMessage(MSG_CLOSE_TABS, { tabIds: liveIdsNow }).catch(() => {
+          showToast('Couldn\u2019t close tabs \u2014 try again');
+        });
+      },
+      {
+        heading: 'Close ' + liveIdsNow.length + ' open tab' + (liveIdsNow.length === 1 ? '' : 's') + '?',
+        body: 'Close all open tabs in \u201c' + group.name + '\u201d? This cannot be undone.',
+        triggerEl: header,
+      },
+    );
+  });
+  contextMenuEl.appendChild(closeAllBtn);
+
+  /* Separator between open/close actions and select actions. */
+  const sep1 = document.createElement('div');
+  sep1.className = 'context-menu-separator';
+  contextMenuEl.appendChild(sep1);
+
+  /* 3. Select all — replaces _selection with every item key in this group. */
+  const selectAllBtn = document.createElement('button');
+  selectAllBtn.className = 'context-menu-item';
+  selectAllBtn.setAttribute('role', 'menuitem');
+  selectAllBtn.setAttribute('tabindex', '-1');
+  selectAllBtn.textContent = 'Select all';
+  selectAllBtn.addEventListener('click', () => {
+    closeContextMenu();
+    /* H-2 fix: clear + refill in a single pass; one trailing _updateBulkBar. */
+    _selection.clear();
+    for (const it of groupItems) {
+      _selection.add('item:' + it.id);
+    }
+    _updateBulkBar();
+  });
+  contextMenuEl.appendChild(selectAllBtn);
+
+  /* 4. Select open — selects only live items in this group. */
+  const selectOpenBtn = document.createElement('button');
+  selectOpenBtn.className = 'context-menu-item';
+  selectOpenBtn.setAttribute('role', 'menuitem');
+  selectOpenBtn.setAttribute('tabindex', '-1');
+  selectOpenBtn.textContent = 'Select open';
+  selectOpenBtn.addEventListener('click', () => {
+    closeContextMenu();
+    /* H-2 fix: single-render path (see selectAllBtn above). */
+    _selection.clear();
+    for (const it of groupItems) {
+      if (_cachedLiveStates[it.id]?.live) {
+        _selection.add('item:' + it.id);
+      }
+    }
+    _updateBulkBar();
+  });
+  contextMenuEl.appendChild(selectOpenBtn);
+
+  /* 5. Select bookmarked — selects only non-live (saved-only) items. */
+  const selectBookmarkedBtn = document.createElement('button');
+  selectBookmarkedBtn.className = 'context-menu-item';
+  selectBookmarkedBtn.setAttribute('role', 'menuitem');
+  selectBookmarkedBtn.setAttribute('tabindex', '-1');
+  selectBookmarkedBtn.textContent = 'Select bookmarked';
+  selectBookmarkedBtn.addEventListener('click', () => {
+    closeContextMenu();
+    /* H-2 fix: single-render path (see selectAllBtn above). */
+    _selection.clear();
+    for (const it of groupItems) {
+      if (!_cachedLiveStates[it.id]?.live) {
+        _selection.add('item:' + it.id);
+      }
+    }
+    _updateBulkBar();
+  });
+  contextMenuEl.appendChild(selectBookmarkedBtn);
+
+  /* Separator before edit/delete group actions. */
+  const sep2 = document.createElement('div');
+  sep2.className = 'context-menu-separator';
+  contextMenuEl.appendChild(sep2);
+
+  /* 6. Edit group — opens the group edit dialog. */
+  const editGroupBtn = document.createElement('button');
+  editGroupBtn.className = 'context-menu-item';
+  editGroupBtn.setAttribute('role', 'menuitem');
+  editGroupBtn.setAttribute('tabindex', '-1');
+  editGroupBtn.textContent = 'Edit group';
+  editGroupBtn.addEventListener('click', () => {
+    closeContextMenu();
+    openGroupEditDialog(group, { triggerEl: header });
+  });
+  contextMenuEl.appendChild(editGroupBtn);
+
+  /* 7. Delete group — destructive with confirmation. */
+  const deleteGroupBtn = document.createElement('button');
+  deleteGroupBtn.className = 'context-menu-item context-menu-item--destructive';
+  deleteGroupBtn.setAttribute('role', 'menuitem');
+  deleteGroupBtn.setAttribute('tabindex', '-1');
+  deleteGroupBtn.textContent = 'Delete group';
+  deleteGroupBtn.addEventListener('click', () => {
+    closeContextMenu();
+    openConfirmDialog(
+      { title: group.name },
+      () => {
+        sendMessage(MSG_DELETE_GROUP, { id: groupId }).catch(() => {
+          showToast('Couldn\u2019t delete group \u2014 try again');
+        });
+      },
+      {
+        heading: 'Delete group?',
+        body: 'Delete \u201c' + group.name + '\u201d? All bookmarks in this group will be moved to Ungrouped.',
+        triggerEl: header,
+      },
+    );
+  });
+  contextMenuEl.appendChild(deleteGroupBtn);
+
+  /* Position with viewport clamping — mirrors B-026 / B-028 / B-055 pattern. */
+  contextMenuEl.hidden = false;
+  contextMenuEl.style.left = x + 'px';
+  contextMenuEl.style.top = y + 'px';
+
+  const rect = contextMenuEl.getBoundingClientRect();
+  if (rect.bottom > window.innerHeight) {
+    contextMenuEl.style.top = Math.max(0, y - rect.height) + 'px';
+  }
+  if (rect.right > window.innerWidth) {
+    contextMenuEl.style.left = Math.max(0, x - rect.width) + 'px';
+  }
+
+  /* Focus first focusable menu item for keyboard nav. */
+  const firstItem = contextMenuEl.querySelector('[role="menuitem"]');
+  if (firstItem) firstItem.focus();
 }
 
 /**
@@ -2951,23 +3382,54 @@ function _openOpenTabContextMenu(row, x, y) {
 
   saveSelect.addEventListener('change', () => {
     const groupId = saveSelect.value || null;
-    sendMessage(MSG_PROMOTE_TAB, { tabId, groupId }).catch((err) => {
-      const code = err?.code;
-      /* B-055 H-4 fix: compare against imported error constants instead of
-         string literals so a rename of the constant surfaces at import time. */
-      if (code === ERR_SAFE_MODE) {
-        showToast('Cannot save while in safe mode');
-      } else if (code === ERR_DUPLICATE_URL) {
-        showToast('A bookmark with this URL already exists');
-      } else if (code === ERR_VALIDATION) {
-        showToast(err?.message || 'Cannot save this tab');
-      } else {
-        showToast('Couldn\u2019t save tab \u2014 try again');
-      }
-    });
-    /* B-055 H-5: close menu synchronously; error toast (if any) appears
-       asynchronously after the Promise settles. Matches B-026's pattern. */
+    const tab = _cachedOpenTabsById.get(tabId);
+    /* B-059: pre-dispatch duplicate detection against _cachedItems. */
+    const existing = tab ? _findDuplicateSavedItem(tab.url || '') : null;
+
+    /* B-055 H-5: close menu synchronously; the dialog (if shown) is a separate
+       modal and should not race the menu's focus handling. */
     closeContextMenu();
+
+    const dispatchSave = () => {
+      sendMessage(MSG_PROMOTE_TAB, { tabId, groupId }).catch((err) => {
+        const code = err?.code;
+        /* B-055 H-4 fix: compare against imported error constants instead of
+           string literals so a rename of the constant surfaces at import time.
+           B-059: ERR_DUPLICATE_URL is unreachable in steady state but remains a
+           correct fall-through during a deploy window where a stale SW might
+           still throw it. */
+        if (code === ERR_SAFE_MODE) {
+          showToast('Cannot save while in safe mode');
+        } else if (code === ERR_DUPLICATE_URL) {
+          showToast('A bookmark with this URL already exists');
+        } else if (code === ERR_VALIDATION) {
+          showToast(err?.message || 'Cannot save this tab');
+        } else {
+          showToast('Couldn\u2019t save tab \u2014 try again');
+        }
+      });
+    };
+
+    if (!existing) {
+      dispatchSave();
+      return;
+    }
+
+    /* B-059: soft-warn confirm. Pass `row` as triggerEl so focus restores to
+       the Open-Tabs row (not to the now-closed context menu's phantom target). */
+    openConfirmDialog(
+      { title: tab?.title || tab?.url || 'this tab' },
+      dispatchSave,
+      {
+        heading: 'URL already saved',
+        body:
+          'This URL is already saved as "' + existing.title + '" in ' +
+          _groupLabelForItem(existing) + '. Save another copy?',
+        confirmLabel: 'Save anyway',
+        variant: 'primary',
+        triggerEl: row,
+      },
+    );
   });
   contextMenuEl.appendChild(saveSelect);
 
@@ -3175,8 +3637,21 @@ function openContextMenu(row, x, y) {
   if (firstItem) firstItem.focus();
 }
 
-/* Context menu: right-click on item rows */
+/* Context menu: right-click on item rows and group headers (B-027) */
 document.addEventListener('contextmenu', (e) => {
+  /* B-027: group header right-click — checked before item-row so a click
+     inside a group header that is ALSO inside a row container is handled
+     by the group branch, not the single-item branch. */
+  const header = e.target.closest('.group-header');
+  if (header && !header.classList.contains('open-tabs-header')) {
+    /* H-1 fix: don't swallow the native menu for Ungrouped — that header has
+       no group-level actions, so preventDefault would leave a dead zone. */
+    if (header.dataset.groupId === '__ungrouped__') return;
+    e.preventDefault();
+    _openGroupContextMenu(header, e.clientX, e.clientY);
+    return;
+  }
+
   const row = e.target.closest('.item-row');
   if (!row) return;
   e.preventDefault();

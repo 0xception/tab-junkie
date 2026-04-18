@@ -40,10 +40,11 @@ test('AC7: valid legacy bookmarks migrated to tj:items, invalid discarded', asyn
   // Valid items should be in tj:items
   const items = __getRawStore('tj:items');
   assert.ok(Array.isArray(items));
-  // Valid: example.com (https:), test.org (http:), not-a-url (protocol-defaulted → https:), empty-title (https:)
-  // Discarded: ftp: scheme not in ALLOWED_URL_SCHEMES, chrome: scheme not allowed,
+  // Valid: example.com (https:), test.org (http:), not-a-url (protocol-defaulted → https:),
+  //        empty-title (https:), chrome://extensions (chrome: allowed since B-058)
+  // Discarded: ftp: scheme not in ALLOWED_URL_SCHEMES,
   //            no-url entry (no url field), null entry
-  assert.equal(items.length, 4, `Expected 4 valid items, got ${items.length}`);
+  assert.equal(items.length, 5, `Expected 5 valid items, got ${items.length}`);
 
   // --- Assert survivors by scheme / URL ---
 
@@ -69,9 +70,10 @@ test('AC7: valid legacy bookmarks migrated to tj:items, invalid discarded', asyn
   const ftpItem = items.find((i) => i.url && i.url.startsWith('ftp:'));
   assert.equal(ftpItem, undefined, 'ftp: item must be discarded');
 
-  // chrome: item is discarded (not in ALLOWED_URL_SCHEMES)
+  // chrome: item is now ACCEPTED (B-058: chrome: added to ALLOWED_URL_SCHEMES)
   const chromeItem = items.find((i) => i.url && i.url.startsWith('chrome:'));
-  assert.equal(chromeItem, undefined, 'chrome: item must be discarded');
+  assert.ok(chromeItem, 'chrome: item should survive (B-058)');
+  assert.equal(chromeItem.title, 'Chrome URL');
 
   // Empty title should fall back to URL
   const emptyTitle = items.find((i) => i.url === 'https://empty-title.com/');

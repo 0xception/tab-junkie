@@ -25,6 +25,14 @@ export const ERR_QUOTA_EXCEEDED = 'ERR_QUOTA_EXCEEDED';
 export const ERR_VALIDATION = 'ERR_VALIDATION';
 export const ERR_TX_CONFLICT = 'ERR_TX_CONFLICT';
 export const ERR_SAFE_MODE = 'ERR_SAFE_MODE';
+/**
+ * B-059: Retained for deploy-window compatibility (a stale service worker may
+ * still throw this during a rolling update). Post-B-059 the storage layer
+ * NEVER throws this code — duplicate URLs are allowed at the data layer; the
+ * soft-warn confirmation UI in the sidepanel handles user-facing disambiguation
+ * (see SOLUTION_DESIGN §29). Surface any incoming ERR_DUPLICATE_URL as an
+ * informational toast, not a blocking error.
+ */
 export const ERR_DUPLICATE_URL = 'ERR_DUPLICATE_URL';
 
 export class StorageError extends Error {

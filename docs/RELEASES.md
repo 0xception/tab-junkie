@@ -4,6 +4,82 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.10.0 — URL Policy + Menu Polish (2026-04-18)
+
+**Staged on `release/v2` — pending v2 merge to main. Intended tag: `v1.10.0`.**
+
+**Staging commit**: current HEAD on `release/v2` (Sprint 15 feat commit — see `git log --oneline -1`).
+
+### What's new
+
+**Broader URL-scheme support (B-058)**
+- Tab Junkie now accepts `chrome://`, `edge://`, `chrome-extension://`, `about:`, and `view-source:` URLs when saving a bookmark. Power users can track configuration pages, extension settings, and source views alongside regular sites.
+- `javascript:` and `data:` schemes remain hard-rejected (XSS / payload vectors) — no change in security stance.
+- Fixed a latent asymmetry where `file:` was allowed by the storage allowlist but rejected by a parallel prefix block-list inside `MSG_PROMOTE_TAB`. Scheme validation now flows through a single path (`normalizeUrl` → `ALLOWED_URL_SCHEMES`) so additions in one place never drift from the other.
+- Cross-browser portability note: a saved `edge://` URL won't work in Chrome, and vice versa. Tab Junkie stores URLs verbatim; browser compatibility is the user's responsibility.
+
+**Group header context menu (B-027)**
+- Right-clicking a group header now opens a dedicated group-level context menu with: Open all bookmarks, Close all open tabs, Select all / Select open / Select bookmarked, Edit group, and Delete group.
+- Destructive actions (Close all tabs, Delete group) are gated behind confirmation dialogs and visually styled red.
+- Selection actions populate the bulk selection set using prefixed keys (`item:<id>`) so the B-024 bulk action bar activates immediately.
+- Right-clicking the Ungrouped header no longer opens a Tab Junkie menu — the browser's native right-click menu is shown instead (it has no group-level actions to offer).
+
+**Duplicate URL saves with soft-warn (B-059)**
+- Saving a URL that already exists in your collection is now allowed. Instead of the previous `ERR_DUPLICATE_URL` blocking error, a confirmation dialog appears: "URL already saved as *{title}* in *{group}*. Save another copy?"
+- Applies to single-tab save (Open Tabs row context menu → "Save to group") and bulk Save-to-group (aggregate dialog: "N of M tabs already saved"). Cancel aborts; confirm creates an additional copy.
+- Service worker no longer performs O(n) duplicate-scan on every promote — detection moved to the client against the already-maintained `_cachedItems` cache. Measurable promote-latency win on large collections.
+- Floating-group reassociation after a browser restart is unchanged; B-018's `(windowId, tabIndex)` tie-break handles duplicate-URL ambiguity correctly.
+
+**Dimmed "cannot save" Open Tabs rows (B-061)**
+- Rows in the Open Tabs section whose URL has a permanently-unsavable scheme (`javascript:`, `data:`) are now dimmed with a "Cannot be saved — unsupported URL scheme" tooltip.
+- Rows that would produce a duplicate-URL soft-warn (B-059) render normally — dimming is strictly about scheme, not about duplicates.
+
+### Known limitations
+
+- **Dark-theme primary-button contrast below WCAG AA** — the "Save anyway" button in the B-059 soft-warn dialog uses the existing `--accent` / white text treatment that has been in place since Sprint 2 (B-003 / B-006 Save buttons). Dark-theme contrast measures ~2.3:1, below the 4.5:1 AA floor. Tracked as **B-062** (P1, S) for Sprint 16 — whole-app primary-button contrast sweep.
+
+### Internal
+
+| Item | Files added | Files changed |
+|------|-------------|---------------|
+| B-058 | `tests/b058-scheme-allowlist.test.js` | `shared/url.js`, `background/messages/storage-handlers.js`, `tests/promote-tab.test.js`, `tests/legacy-migration.test.js` |
+| B-027 | `tests/b027-group-header-menu.test.js` | `sidepanel/sidepanel.js`, `sidepanel/sidepanel.css`, `sidepanel/sidepanel.html` |
+| B-059 | `tests/b059-duplicate-warn.test.js`, `docs/UAT_B-059.md` | `background/messages/storage-handlers.js`, `shared/errors.js`, `sidepanel/sidepanel.js`, `sidepanel/sidepanel.css`, `tests/promote-tab.test.js` |
+| B-061 | `tests/b061-unsavable-dim.test.js` | `shared/url.js` (exported `isUnsavableScheme`), `sidepanel/sidepanel.js`, `sidepanel/sidepanel.css` |
+| R6 close | — | `docs/SOLUTION_DESIGN.md` §29 added (B-059 R2 design) + §29.14 populated (R6 close) |
+| R7 docs | — | `CHANGELOG.md`, `STORE_LISTING.md`, `docs/user-manual/open-tabs.md`, `docs/user-manual/managing-items.md` |
+
+- +30 new automated tests (575 → 605 total), all passing.
+- **No storage schema change. No manifest permission change. No migration required.**
+- SOLUTION_DESIGN.md §29 is a 500+ line new chapter covering the B-059 R2 design, decision rejections, rollback plan, and §29.14 R6 close deviations.
+
+### Test results
+
+- Automated: **605 / 605 passing** (0 fail, 0 skipped, 0 todo).
+- UAT: `docs/UAT_B-059.md` (12 cases covering all B-059 ACs + regression on destructive delete dialog variant leak + keyboard-only flow). Fast Track items (B-058, B-027, B-061) covered by zero-regressions against the full suite; no separate UAT doc per pipeline rules.
+- R4 review rollup: 0 CRITICAL, 2 HIGH (both fixed before R5), 15 MEDIUM (all fixed or consciously deferred), 36 LOW (mostly deferred as nits).
+
+### Rollback
+
+No storage schema change, no permission change, no data migration — rollback is a straightforward `git revert`.
+
+```
+# On release/v2:
+git revert HEAD   # reverts Sprint 15 feat commit
+
+# If extension already loaded by users:
+# 1. Unload the extension in edge://extensions
+# 2. Load prior-version zip (tab-junkie v1.9.0)
+# No storage cleanup needed.
+```
+
+**Post-rollback behaviour:**
+- B-058: `chrome://` / `edge://` / etc. URLs saved during v1.10.0 remain in storage; they're user-intended and the data layer has always accepted them. Only new saves via `MSG_PROMOTE_TAB` hit the restored reject path.
+- B-059: Duplicate items created during v1.10.0 remain saved; they behave normally for navigation, drift, claims, and delete. Only re-promoting one of them hits the restored `ERR_DUPLICATE_URL` reject.
+- B-027 + B-061: Pure UI — rollback removes the menu / dimming; no state to clean up.
+
+---
+
 ## v1.9.0 — Multi-window Awareness + URL Policy Spike (2026-04-17)
 
 **Staged on `release/v2` — pending v2 merge to main. Intended tag: `v1.9.0`.**

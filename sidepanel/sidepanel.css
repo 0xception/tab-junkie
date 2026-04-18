@@ -742,6 +742,55 @@ html, body {
   background: #b91c1c;
 }
 
+/* B-059: soft-warn confirm dialog re-uses the destructive-slot button with a
+   non-destructive "primary" treatment. The data-variant attribute is written
+   on every openConfirmDialog call (default 'destructive' preserves the red
+   delete styling for legacy callers). */
+.dialog-btn--danger[data-variant="primary"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+.dialog-btn--danger[data-variant="primary"]:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* --- Group dialog color swatches (B-027) ------------------------------ */
+
+.group-color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.group-color-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  outline: none;
+  transition: transform 0.1s, border-color 0.1s;
+  flex-shrink: 0;
+}
+
+.group-color-swatch:hover {
+  transform: scale(1.15);
+}
+
+.group-color-swatch:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.group-color-swatch[aria-checked="true"] {
+  border-color: var(--text-primary);
+  transform: scale(1.1);
+}
+
 /* --- Filter (B-021) --------------------------------------------------- */
 
 #filter-container {
@@ -1175,6 +1224,19 @@ mark {
 
 .item-row[data-live-only="true"] .item-url {
   font-style: italic;
+  color: var(--text-tertiary);
+}
+
+/* B-061: rows whose URL scheme is permanently rejected (javascript:, data:)
+   are dimmed as a visual cue that they cannot be saved. All other schemes —
+   including duplicates — render normally; duplicates are handled at action
+   time by the B-059 soft-warn. The tooltip on the row itself explains why. */
+.item-row[data-live-only="true"][data-unsavable="true"] {
+  opacity: 0.55;
+}
+
+.item-row[data-live-only="true"][data-unsavable="true"] .item-title,
+.item-row[data-live-only="true"][data-unsavable="true"] .item-url {
   color: var(--text-tertiary);
 }
 
