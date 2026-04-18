@@ -430,3 +430,51 @@ Historical completed sprint items. Appended by [scrum-master] at the close of ea
 **Went Well:** The sequenced-then-parallel pipeline (B-055 R3 alone → Fast Track trio in parallel) avoided `sidepanel.js` contention during the atomic prefix-key selection refactor. 9-agent R4 R4 pass produced actionable findings; two reviewers independently caught B-055 H-1 (safe-mode write-gate) — cross-agent consensus strengthened confidence. UAT surfaced a real product-design question (unsavable tabs) that produced a properly-scoped SPIKE (B-057) and adjacent implementation item (B-056).
 **To Improve:** The generic bulk-Save toast had to be categorised mid-UAT — prior R4 should have caught the pattern gap against the single-tab context-menu path. Cross-item code attribution was noisy (code-reviewer B-028 flagged findings actually belonging to `_openOpenTabContextMenu` in B-055). Safe-mode testing required skipping 2/18 UAT steps — there is no dev-only force-safe-mode lever.
 **Action Items:** (1) R4 prompts for shared files should map each item to its specific function/section markers. (2) Audit other bulk-action toasts for the uncategorised-failure pattern (`_bulkClose`, `_bulkRemove` — currently generic). (3) Consider a dev-only safe-mode force toggle or update UAT playbook with manual storage-corruption steps.
+
+---
+
+## Sprint 14 — Multi-Window + URL Policy Spike (2026-04-17)
+
+**Theme:** First-class multi-window awareness (badges + filter row) and a policy spike to unblock Sprint 15 URL/duplicate work.
+**Release:** v1.9.0 · Commit `0ca207f` on `release/v2` (tag staged, pending v2→main merge)
+**Tests:** 481 → 532 (+51 new: 12 window-ordinals + 25 b014-multi-window + 4 onAttached H-3 + 7 enriched-list-items / b010 updates)
+**SOLUTION_DESIGN.md:** §28 added (R2 design + §28.12 R6 Close post-build verification). New file `docs/spikes/B-057-url-policy-spike.md` (277 lines).
+
+### Completed Items
+
+| ID | Title | Tier | UAT | New Tests |
+|----|-------|------|-----|-----------|
+| B-014 | Multi-window awareness & window badge (absorbed B-034 filter row) | Full (M) | PASS (12/14 steps, 2 skipped — 3+ window edge cases; unit-tested) | 51 |
+| B-057 | SPIKE: URL-scheme allowlist + duplicate-URL policy review | Spike-First (XL) | N/A (research-only) | 0 |
+
+### Files Changed
+- `shared/messages.js` — `ListItemsResponse.windowMap`; widened `liveStates[].windowId`
+- `shared/scopes.js` (new, 20 lines) — SSOT for broadcast scopes; cross-boundary shared module
+- `background/broadcast.js` — re-export SCOPE from shared
+- `background/tabs/window-ordinals.js` (new, 154 lines) — `initWindowOrdinals()`, `registerWindow()`, `unregisterWindow()`, gap-preserving map
+- `background/tabs/index.js` — join bootstrap fan-out
+- `background/tabs/tab-claims.js` — `buildLiveStates` widens with `windowId`
+- `background/tabs/tab-events.js` — `windows.onCreated` + widened `onRemoved` + new `tabs.onAttached` / `onDetached` handlers (H-3)
+- `background/messages/storage-handlers.js` — `MSG_LIST_ITEMS` response includes `windowMap`
+- `sidepanel/sidepanel.html` — `<div id="window-filter-row" role="tablist">` landmark
+- `sidepanel/sidepanel.css` — filter chip styles, `:focus-visible` outline
+- `sidepanel/sidepanel.js` — `_windowOrdinalMap`, `_panelWindowId`, `_activeWindowFilter`, `_renderWindowBadge`, `_rebuildWindowFilterRow`, `_applyWindowMapToUI`, tablist keyboard handler, `applyFilter` window-constraint branch, `SCOPE.WINDOW_MAP` broadcast arm, filter-preservation on all broadcast paths
+- `tests/window-ordinals.test.js` (new, 12 tests)
+- `tests/b014-multi-window.test.js` (new, 25 tests — AC4/AC8/AC11/AC12/AC17 + H-1/H-2 regression)
+- `tests/b010-live-state.test.js`, `tests/enriched-list-items.test.js`, `tests/chrome-mock.js` — shape/contract + onAttached coverage
+- `CHANGELOG.md`, `STORE_LISTING.md`, `docs/user-manual/multi-window.md` (new) — R7 technical-writer
+- `docs/spikes/B-057-url-policy-spike.md` (new, 277 lines) — full spike memo
+
+### Notable R4 Findings Fixed
+- **B-014 H-1 (code-reviewer)**: `Number(raw) || null` silently maps windowId=0 to "All windows" filter. Fixed with explicit `Number.isFinite(Number(raw))` guard.
+- **B-014 H-2 (qa-reviewer)**: `renderAll` only re-applied filter when text query was truthy — window filter was silently lost after any `scope: items | groups` broadcast. Fixed: `if (_filterQuery || _activeWindowFilter !== null) applyFilter()`.
+- **B-014 H-3 (qa-reviewer)**: `tabs.onDetached` / `tabs.onAttached` were NOT registered. Chrome doesn't fire `onUpdated` for cross-window drag — badge went stale until full reload. Fixed: registered both handlers; `onAttached` calls `updateTabEntry(tabId, {windowId, index})` then broadcasts `LIVE_STATE` + `WINDOW_MAP`.
+
+### UAT-Discovered Defects (fixed in-pipeline)
+- **UAT-D1**: Window filter chip `:focus-visible` invisible in dark mode — `--accent-subtle` (#1e293b) rendered nearly black against the dark panel. Switched to explicit `outline: 2px solid var(--accent)`. Cross-sprint action item queued to audit other `:focus-visible` uses of `--accent-subtle`.
+- **UAT-D2**: Dragging a tab between windows while a window filter was active left the row visible in the wrong filter scope. `refetchAndPatchLiveState` and `SCOPE.WINDOW_MAP` handler both patched `data-window-id` but never re-ran `applyFilter()`. Fixed by appending the filter-preservation guard to both exit paths — sibling fix to H-2.
+
+### Retrospective
+**Went Well:** Spike-First pipeline worked as designed — B-057 produced actionable memos, 4 tightly-scoped follow-on items, correctly recommended deferring implementation. B-014 R2 was thorough enough that R3 landed first pass, all 18 ACs addressed. Interactive UAT caught two defects neither code/qa review surfaced. `shared/scopes.js` SSOT refactor is a useful infrastructure deposit.
+**To Improve:** Dark-mode `:focus-visible` using `--accent-subtle` is an anti-pattern that slipped through multiple prior sprints; cross-sprint CSS audit queued. Window-filter-active-during-broadcast path was missed by two R4 reviewers because the broken code paths didn't touch filter code at all — reviewers looked for broken filter logic, not missing filter invocations. B-014's `shared/scopes.js` cross-boundary module wasn't flagged under Shared File Governance in R4.
+**Action Items:** (1) CSS audit for `--accent-subtle` in `:focus-visible` rules elsewhere. (2) Sweep sidepanel bare-string `scope === '…'` comparisons to use `SCOPE.*` constants. (3) Future R4 prompts should include "where does filter state need to be re-applied after this change" as an explicit checklist item.
