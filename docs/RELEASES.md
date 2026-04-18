@@ -55,7 +55,7 @@ No storage schema change — rollback requires no data cleanup.
 
 ```
 # On release/v2:
-git revert <sprint-13-commit-sha>   # reverts Sprint 13 commit
+git revert 0f7e54d   # reverts Sprint 13 commit
 
 # If extension already loaded by users:
 # 1. Unload the extension in edge://extensions (or chrome://extensions)
