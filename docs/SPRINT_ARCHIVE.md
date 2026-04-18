@@ -478,3 +478,65 @@ Historical completed sprint items. Appended by [scrum-master] at the close of ea
 **Went Well:** Spike-First pipeline worked as designed — B-057 produced actionable memos, 4 tightly-scoped follow-on items, correctly recommended deferring implementation. B-014 R2 was thorough enough that R3 landed first pass, all 18 ACs addressed. Interactive UAT caught two defects neither code/qa review surfaced. `shared/scopes.js` SSOT refactor is a useful infrastructure deposit.
 **To Improve:** Dark-mode `:focus-visible` using `--accent-subtle` is an anti-pattern that slipped through multiple prior sprints; cross-sprint CSS audit queued. Window-filter-active-during-broadcast path was missed by two R4 reviewers because the broken code paths didn't touch filter code at all — reviewers looked for broken filter logic, not missing filter invocations. B-014's `shared/scopes.js` cross-boundary module wasn't flagged under Shared File Governance in R4.
 **Action Items:** (1) CSS audit for `--accent-subtle` in `:focus-visible` rules elsewhere. (2) Sweep sidepanel bare-string `scope === '…'` comparisons to use `SCOPE.*` constants. (3) Future R4 prompts should include "where does filter state need to be re-applied after this change" as an explicit checklist item.
+
+---
+
+## Sprint 15 — URL Policy + Menu Polish (2026-04-18)
+
+**Theme:** Implement the three B-057 spike follow-ons (relaxed URL allowlist, soft-warn duplicates, dimmed unsavable rows) and complete the context-menu trio with group-header actions.
+**Release:** v1.10.0 · Commit `<HEAD>` on `release/v2` (tag `v1.10.0` staged, pending v2→main merge)
+**Tests:** 575 → 605 (+30 new: 14 b061 + 13 b059 + extras; b058 + b027 also landed test files)
+**SOLUTION_DESIGN.md:** §29 added (B-059 R2 design, 510 lines) + §29.14 populated (R6 close)
+
+### Completed Items
+
+| ID | Title | Tier | UAT | New Tests |
+|----|-------|------|-----|-----------|
+| B-058 | Relax URL-scheme allowlist (chrome://, edge://, chrome-extension://, about:, view-source:) | Fast Track (S) | Regression suite PASS | b058-scheme-allowlist.test.js |
+| B-027 | Group header context menu | Fast Track (S) | Regression suite PASS | b027-group-header-menu.test.js |
+| B-059 | Allow duplicate URLs with soft-warn UI | Full (M) | `docs/UAT_B-059.md` 12-case plan; interactive UAT deferred to user | b059-duplicate-warn.test.js (13 cases) + T-7 real-dispatcher binding in promote-tab.test.js |
+| B-061 | Dim javascript:/data: rows in Open Tabs (replaces retired B-056) | Fast Track (XS) | Regression suite PASS | b061-unsavable-dim.test.js (14 cases) |
+
+### Files Changed
+
+- `shared/url.js` — B-058 allowlist expanded (+5 schemes); B-061 `isUnsavableScheme` exported as SSOT; opaque-scheme regex now pinned with `// SECURITY: keep in sync with ALLOWED_URL_SCHEMES`
+- `shared/errors.js` — `ERR_DUPLICATE_URL` retained with JSDoc reclassifying it as informational-only (§29.5)
+- `background/messages/storage-handlers.js` — 10-line `ERR_DUPLICATE_URL` reject block deleted from `MSG_PROMOTE_TAB`; unused imports pruned
+- `sidepanel/sidepanel.js` — `_findDuplicateSavedItem`, `_groupLabelForItem` helpers; `openConfirmDialog` extended with `confirmLabel` + `variant` options bag; soft-warn wiring in `_openOpenTabContextMenu` save-select; bulk pre-filter + aggregate confirm in `_bulkMoveToGroup`; group-header context menu via `_openGroupContextMenu`; `data-unsavable` on Open Tabs rows (B-061)
+- `sidepanel/sidepanel.css` — `.dialog-btn--danger[data-variant="primary"]` primary-variant override; group color swatches (B-027); `.item-row[data-live-only][data-unsavable]` dim rule (B-061)
+- `sidepanel/sidepanel.html` — group color swatch markup (B-027)
+- `tests/promote-tab.test.js` — flipped duplicate-reject assertion to duplicate-success; added T-7 real-dispatcher regression via `chrome.runtime.onMessage._listeners`
+- `tests/legacy-migration.test.js` — scheme allowlist updates
+- `tests/b027-group-header-menu.test.js` (new)
+- `tests/b058-scheme-allowlist.test.js` (new)
+- `tests/b059-duplicate-warn.test.js` (new — T-1..T-6, T-8, T-10 + Ungrouped / missing-group / missing-tab-cache edge cases)
+- `tests/b061-unsavable-dim.test.js` (new — pattern correctness + DOM contract with real setAttribute/removeAttribute stub)
+- `CHANGELOG.md`, `STORE_LISTING.md`, `docs/user-manual/open-tabs.md`, `docs/user-manual/managing-items.md` — R7 technical-writer
+- `docs/UAT_B-059.md` (new, 10KB) — 12-case UAT plan
+- `manifest.json` — version 1.9.0 → 1.10.0
+
+### Notable R4 Findings Fixed
+
+- **B-027 H-1 (code-reviewer)**: `contextmenu` listener called `preventDefault` unconditionally for the Ungrouped header, suppressing the browser's native menu and leaving a dead zone. Fixed by bailing out before `preventDefault` when `dataset.groupId === '__ungrouped__'`.
+- **B-027 H-2 (code-reviewer)**: select-all / select-open / select-bookmarked handlers called `_clearSelection()` (which itself calls `_updateBulkBar()`) then immediately called `_updateBulkBar()` again — two DOM renders per click. Fixed by replacing `_clearSelection()` with inline `_selection.clear()` + single trailing `_updateBulkBar()`.
+- **B-058 M-1 (code + security)**: opaque-scheme regex drift risk against `ALLOWED_URL_SCHEMES`. Fixed with a `// SECURITY: keep in sync` pin at `shared/url.js:71`.
+- **B-059 M-1/M-2 (code-reviewer)**: test fixture keyed `_cachedOpenTabsById` on `t.id` while production keys on `t.tabId`; also missing T-8 fragment-stripping coverage. Fixed both in `tests/b059-duplicate-warn.test.js`.
+- **B-059 M-4 (qa-reviewer)**: T-7 was a local wrapper, not the real SW dispatcher. Fixed by adding a `registerStorageHandlers` + `chrome.runtime.onMessage._listeners` dispatch test in `tests/promote-tab.test.js` — any future re-introduction of the reject inside real `dispatch()` breaks the build.
+- **B-061 M-1 (code-reviewer)**: `UNSAVABLE_SCHEME_PATTERN` in sidepanel was a policy twin of `ALLOWED_URL_SCHEMES`. Hoisted to `shared/url.js :: isUnsavableScheme` as SSOT.
+- **B-061 M-2 (code-reviewer)**: test stub cleared `title` via empty string instead of `removeAttribute`, diverging from real DOM semantics. Fixed with a faithful `_attrs` map stub supporting `setAttribute`/`removeAttribute`/`getAttribute`.
+
+### UAT-Discovered Defects
+
+None in this sprint — all fixes were R4-discovered. UAT-9 (dark-theme primary-button contrast) was identified by R4 qa-reviewer and confirmed pre-existing; deferred to **B-062** (P1, S) for Sprint 16.
+
+### Deferred to Sprint 16
+
+- **B-062** — Dark-theme primary-button contrast audit (WCAG AA). Pre-existing on `.dialog-btn--primary`; affects B-003, B-006, B-059 call sites. Whole-app sweep, not a B-059-localized fix.
+
+### Retrospective
+
+**Went Well:** Tight B-057 → B-058/B-059/B-061 spike-to-delivery loop — three follow-on items landed in one sprint. Fast Track + Full Tier interleaving worked: B-058/B-027 Fast Track reviews ran in parallel with B-059 R2→R3; B-061 Fast Track slotted into B-059 R4 idle time without file collisions. R4 → R3 fixes stayed surgical — all HIGH findings were localized one-liner fixes, no rework or scope creep.
+
+**To Improve:** R2 selector accuracy — §29.4.4 named `.confirm-btn` when the actual class is `.dialog-btn--danger`. Pre-existing token debt (`--accent` dark contrast) surfaces late — invisible until B-059 became the first non-destructive confirm-dialog caller. T-7 wrapper-vs-real-dispatcher gap — first test passed while production handler could still have thrown.
+
+**Action Items:** (1) [solution-architect] R2 process: grep every CSS selector mentioned in designs against actual markup before R3 handoff. (2) Promoting a theme token to a new surface should trigger a proactive contrast check — add to R2 Correctness Checklist. (3) [test-engineer] R5 rule: handler-contract tests MUST dispatch via `chrome.runtime.onMessage._listeners`, not local shims. Document in testing standards.
