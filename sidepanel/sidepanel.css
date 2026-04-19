@@ -25,6 +25,7 @@
   --active-border: #2563eb;
   --audible-color: #7c3aed;
   --drifted-color: #d97706;
+  --danger: #c62828; /* B-044: destructive-emphasis text — 5.62:1 on light --bg-primary */
   --skeleton-base: #e8eaed;
   --skeleton-shine: #f5f6f8;
   --empty-color: #8a8f9a;
@@ -58,6 +59,7 @@
   --active-border: #60a5fa;
   --audible-color: #a78bfa;
   --drifted-color: #fbbf24;
+  --danger: #f87171; /* B-044: destructive-emphasis text — 6.10:1 on dark --bg-primary */
   --skeleton-base: #2a2f38;
   --skeleton-shine: #323842;
   --empty-color: #6b7280;
@@ -92,6 +94,7 @@
     --active-border: #60a5fa;
     --audible-color: #a78bfa;
     --drifted-color: #fbbf24;
+    --danger: #f87171; /* B-044: matches [data-theme="dark"] */
     --skeleton-base: #2a2f38;
     --skeleton-shine: #323842;
     --empty-color: #6b7280;
@@ -127,6 +130,7 @@
     --active-border: #2563eb;
     --audible-color: #7c3aed;
     --drifted-color: #d97706;
+    --danger: #c62828; /* B-044: matches [data-theme="light"] */
     --skeleton-base: #e8eaed;
     --skeleton-shine: #f5f6f8;
     --empty-color: #8a8f9a;
@@ -634,6 +638,22 @@ html, body {
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.5;
+}
+
+/* B-044: emphasize the "REPLACE all" clause in the import-preview dialog.
+   Structured DOM, not innerHTML — the strong element carries the styling
+   and the text content remains literal. `--danger` is defined per theme
+   (see top of file) — light #c62828 / dark #f87171, both ≥4.5:1 on the
+   matching --bg-primary. Fallback preserved as a safety net. */
+.import-replace-emphasis {
+  color: var(--danger, #c62828);
+  font-weight: 600;
+}
+
+.import-extra-line {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-secondary);
 }
 
 .dialog-form {

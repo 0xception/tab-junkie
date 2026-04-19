@@ -23,33 +23,35 @@
 
 ## Active Items
 
-### [B-066] Remaining `--text-tertiary` a11y sweep
-- **Tier**: Fast Track (S)
-- **Status**: R3 (in progress)
-- **Assigned To**: [frontend-engineer]
-- **Blockers**: None
-- **Feature Context**: Fix 5 remaining `--text-tertiary` consumers flagged by `docs/a11y-audit-B-064.md §7`: `.group-drag-handle` (non-text, dark hover 2.86:1 vs 3.0:1 floor), `#filter-empty-state`, `.group-items-empty`, `.context-menu-label`, `.open-tabs-empty` (all body text below 4.5:1 AA). CSS-only fix expected.
-- **Handoff Notes**: R1 was pre-approved (skipped per product owner 2026-04-19 — 8 ACs + 8 UAT cases already comprehensive in BACKLOG.md). R2 skipped (Fast Track). R3 in flight on `feature/B-066-text-tertiary-sweep`. Recommended: Option A — promote the 5 offending selectors to `var(--text-secondary)` (mirrors B-064, minimal blast radius). Publish `docs/a11y-audit-B-066.md` using B-064's structure. Test suite baseline is 807/807 after B-067 merge.
-
 ### [B-044] Import HTML (Netscape bookmarks)
 - **Tier**: Full (M)
-- **Status**: R1 (pending)
-- **Assigned To**: [product-manager]
-- **Blockers**: None
+- **Status**: R2 (in progress)
+- **Assigned To**: [solution-architect]
+- **Blockers**: None (B-067 merged, allow-list contract locked)
 - **Feature Context**: File-picker accepts `.html` / `.htm`. Count-preview dialog before commit. "Import replaces all existing data" warning with explicit confirmation. Folder hierarchy deeper than 1 level flattened safely.
-- **Handoff Notes**: Paired with B-045. Shared infrastructure (`background/import/`) and shared `MSG_IMPORT_COLLECTION { format }` message contract. Default duplicate-handling: skip (matches B-060 AC — B-060 UX toggle is a separate follow-on item).
+- **Handoff Notes**: R1 pre-approved (skipped — comprehensive ACs in BACKLOG.md). R2 authors unified §33 design covering both B-044 + B-045 on `feature/B-044-import-html`. R2 writes a new chapter slice `docs/design/33-b-044-b-045-import.md` and extends root index. Post-R2, R3 implements B-044 only on this branch; B-045 branches off separately after B-044 merges (shared `background/import/` + `MSG_IMPORT_COLLECTION` contract stable by then).
+- **R2 Correctness Checklist focus**: C-1 (no new storage partitions, imports use `writeTransaction` to replace atomically per Sprint 17 D-3 retro), C-2 (new `MSG_IMPORT_COLLECTION { format: 'html' | 'json' }` message), C-4 (imports MUST mint new ULIDs, not reuse any file-provided IDs), C-7 (B-045 consumes B-067 allow-list — direction verified). Performance AC: 1,000-bookmark HTML import completes < 3s in chrome-mock.
 
 ### [B-045] Import JSON backup
 - **Tier**: Full (M)
-- **Status**: R1 (pending)
-- **Assigned To**: [product-manager]
-- **Blockers**: B-067 (allow-list contract) — lands Wave 1 of R3, so effectively in-sprint
+- **Status**: R2 (in progress — covered by unified B-044 R2 pass)
+- **Assigned To**: [solution-architect] (shared with B-044)
+- **Blockers**: B-044 R3 (shared `background/import/` infrastructure must merge first)
 - **Feature Context**: Consumes `schemaVersion: 1` (the frozen §32.5 shape). Validates and automatically repairs: orphaned sub-groups, circular references, duplicate IDs. Count-preview + confirmation mirror B-044. Repair decisions surfaced in post-import summary.
-- **Handoff Notes**: Paired with B-044 — shared R2 design (§33 to be authored). The `schemaVersion` gate: if the imported file's version is unknown, reject with a clear error ("backup was created in a newer Tab Junkie version").
+- **Handoff Notes**: R1 pre-approved. R2 covered by B-044's unified pass (single §33 chapter). After B-044 merges, B-045 branches as `feature/B-045-import-json` for R3–R7 on its own. The `schemaVersion` gate: if the imported file's version is unknown, reject with a clear error ("backup was created in a newer Tab Junkie version"). Consumes the §32.5 allow-list locked by B-067 (merged `2e4e507`).
 
 ---
 
 ## Completed This Sprint
+
+### [B-066] Remaining `--text-tertiary` a11y sweep — DONE (Wave 2)
+- **Tier**: Fast Track (S)
+- **Merged**: `5bf985f` on `release/v2` (PR #15, 2026-04-19)
+- **Files Changed**: `sidepanel/sidepanel.css` (5 × `--text-tertiary` → `--text-secondary` at `.group-drag-handle`, `#filter-empty-state`, `.group-items-empty`, `.context-menu-label`, `.open-tabs-empty`), NEW `docs/a11y-audit-B-066.md` (full before/after contrast tables + consumer inventory + blast-radius grep)
+- **Fix option**: Option A (promote offending selectors — mirrors B-064, zero new tokens)
+- **R4**: [code-reviewer] PASS (zero findings; independently recomputed all 16 audit ratio cells — deviation ≤0.01), [security-reviewer] PASS (zero findings, near-no-op)
+- **Test suite**: 807/807 green. `./build.sh` clean.
+- **Worst post-fix ratio**: 4.93:1 on `.group-drag-handle` light `--bg-hover` (non-text floor 3.0:1 — 64% headroom).
 
 ### [B-067] Flip export sanitizers to §32.5 allow-list — DONE (Wave 1)
 - **Tier**: Fast Track (S)

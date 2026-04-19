@@ -64,9 +64,11 @@ The output is **deterministic**: running two exports back-to-back produces files
 - Before updating or reinstalling your browser.
 - As a periodic snapshot you keep in your own storage.
 
-### Import?
+### Importing back into Tab Junkie
 
-The JSON format is the reserved contract for a future **Import JSON** feature that will restore a backup into an empty or existing Tab Junkie install. For now, the JSON export is a one-way backup — if you need to move data between installs today, use **Export HTML** and import it via the browser's built-in bookmark importer.
+HTML files produced by **Export HTML** can be imported back into Tab Junkie via the **Import HTML** button in the side panel header. See [Importing Bookmarks](./importing-bookmarks.md) for the full flow, including the mandatory confirmation dialog and the list of what is and isn't preserved.
+
+JSON import is not yet available. For now, the JSON export is a one-way backup; if you need to move data between Tab Junkie installs today, use **Export HTML** and pair it with **Import HTML**.
 
 ---
 

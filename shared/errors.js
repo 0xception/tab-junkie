@@ -35,6 +35,30 @@ export const ERR_SAFE_MODE = 'ERR_SAFE_MODE';
  */
 export const ERR_DUPLICATE_URL = 'ERR_DUPLICATE_URL';
 
+/**
+ * B-044 / B-045 — data-import error taxonomy (§33.11). These surface through
+ * the MSG_IMPORT_COLLECTION handler. All produce zero storage mutation; the
+ * sidepanel maps each to a human-readable toast.
+ */
+
+/** HTML missing/wrong doctype; JSON `JSON.parse` throws. */
+export const ERR_INVALID_FORMAT = 'ERR_INVALID_FORMAT';
+
+/** JSON shape fails §32.5.1 root validation. */
+export const ERR_MALFORMED_ROOT = 'ERR_MALFORMED_ROOT';
+
+/** JSON `schemaVersion > KNOWN_VERSION` — importer is older than the file. */
+export const ERR_UNKNOWN_SCHEMA_VERSION = 'ERR_UNKNOWN_SCHEMA_VERSION';
+
+/** Repair pass produces empty items+groups from a non-empty source. */
+export const ERR_UNREPAIRABLE = 'ERR_UNREPAIRABLE';
+
+/** File read returned `''` (0 bytes). */
+export const ERR_EMPTY_FILE = 'ERR_EMPTY_FILE';
+
+/** Reserved per §33.11 — user dismissed confirmation dialog (sidepanel-local). */
+export const ERR_USER_CANCELLED = 'ERR_USER_CANCELLED';
+
 export class StorageError extends Error {
   /**
    * @param {string} code   one of the ERR_* constants

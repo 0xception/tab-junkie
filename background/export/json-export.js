@@ -21,26 +21,17 @@
  *     `highlight`), tracking hints (`favIconUrl` camelCase), and any future
  *     storage addition — is dropped unconditionally. This is stricter than
  *     the prior deny-list (B-067 Sprint 18 Wave 1, resolving B-043 sec-S-1).
+ *
+ * §33.15 Q-1 (B-044/B-045): the allow-list constants + sanitize helpers now
+ * live in `shared/export-schema.js` so the import validator can consume the
+ * identical symbols without duplication. Behaviour here is unchanged — this
+ * file is a thin wrapper around the shared helpers.
  */
 
-/**
- * §32.5.2 Item allow-list. Exactly these keys may appear on an exported item.
- * `lastAccessedAt` is optional per §32.5.2 — emitted iff `'lastAccessedAt'`
- * is an own-key on the input record (distinguishes "never accessed" absence
- * from "accessed at epoch 0" presence).
- */
-const ITEM_ALLOWED_FIELDS = [
-  'id', 'title', 'url', 'groupId', 'sortOrder', 'createdAt', 'updatedAt',
-];
-const ITEM_ALLOWED_OPTIONAL_FIELDS = ['lastAccessedAt'];
-
-/**
- * §32.5.3 Group allow-list. Exactly these keys may appear on an exported group.
- */
-const GROUP_ALLOWED_FIELDS = [
-  'id', 'name', 'color', 'parentId', 'sortOrder', 'collapsed',
-  'createdAt', 'updatedAt',
-];
+import {
+  sanitizeItem,
+  sanitizeGroup,
+} from '../../shared/export-schema.js';
 
 /**
  * Null-first string comparator used by the 3-key sort (§32.5.5).
@@ -74,38 +65,6 @@ function compareGroups(a, b) {
   const so = finiteOrZero(a.sortOrder) - finiteOrZero(b.sortOrder);
   if (so !== 0) return so;
   return compareNullFirst(String(a.id ?? ''), String(b.id ?? ''));
-}
-
-/**
- * Shallow-copy a record, emitting ONLY the §32.5.2 Item allow-list keys.
- * Any input key not in the allow-list — runtime enrichments, tracking hints
- * (`favIconUrl` camelCase), future storage additions — is dropped
- * unconditionally. The optional `lastAccessedAt` key is included iff the
- * input record has it as an own-key (B-067 AC1 + §32.5.2).
- */
-function sanitizeItem(item) {
-  const out = {};
-  for (const key of ITEM_ALLOWED_FIELDS) {
-    if (key in item) out[key] = item[key];
-  }
-  for (const key of ITEM_ALLOWED_OPTIONAL_FIELDS) {
-    if (key in item) out[key] = item[key];
-  }
-  return out;
-}
-
-/**
- * Shallow-copy a record, emitting ONLY the §32.5.3 Group allow-list keys.
- * Any input key not in the allow-list — including the non-persisted
- * `warning: DUPLICATE_NAME` response-only flag and any runtime decoration —
- * is dropped unconditionally (B-067 AC2 + §32.5.3).
- */
-function sanitizeGroup(group) {
-  const out = {};
-  for (const key of GROUP_ALLOWED_FIELDS) {
-    if (key in group) out[key] = group[key];
-  }
-  return out;
 }
 
 /**
