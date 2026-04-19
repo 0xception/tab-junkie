@@ -28,6 +28,8 @@
  *   AC-ungrouped — right-click on __ungrouped__ header does NOT open a group menu
  */
 
+// B-065 deferral: extracting this helper requires consumer refactor (DOM + _pendingConfirm state); filed as future tech-debt, not in scope for B-065.
+
 import './_setup.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

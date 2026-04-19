@@ -29,6 +29,16 @@ import './_setup.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+/* B-065: the picker-core row-builder and query normalization live in
+   `shared/group-picker-core.js`. Production (sidepanel/sidepanel.js) and
+   this regression suite exercise the exact same source of truth — no
+   more test-side reproduction drift. */
+import {
+  buildGroupPickerRows as _buildGroupPickerRowsShared,
+  normalizeGroupPickerQuery,
+  matchesGroupPickerRow,
+} from '../shared/group-picker-core.js';
+
 /* =========================================================================
    Minimal DOM shim — same shape as b027-group-header-menu.test.js.
    ========================================================================= */
@@ -125,50 +135,24 @@ function _matchesOne(el, sel) {
 }
 
 /* =========================================================================
-   Reproduced picker-core logic — verbatim from sidepanel.js.
-   Injected via `ctx` so each test runs on a fresh DOM tree.
+   Picker-core logic — delegates to `shared/group-picker-core.js` (B-065).
+   Wrappers preserve the legacy `(ctx, sourceGroupId)` / `(listEl, query)`
+   signatures used throughout this file while the pure logic itself lives
+   in shared so production and test agree on a single source of truth.
+
+   DOM-side helpers (renderPickerRows, setHighlight, visibleRows) stay
+   inline — they exist only to exercise the FakeElement shim used here
+   and have no production counterpart that's safe to export directly.
    ========================================================================= */
 
-/** Mirrors sidepanel.js::_buildGroupPickerRows. */
+/** Delegates to shared::buildGroupPickerRows; unpacks `ctx` caches. */
 function buildGroupPickerRows(ctx, sourceGroupId) {
-  const sortedGroups = [...ctx._cachedGroups].sort(
-    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
-  );
-  const groupById = new Map(sortedGroups.map((g) => [g.id, g]));
-  const savedByGroup = new Map();
-  const openByGroup = new Map();
-  for (const it of ctx._cachedItems) {
-    const key = it.groupId || '__ungrouped__';
-    savedByGroup.set(key, (savedByGroup.get(key) || 0) + 1);
-    const ls = ctx._cachedLiveStates[it.id];
-    if (ls && ls.live) openByGroup.set(key, (openByGroup.get(key) || 0) + 1);
-  }
-  const rows = [];
-  if (sourceGroupId !== '__ungrouped__') {
-    rows.push({
-      id: null, name: 'Ungrouped', color: null, breadcrumb: '',
-      savedCount: savedByGroup.get('__ungrouped__') || 0,
-      openCount: openByGroup.get('__ungrouped__') || 0,
-      searchKey: 'ungrouped',
-    });
-  }
-  for (const g of sortedGroups) {
-    if (g.id === sourceGroupId) continue; /* AC5 */
-    let breadcrumb = '';
-    if (g.parentId) {
-      const parent = groupById.get(g.parentId);
-      if (parent) breadcrumb = parent.name + ' / ' + g.name;
-    }
-    const lowerName = (g.name || '').toLowerCase();
-    const lowerBread = breadcrumb.toLowerCase();
-    rows.push({
-      id: g.id, name: g.name || '', color: g.color || null, breadcrumb,
-      savedCount: savedByGroup.get(g.id) || 0,
-      openCount: openByGroup.get(g.id) || 0,
-      searchKey: breadcrumb ? lowerName + ' ' + lowerBread : lowerName,
-    });
-  }
-  return rows;
+  return _buildGroupPickerRowsShared({
+    groups: ctx._cachedGroups,
+    items: ctx._cachedItems,
+    liveStates: ctx._cachedLiveStates,
+    sourceGroupId,
+  });
 }
 
 /** Mirrors sidepanel.js::_renderGroupPickerRows. */
@@ -208,13 +192,18 @@ function renderPickerRows(listEl, rows) {
   }
 }
 
-/** Mirrors sidepanel.js::_applyGroupPickerFilter (hidden-toggle only). */
+/**
+ * Mirrors sidepanel.js::_applyGroupPickerFilter's DOM-mutation half
+ * (hidden-toggle only). The query-normalization half delegates to
+ * shared::normalizeGroupPickerQuery (B-065) so test and production
+ * agree on trimming/casing.
+ */
 function applyFilter(listEl, query) {
-  const lower = (query || '').trim().toLowerCase();
+  const lower = normalizeGroupPickerQuery(query);
   const rows = listEl.querySelectorAll('.group-picker-row');
   let visible = 0;
   for (const row of rows) {
-    const match = !lower || (row.dataset.searchKey || '').includes(lower);
+    const match = matchesGroupPickerRow(row.dataset.searchKey, lower);
     row.hidden = !match;
     if (match) visible++;
   }

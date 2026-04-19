@@ -2,6 +2,22 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.12.0] — 2026-04-18
+
+### Added
+- Export to HTML: a new **Export HTML** button in the side panel header downloads a standard Netscape-format `.html` file containing all your groups and bookmarks. The file imports cleanly into Chrome (round-trip tested), Firefox, Safari, and any other browser that accepts Netscape bookmarks. Items whose group was deleted are emitted under an **Ungrouped** folder so nothing is lost. Export of a 1,000-item collection completes in under half a second.
+- Export to JSON: a new **Export JSON** button downloads a schema-versioned `.json` backup containing every group, item, and (optionally) your preferences. Back-to-back exports produce byte-identical files except for the `exportedAt` timestamp, so the file is safe to diff and store. The `schemaVersion: 1` field reserves the import contract for a future release.
+
+### Changed
+- Item URL text (the second line below each title) now uses the stronger secondary text color across every theme. This brings every non-selected row to WCAG AA contrast (4.5:1 or better) in all eight theme-and-surface combinations. There is no visible change on surfaces that were already compliant.
+
+### Internal
+- Extracted shared ARIA-label and group-picker helpers into `shared/aria-label.js` and `shared/group-picker-core.js`. No user-visible change.
+
+### Known limitations
+- A few remaining surfaces still use the tertiary text color (the group drag handle and four empty-state body messages). A final contrast sweep is scheduled for the next release.
+- HTML export emits all groups at their nominal nesting even if a parent group has been deleted. JSON export's rescue logic handles this case; HTML export does not. No data loss — the orphaned sub-group is still exported.
+
 ## [1.11.0] — 2026-04-18
 
 ### Added

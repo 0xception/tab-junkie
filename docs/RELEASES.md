@@ -4,6 +4,82 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.12.0 — Data Portability Exports + A11y + Tech-Debt (2026-04-18)
+
+**Staged on `release/v2` — pending v2 merge to main. Intended tag: `v1.12.0`.**
+
+**Staging commit**: current HEAD on `release/v2` (Sprint 17 feat commit — see `git log --oneline -1`).
+
+### What's new
+
+**Export to HTML (Netscape bookmark file) (B-042)**
+- New "Export HTML" button in the sidepanel header produces a Netscape-format `.html` file importable by Chrome, Firefox, Safari, and Edge.
+- Group hierarchy preserved as nested `<DL>`/`<H3>` folders. Ungrouped bookmarks appear in a dedicated folder at the top.
+- Every `<A HREF>` entry carries `ADD_DATE` + `LAST_MODIFIED` in unix seconds. Every title + URL is HTML-escaped (XSS-safe; test probes in the suite).
+- Orphan rescue: if you deleted a group whose bookmarks still exist, those items now render under "Ungrouped" instead of being silently dropped.
+- Performance: median 6.22ms on a 1,000-item / 100-group collection (vs 500ms AC budget — 80× headroom).
+
+**Export to JSON backup (B-043)**
+- New "Export JSON" button produces a round-trip-safe JSON backup of every item, group, and (if set) user preferences.
+- `schemaVersion: 1` locks the shape as the future import contract. Any future change bumps the version and requires a compatible migration path.
+- Deterministic output: two exports of the same data are byte-identical (except `exportedAt`). Verified by permutation tests.
+- Privacy: zero telemetry, zero profile IDs, local-only processing. Same as the rest of Tab Junkie.
+
+**Global URL-text contrast fix (B-064)**
+- The URL subtitle under every saved bookmark row was failing WCAG AA 4.5:1 in both themes (worst ratios ~2.86-3.48:1). All 8 theme × effective-background cells now pass with a 5.25:1 worst case.
+- Zero new tokens — mirrors the approach B-048 took for selected rows. Visual hierarchy preserved (title > URL).
+
+**Internal refactor (B-065)**
+- Three helper functions previously reproduced verbatim inside test files (item aria-label builder, group-picker row builder, group-picker filter matcher) now live in `shared/aria-label.js` and `shared/group-picker-core.js`. Eliminates silent test-vs-production drift.
+
+### Known limitations
+
+- **B-066** — Remaining `--text-tertiary` surfaces (group drag handle + four empty-state body-text consumers) still fail WCAG AA. Filed for Sprint 18.
+- **B-067** — Export sanitizers use a deny-list instead of the authoritative §32.5 allow-list. Ships before B-045 (JSON import) to lock the import contract. Filed for Sprint 18.
+
+### Internal
+
+| Item | Files added | Files changed |
+|------|-------------|---------------|
+| B-065 | `shared/aria-label.js`, `shared/group-picker-core.js` | `sidepanel/sidepanel.js`, `tests/b048-visual-states.test.js`, `tests/b029-group-picker.test.js`, `tests/b027-group-header-menu.test.js` |
+| B-064 | `docs/a11y-audit-B-064.md` | `sidepanel/sidepanel.css` (3-line edit) |
+| B-042 | `shared/export-schema.js`, `background/export/shared.js`, `background/export/html-export.js`, `tests/b042-html-export.test.js`, `docs/UAT_B-042.md` | `shared/messages.js`, `background/messages/storage-handlers.js`, `sidepanel/sidepanel.html`, `sidepanel/sidepanel.js` |
+| B-043 | `background/export/json-export.js`, `tests/b043-json-export.test.js`, `docs/UAT_B-043.md` | `background/messages/storage-handlers.js`, `sidepanel/sidepanel.html`, `sidepanel/sidepanel.js` |
+| R6 close | — | `docs/SOLUTION_DESIGN.md` §32 + §32.16 |
+| R7 docs | `docs/user-manual/exporting-data.md` | `CHANGELOG.md`, `STORE_LISTING.md`, `docs/user-manual/accessibility.md` |
+
+- **+85 new automated tests** (721 → 806 total), all passing.
+- **No storage schema change. No manifest permission change.** `<a download>` + Blob URL avoids the `downloads` permission entirely.
+- **New message contract**: `MSG_EXPORT_COLLECTION` (shared across HTML + JSON formats with a discriminator payload).
+- **New frozen contract**: `shared/export-schema.js :: EXPORT_SCHEMA_VERSION` + §32.5. Locks the JSON shape as the B-045 import target.
+
+### Test results
+
+- Automated: **806 / 806 passing** (0 fail, 0 skipped, 0 todo).
+- UAT: `docs/UAT_B-042.md` (14 cases) + `docs/UAT_B-043.md` (15 cases). Fast Track items (B-064, B-065) covered by zero-regressions against the full suite.
+- R4 review rollup: 0 CRITICAL, 3 HIGH (all fixed before R5), 25 MEDIUM (all fixed or consciously deferred), 25 LOW.
+
+### Rollback
+
+No storage schema change, no permission change — rollback is a straightforward `git revert`.
+
+```
+# On release/v2:
+git revert HEAD   # reverts Sprint 17 feat commit
+
+# If extension already loaded by users:
+# 1. Unload the extension in edge://extensions
+# 2. Load prior-version zip (tab-junkie v1.11.0)
+# No storage cleanup needed.
+```
+
+**Post-rollback behaviour:**
+- B-042 + B-043: Export buttons disappear. Any exported files created during v1.12.0 remain on disk (not Tab Junkie's problem). No user data lost.
+- B-064: URL text reverts to `--text-tertiary` (re-introduces the AA gap).
+- B-065: Internal only — sidepanel.js re-inlines the helpers via git revert; test files re-inline their reproductions. Runtime behavior unchanged.
+
+---
+
 ## v1.11.0 — A11y Polish + Group Picker + Visual States (2026-04-18)
 
 **Staged on `release/v2` — pending v2 merge to main. Intended tag: `v1.11.0`.**

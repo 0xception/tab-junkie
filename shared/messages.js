@@ -49,6 +49,32 @@ export const MSG_BULK_DELETE_ITEMS = 'tj/bulkDeleteItems';
 /** Bulk-update saved items' groupId by id array + patch. Partial-success semantics. */
 export const MSG_BULK_UPDATE_ITEMS = 'tj/bulkUpdateItems';
 
+// ---- Data export (B-042 / B-043) ----
+/**
+ * Export the entire saved collection to a user-chosen file format.
+ * Read-only: the handler performs no storage mutations and is therefore
+ * allowed in safe mode (schema-downgrade). Wave 3 (B-042) implements the
+ * HTML branch; Wave 4 (B-043) fills in the JSON branch.
+ */
+export const MSG_EXPORT_COLLECTION = 'tj/exportCollection';
+
+/**
+ * @typedef {Object} ExportCollectionRequest
+ * @property {'html' | 'json'} format
+ *   'html' emits Netscape Bookmark File Format 1 (B-042).
+ *   'json' emits Tab Junkie schema-v1 backup (B-043 — Wave 4).
+ */
+
+/**
+ * @typedef {Object} ExportCollectionResponse
+ * @property {string} filename     e.g. 'tab-junkie-bookmarks-2026-04-18.html'
+ * @property {string} mimeType     'text/html' or 'application/json'
+ * @property {string} content      Serialized file body (UTF-8 string).
+ * @property {number} size         UTF-8 byte length of `content` (what lands on disk). Differs from `content.length` for non-ASCII characters; informational — no caller acts on it today.
+ * @property {number} itemCount    Number of bookmarks included — drives toast copy.
+ * @property {number} groupCount   Number of non-empty groups included — drives toast copy.
+ */
+
 // ---- State broadcast ----
 export const MSG_STATE_CHANGED = 'tj/stateChanged';
 

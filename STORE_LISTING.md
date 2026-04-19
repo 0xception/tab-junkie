@@ -21,13 +21,13 @@ KEY FEATURES
 • Open Tabs section — Live view of every browser tab not yet saved or grouped; click to focus, right-click to save or close; updates in real time. Tabs with unsavable URLs (javascript:, data:) appear dimmed
 • Broad URL support — Save chrome://, edge://, chrome-extension://, about:, and view-source: URLs as well as http/https. Duplicate URLs are allowed with a quick confirmation prompt
 • Clear feedback — Empty-state messages with CTAs and dismissible error notifications for failed operations
-• Accessible by design — Row states (live, active, drifted, audible, selected) are distinguishable without relying on color alone, meet WCAG AA contrast in both light and dark themes, and announce a consistent label to screen readers
+• Accessible by design — Row states (live, active, drifted, audible, selected) are distinguishable without relying on color alone; every row's title and URL meet WCAG AA contrast (4.5:1 or better) in every theme and on every background state; each row announces a consistent screen-reader label
 • Quick search (Alt+J) — Fuzzy search across all bookmarks and tabs from a popup
 • Group search and drill-in — Browse groups and view their contents inline from the popup
 • Quick jump to group (Alt+K) — Jump directly to any group from anywhere
 • New tab page — Optional replacement with bookmark grid and web search
 • Chrome tab group sync — Mirror your Tab Junkie groups as Chrome tab groups with matching colors
-• Import/export — HTML (browser-compatible) and JSON backup formats
+• Export to HTML or JSON — one-click **Export HTML** downloads a standard Netscape bookmark file that imports cleanly into Chrome, Firefox, Safari, and Edge; one-click **Export JSON** downloads a schema-versioned, round-trip-safe backup of every group, item, and preference
 • 12 IDE color themes — Monokai, Dracula, Nord, Solarized, Gruvbox, Tokyo Night, GitHub Light, and more
 
 FOUR WAYS TO ACCESS

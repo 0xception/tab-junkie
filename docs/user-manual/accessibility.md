@@ -50,8 +50,10 @@ The group picker (used by every **Move to group** action) traps focus inside the
 
 Text, icons, and indicators in the side panel meet WCAG AA contrast ratios against their backgrounds in both the light theme and the dark theme. Primary-action buttons ("Save bookmark", "Save group", "Save anyway", and similar) use a text color that adapts to the current theme so the label remains legible on the accent background.
 
+The URL text beneath each bookmark title (the secondary line on every saved-item row) has been strengthened across every theme so that every theme-and-background combination — light, dark, hovered, selected — meets the WCAG AA 4.5:1 contrast ratio. This applies uniformly to item rows everywhere in the panel.
+
 ---
 
 ## Known gaps
 
-- Item URL text (the secondary line below each title) can fall slightly below WCAG AA contrast on non-selected rows in some themes. A global contrast pass is tracked for a future release.
+- A small number of tertiary-text surfaces — the group drag handle and some empty-state body messages — remain slightly below WCAG AA contrast. A final sweep to bring these into compliance is tracked for the next release.

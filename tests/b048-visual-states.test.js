@@ -5,7 +5,7 @@
  * `sidepanel.js` is browser-only with no exports and DOM side-effects on load.
  * Following the pattern established by `b027-group-header-menu.test.js` and
  * `b061-unsavable-dim.test.js`, the pure visual-state decision logic
- * (`_buildItemRowAriaLabel`, `_createItemSelect`, and the relevant
+ * (`buildItemRowAriaLabel`, `_createItemSelect`, and the relevant
  * `buildItemRow` / `_setRowSelected` / `refetchAndPatchLiveState` branches)
  * is reproduced here with a light DOM shim so the contract can be exercised
  * deterministically without a real browser.
@@ -27,32 +27,10 @@ import './_setup.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-/* =========================================================================
-   Reproduction of `_buildItemRowAriaLabel` (sidepanel.js §B-048).
-   Copy of production `_buildItemRowAriaLabel` at sidepanel.js:1975 — keep in
-   sync. M-2 (code) flagged the false-green risk of testing a test-side copy;
-   the mitigation agreed in R4 is (a) the explicit naming below and the
-   cross-reference comment, and (b) extracting into `shared/aria-label.js` as
-   follow-on tech-debt (out of scope for this findings-fix pass).
-   ========================================================================= */
-
-function _buildItemRowAriaLabelCopy(item, live, drifted, selected) {
-  /* M-3: mirror the null-item guard added to the production helper so both
-     sides agree on the contract. */
-  if (!item) return 'Untitled';
-  const title = item.title || 'Untitled';
-  const parts = [title];
-  if (live?.active) parts.push('active tab');
-  if (live?.live) parts.push('live tab');
-  if (drifted) parts.push('tab content has changed');
-  if (live?.audible) parts.push('playing audio');
-  if (selected) parts.push('selected');
-  return parts.join(', ');
-}
-
-/* Backwards-compatible alias so the existing call sites below read naturally
-   while the rename is in flight. */
-const _buildItemRowAriaLabel = _buildItemRowAriaLabelCopy;
+/* B-065: the ARIA-label builder now lives in `shared/aria-label.js`.
+   Production (sidepanel/sidepanel.js) and this regression suite exercise
+   the exact same source of truth — no more test-side reproduction drift. */
+import { buildItemRowAriaLabel } from '../shared/aria-label.js';
 
 /* =========================================================================
    Minimal DOM shim — only what this test exercises (setAttribute,
@@ -130,7 +108,7 @@ function buildItemRow(item, liveStates, driftRecords) {
 
   row.appendChild(_createItemSelect(false));
 
-  row.setAttribute('aria-label', _buildItemRowAriaLabel(item, live, drifted, false));
+  row.setAttribute('aria-label', buildItemRowAriaLabel(item, live, drifted, false));
   return row;
 }
 
@@ -148,7 +126,7 @@ function _setRowSelected(row, selected, item, live, drifted) {
   const checkbox = row.querySelector('.item-select');
   if (checkbox) checkbox.setAttribute('aria-checked', selected ? 'true' : 'false');
   if (item) {
-    row.setAttribute('aria-label', _buildItemRowAriaLabel(item, live, drifted, selected));
+    row.setAttribute('aria-label', buildItemRowAriaLabel(item, live, drifted, selected));
   }
 }
 
@@ -159,7 +137,7 @@ function patchLiveState(row, item, nextLive, nextDrifted, selected) {
   if (nextLive?.active) row.dataset.active = 'true'; else delete row.dataset.active;
   if (nextLive?.audible) row.dataset.audible = 'true'; else delete row.dataset.audible;
   if (nextDrifted) row.dataset.drifted = 'true'; else delete row.dataset.drifted;
-  row.setAttribute('aria-label', _buildItemRowAriaLabel(item, nextLive, nextDrifted, selected));
+  row.setAttribute('aria-label', buildItemRowAriaLabel(item, nextLive, nextDrifted, selected));
 }
 
 /* =========================================================================
@@ -273,7 +251,7 @@ test('AC6: toggling selection flips aria-checked on .item-select (hover-reveal-w
 });
 
 /* =========================================================================
-   AC7 — Screen-reader label: `_buildItemRowAriaLabel` concat contract
+   AC7 — Screen-reader label: `buildItemRowAriaLabel` concat contract
    (active → live → drifted → audible → selected, lowercase, comma-space separated)
    ========================================================================= */
 
@@ -281,49 +259,49 @@ const TITLE_ITEM = { id: 'x', title: 'Docs' };
 
 test('AC7: no flags → just the title', () => {
   assert.equal(
-    _buildItemRowAriaLabel(TITLE_ITEM, undefined, undefined, false),
+    buildItemRowAriaLabel(TITLE_ITEM, undefined, undefined, false),
     'Docs',
   );
 });
 
 test('AC7: live only → "<title>, live tab"', () => {
   assert.equal(
-    _buildItemRowAriaLabel(TITLE_ITEM, { live: true }, undefined, false),
+    buildItemRowAriaLabel(TITLE_ITEM, { live: true }, undefined, false),
     'Docs, live tab',
   );
 });
 
 test('AC7: active + live → active comes first (strongest identity)', () => {
   assert.equal(
-    _buildItemRowAriaLabel(TITLE_ITEM, { live: true, active: true }, undefined, false),
+    buildItemRowAriaLabel(TITLE_ITEM, { live: true, active: true }, undefined, false),
     'Docs, active tab, live tab',
   );
 });
 
 test('AC7: live + drifted → "<title>, live tab, tab content has changed"', () => {
   assert.equal(
-    _buildItemRowAriaLabel(TITLE_ITEM, { live: true }, { at: 1 }, false),
+    buildItemRowAriaLabel(TITLE_ITEM, { live: true }, { at: 1 }, false),
     'Docs, live tab, tab content has changed',
   );
 });
 
 test('AC7: live + audible → "<title>, live tab, playing audio" (lowercase — AC7 normalization)', () => {
   assert.equal(
-    _buildItemRowAriaLabel(TITLE_ITEM, { live: true, audible: true }, undefined, false),
+    buildItemRowAriaLabel(TITLE_ITEM, { live: true, audible: true }, undefined, false),
     'Docs, live tab, playing audio',
   );
 });
 
 test('AC7: selected only → "<title>, selected" (selection is the last concat position)', () => {
   assert.equal(
-    _buildItemRowAriaLabel(TITLE_ITEM, undefined, undefined, true),
+    buildItemRowAriaLabel(TITLE_ITEM, undefined, undefined, true),
     'Docs, selected',
   );
 });
 
 test('AC7: all five flags → full concat in fixed order', () => {
   assert.equal(
-    _buildItemRowAriaLabel(
+    buildItemRowAriaLabel(
       TITLE_ITEM,
       { live: true, active: true, audible: true },
       { at: 1 },
@@ -338,7 +316,7 @@ test('AC7: active-without-live is still first (selection mode where active is cl
      concat order (active first). This guards against a naive "if live then
      include active" bug. */
   assert.equal(
-    _buildItemRowAriaLabel(TITLE_ITEM, { active: true }, undefined, false),
+    buildItemRowAriaLabel(TITLE_ITEM, { active: true }, undefined, false),
     'Docs, active tab',
   );
 });
@@ -465,18 +443,18 @@ test('Q-M1 (AC2): drifted && !live row still exposes the drift cue at first pain
 });
 
 /* =========================================================================
-   L-3 — null-item contract for `_buildItemRowAriaLabel` (M-3 companion).
+   L-3 — null-item contract for `buildItemRowAriaLabel` (M-3 companion).
    Locks the explicit null guard so a future refactor does not silently
    delegate the fallback back to each call site.
    ========================================================================= */
 
-test('L-3 / M-3: _buildItemRowAriaLabel(null, ...) returns "Untitled" without throwing', () => {
+test('L-3 / M-3: buildItemRowAriaLabel(null, ...) returns "Untitled" without throwing', () => {
   assert.equal(
-    _buildItemRowAriaLabel(null, undefined, undefined, false),
+    buildItemRowAriaLabel(null, undefined, undefined, false),
     'Untitled',
   );
   assert.equal(
-    _buildItemRowAriaLabel(undefined, { live: true }, { at: 1 }, true),
+    buildItemRowAriaLabel(undefined, { live: true }, { at: 1 }, true),
     'Untitled',
   );
 });
@@ -503,7 +481,7 @@ test('AC7: all 32 flag combinations produce a strictly ordered label', () => {
       audible: !!(mask & 0b01000),
       selected: !!(mask & 0b10000),
     };
-    const label = _buildItemRowAriaLabel(
+    const label = buildItemRowAriaLabel(
       { title: 'T' },
       { live: flags.live, active: flags.active, audible: flags.audible },
       flags.drifted ? { at: 1 } : undefined,
@@ -724,11 +702,11 @@ test('AC8: aria-label rebuild for 1000 rows completes well under the 500ms AC8 b
   const drifted = { at: 1 };
 
   /* Warmup — avoid first-call JIT noise. */
-  for (let i = 0; i < 50; i++) _buildItemRowAriaLabel(item, live, drifted, true);
+  for (let i = 0; i < 50; i++) buildItemRowAriaLabel(item, live, drifted, true);
 
   const start = performance.now();
   for (let i = 0; i < 1000; i++) {
-    _buildItemRowAriaLabel(item, live, drifted, i % 2 === 0);
+    buildItemRowAriaLabel(item, live, drifted, i % 2 === 0);
   }
   const elapsedMs = performance.now() - start;
 
@@ -746,7 +724,7 @@ test('AC8: aria-label rebuild for 1000 rows completes well under the 500ms AC8 b
    B-055 regression — Open Tabs rows participate in the same multi-select
    contract as saved-item rows. Both row types must prepend `.item-select`
    as the first flex child and their aria-labels must flow through
-   `_buildItemRowAriaLabel` so the concat order is identical.
+   `buildItemRowAriaLabel` so the concat order is identical.
    ========================================================================= */
 
 function buildOpenTabRow(tab, isSelected) {
@@ -765,7 +743,7 @@ function buildOpenTabRow(tab, isSelected) {
   }
   const openTabItem = { title: tab.title || tab.url || 'Untitled tab' };
   const openTabLive = { live: true, active: !!tab.active, audible: !!tab.audible };
-  row.setAttribute('aria-label', _buildItemRowAriaLabel(openTabItem, openTabLive, false, isSelected));
+  row.setAttribute('aria-label', buildItemRowAriaLabel(openTabItem, openTabLive, false, isSelected));
   return row;
 }
 
@@ -775,7 +753,7 @@ test('B-055 regression: Open Tabs row prepends `.item-select` as first child (pa
   assert.equal(row.children[0].getAttribute('role'), 'checkbox');
 });
 
-test('B-055 regression: Open Tabs row aria-label uses `_buildItemRowAriaLabel` (same concat order as saved rows)', () => {
+test('B-055 regression: Open Tabs row aria-label uses `buildItemRowAriaLabel` (same concat order as saved rows)', () => {
   const row = buildOpenTabRow(
     { tabId: 42, title: 'Music', url: 'https://music.example', active: true, audible: true },
     true,

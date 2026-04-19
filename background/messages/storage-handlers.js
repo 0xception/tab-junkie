@@ -42,7 +42,19 @@ import {
   MSG_BULK_CREATE_ITEMS,
   MSG_BULK_DELETE_ITEMS,
   MSG_BULK_UPDATE_ITEMS,
+  MSG_EXPORT_COLLECTION,
 } from '../../shared/messages.js';
+
+import {
+  EXPORT_FORMATS,
+  EXPORT_MIME_TYPES,
+  EXPORT_FILENAME_PREFIXES,
+  EXPORT_FILENAME_EXTENSIONS,
+} from '../../shared/export-schema.js';
+import { buildFilenameWithDate } from '../export/shared.js';
+import { buildHtmlExport, countNonEmptyGroupsForHtml } from '../export/html-export.js';
+import { buildJsonExport } from '../export/json-export.js';
+import { partitionKey, PARTITION_PREFS } from '../storage/partitions.js';
 
 import {
   createItem,
@@ -69,7 +81,7 @@ import {
   ERR_SAFE_MODE,
 } from '../storage/index.js';
 
-import { getSystemStatus, isSafeMode } from '../storage/migration.js';
+import { getSystemStatus, isSafeMode, KNOWN_VERSION } from '../storage/migration.js';
 import { buildLiveStates, getDriftRecords } from '../tabs/index.js';
 import { getClaimsMirror, getItemIdForTab, claimTabForItem, releaseClaimByTab } from '../tabs/tab-claims.js';
 import { clearDrift } from '../tabs/drift.js';
@@ -387,6 +399,81 @@ async function dispatch(type, payload) {
       // AC7: do NOT call releaseClaimByTab — tabs.onRemoved handles cleanup
       // Intentionally absent from MUTATION_BROADCASTS — chrome.tabs.remove triggers tabs.onRemoved which handles claim cleanup and broadcasts LIVE_STATE.
       return { closed: validTabIds, notFound: notFoundIds };
+    }
+    case MSG_EXPORT_COLLECTION: {
+      /* B-042 / B-043 — read-only export. Never mutates storage and therefore
+         is intentionally absent from MUTATION_BROADCASTS and WRITE_MESSAGE_TYPES
+         (safe-mode passes exports through unmodified). */
+      if (!EXPORT_FORMATS.includes(p.format)) {
+        throw new StorageError(ERR_VALIDATION, 'exportCollection: format must be "html" or "json"');
+      }
+
+      /* Single-snapshot read — items first, then groups. Concurrent mutations
+         between the two reads are rare on a local-only extension (§32.13 F-3);
+         orphaned groupId references are tolerated by both builders (HTML
+         rescues to Ungrouped via Q-H1; JSON emits `groupId: null`). */
+      const exportItems = await listItems();
+      const exportGroups = await listGroups();
+
+      if (p.format === 'json') {
+        /* §32.5.4: `preferences` is present iff the user has persisted at
+           least one preference. `getPreferences()` always returns defaults
+           merged on top of whatever is stored, so we probe the underlying
+           `tj:prefs` key directly — its *presence* is the source of truth
+           for "has the user ever run setPreferences?". This keeps a clean
+           first-run export from forcing the importing profile's preferences
+           to match the exporting profile's first-run defaults (AC2). */
+        const prefsKey = partitionKey(PARTITION_PREFS);
+        const prefsRaw = await chrome.storage.local.get(prefsKey);
+        const preferences = (prefsKey in prefsRaw) ? prefsRaw[prefsKey] : null;
+
+        const jsonContent = buildJsonExport({
+          items: exportItems,
+          groups: exportGroups,
+          preferences,
+          /* AC3: schemaVersion is read dynamically from migration.js at export
+             time — hardcoding is a FAIL. `KNOWN_VERSION` and the JSON export
+             version share a single source of truth because the persisted
+             item/group shapes *are* the exported shapes (§32.5.7). */
+          schemaVersion: KNOWN_VERSION,
+        });
+        const jsonFilename = buildFilenameWithDate(
+          EXPORT_FILENAME_PREFIXES.json,
+          EXPORT_FILENAME_EXTENSIONS.json,
+        );
+        /* Q-10 (B-042 R4): size reports UTF-8 byte length, not content.length. */
+        const jsonSize = new TextEncoder().encode(jsonContent).length;
+        return {
+          filename: jsonFilename,
+          mimeType: EXPORT_MIME_TYPES.json,
+          content: jsonContent,
+          size: jsonSize,
+          itemCount: exportItems.length,
+          groupCount: exportGroups.length,
+        };
+      }
+
+      const content = buildHtmlExport({ items: exportItems, groups: exportGroups });
+      const filename = buildFilenameWithDate(
+        EXPORT_FILENAME_PREFIXES.html,
+        EXPORT_FILENAME_EXTENSIONS.html,
+      );
+      const groupCount = countNonEmptyGroupsForHtml({ items: exportItems, groups: exportGroups });
+
+      /* Q-10: size reports UTF-8 byte length (what lands on disk), not
+         content.length (UTF-16 code units). Accurate for ASCII-only corpora
+         too, so no regression. Diverges from content.length only for content
+         with non-BMP characters (emoji, etc). */
+      const size = new TextEncoder().encode(content).length;
+
+      return {
+        filename,
+        mimeType: EXPORT_MIME_TYPES.html,
+        content,
+        size,
+        itemCount: exportItems.length,
+        groupCount,
+      };
     }
     default:
       throw new StorageError(ERR_VALIDATION, `Unknown message type: ${String(type)}`);

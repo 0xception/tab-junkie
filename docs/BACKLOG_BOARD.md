@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-18 · **Version:** 2.0 · **Total Items:** 66
+**Updated:** 2026-04-18 · **Version:** 2.0 · **Total Items:** 68
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ████████████░░░░░░░░  62% (41/66)  [0 in progress]
+Overall Progress    █████████████░░░░░░░  66% (45/68)  [0 in progress]
 ```
 
 ### Legend
@@ -74,8 +74,8 @@ Overall Progress    ████████████░░░░░░░░
 ⬜ B-039 — New tab page toggle preference · ⚪ · XS
 ⬜ B-040 — Sub-group auto-collapse preference · ⚪ · XS
 ⬜ B-041 — Sync tab order action (Chrome tab group sync) · 🟡 · L
-⬜ B-042 — Export to HTML (Netscape bookmarks) · 🟠 · M
-⬜ B-043 — Export to JSON backup · 🟠 · M
+✅ B-042 — Export to HTML (Netscape bookmarks) · 🟠 · M
+✅ B-043 — Export to JSON backup · 🟠 · M
 ⬜ B-044 — Import HTML with count preview & flattening · 🟠 · M
 ⬜ B-045 — Import JSON with validation & repair · 🟠 · M
 ⬜ B-046 — Global keyboard shortcuts (popup + standalone) · 🟠 · S
@@ -96,7 +96,10 @@ Overall Progress    ████████████░░░░░░░░
 ✅ B-061 — Dim javascript:/data: rows in Open Tabs (replaces B-056) · ⚪ · XS
 ✅ B-062 — Dark-theme primary-button contrast audit (WCAG AA) · 🟠 · S
 ✅ B-063 — Close open context menu when the side panel loses focus (click-off) · 🟡 · S
-⬜ B-064 — Global `.item-url` tertiary-text contrast audit (WCAG AA) · 🟠 · S
+✅ B-064 — Global `.item-url` tertiary-text contrast audit (WCAG AA) · 🟠 · S
+✅ B-065 — Extract test-duplicated helpers to `shared/*` (tech-debt) · 🟡 · S
+⬜ B-066 — Remaining `--text-tertiary` a11y sweep (drag handle + empty states) · 🟡 · S
+⬜ B-067 — Flip export sanitizers to §32.5 allow-list before B-045 ships · 🟡 · S
 
 ---
 
@@ -113,7 +116,7 @@ Overall Progress    ████████████░░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 41 | 62% |
+| ✅ Done | 45 | 66% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 23 | 35% |
+| ⬜ To Do | 21 | 31% |
 | 🧊 Icebox | 2 | 3% |

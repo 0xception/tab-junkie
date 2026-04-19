@@ -16,6 +16,7 @@ import {
   MSG_BULK_DELETE_ITEMS,
   MSG_BULK_UPDATE_ITEMS,
   MSG_PROMOTE_TAB,
+  MSG_EXPORT_COLLECTION,
 } from '../shared/messages.js';
 
 import {
@@ -33,6 +34,21 @@ import { pruneSelection } from '../shared/selection.js';
    claims, and floating-group reassociation — the same normalization policy
    everywhere. */
 import { safeNormalizeForMatch, isUnsavableScheme } from '../shared/url.js';
+
+/* B-065: ARIA-label builder for item rows — shared with b048 regression
+   tests so production and test exercise the same source of truth. */
+import { buildItemRowAriaLabel } from '../shared/aria-label.js';
+
+/* B-065: pure-logic half of the group picker — row-builder + query
+   normalization. The DOM-mutation half (`_renderGroupPickerRows`,
+   filter row.hidden toggles, highlight, keyboard nav) stays in this
+   file. Shared with the b029 regression tests so production and test
+   exercise the same source of truth. */
+import {
+  buildGroupPickerRows,
+  normalizeGroupPickerQuery,
+  matchesGroupPickerRow,
+} from '../shared/group-picker-core.js';
 
 /* B-014 M-1: compare broadcast scopes against the canonical constant rather
    than bare string literals. Only the WINDOW_MAP branch uses SCOPE for now —
@@ -65,6 +81,10 @@ const errorStateEl = document.getElementById('error-state');
 const itemListEl = document.getElementById('item-list');
 const panelHeaderEl = document.getElementById('panel-header');
 const addBookmarkBtnEl = document.getElementById('add-bookmark-btn');
+/* B-042: export-to-HTML button in header. */
+const exportHtmlBtnEl = document.getElementById('export-html-btn');
+/* B-043: export-to-JSON backup button in header. */
+const exportJsonBtnEl = document.getElementById('export-json-btn');
 const dialogOverlayEl = document.getElementById('dialog-overlay');
 const bookmarkDialogEl = document.getElementById('bookmark-dialog');
 const confirmDialogEl = document.getElementById('confirm-dialog');
@@ -655,71 +675,22 @@ function _resetGroupPicker() {
 }
 
 /**
- * Build the flat row list for the picker. Sort mirrors the existing
- * `_cachedGroups` sort (sortOrder asc); Ungrouped is pinned first.
- *
- * Sub-groups render inline with a "Parent / Child" breadcrumb per AC2.
+ * Build the flat row list for the picker. Thin wrapper over the shared
+ * pure helper in `shared/group-picker-core.js` (extracted in B-065) —
+ * this wrapper exists only to inject the module-level caches
+ * (`_cachedGroups`, `_cachedItems`, `_cachedLiveStates`) that the rest
+ * of the file already maintains.
  *
  * @param {string|null} sourceGroupId group id to exclude (AC5)
- * @returns {Array<{id: string|null, name: string, color: string|null,
- *           breadcrumb: string, savedCount: number, openCount: number,
- *           searchKey: string}>}
+ * @returns {import('../shared/group-picker-core.js').PickerRow[]}
  */
 function _buildGroupPickerRows(sourceGroupId) {
-  const sortedGroups = [..._cachedGroups].sort(
-    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
-  );
-  const groupById = new Map(sortedGroups.map((g) => [g.id, g]));
-
-  /* Single-pass counts per groupId (AC10 — O(n) over items). */
-  const savedByGroup = new Map();
-  const openByGroup = new Map();
-  for (const it of _cachedItems) {
-    const key = it.groupId || '__ungrouped__';
-    savedByGroup.set(key, (savedByGroup.get(key) || 0) + 1);
-    const ls = _cachedLiveStates[it.id];
-    if (ls && ls.live) {
-      openByGroup.set(key, (openByGroup.get(key) || 0) + 1);
-    }
-  }
-
-  const rows = [];
-
-  /* Ungrouped pinned first (AC2). Source exclusion allows '__ungrouped__' as
-     a sentinel — '__ungrouped__' is never a real group id so this is safe. */
-  if (sourceGroupId !== '__ungrouped__') {
-    rows.push({
-      id: null,
-      name: 'Ungrouped',
-      color: null,
-      breadcrumb: '',
-      savedCount: savedByGroup.get('__ungrouped__') || 0,
-      openCount: openByGroup.get('__ungrouped__') || 0,
-      searchKey: 'ungrouped',
-    });
-  }
-
-  for (const g of sortedGroups) {
-    if (g.id === sourceGroupId) continue; /* AC5 */
-    let breadcrumb = '';
-    if (g.parentId) {
-      const parent = groupById.get(g.parentId);
-      if (parent) breadcrumb = parent.name + ' / ' + g.name;
-    }
-    const lowerName = (g.name || '').toLowerCase();
-    const lowerBread = breadcrumb.toLowerCase();
-    rows.push({
-      id: g.id,
-      name: g.name || '',
-      color: g.color || null,
-      breadcrumb,
-      savedCount: savedByGroup.get(g.id) || 0,
-      openCount: openByGroup.get(g.id) || 0,
-      searchKey: breadcrumb ? lowerName + ' ' + lowerBread : lowerName,
-    });
-  }
-
-  return rows;
+  return buildGroupPickerRows({
+    groups: _cachedGroups,
+    items: _cachedItems,
+    liveStates: _cachedLiveStates,
+    sourceGroupId,
+  });
 }
 
 function _renderGroupPickerRows(rows) {
@@ -835,12 +806,15 @@ function _confirmGroupPickerRow(rowEl) {
 }
 
 function _applyGroupPickerFilter() {
-  const query = (groupPickerFilterEl.value || '').trim().toLowerCase();
+  /* B-065: query normalization shared with the b029 regression suite via
+     `shared/group-picker-core.js::normalizeGroupPickerQuery`. The rest of
+     this function remains here because it mutates real DOM (`row.hidden`,
+     highlight classes, aria-activedescendant). */
+  const query = normalizeGroupPickerQuery(groupPickerFilterEl.value);
   const rows = groupPickerListEl.querySelectorAll('.group-picker-row');
   let visibleCount = 0;
   for (const row of rows) {
-    const key = row.dataset.searchKey || '';
-    const match = !query || key.includes(query);
+    const match = matchesGroupPickerRow(row.dataset.searchKey, query);
     row.hidden = !match;
     if (match) visibleCount++;
   }
@@ -1399,6 +1373,118 @@ toastDismissEl.addEventListener('click', () => {
 });
 
 /* =========================================================================
+   Export collection (B-042 — HTML export; B-043 — JSON follows in Wave 4)
+   ========================================================================= */
+
+/**
+ * Turn an in-memory string into a downloaded file via a hidden `<a download>`.
+ * Lives sidepanel-side because the MV3 service worker has no
+ * `URL.createObjectURL`. Revokes the object URL after the click so no blob
+ * references leak (B-042 AC6).
+ *
+ * @param {string} filename
+ * @param {string} mimeType
+ * @param {string} content
+ */
+function _triggerBlobDownload(filename, mimeType, content) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  try {
+    a.click();
+  } finally {
+    document.body.removeChild(a);
+    /* Defer revoke until after the click tail has handed the blob to the
+       browser's download pipeline. queueMicrotask keeps it in the same task
+       while still ordering after the synchronous click handler. */
+    queueMicrotask(() => URL.revokeObjectURL(url));
+  }
+}
+
+/**
+ * Map a StorageError code from the export handler to a user-facing toast
+ * string (Q-8). Unknown codes fall through to a generic retry message.
+ * @param {string} code
+ * @returns {string}
+ */
+function _exportErrorToast(code) {
+  switch (code) {
+    case 'ERR_NOT_READY':
+      return 'Export failed \u2014 extension is still starting, try again in a moment';
+    case 'ERR_SAFE_MODE':
+      return 'Export failed \u2014 read-only mode';
+    case 'ERR_VALIDATION':
+      return 'Export failed \u2014 invalid request';
+    default:
+      return 'Export failed \u2014 try again';
+  }
+}
+
+async function _exportCollectionAsHtml() {
+  try {
+    const data = await sendMessage(MSG_EXPORT_COLLECTION, { format: 'html' });
+    _triggerBlobDownload(data.filename, data.mimeType, data.content);
+    const itemCount = data.itemCount;
+    const groupCount = data.groupCount;
+    /* AC7 — literal copy: "Exported {N} bookmarks across {M} groups". No
+       filename suffix (matched verbatim per Q-H3). Pluralization retained as a
+       UX improvement; the {N}/{M} placeholders in the AC are substituted. */
+    showToast(
+      'Exported ' + itemCount + ' bookmark' + (itemCount === 1 ? '' : 's')
+      + ' across ' + groupCount + ' group' + (groupCount === 1 ? '' : 's'),
+    );
+  } catch (err) {
+    /* Code-only fallback message; titles/URLs are never logged (AC11 privacy). */
+    const code = err && err.code ? String(err.code) : 'ERR_UNKNOWN';
+    console.warn('export failed:', code);
+    showToast(_exportErrorToast(code));
+  }
+}
+
+if (exportHtmlBtnEl) {
+  exportHtmlBtnEl.addEventListener('click', () => {
+    /* M-3: explicitly discard the Promise so an unexpected pre-try throw is
+       not flagged as an unhandled rejection by the linter/runtime. */
+    void _exportCollectionAsHtml();
+  });
+}
+
+/**
+ * B-043 — JSON backup export. Mirrors _exportCollectionAsHtml: dispatch the
+ * message, pipe the result through the shared blob-download helper, surface
+ * a toast on success or via _exportErrorToast on failure.
+ *
+ * The toast copy diverges from the HTML path because B-043 AC10 specifies
+ * a "backup" framing ("Backup exported: <filename>"), while B-042 AC7 uses
+ * item/group counts. The filename carries the date suffix, so the user gets
+ * confirmation of exactly what landed on disk.
+ */
+async function _exportCollectionAsJson() {
+  try {
+    const data = await sendMessage(MSG_EXPORT_COLLECTION, { format: 'json' });
+    _triggerBlobDownload(data.filename, data.mimeType, data.content);
+    /* AC10 literal copy pattern. Filename is system-generated (not user input),
+       safe to concatenate into a text-context toast. */
+    showToast('Backup exported: ' + data.filename);
+  } catch (err) {
+    const code = err && err.code ? String(err.code) : 'ERR_UNKNOWN';
+    /* Code-only warn — titles/URLs are never logged (AC12 privacy). */
+    console.warn('export failed:', code);
+    showToast(_exportErrorToast(code));
+  }
+}
+
+if (exportJsonBtnEl) {
+  exportJsonBtnEl.addEventListener('click', () => {
+    void _exportCollectionAsJson();
+  });
+}
+
+/* =========================================================================
    Clear filter helper (B-049 — shared by × button, Escape, and CTA)
    ========================================================================= */
 
@@ -1478,7 +1564,7 @@ function _setRowSelected(row, selected) {
     if (item) {
       const live = _cachedLiveStates?.[id];
       const drifted = _cachedDriftRecords?.[id];
-      row.setAttribute('aria-label', _buildItemRowAriaLabel(item, live, drifted, selected));
+      row.setAttribute('aria-label', buildItemRowAriaLabel(item, live, drifted, selected));
     }
   } else if (row.dataset.tabId) {
     const tabId = Number(row.dataset.tabId);
@@ -1486,7 +1572,7 @@ function _setRowSelected(row, selected) {
     if (tab) {
       const openTabItem = { title: tab.title || tab.url || 'Untitled tab' };
       const openTabLive = { live: true, active: !!tab.active, audible: !!tab.audible };
-      row.setAttribute('aria-label', _buildItemRowAriaLabel(openTabItem, openTabLive, false, selected));
+      row.setAttribute('aria-label', buildItemRowAriaLabel(openTabItem, openTabLive, false, selected));
     }
   }
 }
@@ -1911,7 +1997,7 @@ function buildGroupSection(group, byGroup, liveStates, driftRecords, isChild) {
 function _createAudibleIcon() {
   const span = document.createElement('span');
   span.className = 'item-audible-icon';
-  /* B-048 AC7: the row-level `aria-label` (built by `_buildItemRowAriaLabel`)
+  /* B-048 AC7: the row-level `aria-label` (built by `buildItemRowAriaLabel`)
      is now authoritative for screen-reader state announcements. Per-icon
      `aria-label` would cause duplicate announcements, so the icon is hidden
      from AT. */
@@ -1943,7 +2029,7 @@ function _createDriftedIcon() {
  *  - `tabindex="-1"` — not a tab-stop; the row's Space/Enter handler
  *    remains the activation path (B-024, Gmail pattern).
  *  - `aria-hidden="true"` — the row-level `aria-label` already announces
- *    ", selected" via `_buildItemRowAriaLabel`, so hiding the child from
+ *    ", selected" via `buildItemRowAriaLabel`, so hiding the child from
  *    AT prevents double-announcement in browse-mode screen readers
  *    (fix M-1, matches the Gmail pattern referenced in §31.5).
  *  - Layout slot is reserved at all times via CSS — hover-reveal never
@@ -1963,34 +2049,9 @@ function _createItemSelect(selected) {
   return span;
 }
 
-/**
- * B-048 §31.6: Build the deterministic screen-reader label for an item row.
- *
- * AC7 concat order is fixed: active → live → drifted → audible → selected.
- * Labels are lowercase; only flags that are true are included. The row's
- * implicit accessible name (the title) is prepended so screen readers
- * announce the row as `"<title>, active tab, live tab, ..."`.
- *
- * @param {Object} item - saved item with `title` (and optional `url`)
- * @param {Object|undefined} live - `liveStates[item.id]` (may be undefined)
- * @param {Object|undefined|null} drifted - `driftRecords[item.id]` (truthy when drifted)
- * @param {boolean} selected - whether the row is currently in `_selection`
- * @returns {string}
- */
-function _buildItemRowAriaLabel(item, live, drifted, selected) {
-  /* M-3: null-item contract owned by the helper — callers no longer need
-     their own guard, and a future call-site that forgets one still gets
-     a well-formed label rather than an error. */
-  if (!item) return 'Untitled';
-  const title = item.title || 'Untitled';
-  const parts = [title];
-  if (live?.active) parts.push('active tab');
-  if (live?.live) parts.push('live tab');
-  if (drifted) parts.push('tab content has changed');
-  if (live?.audible) parts.push('playing audio');
-  if (selected) parts.push('selected');
-  return parts.join(', ');
-}
+/* B-065: `_buildItemRowAriaLabel` extracted to `shared/aria-label.js` and
+   imported as `buildItemRowAriaLabel` near the top of the file. The six
+   call sites below invoke the shared helper directly. */
 
 /* --- Item row ---------------------------------------------------------- */
 
@@ -2122,11 +2183,11 @@ function buildItemRow(item, liveStates, driftRecords) {
   actions.appendChild(deleteBtn);
   row.appendChild(actions);
 
-  /* B-048 AC7: deterministic screen-reader label per `_buildItemRowAriaLabel`
+  /* B-048 AC7: deterministic screen-reader label per `buildItemRowAriaLabel`
      contract. Q-M4: use the computed `isSelected` above so a rebuild for
      an already-selected item emits the correct ", selected" suffix on
      first paint without waiting for `_reapplySelection`. */
-  row.setAttribute('aria-label', _buildItemRowAriaLabel(item, live, drifted, isSelected));
+  row.setAttribute('aria-label', buildItemRowAriaLabel(item, live, drifted, isSelected));
 
   return row;
 }
@@ -2292,7 +2353,7 @@ function buildOpenTabRow(tab /* , { multiWindow } */) {
      selection state at first paint, consistent with `aria-checked`. */
   const openTabItem = { title: tab.title || tab.url || 'Untitled tab' };
   const openTabLive = { live: true, active: !!tab.active, audible: !!tab.audible };
-  row.setAttribute('aria-label', _buildItemRowAriaLabel(openTabItem, openTabLive, false, isSelected));
+  row.setAttribute('aria-label', buildItemRowAriaLabel(openTabItem, openTabLive, false, isSelected));
 
   return row;
 }
@@ -2511,7 +2572,7 @@ function _patchOpenTabRow(row, tab /* , { multiWindow } */) {
   const isSelected = _selection.has('tab:' + tab.tabId);
   const openTabItem = { title: tab.title || tab.url || 'Untitled tab' };
   const openTabLive = { live: true, active: !!tab.active, audible: !!tab.audible };
-  row.setAttribute('aria-label', _buildItemRowAriaLabel(openTabItem, openTabLive, false, isSelected));
+  row.setAttribute('aria-label', buildItemRowAriaLabel(openTabItem, openTabLive, false, isSelected));
 }
 
 /* =========================================================================
@@ -2622,7 +2683,7 @@ async function refetchAndPatchLiveState() {
       const isSelected = _selection.has('item:' + id);
       row.setAttribute(
         'aria-label',
-        _buildItemRowAriaLabel(itemForLabel, live, drifted, isSelected)
+        buildItemRowAriaLabel(itemForLabel, live, drifted, isSelected)
       );
     }
 
