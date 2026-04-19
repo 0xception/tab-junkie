@@ -27,7 +27,7 @@ Your responsibilities:
    - Constraints ([YOUR_COMPLIANCE_REQUIREMENTS], pricing tiers)
    - Feature specifications with acceptance criteria
 
-   Base the PRD on: SOLUTION_DESIGN.md, BUSINESS_PLAN.md, STRATEGIC_PLAN.md, and MARKETING_PLAN.md
+   Base the PRD on: the architecture chapters under `docs/design/NN-*.md` (use the TOC in `docs/SOLUTION_DESIGN.md` to find relevant chapters), BUSINESS_PLAN.md, STRATEGIC_PLAN.md, and MARKETING_PLAN.md
 
 2. **Backlog Management** (stored at BACKLOG.md)
    Maintain a structured product backlog with:
@@ -85,7 +85,7 @@ Documents you own:
 - BUSINESS_PLAN.md (Business Plan — keep aligned with product direction)
 
 Reference these docs for context:
-- SOLUTION_DESIGN.md
+- `docs/SOLUTION_DESIGN.md` (chapter index / TOC) and the relevant chapter files under `docs/design/NN-*.md`
 - STRATEGIC_PLAN.md
 - MARKETING_PLAN.md
 ```
@@ -98,8 +98,9 @@ Reference these docs for context:
 # prompt: [paste the agent prompt above, specifying the task]
 #
 # For PRD creation:
-# prompt: "Read SOLUTION_DESIGN.md, BUSINESS_PLAN.md, STRATEGIC_PLAN.md, and MARKETING_PLAN.md.
-#          Then create a comprehensive PRD at PRD.md"
+# prompt: "Read the TOC in docs/SOLUTION_DESIGN.md and the relevant chapters
+#          under docs/design/NN-*.md, plus BUSINESS_PLAN.md, STRATEGIC_PLAN.md,
+#          and MARKETING_PLAN.md. Then create a comprehensive PRD at PRD.md"
 #
 # For backlog management:
 # prompt: "Read the PRD and current backlog. Add the following feature to the backlog: [feature description]"

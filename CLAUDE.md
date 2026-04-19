@@ -54,7 +54,7 @@ This project uses a pruned subset of the full SDLC agent framework. Dropped agen
 |---|-------|-------|-------------|-------------|
 | 1 | [scrum-master] | All | No | `docs/SPRINT.md` |
 | 2 | [product-manager] | R1 | No | `docs/PRD.md`, `docs/BACKLOG.md`, `docs/BACKLOG_BOARD.md` |
-| 3 | [solution-architect] | R2 + R6 | No | `docs/SOLUTION_DESIGN.md` |
+| 3 | [solution-architect] | R2 + R6 | No | `docs/SOLUTION_DESIGN.md` (index) + `docs/design/NN-*.md` (per-chapter slices) |
 | 4 | [frontend-engineer] | R3 | Yes | `sidepanel/`, `newtab/`, `popup/`, `components/`, `shared/`, `background/`, `manifest.json` |
 | 5 | [code-reviewer] | R4 | No | (reports findings) |
 | 6 | [security-reviewer] | R4 | No | (reports findings) |
@@ -104,7 +104,7 @@ ROUND 2 — ARCHITECTURE  ➡️ [solution-architect]
 ROUND 3 — BUILD          ➡️ [frontend-engineer]
 ROUND 4 — REVIEW         🔀 [code-reviewer] + [security-reviewer] + [qa-reviewer] (PARALLEL)
 ROUND 5 — TESTING        ➡️ [test-engineer] writes tests + performs UAT
-ROUND 6 — CLOSE          ➡️ [solution-architect] updates SOLUTION_DESIGN.md
+ROUND 6 — CLOSE          ➡️ [solution-architect] updates the relevant docs/design/NN-*.md chapter (or adds a new chapter if the item merits one)
 ROUND 7 — POST-CLOSE     ➡️ [technical-writer] (optional, for user-visible changes)
 ```
 
@@ -193,7 +193,7 @@ The [scrum-master] verifies before closing:
 - ✅ All R5 automated tests passing
 - ✅ UAT sign-off recorded by [test-engineer] for every item
 - ✅ No open blockers in `SPRINT.md`
-- ✅ `docs/SOLUTION_DESIGN.md` updated by [solution-architect]
+- ✅ Relevant `docs/design/NN-*.md` chapter updated (or new chapter added) by [solution-architect]. Root `docs/SOLUTION_DESIGN.md` index TOC extended if a new chapter was added.
 - ✅ `manifest.json` permissions reviewed — no unnecessary additions
 - ✅ `./build.sh` produces a clean package with no errors
 - ✅ Rollback plan documented for any storage schema changes
@@ -288,7 +288,7 @@ A sprint item is "done" ONLY when ALL of these are true:
 7. ☐ `SPRINT.md` updated with files changed and handoff notes
 8. ☐ `BACKLOG.md` item status set to `done`
 9. ☐ `BACKLOG_BOARD.md` item marked ✅ and progress dashboard updated
-10. ☐ [solution-architect] updated `SOLUTION_DESIGN.md` (R6)
+10. ☐ [solution-architect] updated the relevant `docs/design/NN-*.md` chapter (or added a new chapter) (R6); root index TOC extended if a new chapter was added
 11. ☐ Any new `manifest.json` permissions explicitly justified
 12. ☐ Rollback plan documented for any storage schema migration
 13. ☐ README/user manual updated by [technical-writer] (if user-facing feature)
@@ -318,7 +318,7 @@ A sprint item is "ready for build" ONLY when ALL of these are true:
 - Integrate any user-facing copy decisions into the story.
 
 ### Round 2: Architecture
-- [solution-architect]: Evaluate feature against existing architecture in `docs/SOLUTION_DESIGN.md`.
+- [solution-architect]: Evaluate feature against the existing architecture — read the chapter(s) relevant to the item under `docs/design/NN-*.md` (full chapter list is in the root index `docs/SOLUTION_DESIGN.md`). Do NOT read the root index as a substitute for the chapter content.
 - Produce: storage schema changes, message contracts, event flow, component structure, drift-detection impact.
 - **R2 Correctness Checklist:**
 
@@ -348,7 +348,7 @@ A sprint item is "ready for build" ONLY when ALL of these are true:
 - All automated tests must pass AND UAT must be PASS before marking the sprint item as done.
 
 ### Round 6: Close
-- [solution-architect]: Update `docs/SOLUTION_DESIGN.md` with what was actually built.
+- [solution-architect]: Update the relevant chapter under `docs/design/NN-*.md` with what was actually built (or add a new `NN-slug.md` chapter if the item merits one and extend the root `docs/SOLUTION_DESIGN.md` index TOC).
 - Document: deviations from R2 plan, new storage schemas, new message types, new manifest permissions, rollback plans.
 
 ### Round 7: Post-Close (Optional)
@@ -361,11 +361,11 @@ A sprint item is "ready for build" ONLY when ALL of these are true:
 |----------|-------|---------|
 | `docs/SPRINT.md` | [scrum-master] | Living sprint board — active items, current sprint only |
 | `docs/SPRINT_ARCHIVE.md` | [scrum-master] | Historical completed items — all closed sprints |
-| `docs/SPRINT_FINDINGS.md` | [scrum-master] | Deduplicated R4 findings log |
+| `docs/SPRINT_FINDINGS.md` | [scrum-master] | **Sprint index (~1 KB)** — deduplicated R4 findings live in per-sprint slices under `docs/findings/sprint-NN.md`. Agents read the slice(s) relevant to their sprint, not the index. |
 | `docs/BACKLOG.md` | [product-manager] | All user stories, priorities, sprint assignments |
 | `docs/BACKLOG_BOARD.md` | [product-manager] | Progress dashboard and status summary |
 | `docs/PRD.md` | [product-manager] | Product requirements, personas, features |
-| `docs/SOLUTION_DESIGN.md` | [solution-architect] | Storage schema, message contracts, component structure |
+| `docs/SOLUTION_DESIGN.md` | [solution-architect] | **Chapter index (~5 KB)** — architecture chapters live as per-chapter slices under `docs/design/NN-slug.md` (§1–§32, §10.5–§10.10). Agents read the chapter(s) relevant to their item, not the index. For R6 close updates, edit the specific chapter file or add a new `NN-*.md` chapter. |
 | `docs/user-manual/` | [technical-writer] | User manual — how-to guides for all features |
 | `docs/RELEASES.md` | [release-manager] | Local reference copy of release notes |
 | `README.md` | [technical-writer] | Public-facing project overview |
@@ -429,7 +429,7 @@ Agents MUST read relevant documents before producing output. Every agent's work 
   - **SEV1** — Data loss (bookmarks lost or corrupted): halt all sprint work
   - **SEV2** — Major feature broken (search, drift detection, persistence): fix before resuming sprint work
   - **SEV3** — Minor degradation: log and schedule for next sprint
-- After SEV1/SEV2: [solution-architect] writes a post-mortem in `docs/SOLUTION_DESIGN.md`.
+- After SEV1/SEV2: [solution-architect] writes a post-mortem as a new entry in `docs/design/13-incident-log.md`.
 
 ## Sprint Item Status Flow
 
@@ -497,7 +497,7 @@ At the start of every session:
 
 ## R4 Findings Persistence
 
-After R4 reviewers complete, save deduplicated findings to `docs/SPRINT_FINDINGS.md`:
+After R4 reviewers complete, save deduplicated findings to `docs/findings/sprint-NN.md` (zero-pad single-digit N). If the slice doesn't exist yet, create it AND add a new TOC entry to the root index `docs/SPRINT_FINDINGS.md`:
 
 ```markdown
 # Sprint N — R4 Findings (Deduplicated)

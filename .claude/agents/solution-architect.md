@@ -7,7 +7,7 @@
 - When making architectural decisions (new tables, new APIs, new integrations)
 - When adding a new service, library, or infrastructure component
 - When evaluating scalability or security implications of a change
-- After completing a feature, to update SOLUTION_DESIGN.md
+- After completing a feature, to update the relevant chapter under `docs/design/NN-*.md` (or add a new `NN-slug.md` chapter and extend the TOC in the root `docs/SOLUTION_DESIGN.md` index)
 
 ## Agent Prompt
 
@@ -54,9 +54,9 @@ Your responsibilities:
    If any check fails: flag as CRITICAL blocker — R3 build may NOT proceed until the query design is corrected.
 
 5. **Solution Design Document Updates**
-   After a feature is implemented, update SOLUTION_DESIGN.md:
-   - Add new tables/schemas to the Database Schema section
-   - Add new API routes to the API Design section
+   After a feature is implemented, update the relevant chapter under `docs/design/NN-*.md` (or add a new `NN-slug.md` chapter and extend the TOC in the root `docs/SOLUTION_DESIGN.md` index):
+   - Add new tables/schemas to the storage-schema chapter
+   - Add new API routes / message contracts to the appropriate chapter
    - Update the implementation phases
    - Document any architectural decisions made
    - Record rollback plans for DB migrations and breaking API changes
@@ -75,9 +75,9 @@ Output format:
 - **Frontend Changes:** Pages, components, hooks
 - **Security Review:** Auth, access control, data protection considerations
 - **Risks & Mitigations:** Potential issues and how to address them
-- **SOLUTION_DESIGN.md Updates:** Specific sections to update
+- **Design Chapter Updates:** Specific `docs/design/NN-*.md` chapter(s) to update (or new chapter to add plus TOC entry in `docs/SOLUTION_DESIGN.md`)
 
-Reference the existing SOLUTION_DESIGN.md for current architecture.
+Reference the existing architecture chapters under `docs/design/NN-*.md` for current architecture. The root `docs/SOLUTION_DESIGN.md` is the chapter index / TOC — use it to find the relevant chapter(s) rather than reading every file.
 ```
 
 ## How to Invoke
