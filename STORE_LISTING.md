@@ -16,10 +16,12 @@ KEY FEATURES
 • Multi-window mode — Multiple instances stay synchronized across browser windows; window badges (W1, W2, …) mark tabs from other windows, and a filter row lets you narrow the panel to a single window at a time
 • Drag-and-drop — Reorder bookmarks, move between groups, nest sub-groups
 • Multi-select — Shift+click, Ctrl+click, Ctrl+A for bulk move, close, or remove
-• Right-click menu — Context menu on any bookmark for quick edit, move, close tab, and delete actions; right-click a multi-selection to act on all selected items at once; right-click a group header to open all, close all tabs, select all/open/bookmarked, edit, or delete the group
+• Right-click menu — Context menu on any bookmark for quick edit, move, close tab, and delete actions; right-click a multi-selection to act on all selected items at once; right-click a group header to open all, close all tabs, select all/open/bookmarked, move items out of the group, edit, or delete the group. Menus close automatically when you click outside the side panel
+• Group picker — Move items between groups with a keyboard-friendly picker that shows every group with its color, saved-item count, and open-tab count, plus a filter box to find a group by name instantly
 • Open Tabs section — Live view of every browser tab not yet saved or grouped; click to focus, right-click to save or close; updates in real time. Tabs with unsavable URLs (javascript:, data:) appear dimmed
 • Broad URL support — Save chrome://, edge://, chrome-extension://, about:, and view-source: URLs as well as http/https. Duplicate URLs are allowed with a quick confirmation prompt
 • Clear feedback — Empty-state messages with CTAs and dismissible error notifications for failed operations
+• Accessible by design — Row states (live, active, drifted, audible, selected) are distinguishable without relying on color alone, meet WCAG AA contrast in both light and dark themes, and announce a consistent label to screen readers
 • Quick search (Alt+J) — Fuzzy search across all bookmarks and tabs from a popup
 • Group search and drill-in — Browse groups and view their contents inline from the popup
 • Quick jump to group (Alt+K) — Jump directly to any group from anywhere

@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-18 · **Version:** 2.0 · **Total Items:** 65
+**Updated:** 2026-04-18 · **Version:** 2.0 · **Total Items:** 66
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ████████████░░░░░░░░  57% (37/65)  [0 in progress]
+Overall Progress    ████████████░░░░░░░░  62% (41/66)  [0 in progress]
 ```
 
 ### Legend
@@ -61,7 +61,7 @@ Overall Progress    ████████████░░░░░░░░
 ✅ B-026 — Item context menu · 🟠 · S
 ✅ B-027 — Group header context menu · 🟠 · S
 ✅ B-028 — Selection context menu · 🟠 · S
-⬜ B-029 — Group picker modal · 🟠 · M
+✅ B-029 — Group picker modal · 🟠 · M
 ⬜ B-030 — Item drag-reorder within / between groups · 🟠 · L
 ⬜ B-031 — Group drag-reorder & nesting via drag · 🟠 · M
 ⬜ B-032 — Auto-scroll during drag · 🟡 · S
@@ -80,7 +80,7 @@ Overall Progress    ████████████░░░░░░░░
 ⬜ B-045 — Import JSON with validation & repair · 🟠 · M
 ⬜ B-046 — Global keyboard shortcuts (popup + standalone) · 🟠 · S
 ✅ B-047 — In-panel keyboard shortcuts (select-all, clear) · 🟠 · XS
-⬜ B-048 — Item visual states (live / active / drifted / audible / selected) · 🟠 · M
+✅ B-048 — Item visual states (live / active / drifted / audible / selected) · 🟠 · M
 ✅ B-049 — Empty states & error feedback · 🟠 · S
 ✅ B-050 — State broadcast to all extension surfaces · 🔴 · M
 ✅ B-051 — Sort-order normalisation & selection pruning · 🟠 · S
@@ -94,8 +94,9 @@ Overall Progress    ████████████░░░░░░░░
 ✅ B-059 — Allow duplicate URLs with soft-warn UI · 🟡 · M
 ⬜ B-060 — Import duplicate-handling with skip/allow override · 🟡 · S
 ✅ B-061 — Dim javascript:/data: rows in Open Tabs (replaces B-056) · ⚪ · XS
-⬜ B-062 — Dark-theme primary-button contrast audit (WCAG AA) · 🟠 · S
-⬜ B-063 — Close open context menu when the side panel loses focus (click-off) · 🟡 · S
+✅ B-062 — Dark-theme primary-button contrast audit (WCAG AA) · 🟠 · S
+✅ B-063 — Close open context menu when the side panel loses focus (click-off) · 🟡 · S
+⬜ B-064 — Global `.item-url` tertiary-text contrast audit (WCAG AA) · 🟠 · S
 
 ---
 
@@ -112,7 +113,7 @@ Overall Progress    ████████████░░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 37 | 57% |
+| ✅ Done | 41 | 62% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 26 | 40% |
+| ⬜ To Do | 23 | 35% |
 | 🧊 Icebox | 2 | 3% |

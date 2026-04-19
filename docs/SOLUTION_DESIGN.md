@@ -4590,3 +4590,733 @@ For future readers auditing the R2→R3 delta, the following landed verbatim as 
 - Single-tab dialog copy "URL already saved" / "Save anyway" (§29.4.2 Variant 1).
 - Bulk-promote two-button dialog "Save all N" / "Cancel" with "Skip duplicates" explicitly deferred (§29.4.2 Variant 2, §29.6.3, §29.9).
 - No storage schema change; no manifest change; no message-contract change (§29.10, §29.11).
+
+---
+
+## 30. B-029 — Group Picker Modal (R2 Design)
+
+### 30.1 Overview
+
+B-029 replaces four disparate "choose a group" surfaces with a single modal primitive. Today the side-panel has three native `<select>` pickers (bulk action bar `#bulk-move-picker` L2944, selection context-menu `moveSelect` L3264, Open-Tabs context-menu `saveSelect` L3366) plus a still-missing bulk "Move items out of group" action on the B-027 group-header menu. Each caller reimplements the same "sort `_cachedGroups`, prepend Ungrouped, build `<option>` rows, wire `change`" sequence. Four copies of the same logic drift (e.g. the bulk-action `<select>` shows no item counts; the Open-Tabs one has no search; none of them are keyboard-friendly with >20 groups).
+
+Unifying on one `openGroupPickerDialog({ sourceGroupId, onSelect, triggerEl, mode })` call gives us: (1) a single place to enforce ARIA listbox semantics, (2) a single filter/search implementation that AC3 can performance-budget, (3) a single focus-trap that honors the existing B-024 Escape-to-clear-selection guard, and (4) a single rendering path that includes saved-count + open-count + breadcrumb on every row. The B-027 "Move items out of group" action ships in the same item because it is the most natural consumer of the picker (it already has the group context and the item set) and because adding it separately would require building and then discarding a fourth ad-hoc `<select>`.
+
+Scope is strictly UI-surface consolidation. No storage schema, no message contracts, no manifest permissions change (see §30.10).
+
+### 30.2 Data-Layer Changes
+
+**None.**
+
+Groups are already populated at boot via `MSG_LIST_GROUPS` (`sidepanel.js` L591, L1888, L2540, L2560, L2623, L3727) and cached in the module-scope `_cachedGroups` (L135, assignment L1135). The cache stays fresh via `MSG_STATE_CHANGED` broadcasts — callers at L2955, L3045, L3273, L3375 already read it synchronously with zero IPC. Item counts per group derive from the equally-resident `_cachedItems` array; open-tab counts derive from `_cachedLiveStates` (tabId-valued when `live: true`). `_cachedOpenTabsById` supplies Open-Tabs row context for B-059's duplicate check callback.
+
+No new `MSG_*` constant. No new storage partition. No manifest change. The picker is a pure view component over already-cached state.
+
+### 30.3 Modal Primitive Decision
+
+**Decision: introduce a new `openGroupPickerDialog(...)` primitive (not an extension of `openConfirmDialog`).**
+
+#### 30.3.1 The two candidates
+
+**Candidate A — extend `openConfirmDialog`.** Add a fifth option bag field (e.g. `listBody: { items, onSelect, filterPlaceholder }`) that, when present, swaps the `<p id="confirm-body">` for a list + filter input and hides the two action buttons. Reuses the existing `dialog-overlay` + focus-trap + Escape plumbing.
+
+**Candidate B — new `openGroupPickerDialog(...)` primitive.** A dedicated function that reuses the shared `#dialog-overlay` wrapper and the existing `_activateFocusTrap` / `_dialogTriggerEl` helpers, but owns its own `<div id="group-picker-dialog">` node with its own markup, keyboard handling, and close path.
+
+#### 30.3.2 Why B wins
+
+1. **`openConfirmDialog` is already leaky.** §29.4.4 extended it once for B-059 with `confirmLabel` + `variant`. Those are mild extensions of the same 2-button confirm pattern. A list-body + filter input + listbox keyboard nav is a different interaction model — Enter means "pick the highlighted row", not "fire the default button"; Escape cancels without confirming; Tab must cycle input↔list, not cycle action buttons. Forcing those semantics through a `confirmLabel`-shaped API produces either (a) a function with two mutually exclusive modes (confirm vs list) gated by which options are set, or (b) feature flags on the options object. Both are tomorrow's refactor tickets.
+2. **Listbox ARIA conflicts with `role="alertdialog"`.** `#confirm-dialog` currently declares `role="alertdialog"` (L135 of `sidepanel.html`). Alert dialogs are a W3C-specified subtype for urgent messages; a listbox picker is `role="dialog"`. Mixing them is an accessibility regression.
+3. **Future reuse.** B-037 (theme picker) and B-023 (group-jump) are plausible second consumers of a general single-select list picker. If we build the primitive right, those items become XS/S tier. If we stretch `openConfirmDialog`, every future picker replays this debate.
+4. **Cost is low.** The primitive is ~150 lines: HTML skeleton reused from `#dialog-overlay`, focus-trap reused from `_activateFocusTrap`, Escape routing reused from the existing document-level handler (L2377 already has a `!dialogOverlayEl.hidden` check that we ride on).
+
+**Tradeoffs accepted.** More CSS surface area (new `.group-picker-*` namespace). More test surface (new file `tests/b029-group-picker.test.js`). Both are priced into the M-tier effort.
+
+### 30.4 Call-Site Integration Matrix
+
+The picker API is:
+
+```js
+openGroupPickerDialog({
+  mode,              // 'move' | 'save'  — drives heading text
+  sourceGroupId,     // string|null      — excluded from list (AC5)
+  triggerEl,         // HTMLElement|null — focus-restore target
+  onSelect,          // (groupId: string|null) => void
+});
+```
+
+`onSelect` receives `null` for the "Ungrouped" row and the group's ULID string otherwise. `onSelect` is the only resolution channel; there is no separate `onCancel` — Escape and outside-click simply close without invoking `onSelect`.
+
+| # | Caller (file:line) | Trigger fn | `mode` | `sourceGroupId` | `triggerEl` | `onSelect(groupId)` dispatches |
+|---|--------------------|------------|--------|-----------------|-------------|--------------------------------|
+| 1 | Bulk action bar `bulkMoveBtn.click` (`sidepanel.js` L2934) | `_bulkMoveToGroup(groupId)` | `'move'` (pure itemIds) / `'save'` (pure tabIds) | `null` (selection spans groups) | `bulkMoveBtn` | `_bulkMoveToGroup(groupId)` (existing L2817 — already handles bulk-itemIds via `MSG_BULK_UPDATE_ITEMS`, bulk-tabIds via `MSG_PROMOTE_TAB` per-tab with B-059 aggregate confirm) |
+| 2 | Group-header menu — NEW "Move items out of group" (`_openGroupContextMenu` L3038) | inline handler: set selection to all items in `group`, then `openGroupPickerDialog` | `'move'` | the source `groupId` (AC5 hides it) | `header` | inline: `sendMessage(MSG_BULK_UPDATE_ITEMS, { ids: groupItemIds, patch: { groupId } })`, then `showToast` on reject, then `_clearSelection()` is a no-op (we never entered selection mode for this path) |
+| 3 | Selection context menu (`_openSelectionContextMenu` L3238) | replace the inline `<select>` block L3257-3287 | `'save'` when `onlyTabs`, else `'move'` | `null` | `row` | `_bulkMoveToGroup(groupId)` (same dispatcher as #1) |
+| 4 | Open-Tabs context menu (`_openOpenTabContextMenu` L3352) | replace the inline `<select>` block L3360-3434 | `'save'` | `null` (open tab has no current group) | `row` | B-059 handoff: `_findDuplicateSavedItem(tab.url)` → if hit, `openConfirmDialog(..., variant: 'primary', confirmLabel: 'Save anyway')` with `dispatchSave` as the callback; else `sendMessage(MSG_PROMOTE_TAB, { tabId, groupId })` directly |
+
+#### 30.4.1 Context-menu close sequence (callers 2, 3, 4)
+
+All three context-menu callers MUST close the context menu **synchronously** before invoking `openGroupPickerDialog`. Order of operations inside the menu-item click handler:
+
+```
+1. closeContextMenu();          // existing helper, L3013
+2. openGroupPickerDialog({...}); // opens on the same microtask
+```
+
+Rationale: `closeContextMenu()` hides `#context-menu` and clears its children. If the picker opens first, the menu remains visible beneath the modal overlay until the user tabs into it (the overlay's semi-transparent backdrop does not hide the menu for screen readers). Closing first gives a clean focus transition from `row`/`header` → picker input, with `_dialogTriggerEl` pointing at the row for restore on Escape.
+
+#### 30.4.2 B-059 Save-to-Group Handoff Contract (caller 4)
+
+Picker is unaware of duplicates. Sequence:
+
+```
+1. User right-clicks Open-Tabs row → _openOpenTabContextMenu opens menu.
+2. User clicks "Save to group"    → closeContextMenu(); openGroupPickerDialog({ mode: 'save', sourceGroupId: null, triggerEl: row, onSelect: handleSave });
+3. User selects a group in picker → onSelect(groupId) fires; picker closes; focus returns to row.
+4. handleSave(groupId):
+     a. tab = _cachedOpenTabsById.get(tabId);
+     b. existing = _findDuplicateSavedItem(tab.url || '');
+     c. if (!existing) { sendMessage(MSG_PROMOTE_TAB, { tabId, groupId }) … }
+     d. else openConfirmDialog({ title: tab.title }, dispatchSave, { heading, body, confirmLabel: 'Save anyway', variant: 'primary', triggerEl: row });
+5. If the B-059 confirm opens, focus moves to its Cancel button; Escape from the confirm returns focus to row.
+```
+
+**Invariants** (enforced by tests):
+- The picker's `onSelect` fully returns and the picker's DOM is removed before `openConfirmDialog` is invoked. No overlap between the two modals.
+- `_findDuplicateSavedItem` is called exactly once per caller-4 path (in `handleSave`, not in the picker).
+- Picker never reaches into `_cachedItems` — it only reads `_cachedGroups`, `_cachedItems` (for counts only), and `_cachedLiveStates` (for open counts only).
+
+#### 30.4.3 B-027 new menu-item detail
+
+**Insertion point in `_openGroupContextMenu` (`sidepanel.js` L3038-3222):**
+
+The new action inserts as item **#5.5** — after the three Select actions (Select all L3111 / Select open L3128 / Select bookmarked L3146) and **before** `sep2` at L3166 (the separator before Edit/Delete). Menu order becomes:
+
+```
+1. Open all bookmarks            L3059
+2. Close all open tabs           L3074    (destructive, disabled when openCount === 0)
+-- sep1                          L3106
+3. Select all                    L3111
+4. Select open                   L3128
+5. Select bookmarked             L3146
+*** NEW: 6. Move items out of group ***
+-- sep2 (was L3166)
+7. Edit group                    L3171
+8. Delete group                  L3183    (destructive)
+```
+
+**Label:** `"Move items out of group"` (matches the AC1 text exactly — product-manager-confirmed).
+
+**Destructive?** **No.** Move is not data loss — it's just a group reassignment. No red styling, no `context-menu-item--destructive` class. Keeps destructive-visual discipline tight (only Close-all and Delete are red).
+
+**Disabled state:** The button's `disabled` property is set to `true` when `groupItems.length === 0`. Without disable, clicking opens an empty picker (no-op), which is worse UX than not offering the action at all. Exact construction:
+
+```js
+const moveOutBtn = document.createElement('button');
+moveOutBtn.className = 'context-menu-item';
+moveOutBtn.setAttribute('role', 'menuitem');
+moveOutBtn.setAttribute('tabindex', '-1');
+moveOutBtn.textContent = 'Move items out of group';
+moveOutBtn.disabled = groupItems.length === 0;
+moveOutBtn.addEventListener('click', () => {
+  closeContextMenu();
+  if (groupItems.length === 0) return; // defensive
+  const itemIds = groupItems.map((it) => it.id);
+  openGroupPickerDialog({
+    mode: 'move',
+    sourceGroupId: groupId,  // AC5: hide the source group
+    triggerEl: header,
+    onSelect: (targetGroupId) => {
+      sendMessage(MSG_BULK_UPDATE_ITEMS, { ids: itemIds, patch: { groupId: targetGroupId } })
+        .catch(() => showToast('Couldn\u2019t move bookmarks \u2014 try again'));
+    },
+  });
+});
+contextMenuEl.appendChild(moveOutBtn);
+```
+
+Note: this path does not go through `_bulkMoveToGroup` because it does not use `_selection` — we bulk-move the group's full item set directly. Using `_bulkMoveToGroup` would require mutating `_selection`, which is a side effect this action does not want.
+
+### 30.5 Modal Markup + Class Convention
+
+**Grep audit before naming** (per Sprint 15 retro action item):
+
+| Class/ID proposed | Exists in `sidepanel.html`? | Exists in `sidepanel.css`? |
+|-------------------|----------------------------|----------------------------|
+| `#group-picker-dialog` | No (verified — only `#bookmark-dialog`, `#confirm-dialog`, `#group-dialog`) | No |
+| `.group-picker-filter` | No | No |
+| `.group-picker-list` | No | No |
+| `.group-picker-row` | No | No |
+| `.group-picker-row--highlighted` | No | No |
+| `.group-picker-row-chip` | No | No |
+| `.group-picker-row-name` | No | No |
+| `.group-picker-row-breadcrumb` | No | No |
+| `.group-picker-row-counts` | No | No |
+| `.group-picker-empty` | No | No |
+| `.group-picker-heading` | No | No |
+
+All names are new. Namespace is `.group-picker-*` — deliberately NOT folded into `.dialog-*` so (a) grep-by-feature keeps working, (b) the picker's listbox styles can't leak into the confirm/edit dialogs, and (c) a future deprecation of the picker can delete all `.group-picker-*` selectors cleanly.
+
+**HTML skeleton** (inserted as a sibling of `#group-dialog` inside `#dialog-overlay`, `sidepanel.html` L167 area, hidden by default):
+
+```html
+<div id="group-picker-dialog" class="dialog-modal" role="dialog"
+     aria-modal="true" aria-labelledby="group-picker-heading" hidden>
+  <h2 id="group-picker-heading" class="dialog-title group-picker-heading">Move to group</h2>
+  <input id="group-picker-filter" class="dialog-input group-picker-filter"
+         type="search" placeholder="Filter groups..."
+         aria-label="Filter groups" autocomplete="off" spellcheck="false" />
+  <div id="group-picker-list" class="group-picker-list"
+       role="listbox" aria-label="Groups" tabindex="-1"></div>
+  <div id="group-picker-empty" class="group-picker-empty" hidden>
+    <p>No groups yet — create a group first.</p>
+    <button type="button" class="dialog-btn dialog-btn--primary">Create group</button>
+  </div>
+</div>
+```
+
+Row template (built at open time, not in HTML):
+
+```html
+<div class="group-picker-row" role="option"
+     data-group-id="<id or empty for Ungrouped>"
+     tabindex="-1" aria-selected="false">
+  <span class="group-picker-row-chip" style="background-color: <color>"></span>
+  <span class="group-picker-row-name"></span>   <!-- textContent only -->
+  <span class="group-picker-row-breadcrumb"></span>   <!-- hidden for top-level groups -->
+  <span class="group-picker-row-counts">12 saved, 3 open</span>
+</div>
+```
+
+**Reused classes** (verified against `sidepanel.css`): `.dialog-modal` (L598), `.dialog-title` (L611), `.dialog-input` (L642), `.dialog-btn` (L701), `.dialog-btn--primary` (L710). Reusing these keeps typography and button styling consistent with existing modals.
+
+### 30.6 Keyboard Nav + Focus Trap
+
+**Open sequence:**
+1. `_activateFocusTrap(groupPickerDialogEl)` — reuses the existing inert-siblings helper at L328.
+2. Focus the filter input (`.group-picker-filter`).
+3. Row #0 gets `aria-selected="true"` and `.group-picker-row--highlighted`; no DOM focus (focus stays in the input). Highlight is a visual pseudo-focus state, not DOM focus — lets the user keep typing while arrow-navigating.
+
+**Key handler** (attached to the dialog root, not the input, so it catches events regardless of which of {input, list, row} has DOM focus):
+
+| Key | Behavior |
+|-----|----------|
+| `ArrowDown` | Advance highlight one row (wrap to first after last); `preventDefault` so the input cursor doesn't move |
+| `ArrowUp` | Reverse highlight (wrap to last before first); `preventDefault` |
+| `Enter` | Invoke `onSelect(highlightedGroupId)`; `closeGroupPickerDialog()`; `preventDefault` |
+| `Escape` | `closeGroupPickerDialog()` without invoking `onSelect`; `preventDefault`; `stopPropagation` (so the global L2377 handler doesn't also fire, though it's idempotent here — stopPropagation is defense-in-depth) |
+| `Tab` | If focus is on filter input and Shift held: focus `.group-picker-list`. If focus is on list: focus filter input. Else default. This creates a 2-stop focus cycle that matches AC4 "cycles focus between the search input and the list". |
+| Any printable key | If focus is not on the filter input, forward to filter input (focus it, let the keystroke fall through via `requestAnimationFrame` to avoid double-entry). Matches AC4 "typing while the list is focused forwards the keystroke to the search input". |
+
+**Click on a row:** `onSelect(row.dataset.groupId || null)` → close.
+
+**Outside click:** close without `onSelect` (same as Escape).
+
+#### 30.6.1 Interplay with B-024 Escape-to-clear-selection
+
+The document-level `keydown` handler at `sidepanel.js` L2375-2398 has this order:
+1. L2377: if dialog open, close dialog and `return` — we ride on this.
+2. L2384: else if selectionMode, clear selection and `return`.
+
+When `#dialog-overlay` is visible (our picker opens with `dialogOverlayEl.hidden = false`), branch 1 fires and branches 2+ never run. No code change needed to L2375 as long as the picker lives inside `#dialog-overlay`. **R3 must verify** that `closeDialog()` at L2379 also closes the picker — the existing `closeDialog` handles the full overlay dismiss, so we wire the picker's close-on-Escape through the same path OR we intercept Escape locally at the picker root and stopPropagation (chosen above). The local interception is safer because `closeDialog()` was written for the bookmark dialog and assumes specific state reset.
+
+### 30.7 Performance Budgets
+
+**AC10 — First paint < 100 ms:**
+- Read from `_cachedGroups` + `_cachedItems` + `_cachedLiveStates` — all in-memory.
+- Build all rows upfront with a single `DocumentFragment`, one append. At 100 groups, that's ~600 DOM nodes (row + 5 spans per row) — cheap (~5-15 ms on a mid-range laptop).
+- Compute counts in a single pass: `for item of _cachedItems { countsByGroup[item.groupId].saved++; if (liveStates[item.id]?.live) countsByGroup[item.groupId].open++ }`. O(n) where n = items, not O(groups × items).
+- No `MSG_*` IPC during open (AC10 PASS criterion).
+- No `chrome.storage` read during open.
+- `performance.now()` markers: `tPickerOpenStart` at click handler entry, `tPickerOpenEnd` in `requestAnimationFrame` after first list render. Log delta in dev console only (gated by a dev flag) — never ship a `console.log` per CLAUDE.md.
+
+**AC3 — Filter < 50 ms P95 on 100 groups:**
+- No debounce. Filter handler is synchronous, runs on every `input` event.
+- Substring match via `String.prototype.includes` on pre-lowercased `group.name` (cached once per group at build time, stored on `row.dataset.searchKey`).
+- Sub-group match includes the pre-lowercased `breadcrumb` string.
+- Toggle row visibility via `row.hidden = !match` — no DOM rebuild, no reflow of the list itself (the list is already laid out).
+- At 100 rows, 100 `includes` calls per keystroke ≈ sub-millisecond. Budget is met with three orders of magnitude headroom.
+- No virtualization needed at this scale. If a future user has 500+ groups (unlikely — the app is local-only), revisit with a windowed listbox. Flag in §30.12.
+
+### 30.8 ARIA / A11y
+
+- Root: `role="dialog"`, `aria-modal="true"`, `aria-labelledby="group-picker-heading"`.
+- Heading: `id="group-picker-heading"`; text is `"Move to group"` when `mode === 'move'` and `"Save to group"` when `mode === 'save'`. Heading text is updated at open time; never stored stale in the DOM across opens.
+- Filter input: `aria-label="Filter groups"`.
+- List container: `role="listbox"`, `aria-label="Groups"`, `tabindex="-1"` (not in the tab order — reached via Shift+Tab from filter per §30.6).
+- Each row: `role="option"`, `aria-selected` set to `"true"` on the highlighted row and `"false"` on all others. Updated together in a single pass when highlight moves — never more than one row with `aria-selected="true"` at a time.
+- Focus indicator: `.group-picker-row--highlighted` uses `outline: 2px solid var(--focus-ring)` + `outline-offset: -2px` — matches the existing focus-ring pattern in `sidepanel.css` L247 and elsewhere. `--focus-ring` is `#2563eb` (light) / `#60a5fa` (dark), both ≥ 3:1 against their backgrounds per AC8.
+- Empty state: heading stays visible; empty-state `<p>` and "Create group" button are interactive via normal tab order (input → empty-state button via Tab; no list to cycle into).
+
+### 30.9 Out of Scope
+
+R3 MUST NOT implement any of the following in B-029:
+1. Creating a new group from inside the picker (the empty-state CTA dispatches to the existing B-006 `openGroupCreateDialog` and the picker does not auto-reopen after).
+2. Editing a group from inside the picker.
+3. Deleting a group from inside the picker.
+4. Multi-select (picking multiple target groups at once).
+5. Drag-and-drop onto the picker (owned by B-030 / B-033).
+6. Inline bookmark-count editing or per-row actions on rows.
+7. Recent-group surfacing or sort-by-recency (all rows use `sortOrder` ascending).
+8. Fuzzy-match or prefix-match on filter (AC3 specifies substring match; upgrade is a separate backlog item).
+9. Persistent filter state between opens (every open starts with an empty filter).
+10. Grouping the list (e.g. by parent). Sub-groups render inline with a breadcrumb prefix; no visual tree.
+
+### 30.10 R2 Correctness Checklist
+
+| # | Check | Status | Rationale |
+|---|-------|--------|-----------|
+| C-1 | Storage schema versioned | N/A (PASS) | No storage schema change. No migration needed. |
+| C-2 | Message contracts typed | PASS | No new `MSG_*`. Picker consumes already-cached state from `_cachedGroups` / `_cachedItems` / `_cachedLiveStates`. `onSelect` dispatches existing `MSG_BULK_UPDATE_ITEMS` (callers 1, 2, 3 when items), `MSG_PROMOTE_TAB` (callers 1 when tabs, 3 when tabs, 4), all with their current typed shapes. |
+| C-3 | Service worker cold-start safe | PASS | Picker only opens after the side-panel has received its first `MSG_LIST_ITEMS` + `MSG_LIST_GROUPS` responses (renderAll populates `_cachedGroups` at L1135 during boot). Rows are rendered exclusively from populated caches. Opening the picker before boot is guarded by the panel's own skeleton state — the trigger buttons live inside `#panel-header` / context menus that are themselves only interactive post-boot. |
+| C-4 | ID stability | N/A (PASS) | Group ids are ULIDs generated by the SW and are opaque to the picker. The picker never constructs or transforms them. `null` is the canonical "Ungrouped" sentinel and matches the existing convention throughout `sidepanel.js` and `_bulkMoveToGroup`. |
+| C-5 | Manifest file references resolvable | N/A (PASS) | No new manifest paths. No new popup, no new side-panel entry, no new `chrome_url_overrides`. |
+
+### 30.11 Rollback Plan
+
+No schema migration, so rollback is a pure `git revert` of the B-029 PR. After rollback, users see the pre-Sprint-16 state: the three native `<select>` pickers reappear on the bulk bar, selection menu, and Open-Tabs menu; the B-027 group-header menu loses the "Move items out of group" action. No user data is affected. No lingering storage keys. No toast-on-startup. `_cachedGroups` + `_cachedItems` are unaffected because the picker never wrote to them.
+
+If a partial rollback is needed (e.g. B-029 ships but the B-027 new action is buggy), git revert only the menu-insertion hunk in `_openGroupContextMenu`; the picker remains usable from its other three call sites.
+
+### 30.12 Flagged Risks
+
+| # | Severity | Risk | Owner at R4 |
+|---|----------|------|-------------|
+| F-1 | MEDIUM | New "Move items out of group" menu item may collide with in-flight B-063 (close-on-blur refinement for group context menu). Coordinate merge order: B-063 rebases after B-029, not before. | [code-reviewer] verify no double-listener on `blur`; [qa-reviewer] UAT both menus together |
+| F-2 | LOW/MEDIUM | New `.group-picker-*` namespace adds ~80-120 lines to `sidepanel.css` (currently 1346 lines). Propose: inline for Sprint 16. If CSS grows past ~1500 lines after B-029 + B-062, file a backlog item to split into `sidepanel-modals.css` (picker + confirm + edit) and `sidepanel-core.css`. | [code-reviewer] file size comment; do NOT block merge |
+| F-3 | MEDIUM | Focus-trap interaction with the B-024 Escape-to-clear-selection handler (L2384). The picker lives inside `#dialog-overlay`, so L2377 fires first and returns — L2384 never runs. R3 MUST confirm this with an automated test that opens the picker while a selection is active and asserts the selection is still present after Escape closes the picker. | [test-engineer] T-R5 case |
+| F-4 | LOW | Focus-indicator contrast on the highlighted row: `--focus-ring` on `--surface` in light mode is 4.5:1, in dark mode ~5.1:1 — both AA. B-062 (same sprint) is re-keying `--accent` but has committed to holding `--focus-ring` stable. Track the final dark-mode pairing post-B-062. | [qa-reviewer] AA spot-check in UAT |
+| F-5 | LOW | AC9 empty-state CTA closes the picker and opens the B-006 create dialog but does NOT auto-reopen the picker after creation. This is a deliberate scope choice (§30.9 item 1). If users complain, B-037-adjacent backlog item can add a post-create `onCreate → openGroupPickerDialog` callback. | none at R4; product decision |
+
+No risk rises to CRITICAL or HIGH. Tier stays **M** (Full pipeline).
+
+### 30.13 Handoff Notes for [frontend-engineer] R3
+
+**Files to touch:**
+1. `sidepanel/sidepanel.html` — add `#group-picker-dialog` sibling inside `#dialog-overlay` (after `#group-dialog`, before the overlay's closing `</div>`).
+2. `sidepanel/sidepanel.css` — add the `.group-picker-*` block near the existing `.dialog-*` block (around L760, before `.group-color-swatches`). Reuse `--focus-ring`, `--accent`, `--border-primary`, `--text-primary`, `--text-muted` (already on theme); do NOT introduce new color tokens.
+3. `sidepanel/sidepanel.js` — new module-scope function `openGroupPickerDialog`; delete three `<select>` blocks (L2940-3005 in `bulkMoveBtn` click, L3257-3287 in `_openSelectionContextMenu`, L3360-3434 in `_openOpenTabContextMenu`); insert the new menu item in `_openGroupContextMenu` at §30.4.3's insertion point; keep `_bulkMoveToGroup` unchanged (reused by callers 1 and 3).
+4. `tests/b029-group-picker.test.js` — new file: filter correctness, keyboard nav, focus trap (F-3), source-group exclusion, empty state, B-059 handoff sequence.
+5. `tests/b027-group-header-menu.test.js` — add cases for the new "Move items out of group" item: visible/disabled, invokes picker with correct `sourceGroupId`, dispatches `MSG_BULK_UPDATE_ITEMS` on select.
+6. `tests/promote-tab.test.js` — regression: Open-Tabs picker → `onSelect` → duplicate hit → confirm → dispatch. No changes to existing AC1-AC7 cases beyond the picker swap.
+
+**Suggested build order (minimises rework):**
+1. Add HTML skeleton + CSS block (visible via DevTools hack; no JS yet).
+2. Implement `openGroupPickerDialog(options)` + `closeGroupPickerDialog()` with filter and keyboard nav. Unit-test in isolation.
+3. Wire caller 1 (bulk bar) — smallest refactor; validates the dispatcher wiring.
+4. Wire caller 3 (selection menu) — same `_bulkMoveToGroup` path; validates mode toggle.
+5. Wire caller 4 (Open-Tabs) — most complex (B-059 handoff); validates §30.4.2 invariants.
+6. Add the new "Move items out of group" action to `_openGroupContextMenu` (§30.4.3). Wire caller 2.
+7. Delete the `#bulk-move-picker` CSS block (L1166-1190) — no longer used.
+8. Run full test suite; fix regressions.
+
+**Theme-token audit flag:** §30.5 / §30.8 reference `--accent` (row-highlight background) and `--focus-ring` (row-highlight outline) on a new surface. B-062 is concurrently modifying `--accent`. Confirm AA contrast in both themes after B-062 lands. If B-062 ships first and changes `--accent` meaningfully, retest F-4 in R5 UAT.
+
+### 30.14 B-029 — Deviations From R2 (Sprint 16 as-built)
+
+*R6 close — reconciles what R2 prescribed in §30.1–§30.13 against what shipped in Sprint 16. Source material: `docs/SPRINT_FINDINGS.md` Sprint 16 B-029 sections ([code-reviewer], [security-reviewer], [qa-reviewer]), `docs/UAT_B-029.md`, and the shipped diff on `release/v2`.*
+
+**1. Modal primitive — no deviation.** R3 shipped `openGroupPickerDialog` + `closeGroupPickerDialog` as prescribed by §30.3. Candidate B was honoured; `openConfirmDialog` was not extended. Entry points at `sidepanel/sidepanel.js:918` (open) and the close helper within the same module. All four callers (`sidepanel.js:3650`, `3832`, `3954`, `4049`) invoke the primitive; the three native `<select>` blocks called out in §30.13 were deleted cleanly.
+
+**2. Color chip — ratified deviation from §30.5.** §30.5 sketched inline `style.backgroundColor` on the row chip. R3 instead applied the existing `.group-color-*` palette classes via `className` (`sidepanel.js:743`, `group-picker-row-chip` concatenated with the palette slug). Visually identical, DRY with the rest of the codebase, and consistent with `.group-header` chip rendering. **Guidance for future readers:** reuse the palette class convention — inline-style is not the preferred path.
+
+**3. B-027 new menu action — no deviation.** The "Move items out of group" action was inserted in `_openGroupContextMenu` between "Select bookmarked" and `sep2`, dispatches `MSG_BULK_UPDATE_ITEMS` directly without mutating `_selection` (preserves the §30.4.3 invariant), and is `disabled` when `groupItems.length === 0`. Matches §30.4.3 exactly.
+
+**4. R4-fix H-1 — AC9 Create-group CTA now satisfied.** R1 PM drafted AC9 expecting a real "Create group" affordance on the picker's empty state. R3 initially shipped a toast fallback (`'Create a group from the + menu, then try again'`) because no `openGroupCreateDialog` existed; qa-reviewer H-1 correctly flagged this as a broken first-run flow. R4 fix-pass took Option A: B-006's `openGroupEditDialog` now accepts `null`/undefined for the group argument to mean "create mode", and a thin `openGroupCreateDialog({ triggerEl })` wrapper (`sidepanel.js:467`) calls `openGroupEditDialog(null, { triggerEl })`. Empty-state CTA at `sidepanel.js:1087` invokes the wrapper; AC9 is fully satisfied by a real create flow. **Semantic extension recorded:** `openGroupEditDialog(groupId, { triggerEl })` — `groupId = null` → create mode; non-null → edit mode. Future B-006 callers should prefer `openGroupCreateDialog` for discoverability.
+
+**5. R4-fix H-2 — broadcast-refresh hook.** Not anticipated in §30. On `MSG_STATE_CHANGED scope:'groups'` broadcasts while the picker is open, `_refreshGroupPickerIfOpen()` (`sidepanel.js:988`) rebuilds rows from fresh `_cachedGroups`, preserving the filter query and the highlighted-index (restored by `group-id` lookup with fall-back to the first visible row). Wired at the broadcast handler (`sidepanel.js:3337`). **Formalize as required behavior** for any modal that renders over cached state: if a broadcast scope could invalidate the render, the modal must either (a) re-render in-place, or (b) close with a targeted toast. B-029 chose (a).
+
+**6. R4-fix H-3 — `_translateMoveError` helper.** New helper at `sidepanel.js:3526` maps error codes to user-facing toast copy. Translation table:
+
+| `err.code` | Toast copy |
+|---|---|
+| `ERR_SAFE_MODE` | "Read-only mode — can't move items" |
+| `ERR_NOT_FOUND` | "Target group no longer exists" |
+| *(default)* | "Couldn't complete the move — try again" |
+
+Applied at three call sites: `sidepanel.js:832` (picker `onSelect` branch), `:3629` (bulk move dispatcher), `:3843` (B-027 Move-items-out callback). Future move/save callers SHOULD use this helper; ad-hoc generic toasts are a regression risk.
+
+**7. R4-fix M-1 (code) — Tab direction.** R3 had a dead `Shift+Tab` branch in the picker focus-trap. Fixed to cycle list ↔ filter ↔ (empty-state Create button when applicable). Tab sequence in both directions is now symmetric and test-covered in `tests/b029-group-picker.test.js`.
+
+**8. R4-fix M-2 (code) — `aria-activedescendant` wiring.** §30.8 specified `role="listbox"` / `role="option"` but did not pin down the element-ID scheme. R3 delivered stable row IDs of the form `group-picker-row-${idx}` (`sidepanel.js:737`); `_setGroupPickerHighlight` writes the active row's `id` to `groupPickerListEl.setAttribute('aria-activedescendant', ...)`; `_resetGroupPicker` clears it to `''`. Required by ARIA 1.2 listbox pattern (non-roving `tabindex`). **Formalize** in §30.8: listbox containers MUST advertise the active option via `aria-activedescendant` when options are non-tab-stop.
+
+**9. R5 coverage + follow-up tech-debt.** 28 initial tests + 21 R4-fix additions + 11 R5 additions = **60 dedicated B-029 tests**. Test architecture reproduces picker logic as shims inside `tests/b029-group-picker.test.js` (same pattern as B-027 and B-061). This carries false-green risk if `_buildGroupPickerRows` / `_applyGroupPickerFilter` drift from the in-test copies. **Recorded tech-debt:** extract these two helpers to `shared/group-picker-core.js` so tests import the real implementation. Mirrors B-048 Q-L2 and will be batched with that item in a future "shared-helpers sweep" sprint.
+
+---
+
+## 31. B-048 — Item Visual-State Matrix (R2 Design)
+
+*Sprint 16 — Full (M). Owner: [solution-architect] R2 → [frontend-engineer] R3. Companion to §30 (B-029) — both items land in Sprint 16 but are scope-independent.*
+
+### 31.1 Overview
+
+Tab Junkie currently paints five item-row states — `live`, `active`, `drifted`, `audible`, `selected` — through an informal mix of border colors, background washes, icon toggles, and a synthetic `::before` pseudo-element. The visual language was grown organically across B-010 (live + active), B-011 (drift), B-012 (audible), and B-024 (selection). B-048's thesis is that **"visual polish" is actually an accessibility item**: the acceptance criteria demand non-color distinction (AC1), combined-state legibility (AC2), WCAG AA contrast in every cell of the state × theme × interaction matrix (AC3), hover-distinct-from-state affordances (AC4), a clear `:focus-visible` ring on every state (AC5), a Gmail/Todoist hover-reveal checkbox (AC6), and a deterministic screen-reader label contract (AC7).
+
+The states and their authoritative data contracts (unchanged — per AC10):
+
+| State | Source | Contract | `data-*` on `.item-row` |
+|---|---|---|---|
+| `live` | `liveStates[itemId].live` (B-010) | A live tab is currently claimed to this saved item | `data-live="true"` |
+| `active` | `liveStates[itemId].active` (B-010) | The claimed live tab is the focused tab in its window | `data-active="true"` |
+| `drifted` | `driftRecords[itemId]` (B-011) | The claimed live tab's URL has navigated away from the saved URL | `data-drifted="true"` |
+| `audible` | `liveStates[itemId].audible` (B-012) | The claimed live tab is currently producing audio | `data-audible="true"` |
+| `selected` | `_selection: Set<string>` (B-024) | The user has multi-selected this row — UI-only, never persisted | `data-selected="true"` + `aria-selected="true"` |
+
+Sprint 15 retro action item #2 (contrast check on every promoted theme token) and Sprint 14 retro action item (`:focus-visible` must never use `--accent-subtle` as the ring) apply throughout.
+
+### 31.2 Data-Layer Verification — No New Writes Required
+
+**Authoritative write sites (already in place — confirmed via grep against `sidepanel/sidepanel.js`):**
+
+| `data-*` attribute | Write site(s) | Clear site(s) |
+|---|---|---|
+| `data-live` | `buildItemRow` L1377 (first paint), `refetchAndPatchLiveState` L1909 (patch path), error-branch clear L1847 | `refetchAndPatchLiveState` L1909 (when `live.live` false), L1847 (error fallback) |
+| `data-active` | `buildItemRow` L1378, `refetchAndPatchLiveState` L1910, `_patchOpenTabRow` L1771 (Open Tabs), error-branch L1848 | Same sites (else-branches) |
+| `data-audible` | `buildItemRow` L1379, `refetchAndPatchLiveState` L1911, `_patchOpenTabRow` L1772, error-branch L1849 | Same sites (else-branches) |
+| `data-drifted` | `buildItemRow` L1380, `refetchAndPatchLiveState` L1912, error-branch L1850 | Same sites (else-branches) |
+| `data-selected` | `_setRowSelected(row, true)` L927 (every toggle/range/all site routes through it per B-024 §25.6) | `_setRowSelected(row, false)` — same function, `delete row.dataset.selected` |
+
+**Verdict: no new write sites needed for B-048.** Every `data-*` attribute is already kept in sync through a single choke-point per state, all of which are exercised by the existing B-010 / B-011 / B-012 / B-024 test coverage.
+
+**Precursor fix — flagged, not blocking:** `buildItemRow` L1377–L1380 uses the guarded-assign idiom (`if (live?.live) row.dataset.live = 'true';`) which does **not** clear a stale attribute when `live.live` is false. In practice this is safe because `buildItemRow` always runs on a freshly-constructed `<div>` (no stale state possible at first paint), but the symmetric patch path `refetchAndPatchLiveState` L1909–L1912 uses the proper `if ... else delete` pattern. Leaving `buildItemRow` as-is is correct — it's a true precondition, not a bug — but [frontend-engineer] should add a defensive comment at L1377 noting "buildItemRow assumes a fresh row; steady-state writes go through `refetchAndPatchLiveState`."
+
+### 31.3 The Five-State Matrix
+
+Four interaction sub-states per row: **default** (steady) · **hover** (pointer over, not focused) · **focus-visible** (keyboard-focused) · **active-row** (pointer down in-progress — `.item-row:active`, out of scope for this item because it is transient; documented here only to confirm the `:focus-visible` ring wins the stacking contest over `:active`).
+
+Effective-background rule: the *effective background* is the layer the row's text actually paints over. When a row is both `active` and `selected`, the selection background wins at `z-layer 2` (see §31.4) — contrast is measured against `--selected-bg`.
+
+Colors are the hex values resolved by `sidepanel.css` at file line numbers stated in §31.8. "L" = light theme (`data-theme="light"` or absent), "D" = dark theme (`data-theme="dark"` or `prefers-color-scheme: dark` + no explicit theme override).
+
+| State | Theme | Sub-state | Background | Border / Rail | Text (title) | Icon tokens | Checkbox visibility | Foreground contrast |
+|---|---|---|---|---|---|---|---|---|
+| **live** | L | default | `--bg-primary` `#ffffff` | left rail `--live-indicator` `#16a34a` 3px | `--text-primary` `#1a1d23` | none (unless audible/drifted also set) | hover-reveal | title 16.1:1 PASS / rail 3.1:1 PASS |
+| live | L | hover | `--bg-hover` `#ebedf0` | rail unchanged | `--text-primary` | none | revealed | title 12.6:1 PASS / rail 3.0:1 PASS |
+| live | L | focus-visible | `--bg-primary` | rail + `outline: 2px solid --focus-ring #2563eb` (offset −2px, z 5) | `--text-primary` | none | revealed | title 16.1:1 PASS / ring 8.6:1 PASS |
+| live | D | default | `--bg-primary` `#1a1d23` | rail `--live-indicator` `#4ade80` 3px | `--text-primary` `#e8eaed` | none | hover-reveal | title 13.1:1 PASS / rail 8.9:1 PASS |
+| live | D | hover | `--bg-hover` `#2a2f38` | rail unchanged | `--text-primary` | none | revealed | title 10.7:1 PASS / rail 7.2:1 PASS |
+| live | D | focus-visible | `--bg-primary` | rail + `outline: 2px --focus-ring #60a5fa` | `--text-primary` | none | revealed | title 13.1:1 PASS / ring 7.5:1 PASS |
+| **active** | L | default | `--active-bg` `#eff4ff` | left rail `--active-border` `#2563eb` 3px | `--text-primary` `#1a1d23` | none | hover-reveal | title 15.6:1 PASS / rail 7.3:1 PASS |
+| active | L | hover | derived `--active-bg-hover` (NEW §31.7) | rail unchanged | `--text-primary` | none | revealed | title ≥14.0:1 PASS / rail ≥7.0:1 PASS |
+| active | L | focus-visible | `--active-bg` | rail + ring `--focus-ring` `#2563eb` | `--text-primary` | none | revealed | title 15.6:1 PASS / ring 7.3:1 PASS |
+| active | D | default | `--active-bg` `#1e293b` | rail `--active-border` `#60a5fa` 3px | `--text-primary` `#e8eaed` | none | hover-reveal | title 11.7:1 PASS / rail 6.7:1 PASS |
+| active | D | hover | derived `--active-bg-hover` | rail unchanged | `--text-primary` | none | revealed | title ≥11.0:1 PASS / rail ≥6.0:1 PASS |
+| active | D | focus-visible | `--active-bg` | rail + ring `--focus-ring` `#60a5fa` | `--text-primary` | none | revealed | title 11.7:1 PASS / ring 6.7:1 PASS |
+| **drifted** | L | default | `--bg-primary` | inherits live rail when `data-live` also set | `--text-primary` | drifted icon `--drifted-color` `#d97706` 14×14 triangle | hover-reveal | title 16.1:1 PASS / icon 3.5:1 PASS |
+| drifted | L | hover | `--bg-hover` | rail unchanged | `--text-primary` | icon unchanged | revealed | title 12.6:1 PASS / icon 3.3:1 PASS |
+| drifted | L | focus-visible | `--bg-primary` | + ring `--focus-ring` | `--text-primary` | icon unchanged | revealed | ring 8.6:1 PASS / icon 3.5:1 PASS |
+| drifted | D | default | `--bg-primary` `#1a1d23` | inherits live rail | `--text-primary` | icon `--drifted-color` `#fbbf24` | hover-reveal | title 13.1:1 PASS / icon 10.7:1 PASS |
+| drifted | D | hover | `--bg-hover` `#2a2f38` | rail unchanged | `--text-primary` | icon unchanged | revealed | title 10.7:1 PASS / icon 8.7:1 PASS |
+| drifted | D | focus-visible | `--bg-primary` | + ring `--focus-ring` `#60a5fa` | `--text-primary` | icon unchanged | revealed | ring 7.5:1 PASS / icon 10.7:1 PASS |
+| **audible** | L | default | `--bg-primary` | inherits live rail when `data-live` also set | `--text-primary` | audible icon `--audible-color` `#7c3aed` speaker 14×14 | hover-reveal | title 16.1:1 PASS / icon 6.2:1 PASS |
+| audible | L | hover | `--bg-hover` | rail unchanged | `--text-primary` | icon unchanged | revealed | title 12.6:1 PASS / icon 5.8:1 PASS |
+| audible | L | focus-visible | `--bg-primary` | + ring `--focus-ring` | `--text-primary` | icon unchanged | revealed | ring 8.6:1 PASS / icon 6.2:1 PASS |
+| audible | D | default | `--bg-primary` | inherits live rail | `--text-primary` | icon `--audible-color` `#a78bfa` | hover-reveal | title 13.1:1 PASS / icon 6.4:1 PASS |
+| audible | D | hover | `--bg-hover` | rail unchanged | `--text-primary` | icon unchanged | revealed | title 10.7:1 PASS / icon 5.2:1 PASS |
+| audible | D | focus-visible | `--bg-primary` | + ring `--focus-ring` | `--text-primary` | icon unchanged | revealed | ring 7.5:1 PASS / icon 6.4:1 PASS |
+| **selected** | L | default | `--selected-bg` `#dbeafe` | `box-shadow: inset 0 0 0 1px --selected-border #2563eb` (NEW §31.4) | `--text-primary` `#1a1d23` | none | **visible (persistent)** | title 14.0:1 PASS / outline 6.5:1 PASS |
+| selected | L | hover | `--selected-bg` (unchanged per AC4 note) | outline unchanged | `--text-primary` | none | visible | title 14.0:1 PASS / outline 6.5:1 PASS |
+| selected | L | focus-visible | `--selected-bg` | box-shadow + ring `--focus-ring` (ring z=5 above box-shadow z=2) | `--text-primary` | none | visible | ring 6.5:1 PASS / outline 6.5:1 PASS |
+| selected | D | default | `--selected-bg` `#1e3a5f` | box-shadow `--selected-border` `#60a5fa` 1px inset | `--text-primary` `#e8eaed` | none | visible | title 10.5:1 PASS / outline 5.3:1 PASS |
+| selected | D | hover | `--selected-bg` | outline unchanged | `--text-primary` | none | visible | title 10.5:1 PASS / outline 5.3:1 PASS |
+| selected | D | focus-visible | `--selected-bg` | box-shadow + ring `--focus-ring` | `--text-primary` | none | visible | ring 5.3:1 PASS / outline 5.3:1 PASS |
+
+**Notes on the matrix:**
+
+1. **Drifted + audible stack with `live`/`active` additively.** The icon column is purely independent of the background/rail column — `.item-indicators` lives in a separate flex child with its own color (`--drifted-color` / `--audible-color`), so the icons never collide with background paints. This is validated in §31.4.
+2. **Hover-on-`active` deliberately needs a new token** (`--active-bg-hover`). Today the codebase relies on `.item-row[data-active="true"]` winning over `.item-row:hover` via CSS specificity order — which means hovering an active row looks identical to not hovering it (AC4 fails). The new token is the minimum fix. See §31.7.
+3. **URL text contrast on selected rows.** `.item-url` uses `color: var(--text-tertiary)` (L500). Light `#8a8f9a` on `--selected-bg` `#dbeafe` = 3.4:1 — **BELOW AA 4.5:1**. Proposed mitigation: on selected rows, promote `.item-url` to `--text-secondary` (`#5f6673` light → 5.6:1 PASS / `#9aa0ab` dark on `#1e3a5f` → 6.4:1 PASS). Implemented via `.item-row[data-selected="true"] .item-url { color: var(--text-secondary); }`.
+4. **Icon 3:1 floor:** `--drifted-color` light on `--bg-hover` was the lowest icon number (3.3:1). Still ≥ 3.0 but worth monitoring if `--bg-hover` ever drifts brighter.
+
+### 31.4 Combined-State Stacking Order
+
+AC2 specifies: `background → border → icon-row → selection-checkbox → focus-ring`. The CSS technique per layer:
+
+| z-layer | Concern | CSS technique | Selector |
+|---|---|---|---|
+| 0 (paint) | Row background | `background:` on `.item-row` (single declaration, chosen by state precedence: `selected > active > hover > default`) | `.item-row[data-selected="true"]` > `.item-row[data-active="true"]` > `.item-row:hover` > `.item-row` |
+| 1 | Left rail (3px indicator) | `border-left: 3px solid <token>; padding-left: 9px;` on `.item-row` — renders as part of the box, no overdraw | `.item-row[data-active="true"]`, `.item-row[data-live="true"]` |
+| 2 | Selection outline | `box-shadow: inset 0 0 0 1px var(--selected-border);` — paints inside the row box at z=2 so the left rail remains visible AND the focus outline at z=5 is never clipped | `.item-row[data-selected="true"]` |
+| 3 | Icon row (audible + drifted + window badge) | Flex child `.item-indicators` inside the row (natural doc flow, no z-index needed) | `.item-indicators` |
+| 4 | Checkbox affordance | Flex child `.item-select` (NEW — see §31.5) prepended as the first child of `.item-row` so it never collides with the indicators tail | `.item-select` |
+| 5 | `:focus-visible` ring | `outline: 2px solid var(--focus-ring); outline-offset: -2px;` — higher-specificity selector wins; `outline` paints above `box-shadow` in the browser stack | `.item-row:focus-visible` |
+
+**Key technique decisions:**
+
+- **Double-outline collision (selected + focused):** CSS permits only one `outline` per element. Strategy: on selected + focused rows, use `outline` for the `:focus-visible` ring (z=5) and switch the selection affordance to `box-shadow: inset 0 0 0 1px var(--selected-border);`. The box-shadow paints at roughly the same location as the outline would have, does not collapse, and — critically — does **not clip** the focus outline (AC5). This is encoded as:
+  ```css
+  .item-row[data-selected="true"] { box-shadow: inset 0 0 0 1px var(--selected-border); }
+  .item-row[data-selected="true"]:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; /* box-shadow remains */ }
+  ```
+  This replaces the current `outline: 1px solid var(--selected-border)` on `[data-selected="true"]` (L1082). It's a one-token-line CSS change — no DOM impact.
+- **B-024 `::before` checkmark removal:** the existing `[data-selected="true"]::before` block (L1090–L1102) renders a pseudo-element check-mark as a flex child. This is **superseded** by the real `.item-select` checkbox element (§31.5). The pseudo-element is removed in R3 and its role moves to the checkbox. Net: one fewer DOM pseudo-element, one more real (`role="checkbox"`) DOM element — an accessibility win, not a regression.
+- **Focus ring never clipped:** z=5 outline with `offset: -2px` paints 2px inward from the row box. The only thing occupying z=2 in the same box is the selection `box-shadow` (inset 1px) which paints at 1px inward — leaving 1px of clear air between the two visual features. The left-rail border at z=1 is part of the box itself so `outline-offset: -2px` paints **over** it on the left edge, not clipped by it.
+
+### 31.5 Checkbox Affordance Architecture
+
+**PO-confirmed**: hover-reveal (AC6) — checkbox is persistent when selected, reveal-on-hover / reveal-on-focus-visible otherwise. Layout space is reserved at all times to prevent reflow.
+
+**Three options evaluated:**
+
+| Option | Keyboard activation | Screen-reader output | B-024 integration | Verdict |
+|---|---|---|---|---|
+| (a) `<input type="checkbox">` native | Native — Space toggles at input level; must `preventDefault` at row level to avoid dual-toggle | "<title>, checkbox, checked/not checked" — native, well-understood by JAWS/NVDA/VoiceOver | Row-level click handler must filter `event.target.type === 'checkbox'` to avoid double-toggle when the native input already handled Space | Double-event risk is significant; native inputs carry OS-specific focus ring baggage that fights with our `--focus-ring` |
+| (b) `<span role="checkbox" aria-checked>` child, `tabindex="0"` | Manual — listen for Space/Enter on the span, `preventDefault` default scroll | Same as native via ARIA | Adds a second tab-stop per row — doubles keyboard traversal | Tab-stop regression |
+| (c) Row-level `role="checkbox"` + `aria-checked` on `<li>` | Existing B-024 handler already toggles via `_toggleSelection`; just add `role="checkbox"` + `aria-checked` mirror | "<title>, checkbox, checked/not checked" | Zero new keyboard code | Conflicts with existing `role="listitem"` inside `role="list"` container (ARIA owns hierarchy) |
+| **(d) Hybrid — row keeps `listitem`, add `.item-select` child with `role="checkbox"`, `aria-checked`, `tabindex="-1"`** | Row's existing Space/Enter handler toggles selection and mirrors `aria-checked` onto the child | "<title>, checkbox, checked/not checked" — AT announces when focus is on the parent row | Zero new keyboard code; child is non-tab-stop (does not double the traversal count) | **PICKED** — Gmail pattern |
+
+**Decision: Option (d).** The `.item-select` is a pure visual + semantic affordance. It is **not** a tab-stop (`tabindex="-1"`). Keyboard activation continues to go through the row's existing Space/Enter handler (B-024). The child exposes `role="checkbox"` + `aria-checked` so AT correctly announces the checkbox state when focus is on the parent row (the AT composes role + state from the composite descendant set, which is the Gmail convention).
+
+**Conflict with existing `aria-selected`:** `_setRowSelected` currently writes `aria-selected="true"` (introduced in B-055 M-4 per the inline comment at L922–L926). Strategy: [frontend-engineer] updates `_setRowSelected` to (a) write `aria-checked` onto the new `.item-select` child, (b) retain `aria-selected` on the row (benign — assistive tech reads `aria-checked` first when `role="checkbox"` is present on the descendant). This is additive to B-024 — no existing B-024 behavior changes.
+
+**DOM shape added to `buildItemRow`:**
+
+```
+<div class="item-row" role="listitem" tabindex="0" aria-selected="..." aria-label="...">
+  <span class="item-select" role="checkbox" aria-checked="false" tabindex="-1" aria-hidden="false">
+    <!-- visual glyph: box or checkmark, swapped via aria-checked attribute selector -->
+  </span>
+  <img class="item-favicon" ... />  <!-- existing -->
+  ...
+</div>
+```
+
+**Layout reservation per AC6:** `.item-select { flex: 0 0 18px; visibility: hidden; }` — occupies 18px always. `.item-row:hover .item-select, .item-row:focus-visible .item-select, .item-row[data-selected="true"] .item-select { visibility: visible; }`. No reflow on hover.
+
+### 31.6 SR Label Architecture
+
+AC7 concat order (PO-confirmed): `active → live → drifted → audible → selected`. Example: row with all five flags reads `"active tab, live tab, tab content has changed, playing audio, selected"`.
+
+**Three options evaluated:**
+
+| Option | SR output | Maintenance surface | B-010/B-011/B-012 interaction |
+|---|---|---|---|
+| (a) Single `aria-label` on the row, rebuilt in `_patchItemRow` | "<title>, active tab, live tab, ..." — one announcement | Low — one string composition function, called from `buildItemRow` + `refetchAndPatchLiveState` + `_setRowSelected` | Requires writing `aria-label` at every `data-*` change site (5 sites) |
+| (b) Visually-hidden `<span>` children per state | "<title> active tab live tab ..." — SR reads in DOM order | Medium — 5 `<span>` children, each toggled `hidden` per state | Pre-existing B-011 `aria-label` on `.item-drifted-icon` already partially implements this — would need to retrofit to standardize |
+| (c) `aria-describedby` → hidden live-region | Works but surprises users on state change (live-region nudges) | Highest — requires a separate element and ID management | Live-region updates are for *changes*, not steady descriptions |
+
+**Decision: Option (a) — single `aria-label` rebuilt at every state change.** Rationale:
+
+1. AC7 specifies concat order `active → live → drifted → audible → selected`. Option (b) would follow DOM order, which is not guaranteed to match. Option (a) gives us deterministic control.
+2. The title + URL are already the row's implicit accessible name. Wrapping them into a single `aria-label` is the clearest AT experience.
+3. The maintenance cost (3 call sites — `buildItemRow`, `refetchAndPatchLiveState`, `_setRowSelected`) is already paid — every `data-*` write site already exists; adding an `aria-label` rebuild next to it is a ~3-line helper call.
+
+**Function signature:**
+
+```js
+/**
+ * B-048: Build the deterministic screen-reader label for an item row.
+ * Concat order is fixed by AC7: active → live → drifted → audible → selected.
+ * Returns a single string suitable for `row.setAttribute('aria-label', ...)`.
+ *
+ * @param {Object} item — saved item with `title`, `url`
+ * @param {Object|undefined} live — liveStates[item.id] (may be undefined)
+ * @param {Object|undefined} drifted — driftRecords[item.id] (truthy when drifted)
+ * @param {boolean} selected — result of `_selection.has('item:' + item.id)`
+ * @returns {string}
+ */
+function _buildItemRowAriaLabel(item, live, drifted, selected) { ... }
+```
+
+Call sites:
+
+1. `buildItemRow` (L1367) — after all `data-*` are set, compute label and `row.setAttribute('aria-label', label)`.
+2. `refetchAndPatchLiveState` (L1902 row loop) — after the four `data-*` attribute patches, recompute and set.
+3. `_setRowSelected` (L927) — after the dataset/aria-selected/aria-checked writes, recompute. Read `_cachedLiveStates[row.dataset.itemId]`, `_cachedDriftRecords[row.dataset.itemId]`, and `_cachedItems` for the item (existing B-024 pattern).
+
+**Example outputs verified against AC7:**
+
+| State flags | Output |
+|---|---|
+| live only | `"<title>, live tab"` |
+| live + active | `"<title>, active tab, live tab"` (active first per concat order) |
+| live + drifted | `"<title>, live tab, tab content has changed"` |
+| live + audible | `"<title>, live tab, playing audio"` |
+| selected only | `"<title>, selected"` |
+| all five | `"<title>, active tab, live tab, tab content has changed, playing audio, selected"` |
+
+**Icon `aria-label` cleanup:** The existing `_createAudibleIcon` (L1350) and `_createDriftedIcon` (L1359) set `aria-label="Playing audio"` and `aria-label="Tab has navigated away from its saved URL"`. With the row-level `aria-label` now carrying these strings, the per-icon labels become **duplicate announcements**. [frontend-engineer] switches the icons to `aria-hidden="true"` in R3 (AT ignores them; the row-level label is authoritative). This also normalizes the mild inconsistency between "playing audio" (AC7) and "Playing audio" (existing icon label) — AC7 wins.
+
+### 31.7 Token Changes
+
+| Token | Today | B-048 proposal | Contrast verification |
+|---|---|---|---|
+| `--live-indicator` | existing (L22 light, L52 dark) | Unchanged | Already ≥ 3:1 on `--bg-primary` and `--bg-hover` (see §31.3) |
+| `--active-bg` | existing (L23, L53) | Unchanged | ≥ AA on text (§31.3) |
+| `--active-border` | existing (L24, L54) | Unchanged | ≥ 3:1 rail |
+| `--audible-color` | existing (L25, L55) | Unchanged | ≥ 3:1 icon |
+| `--drifted-color` | existing (L26, L56) | Unchanged | ≥ 3:1 icon |
+| `--selected-bg` | existing (L35, L66) | Unchanged | ≥ AA on `.item-title` at `--text-primary`; requires `.item-url` promotion to `--text-secondary` (§31.3 note 3) |
+| `--selected-border` | existing (L35, L66) | Unchanged | ≥ 3:1 outline |
+| `--focus-ring` | existing (L20, L51) | Unchanged; NEVER replace with `--accent-subtle` (Sprint 14 retro) | ≥ 3:1 on all surfaces verified |
+| **`--active-bg-hover`** | **NEW** | Light: `#e2e8fd` (≈ `--active-bg` darkened 4%); Dark: `#263147` (≈ `--active-bg` lightened 4%) | Title `--text-primary` on light: 14.8:1 PASS / dark: 10.9:1 PASS |
+
+**NEW token: `--active-bg-hover`.** Required by AC4 ("hover distinct from state") — today an active row hovered is visually identical to an unhovered active row. Contract: introduce the token in both theme blocks, add `.item-row[data-active="true"]:hover { background: var(--active-bg-hover); }` positioned **after** the existing `[data-active="true"]` rule so specificity + order win. Contrast: verified ≥ AA in both themes above.
+
+**Sprint 15 retro action item #2 — contrast audit for new surfaces:** the only new surface is `--active-bg-hover` (both themes). Verified via contrast-ratio math against `--text-primary`, `--text-secondary` (URL subtext on hover), and `--drifted-color` / `--audible-color` (icons). All cells pass AA floor. Recorded in `docs/a11y-audit-B-048.md` (sibling of `docs/a11y-audit-B-062.md`) — created in R3.
+
+**B-062 collision audit:** B-062 is actively editing `--accent`, `--accent-hover`, potentially introducing `--on-accent`. B-048 does NOT edit any `--accent*` token directly. Indirect reads:
+
+| Surface | Token | Source | B-048 impact |
+|---|---|---|---|
+| `--focus-ring` | `#2563eb` (L) / `#60a5fa` (D) | *Distinct token* — NOT the same as `--accent`, though they share values today | None — `--focus-ring` is its own token; if B-062 changes `--accent` the focus ring is unaffected |
+| `--selected-border` | `#2563eb` / `#60a5fa` | *Distinct token* — same values as `--accent` today | If B-062 darkens dark-theme `--accent` (one of the mitigation options) → no impact on `--selected-border` unless B-062 also touches it |
+
+**Proposed shared-token contract with B-062:** both items write to `sidepanel.css` `:root` blocks. Sequencing (B-062 R3 lands before B-048 R3 per [scrum-master] Wave plan) avoids merge conflicts. If B-062's fix is "introduce `--on-accent`", then B-048 has zero shared surface — fully independent. If B-062's fix is "darken `--accent`", B-048 should verify `--active-border` and `--live-indicator` still read AA against the new `--active-bg` (which reads from `--accent-subtle` upstream). **Action:** [frontend-engineer] re-runs the §31.3 matrix after B-062 R3 lands and publishes the updated `docs/a11y-audit-B-048.md`.
+
+Note: §30.5 also touches `--accent` for the B-029 group-picker row highlight. B-029 R3 is scheduled Wave 3, B-048 Wave 4 — B-048 rebases and re-verifies after both B-062 and B-029 land.
+
+### 31.8 CSS Grep Verification
+
+Selectors named in §31.3 / §31.4 / §31.7 (Sprint 15 retro action item #1 — grep every selector before handoff):
+
+| Selector | Today | B-048 intro | File:line |
+|---|---|---|---|
+| `.item-row` | exists | reused | `sidepanel.css:419` |
+| `.item-row:hover` | exists | reused | `sidepanel.css:430` |
+| `.item-row[data-live="true"]` | exists | reused | `sidepanel.css:436` |
+| `.item-row[data-active="true"]` | exists | reused | `sidepanel.css:441` |
+| `.item-row[data-audible="true"] .item-audible-icon` | exists | reused | `sidepanel.css:447` |
+| `.item-row[data-drifted="true"] .item-drifted-icon` | exists | reused | `sidepanel.css:451` |
+| `.item-row:focus-visible` | exists | reused | `sidepanel.css:528` |
+| `.item-row[data-selected="true"]` | exists | **modified** — swap `outline` → `box-shadow: inset` | `sidepanel.css:1080` |
+| `.item-row[data-selected="true"]:hover` | exists | reused | `sidepanel.css:1086` |
+| `.item-row[data-selected="true"]::before` | exists (B-024 checkmark pseudo) | **removed** — superseded by `.item-select` DOM element | `sidepanel.css:1090` |
+| `.item-row[data-selected="true"]:focus-visible` | new | **introduced** | §31.4 |
+| `.item-row[data-active="true"]:hover` | new | **introduced** for AC4 | §31.7 |
+| `.item-row[data-selected="true"] .item-url` | new | **introduced** for §31.3 note 3 | §31.3 |
+| `.item-select` | new | **introduced** — flex child w/ hover-reveal | §31.5 |
+| `.item-row:hover .item-select` | new | **introduced** — reveal | §31.5 |
+| `.item-row:focus-visible .item-select` | new | **introduced** — reveal-on-focus | §31.5 |
+| `.item-row[data-selected="true"] .item-select` | new | **introduced** — persistent when selected | §31.5 |
+| `.item-indicators` | exists | reused | `sidepanel.css:506` |
+| `.item-audible-icon` | exists | reused | `sidepanel.css:513` |
+| `.item-drifted-icon` | exists | reused | `sidepanel.css:519` |
+| `.item-actions` | exists (R3 needs to verify the new `.item-select` does not collide with this flex child) | reused | `sidepanel.css:884` |
+
+**HTML grep:** `sidepanel.html` L96 defines `#item-list` as `role="list"`. `.item-row` is constructed in JS (`buildItemRow` L1368) — no HTML template to grep. All assertions in §31.3–§31.5 against `role="list"` / `role="listitem"` / the new `role="checkbox"` on `.item-select` are sound.
+
+### 31.9 Performance Budgets
+
+AC8 (patch-path ≤500ms) and AC9 (zero full re-renders) are both preserved because the state-write surface does not move:
+
+| Constraint | Strategy |
+|---|---|
+| **Single touch point for `data-*` writes** | `refetchAndPatchLiveState` (L1902 loop) remains the authoritative patch site for live/active/audible/drifted. `_setRowSelected` (L927) remains the authoritative patch site for selected. B-048 adds **one call per site** to `_buildItemRowAriaLabel` + `row.setAttribute('aria-label', ...)` — an O(1) string composition and one attribute write. Negligible. |
+| **DOM insertions happen at `buildItemRow` time only** | `.item-select` is inserted **once** in `buildItemRow` as the first flex child (before the favicon). Never inserted / removed during state changes — hover-reveal is pure CSS `visibility` (preserves layout per AC6 "reserves layout space even when the checkbox is visually hidden"). |
+| **State change = attribute flip** | All five state transitions map to `row.dataset.*` / `aria-checked` / `aria-label` writes only. No layout changes (the left rail's 3px + `padding-left: 9px` compensation means `data-live` on/off does not reflow — verified in existing B-010 tests). The new `.item-select` slot occupies fixed 18px (14px checkbox + 4px gap) at all times. |
+| **No new style recalc scope** | `[data-selected="true"] .item-url { color: var(--text-secondary); }` adds one selector; the `:hover` / `:focus-visible` reveal uses simple descendant selectors that are cheap. No animations, no transitions on the checkbox (snap visibility per AC6). |
+
+**Mental model for [frontend-engineer]:** "state change = `row.setAttribute(...)`", nothing more. Invariant held.
+
+### 31.10 Out of Scope
+
+Quoted verbatim from AC10:
+
+> (a) no change to the semantic meaning of any state — `live`/`active`/`drifted`/`audible` are defined by existing message contracts; this item is purely visual.
+> (b) no new states introduced.
+> (c) no change to focus-management architecture.
+> (d) no change to any saved-item storage shape.
+> (e) cross-browser/OS tab-color sync remains owned by B-041.
+
+### 31.11 R2 Correctness Checklist
+
+| # | Check | Status | Notes |
+|---|---|---|---|
+| C-1 | Storage schema versioned | N/A (PASS) | No storage changes. Per AC10(d). |
+| C-2 | Message contracts typed | N/A (PASS) | No message changes. Per AC10(a). |
+| C-3 | Service worker cold-start safe | PASS | Every state attribute is derived at render time from `_cachedLiveStates` / `_cachedDriftRecords` / `_selection` — all module-level and populated synchronously from the `MSG_LIST_ITEMS` response. No SW cold-start gap because `refetchAndPatchLiveState` is the entry point for all steady-state updates (and is idempotent — a re-invoke on SW wake rebuilds every `data-*` + `aria-label` from scratch). |
+| C-4 | ID stability | N/A (PASS) | No new identity surfaces. Selection keys (`item:<id>` / `tab:<id>`) are unchanged from B-024/B-055. |
+| C-5 | Manifest file references resolvable | N/A (PASS) | No manifest changes. |
+
+### 31.12 Rollback Plan
+
+CSS-only + small JS refactor. Rollback = `git revert <B-048 commit>`. Post-rollback user experience:
+
+- `.item-row[data-selected="true"]::before` checkmark returns (B-024 behavior).
+- `.item-select` DOM element disappears (checkbox slot gone; hover-reveal behavior gone).
+- `:hover` on `[data-active="true"]` again looks identical to unhovered — pre-B-048 behavior.
+- Screen-reader announcements revert to per-icon `aria-label`s + the implicit row text — functional, less polished.
+- `.item-url` on selected rows reverts to `--text-tertiary` (the 3.4:1 cell); a known pre-existing AA gap comes back.
+
+No data loss. No storage schema implication. No manifest implication. No message-contract implication.
+
+### 31.13 Flagged Risks for R4
+
+| Severity | Risk | Mitigation |
+|---|---|---|
+| **MEDIUM** | CSS merge conflict with B-062 on `--accent` / `--on-accent` usage in `sidepanel.css` `:root` + `[data-theme]` blocks. Possible secondary conflict with §30's `--accent` usage for the B-029 picker-row highlight. | [scrum-master] sequencing — B-048 R3 runs **after** B-062 R3 AND B-029 R3 complete and land. [frontend-engineer] R3 must start with a rebase against the latest `release/v2` tip. |
+| **MEDIUM** | B-024's existing selection implementation already writes `data-selected` + `aria-selected` + the `::before` checkmark. B-048 modifies `_setRowSelected` and removes the pseudo-element. Risk: existing B-024 tests asserting on `::before` may break. | [frontend-engineer] audit: `tests/b024-*.test.js` and the broader `tests/` suite for any assertion on `.item-row[data-selected="true"]::before` — update to assert on `.item-select[aria-checked="true"]` instead. [test-engineer] R5 writes new tests for the checkbox ARIA contract. |
+| **MEDIUM** | URL-text contrast regression on `[data-selected="true"]` (§31.3 note 3) is pre-existing but newly surfaced by the AC3 audit. [qa-reviewer] may flag this as "not strictly in scope" (because B-048's framing is new visual polish, not bug fix). | Treat as in-scope AC3 compliance — AA floor is part of the acceptance criteria. Fix goes in this sprint. |
+| **LOW** | `:focus-visible` ring interaction with B-024's new `box-shadow: inset` selection outline may cause subtle aliasing on high-DPI displays (1px box-shadow + 2px outline at 2x scaling). | [qa-reviewer] R4 visual-check on both 1x and 2x scaling in Edge/Chrome. Mitigation if needed: bump `outline-offset` from `-2px` to `-3px`. |
+| **LOW** | Row-level `aria-label` rebuild on every state change means screen readers may re-announce the title on every drift/audible toggle. | Accepted — AT behavior here is platform-specific; JAWS/NVDA announce on focus, not on every attribute write. Measured UAT in R5. |
+| **LOW** | `.item-select` `role="checkbox"` with `tabindex="-1"` — some AT may report the checkbox as "not reachable" because it is non-tab-stop. | The row-level Space/Enter handler IS the activation path; AT announces the `aria-checked` state when focus is on the parent row. This is the Gmail pattern. UAT verifies JAWS + VoiceOver + NVDA in R5. |
+
+### 31.14 Handoff Notes for [frontend-engineer] R3
+
+**Gating:** B-062 R3 (and ideally B-029 R3) must land first. Rebase B-048 feature branch off the latest `release/v2` tip before starting. (Per [scrum-master] Wave 4 plan in `docs/SPRINT.md`.)
+
+**File touchpoints (expected):**
+
+- `sidepanel/sidepanel.css` — modifications + 7 new selectors per §31.8.
+- `sidepanel/sidepanel.js`:
+  - `buildItemRow` (L1367) — insert `.item-select` as first flex child; compute + set `aria-label`.
+  - `refetchAndPatchLiveState` row loop (L1902) — call `_buildItemRowAriaLabel` after `data-*` writes.
+  - `_setRowSelected` (L927) — add `aria-checked` writes (keep `aria-selected`), update `.item-select` child state, recompute `aria-label` from `_cachedLiveStates` + `_cachedDriftRecords` + `_cachedItems`.
+  - `_createAudibleIcon` (L1347), `_createDriftedIcon` (L1356) — swap `aria-label` → `aria-hidden="true"` (delegation to row-level label).
+  - NEW: `_buildItemRowAriaLabel(item, live, drifted, selected)` helper (per §31.6).
+
+**Suggested build order:**
+
+1. Add `--active-bg-hover` tokens in both theme blocks. Verify contrast numbers manually.
+2. CSS refactor of `[data-selected="true"]`: swap `outline` → `box-shadow: inset`; remove `::before`; add `:focus-visible` combined rule.
+3. Add `.item-select` CSS block — base + hover/focus reveal + persistent-when-selected.
+4. JS: introduce `.item-select` in `buildItemRow`; update `_setRowSelected` to mirror state onto the new element.
+5. JS: introduce `_buildItemRowAriaLabel`; call from `buildItemRow` + `refetchAndPatchLiveState` + `_setRowSelected`.
+6. JS: swap icon `aria-label` → `aria-hidden`.
+7. Contrast audit: write `docs/a11y-audit-B-048.md` sibling of the B-062 audit, populate §31.3's measured numbers.
+8. Run full existing test suite — expect 1–3 B-024 tests to fail on the `::before` removal; update assertions.
+
+**Tests to add in R5 (handoff to [test-engineer]):**
+
+- `tests/b048-state-matrix.test.js` — unit: each state × sub-state combo has the expected `data-*` + `aria-*` shape on the row.
+- `tests/b048-checkbox-aria.test.js` — unit: `.item-select` `role`, `aria-checked`, `tabindex`, `aria-hidden` invariants under every gesture (click, Shift+Click, Ctrl+Click, Ctrl+A, Escape).
+- `tests/b048-aria-label-concat.test.js` — unit: verify AC7 concat order across the core flag combinations (the 32-combo exhaustive sweep is optional — a 10-combo representative set covers the concat-order contract).
+- Regression: `tests/b024-*.test.js` updated to the new assertion surface.
+
+### 31.15 B-048 — Deviations From R2 (Sprint 16 as-built)
+
+*R6 close — reconciles what R2 prescribed in §31.1–§31.14 against what shipped in Sprint 16. Source material: `docs/SPRINT_FINDINGS.md` Sprint 16 B-048 sections, `docs/UAT_B-048.md`, `docs/a11y-audit-B-048.md`, and the shipped diff on `release/v2`.*
+
+**1. `.item-select` child element — no deviation.** §31.5 hybrid Option (d) was delivered exactly as prescribed: `.item-select` inserted once in `buildItemRow` as the first flex child before the favicon (`sidepanel.js:2030`), mirrored in `buildOpenTabRow` (`sidepanel.js:2257`), never inserted/removed during state transitions. CSS reveal via `:hover, :focus-visible, [data-selected="true"]` triad works as designed. Fixed 18px layout slot (14px + 4px gap) prevents reflow.
+
+**2. `_buildItemRowAriaLabel` helper — no deviation.** Single `aria-label` on the row, rebuilt at four canonical call sites. Concat order is `active → live → drifted → audible → selected`, matching §31.6 and the PO concat decision. Call sites:
+
+| Site | `sidepanel.js` line | Context |
+|---|---|---|
+| `buildItemRow` initial render | `:2129` | Saved-item first paint |
+| `buildOpenTabRow` initial render | `:2295`, `:2514` | Open-tab first paint (two code paths) |
+| `refetchAndPatchLiveState` row loop | `:2625` | Live-state patch for saved items |
+| `_setRowSelected` | `:1481`, `:1489` | Selection toggle — saved-item + open-tab branches |
+
+Icons swapped from `aria-label` to `aria-hidden="true"` (`_createAudibleIcon`, `_createDriftedIcon`) so the row-level label is the sole SR announcement. Verified by [security-reviewer] — `setAttribute('aria-label', ...)` is an attribute sink; bookmark titles containing HTML cannot escape.
+
+**3. Deviation: `.item-select` `aria-hidden="true"` (not `"false"`).** §31.5 prescribed `aria-hidden="false"` so the checkbox would be announced directly. R4 [code-reviewer] M-1 correctly flagged this as a double-announcement bug — the row-level `aria-label` already contains `", selected"`, and an un-hidden `role="checkbox"` child would add a second announcement. R4 fix applied `aria-hidden="true"` on `.item-select` (`sidepanel.js:1956`). **Ratify as the correct behavior and update §31.5 guidance:** composite row-level `aria-label` takes precedence; nested state indicators should be `aria-hidden="true"`. The checkbox is a visual affordance only — the row is the sole SR-reachable surface.
+
+**4. R4-fix H-1 — dark-theme checkmark stroke contrast.** §31 specified the `.item-select[aria-checked="true"]` checkmark as a single SVG data-URI with hardcoded `stroke='white'`. In dark theme `--selected-border: #60a5fa`, so white-on-`#60a5fa` ≈ 2.9:1 — below WCAG AA 3:1 non-text threshold. R4 fix duplicated the rule block inside both `[data-theme="dark"]` and `@media (prefers-color-scheme: dark) [data-theme="system"]` scopes, using a freshly-encoded SVG with `stroke='%230a0f1a'` (the URL-encoded `--on-accent` dark value). **Three SVG data URIs now exist** (one light base + two dark overrides) because CSS custom properties cannot interpolate into `url()` data URIs. Accepted trade-off documented in `docs/a11y-audit-B-048.md`. **Future path if duplication becomes a burden:** introduce a `--checkbox-check-color` token and render the checkmark as an inline `<svg>` fill, not a background-image data URI. Not worth the refactor today.
+
+**5. `--active-bg-hover` token — delivered as §31.7 prescribed.** Added to all 4 theme blocks (`:root` light, `[data-theme="dark"]`, `@media (prefers-color-scheme: dark) [data-theme="system"]`, `[data-theme="light"]`). Selector `.item-row[data-active="true"]:hover` consumes it. Contrast audited in `docs/a11y-audit-B-048.md` — title text ≥ 14.70:1, rail ≥ 6.85:1. AC4 (hover visually distinct on active) satisfied.
+
+**6. B-062 pre-seed — accepted.** `--selected-bg`, `--selected-border`, and `--on-accent` tokens were introduced by B-062 in an earlier wave of Sprint 16, pre-seeding B-048's palette. B-048 consumed all three unchanged. WCAG AA audit (audit doc §3, §5, §6) confirms the values hold for B-048's new usages — selected-row text 15.8:1 light / 15.1:1 dark, selected-border against row background ≥ 3:1 non-text in both themes. **Cross-item coordination recorded:** when multiple items land in the same sprint and share palette tokens, the earlier item's R6 close must flag pre-seeded tokens so later items can audit them without re-proposing values. B-062's R6 close ([solution-architect] §X earlier in Sprint 16) should have cited B-048 as the downstream consumer — apply this pattern going forward.
+
+**7. R5 follow-ups flagged by [test-engineer].** Four items, resolved in-doc here so they are not lost:
+
+- **Q-M2 staleness (`_setRowSelected` reads `_itemById` vs `refetchAndPatchLiveState` reads fresh `itemMap`)** — one-frame stale-title window possible on rename. **Decision: accept the self-heal.** Consistent with §29-style "staleness is bounded by broadcast latency" policy — the next `MSG_STATE_CHANGED scope:'items'` broadcast rebuilds the label from fresh state via `refetchAndPatchLiveState`. Documented as header-comment on `_setRowSelected`; do not pass `item` through the selection API.
+
+- **L-2 dead param (`_createItemSelect(false)` second-arg always-false in `buildItemRow`)** — split-signature refactor rejected. **Decision: accept.** The parameter is a load-bearing intent signal for `buildOpenTabRow` and a readable call-site annotation for future callers. Zero runtime cost.
+
+- **Checkmark SVG duplication** — see §31.15 item 4. Accepted as CSS-variable-in-`url()` constraint.
+
+- **B-064 backlog entry** — `.item-url` tertiary-on-non-selected-row contrast (~2.86–3.48:1). `docs/a11y-audit-B-048.md` §5 references B-064 by ID as the tracking anchor. **Action:** [product-manager] files the real `BACKLOG.md` entry at sprint close: "B-064: promote `.item-url` to `--text-secondary` globally — pre-existing AA gap surfaced by B-048 audit." Scope-discipline note: this was correctly held out of B-048 per AC10(d) (palette-global, not state-specific).
+
+**8. Regression quality.** `tests/b048-visual-states.test.js` = 459 base lines + 25 R3 cases + R4/R5 additions. Includes a **32-combo exhaustive `aria-label` sweep** locking the §31.6 concat order across all state flag permutations. R5 added AC4, AC5, AC6, AC8, and AC9 automated coverage (hover-distinct-on-active, focus-visible on every state, hover-reveal+persistent-when-selected, ≤500ms patch budget, zero full re-renders). **B-024 regression surface cleared:** zero B-024 tests referenced `::before`/`item-select`/`aria-checked` on rows, so the `::before` → `.item-select` migration did not false-green any B-024 assertion. **B-055 symmetry:** open-tab rows consume identical `.item-select` + `_buildItemRowAriaLabel` wiring at `:2257` / `:2295` / `:2514` — verified in audit doc.
+
+---

@@ -124,10 +124,11 @@ const GROUP_COLORS = [
   'blue', 'purple', 'teal', 'red', 'orange', 'pink', 'indigo', 'yellow', 'slate',
 ];
 
-const MSG_NAVIGATE_TO_ITEM = 'tj/navigateToItem';
-const MSG_CLOSE_TABS       = 'tj/closeTabs';
-const MSG_DELETE_GROUP     = 'tj/deleteGroup';
-const MSG_UPDATE_GROUP     = 'tj/updateGroup';
+const MSG_NAVIGATE_TO_ITEM  = 'tj/navigateToItem';
+const MSG_CLOSE_TABS        = 'tj/closeTabs';
+const MSG_DELETE_GROUP      = 'tj/deleteGroup';
+const MSG_UPDATE_GROUP      = 'tj/updateGroup';
+const MSG_BULK_UPDATE_ITEMS = 'tj/bulkUpdateItems';
 
 /* =========================================================================
    Reproduced _openGroupContextMenu logic — verbatim from sidepanel.js.
@@ -239,6 +240,34 @@ function openGroupContextMenu(ctx, header, x, y) {
   });
   ctx.contextMenuEl.appendChild(selectBookmarkedBtn);
 
+  /* B-029: Move items out of group — opens the group picker with source
+     excluded. Does NOT mutate _selection. Disabled when group is empty. */
+  const moveOutBtn = new FakeElement('button');
+  moveOutBtn.className = 'context-menu-item';
+  moveOutBtn.setAttribute('role', 'menuitem');
+  moveOutBtn.setAttribute('tabindex', '-1');
+  moveOutBtn.textContent = 'Move items out of group';
+  moveOutBtn.disabled = groupItems.length === 0;
+  moveOutBtn.addEventListener('click', () => {
+    ctx.contextMenuEl.hidden = true;
+    if (groupItems.length === 0) return;
+    const itemIds = groupItems.map((it) => it.id);
+    /* Record the picker open params so tests can assert sourceGroupId + mode. */
+    ctx._pickerOpened = {
+      mode: 'move',
+      sourceGroupId: groupId,
+      itemIds,
+    };
+    /* Caller wires onSelect to dispatch MSG_BULK_UPDATE_ITEMS directly. */
+    ctx._pickerOnSelect = (targetGroupId) => {
+      ctx._dispatched.push({
+        type: MSG_BULK_UPDATE_ITEMS,
+        payload: { ids: itemIds, patch: { groupId: targetGroupId } },
+      });
+    };
+  });
+  ctx.contextMenuEl.appendChild(moveOutBtn);
+
   /* Separator 2 */
   const sep2 = new FakeElement('div');
   sep2.className = 'context-menu-separator';
@@ -326,6 +355,8 @@ function makeCtx({ groups = [], items = [], liveStates = {} } = {}) {
     _dispatched: [],
     _pendingConfirm: null,
     _openedGroupEdit: null,
+    _pickerOpened: null,
+    _pickerOnSelect: null,
     _innerHeight: 600,
     _innerWidth: 400,
   };
@@ -681,7 +712,7 @@ test('B-027 AC-class: "Delete group" carries context-menu-item--destructive clas
   assert.ok(btn && btn.className.includes('context-menu-item--destructive'));
 });
 
-test('B-027 AC-class: "Open all bookmarks", "Select all", "Select open", "Select bookmarked", "Edit group" are non-destructive', () => {
+test('B-027 AC-class: non-destructive items (incl. B-029 "Move items out of group") lack the destructive class', () => {
   const ctx = makeCtx({
     groups: [makeGroup('g1')],
     items: [makeItem('i1', 'g1')],
@@ -690,7 +721,12 @@ test('B-027 AC-class: "Open all bookmarks", "Select all", "Select open", "Select
   openGroupContextMenu(ctx, makeHeader('g1'), 10, 10);
 
   const nonDestructive = [
-    'Open all bookmarks', 'Select all', 'Select open', 'Select bookmarked', 'Edit group',
+    'Open all bookmarks',
+    'Select all',
+    'Select open',
+    'Select bookmarked',
+    'Move items out of group', /* B-029 — move is not data loss */
+    'Edit group',
   ];
   for (const text of nonDestructive) {
     const btn = findMenuItemByText(ctx, text);
@@ -700,6 +736,108 @@ test('B-027 AC-class: "Open all bookmarks", "Select all", "Select open", "Select
       text + ' must NOT have destructive class',
     );
   }
+});
+
+/* =========================================================================
+   B-029 — new "Move items out of group" action
+   ========================================================================= */
+
+test('B-029 group menu: "Move items out of group" is visible for a real group', () => {
+  const ctx = makeCtx({
+    groups: [makeGroup('g1')],
+    items: [makeItem('i1', 'g1')],
+    liveStates: {},
+  });
+  openGroupContextMenu(ctx, makeHeader('g1'), 10, 10);
+
+  const btn = findMenuItemByText(ctx, 'Move items out of group');
+  assert.ok(btn, '"Move items out of group" must be present');
+  assert.ok(!btn.className.includes('context-menu-item--destructive'));
+  assert.equal(btn.disabled, false);
+});
+
+test('B-029 group menu: "Move items out of group" is disabled when group is empty', () => {
+  const ctx = makeCtx({
+    groups: [makeGroup('g1')],
+    items: [], /* empty group */
+    liveStates: {},
+  });
+  openGroupContextMenu(ctx, makeHeader('g1'), 10, 10);
+
+  const btn = findMenuItemByText(ctx, 'Move items out of group');
+  assert.ok(btn);
+  assert.equal(btn.disabled, true, 'must be disabled with 0 items');
+
+  /* Click disabled — should be a no-op. */
+  btn.click();
+  assert.equal(ctx._pickerOpened, null, 'picker must not open on disabled click');
+});
+
+test('B-029 group menu: "Move items out of group" opens picker with sourceGroupId = source group', () => {
+  const ctx = makeCtx({
+    groups: [makeGroup('g1'), makeGroup('g2')],
+    items: [makeItem('i1', 'g1'), makeItem('i2', 'g1')],
+    liveStates: {},
+  });
+  openGroupContextMenu(ctx, makeHeader('g1'), 10, 10);
+
+  const btn = findMenuItemByText(ctx, 'Move items out of group');
+  btn.click();
+
+  assert.ok(ctx._pickerOpened, 'picker must open');
+  assert.equal(ctx._pickerOpened.mode, 'move');
+  assert.equal(ctx._pickerOpened.sourceGroupId, 'g1');
+  assert.deepEqual(ctx._pickerOpened.itemIds.sort(), ['i1', 'i2']);
+});
+
+test('B-029 group menu: onSelect dispatches MSG_BULK_UPDATE_ITEMS with full item set', () => {
+  const ctx = makeCtx({
+    groups: [makeGroup('g1'), makeGroup('g2')],
+    items: [makeItem('i1', 'g1'), makeItem('i2', 'g1'), makeItem('i3', 'g2') /* different group */],
+    liveStates: {},
+  });
+  openGroupContextMenu(ctx, makeHeader('g1'), 10, 10);
+  findMenuItemByText(ctx, 'Move items out of group').click();
+
+  /* Simulate the user picking g2 in the group picker. */
+  ctx._pickerOnSelect('g2');
+
+  const dispatched = ctx._dispatched.filter((d) => d.type === MSG_BULK_UPDATE_ITEMS);
+  assert.equal(dispatched.length, 1);
+  assert.deepEqual(dispatched[0].payload.ids.sort(), ['i1', 'i2']);
+  assert.equal(dispatched[0].payload.patch.groupId, 'g2');
+  assert.ok(!dispatched[0].payload.ids.includes('i3'), 'i3 is in g2 — must not be moved');
+});
+
+test('B-029 group menu: onSelect(null) dispatches move to Ungrouped', () => {
+  const ctx = makeCtx({
+    groups: [makeGroup('g1')],
+    items: [makeItem('i1', 'g1')],
+    liveStates: {},
+  });
+  openGroupContextMenu(ctx, makeHeader('g1'), 10, 10);
+  findMenuItemByText(ctx, 'Move items out of group').click();
+
+  ctx._pickerOnSelect(null);
+
+  const dispatched = ctx._dispatched.find((d) => d.type === MSG_BULK_UPDATE_ITEMS);
+  assert.ok(dispatched);
+  assert.equal(dispatched.payload.patch.groupId, null, 'null === Ungrouped');
+});
+
+test('B-029 group menu: opening the picker does NOT mutate _selection', () => {
+  const ctx = makeCtx({
+    groups: [makeGroup('g1')],
+    items: [makeItem('i1', 'g1'), makeItem('i2', 'g1')],
+    liveStates: {},
+  });
+  ctx._selection.add('item:pre-existing'); /* pre-existing selection */
+  openGroupContextMenu(ctx, makeHeader('g1'), 10, 10);
+  findMenuItemByText(ctx, 'Move items out of group').click();
+  ctx._pickerOnSelect('g1');
+
+  /* §30.4.3: this path must NOT touch _selection. */
+  assert.ok(ctx._selection.has('item:pre-existing'), 'pre-existing selection preserved');
 });
 
 /* =========================================================================
@@ -771,7 +909,7 @@ test('B-027: menu has exactly two separators between action groups', () => {
    AC-structure — full menu structure for a real group
    ========================================================================= */
 
-test('B-027: full menu has exactly 7 menu items', () => {
+test('B-027: full menu has exactly 8 menu items (post-B-029)', () => {
   const ctx = makeCtx({
     groups: [makeGroup('g1')],
     items: [makeItem('i1', 'g1')],
@@ -780,7 +918,7 @@ test('B-027: full menu has exactly 7 menu items', () => {
   openGroupContextMenu(ctx, makeHeader('g1'), 10, 10);
 
   const menuItems = ctx.contextMenuEl.querySelectorAll('[role="menuitem"]');
-  assert.equal(menuItems.length, 7, 'exactly 7 menu items expected');
+  assert.equal(menuItems.length, 8, 'exactly 8 menu items expected (B-029 added "Move items out of group")');
 
   const texts = menuItems.map((n) => n.textContent);
   assert.deepEqual(texts, [
@@ -789,6 +927,7 @@ test('B-027: full menu has exactly 7 menu items', () => {
     'Select all',
     'Select open',
     'Select bookmarked',
+    'Move items out of group',
     'Edit group',
     'Delete group',
   ]);

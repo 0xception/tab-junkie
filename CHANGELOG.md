@@ -2,6 +2,22 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.11.0] — 2026-04-18
+
+### Added
+- Unified group picker for Move-to-group flows: the bulk action bar, the right-click selection menu, and the Open Tabs "Save to group" action now all open the same modal group picker instead of a plain dropdown. The picker lists every group with its color chip, name, saved-item count, and open-tab count; type to filter by name; use Arrow keys, Enter, Escape, and Tab to navigate entirely from the keyboard. If you have no groups yet, the picker shows a "Create group" link that opens the create-group dialog.
+- New "Move items out of group" action in the group header context menu: right-click a named group's header to send every item in that group to Ungrouped in a single step.
+
+### Changed
+- Item row visual states (live, active, drifted, audible, selected) have been redesigned so each state is distinguishable without relying on color alone and meets WCAG AA contrast in both the light and dark themes. Hover and keyboard-focus treatments are now clearly distinct, and a single screen-reader label now describes every row state in a consistent order. The multi-select checkbox is now a real control — it appears on hover and stays visible while an item is selected.
+
+### Fixed
+- Dark-theme primary buttons ("Save bookmark", "Save group", "Save anyway", and similar) now meet WCAG AA contrast. The on-button text color adapts to the theme so dark-mode primary buttons are legible without changing anything in light mode.
+- The Tab Junkie context menus (item row, group header, selection, Open Tabs row) now close automatically when you click outside the side panel — including clicks on the web page, the address bar, another Chrome tab, another window, or another application. Moving the mouse away from the menu does not close it. Dialogs and the filter bar are unaffected.
+
+### Known limitations
+- Item URL text (the second line below each title) still falls slightly below WCAG AA contrast on non-selected rows in some themes. A global contrast sweep is scheduled for the next release.
+
 ## [1.10.0] — 2026-04-18
 
 ### Added
@@ -11,7 +27,7 @@ All notable changes to Tab Junkie are documented in this file.
 - Visual dimming for unsavable Open Tabs rows: tabs with `javascript:` or `data:` URLs now appear dimmed with a "Cannot be saved" tooltip, so you can see at a glance which tabs cannot be bookmarked.
 
 ### Known limitations
-- In the dark theme, the primary-button contrast (including the "Save anyway" button) falls below WCAG AA. A fix is scheduled for the next release.
+- In the dark theme, the primary-button contrast (including the "Save anyway" button) falls below WCAG AA. Fixed in v1.11.0.
 
 ## [1.9.0] — 2026-04-17
 

@@ -4,6 +4,83 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.11.0 — A11y Polish + Group Picker + Visual States (2026-04-18)
+
+**Staged on `release/v2` — pending v2 merge to main. Intended tag: `v1.11.0`.**
+
+**Staging commit**: current HEAD on `release/v2` (Sprint 16 feat commit — see `git log --oneline -1`).
+
+### What's new
+
+**Group picker modal (B-029)**
+- Three ad-hoc native `<select>` pickers (bulk-bar "Move to group", selection context menu, Open Tabs "Save to group") and the B-027 group-header menu all now open a single unified modal picker.
+- The picker lists every group with its color chip, name, saved-item count, and open-tab count. A filter box narrows the list in real time; arrow keys move highlight; Enter confirms; Escape cancels.
+- NEW action on the B-027 group-header context menu: "Move items out of group" — moves every item in the group to a target group in one operation.
+- NEW empty-state on fresh profiles with zero groups: a "Create group" link opens the existing group-create dialog directly from the picker.
+
+**Item visual-state sweep (B-048)**
+- All five row states — live, active, drifted, audible, selected — now have non-color distinction (a grayscale user can tell them apart) and WCAG AA text + non-text contrast in both themes.
+- The selected checkbox is a real DOM element (not a `::before` pseudo). It appears on hover and is persistent when the row is selected. Layout slot is reserved so hover does not cause a reflow.
+- Screen readers announce combined states in a deterministic order: `active → live → drifted → audible → selected` (e.g. "active tab, live tab, tab content has changed, playing audio, selected").
+- New `--active-bg-hover` token gives active rows a distinct hover appearance.
+
+**Dark-theme contrast fix (B-062)**
+- Primary-action buttons (Save bookmark, Save group, Save anyway confirm) now meet WCAG AA 4.5:1 in dark theme. New `--on-accent` token (light `#ffffff` / dark `#0a0f1a`) replaces the hardcoded white text.
+- Also fixed during R4: `.empty-state-cta:hover` and the window filter chip's active/hover states — same class of bug on sibling surfaces.
+
+**Context-menu blur dismiss (B-063)**
+- Any open Tab Junkie context menu automatically dismisses when the user clicks off of the extension (webpage, address bar, other Chrome tab, other browser window, other application).
+- Hover alone does NOT dismiss — you can mouse over the active webpage while the menu stays open.
+- Focus is NOT restored to the trigger row on blur-close (you're interacting with something else — yanking focus back is jarring).
+
+### Known limitations
+
+- **B-064** — `.item-url` tertiary-text contrast on non-selected rows still fails WCAG AA globally (~2.86–3.48:1). B-048 fixed the on-selected-row case; the global sweep is filed as P1/S for Sprint 17.
+
+### Internal
+
+| Item | Files added | Files changed |
+|------|-------------|---------------|
+| B-062 | `docs/a11y-audit-B-062.md` | `sidepanel/sidepanel.css` |
+| B-063 | `tests/b063-blur-close.test.js` (12 cases) | `sidepanel/sidepanel.js` |
+| B-029 | `tests/b029-group-picker.test.js` (60 cases), `docs/UAT_B-029.md` | `sidepanel/sidepanel.html`, `sidepanel/sidepanel.css`, `sidepanel/sidepanel.js`, `tests/b027-group-header-menu.test.js` |
+| B-048 | `tests/b048-visual-states.test.js` (40+ cases), `docs/a11y-audit-B-048.md`, `docs/UAT_B-048.md` | `sidepanel/sidepanel.css`, `sidepanel/sidepanel.js` |
+| R6 close | — | `docs/SOLUTION_DESIGN.md` §30.14 (B-029) + §31.15 (B-048) |
+| R7 docs | `docs/user-manual/accessibility.md` | `CHANGELOG.md`, `STORE_LISTING.md`, `docs/user-manual/managing-items.md`, `docs/user-manual/open-tabs.md` |
+
+- **+116 new automated tests** (605 → 721 total), all passing.
+- **No storage schema change. No manifest permission change. No migration required.**
+- **New message contracts**: none — all 4 items reuse existing handlers.
+- **New tokens**: `--on-accent`, `--selected-bg`, `--selected-border`, `--active-bg-hover`. All colocated in the existing 4 theme blocks.
+
+### Test results
+
+- Automated: **721 / 721 passing** (0 fail, 0 skipped, 0 todo).
+- UAT: `docs/UAT_B-029.md` (16 cases) + `docs/UAT_B-048.md` (14 cases). Fast Track items (B-062, B-063) covered by zero-regressions against the full suite.
+- R4 review rollup: 0 CRITICAL, 4 HIGH (all fixed before R5), 19 MEDIUM (all fixed or consciously deferred), 30 LOW (mostly deferred as nits).
+
+### Rollback
+
+No storage schema change, no permission change, no migration — rollback is a straightforward `git revert`.
+
+```
+# On release/v2:
+git revert HEAD   # reverts Sprint 16 feat commit
+
+# If extension already loaded by users:
+# 1. Unload the extension in edge://extensions
+# 2. Load prior-version zip (tab-junkie v1.10.0)
+# No storage cleanup needed.
+```
+
+**Post-rollback behaviour:**
+- B-029: the ad-hoc `<select>` pickers return. No user data lost.
+- B-048: row visual states revert to Sprint 13 appearance. `.item-select` element disappears (`::before` pseudo-checkmark pattern returns via the reverted CSS).
+- B-062: primary buttons revert to `color: #ffffff`, re-introducing the dark-theme contrast gap.
+- B-063: context menus no longer auto-dismiss on blur.
+
+---
+
 ## v1.10.0 — URL Policy + Menu Polish (2026-04-18)
 
 **Staged on `release/v2` — pending v2 merge to main. Intended tag: `v1.10.0`.**

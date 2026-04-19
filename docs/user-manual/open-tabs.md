@@ -43,7 +43,7 @@ Right-clicking an open-tab row opens a context menu with two actions:
 
 | Action | Description |
 |--------|-------------|
-| Save to group | Save the tab as a bookmark and assign it to a group you choose |
+| Save to group | Save the tab as a bookmark and assign it to a group you choose. Opens the group picker (see [Managing Bookmarks → The group picker](managing-items.md#the-group-picker)) — filter by name, pick with Arrow keys + Enter, or create a new group inline when your list is empty. |
 | Close tab | Close the browser tab immediately. This action is shown in red. |
 
 **Save to group** works for most URL schemes, including `http`, `https`, `file`, `chrome://`, `edge://`, `chrome-extension://`, `about:`, and `view-source:`. Only `javascript:` and `data:` URLs are rejected outright (they are blocked for security reasons).
@@ -61,7 +61,7 @@ Right-clicking an open-tab row opens a context menu with two actions:
 Open-tab rows participate in the same multi-select gestures as saved bookmarks (click, Shift+Click, Ctrl/Cmd+Click, Ctrl/Cmd+A). When a selection that includes open-tab rows is active, the bulk action bar shows only the actions valid for those rows:
 
 - **Close tabs** — available for all open-tab rows
-- **Move to group (Save)** — promotes the selected open tabs to saved bookmarks in a group you choose
+- **Move to group (Save)** — promotes the selected open tabs to saved bookmarks in a group you choose via the group picker
 
 **Remove bookmark** does not appear for open-tab rows because they are not saved items.
 

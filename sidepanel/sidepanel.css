@@ -17,9 +17,11 @@
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
   --accent-subtle: #eff4ff;
+  --on-accent: #ffffff;
   --focus-ring: #2563eb;
   --live-indicator: #16a34a;
   --active-bg: #eff4ff;
+  --active-bg-hover: #e2e8fd;
   --active-border: #2563eb;
   --audible-color: #7c3aed;
   --drifted-color: #d97706;
@@ -48,9 +50,11 @@
   --accent: #60a5fa;
   --accent-hover: #93bbfd;
   --accent-subtle: #1e293b;
+  --on-accent: #0a0f1a;
   --focus-ring: #60a5fa;
   --live-indicator: #4ade80;
   --active-bg: #1e293b;
+  --active-bg-hover: #263147;
   --active-border: #60a5fa;
   --audible-color: #a78bfa;
   --drifted-color: #fbbf24;
@@ -80,9 +84,11 @@
     --accent: #60a5fa;
     --accent-hover: #93bbfd;
     --accent-subtle: #1e293b;
+    --on-accent: #0a0f1a;
     --focus-ring: #60a5fa;
     --live-indicator: #4ade80;
     --active-bg: #1e293b;
+    --active-bg-hover: #263147;
     --active-border: #60a5fa;
     --audible-color: #a78bfa;
     --drifted-color: #fbbf24;
@@ -113,9 +119,11 @@
     --accent: #2563eb;
     --accent-hover: #1d4ed8;
     --accent-subtle: #eff4ff;
+    --on-accent: #ffffff;
     --focus-ring: #2563eb;
     --live-indicator: #16a34a;
     --active-bg: #eff4ff;
+    --active-bg-hover: #e2e8fd;
     --active-border: #2563eb;
     --audible-color: #7c3aed;
     --drifted-color: #d97706;
@@ -255,7 +263,7 @@ html, body {
 
 .empty-state-cta:hover {
   background: var(--accent-hover);
-  color: #ffffff;
+  color: var(--on-accent);
   border-color: var(--accent-hover);
 }
 
@@ -442,6 +450,13 @@ html, body {
   background: var(--active-bg);
   border-left: 3px solid var(--active-border);
   padding-left: 9px;
+}
+
+/* B-048 AC4: hover on an active row must be distinguishable from non-hover.
+   Rule is ordered after `[data-active="true"]` so specificity + source order
+   land on the hover background when both selectors match. */
+.item-row[data-active="true"]:hover {
+  background: var(--active-bg-hover);
 }
 
 .item-row[data-audible="true"] .item-audible-icon {
@@ -709,7 +724,7 @@ html, body {
 
 .dialog-btn--primary {
   background: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
   border-color: var(--accent);
 }
 
@@ -721,6 +736,12 @@ html, body {
 .dialog-btn--primary:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.dialog-btn--primary:focus-visible,
+.dialog-btn--danger[data-variant="primary"]:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .dialog-btn--secondary {
@@ -749,12 +770,118 @@ html, body {
 .dialog-btn--danger[data-variant="primary"] {
   background: var(--accent);
   border-color: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
 }
 
 .dialog-btn--danger[data-variant="primary"]:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
+}
+
+/* --- Group picker modal (B-029) --------------------------------------- */
+
+/* Picker-specific layout overrides on top of .dialog-modal. The picker is
+   taller than the standard confirm/edit modals because it hosts a scrollable
+   listbox; constrain height against the viewport so 100+ groups never push
+   the dialog past the visible area. */
+.group-picker-dialog {
+  max-width: 360px;
+  max-height: 70vh;
+  gap: 10px;
+}
+
+.group-picker-heading {
+  margin: 0;
+}
+
+.group-picker-filter {
+  margin: 0;
+}
+
+.group-picker-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  padding: 4px 0;
+  outline: none;
+}
+
+.group-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  line-height: 1.35;
+  color: var(--text-primary);
+  outline: none;
+  /* row highlight needs a 2px outline without nudging layout */
+  border: 2px solid transparent;
+  border-radius: 4px;
+  margin: 0 4px;
+}
+
+.group-picker-row:hover {
+  background: var(--bg-hover);
+}
+
+.group-picker-row--highlighted {
+  background: var(--accent-subtle);
+  border-color: var(--focus-ring);
+}
+
+.group-picker-row-chip {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border-primary);
+}
+
+.group-picker-row-name {
+  font-size: 13px;
+  font-weight: 500;
+  flex-shrink: 0;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-picker-row-breadcrumb {
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-picker-row-counts {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.group-picker-empty {
+  padding: 24px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.group-picker-empty-message {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 /* --- Group dialog color swatches (B-027) ------------------------------ */
@@ -1075,30 +1202,93 @@ mark {
   background: var(--border-subtle);
 }
 
-/* --- Multi-select (B-024) --------------------------------------------- */
+/* --- Multi-select (B-024 + B-048) ------------------------------------- */
 
+/* B-048 §31.4: swap `outline` → `box-shadow: inset` so the `:focus-visible`
+   ring draws on top of the selection border. Outlines paint above box-shadows
+   by default, so the two layers compose (not compete) — the inset shadow
+   renders beneath the outline with no clipping. */
 .item-row[data-selected="true"] {
   background: var(--selected-bg);
-  outline: 1px solid var(--selected-border);
-  outline-offset: -1px;
+  box-shadow: inset 0 0 0 1px var(--selected-border);
 }
 
 .item-row[data-selected="true"]:hover {
   background: var(--selected-bg);
 }
 
-.item-row[data-selected="true"]::before {
-  content: '';
-  display: block;
+/* B-048 §31.3 note 3: light-theme `--text-tertiary` on `--selected-bg` is 3.4:1
+   — below WCAG AA 4.5:1. Promote `.item-url` to `--text-secondary` on selected
+   rows so the URL text meets AA on top of the selection background. */
+.item-row[data-selected="true"] .item-url {
+  color: var(--text-secondary);
+}
+
+/* B-048 §31.5: `.item-select` — the real checkbox affordance introduced as
+   the first flex child of every `.item-row`. Replaces the old ::before
+   pseudo-element. Layout slot is ALWAYS reserved (flex: 0 0 18px) so
+   hover-reveal never causes reflow (AC6). Default = hidden via visibility. */
+.item-select {
+  /* flex-basis 18px > visual width 14px: the 4px lateral padding keeps the
+     AC6 no-reflow guarantee — adjust flex-basis together with width if
+     either changes. */
+  flex: 0 0 18px;
   width: 14px;
   height: 14px;
-  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  visibility: hidden;
   border-radius: 3px;
   border: 2px solid var(--selected-border);
-  background: var(--selected-border);
+  box-sizing: border-box;
+  background: transparent;
+  pointer-events: none;
+}
+
+/* B-048 Q-M3 (defense-in-depth): the child is `tabindex="-1"` today so this
+   rule is currently unreachable, but if any future code path calls `.focus()`
+   on `.item-select` the OS-default focus ring would paint a low-contrast
+   indicator. Pin the token `--focus-ring` so the affordance matches the rest
+   of the row focus affordances. */
+.item-select:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* Reveal the checkbox on hover, on keyboard focus, or when persistent
+   (selected). The keyboard handler lives on the row; the child is
+   tabindex="-1" (non-tab-stop) — see §31.5 option (d) decision. */
+.item-row:hover .item-select,
+.item-row:focus-visible .item-select,
+.item-row[data-selected="true"] .item-select {
+  visibility: visible;
+}
+
+/* Checked state: filled background + embedded checkmark SVG.
+   Light theme: `--selected-border` = #2563eb; white stroke gives ≈4.8:1 — PASS.
+   Dark theme override is below (H-1): on `#60a5fa` the white stroke is ≈2.9:1,
+   below the WCAG AA 3:1 non-text floor, so we swap to `%230a0f1a` (the dark
+   `--on-accent` token value, URL-encoded) for ≈10.7:1 — AAA. CSS custom
+   properties cannot interpolate into a `url()` data URI, so the override is
+   duplicated across both dark-theme selector forms. */
+.item-select[aria-checked="true"] {
+  background-color: var(--selected-border);
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: center;
+}
+
+/* B-048 H-1: dark-theme checkmark stroke override (forced dark). */
+[data-theme="dark"] .item-select[aria-checked="true"] {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%230a0f1a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* B-048 H-1: dark-theme checkmark stroke override (system-dark). */
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] .item-select[aria-checked="true"] {
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%230a0f1a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
 }
 
 /* When bulk bar is visible, add bottom padding so last items are not occluded */
@@ -1159,37 +1349,6 @@ mark {
 
 #bulk-action-bar .btn-destructive:hover:not(:disabled) {
   background: #fef2f2;
-}
-
-/* --- Bulk move group picker (B-024) ----------------------------------- */
-
-#bulk-move-picker {
-  position: fixed;
-  z-index: 60;
-  min-width: 180px;
-  max-width: 260px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-primary);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
-  padding: 8px;
-}
-
-#bulk-move-picker select {
-  width: 100%;
-  padding: 6px 8px;
-  border: 1px solid var(--border-primary);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 13px;
-  outline: none;
-  appearance: auto;
-}
-
-#bulk-move-picker select:focus {
-  border-color: var(--focus-ring);
-  box-shadow: 0 0 0 2px var(--accent-subtle);
 }
 
 /* --- Open Tabs section (B-055) ---------------------------------------- */
@@ -1319,14 +1478,14 @@ mark {
 
 .window-filter-chip[aria-selected="true"] {
   background: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
   border-color: var(--accent);
 }
 
 .window-filter-chip[aria-selected="true"]:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
-  color: #ffffff;
+  color: var(--on-accent);
 }
 
 /* AC10: empty-state block — matches B-049 pattern. */

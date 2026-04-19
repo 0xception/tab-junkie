@@ -164,6 +164,20 @@
           </div>
         </form>
       </div>
+      <!-- B-029: Group picker modal (move/save to group) -->
+      <div id="group-picker-dialog" class="dialog-modal group-picker-dialog" role="dialog"
+           aria-modal="true" aria-labelledby="group-picker-heading" hidden>
+        <h2 id="group-picker-heading" class="dialog-title group-picker-heading">Move to group</h2>
+        <input id="group-picker-filter" class="dialog-input group-picker-filter"
+               type="search" placeholder="Filter groups..."
+               aria-label="Filter groups" autocomplete="off" spellcheck="false" />
+        <div id="group-picker-list" class="group-picker-list"
+             role="listbox" aria-label="Groups" tabindex="-1"></div>
+        <div id="group-picker-empty" class="group-picker-empty" hidden>
+          <p class="group-picker-empty-message">No groups yet &mdash; create a group first.</p>
+          <button type="button" id="group-picker-create-btn" class="dialog-btn dialog-btn--primary">Create group</button>
+        </div>
+      </div>
     </div>
 
     <!-- Toast for transient errors — hidden by default -->

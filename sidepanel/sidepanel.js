@@ -2,6 +2,7 @@ import {
   MSG_LIST_ITEMS,
   MSG_LIST_GROUPS,
   MSG_GET_PREFERENCES,
+  MSG_CREATE_GROUP,
   MSG_UPDATE_GROUP,
   MSG_DELETE_GROUP,
   MSG_NAVIGATE_TO_ITEM,
@@ -107,6 +108,13 @@ const groupErrorColorEl = document.getElementById('group-error-color');
 const groupErrorDialogEl = document.getElementById('group-error-dialog');
 const groupCancelBtnEl = document.getElementById('group-cancel-btn');
 const groupSubmitBtnEl = document.getElementById('group-submit-btn');
+/* B-029: Group picker modal */
+const groupPickerDialogEl = document.getElementById('group-picker-dialog');
+const groupPickerHeadingEl = document.getElementById('group-picker-heading');
+const groupPickerFilterEl = document.getElementById('group-picker-filter');
+const groupPickerListEl = document.getElementById('group-picker-list');
+const groupPickerEmptyEl = document.getElementById('group-picker-empty');
+const groupPickerCreateBtnEl = document.getElementById('group-picker-create-btn');
 
 /* =========================================================================
    Collapsed groups state (panel-lifetime; persisted via MSG_UPDATE_GROUP)
@@ -379,6 +387,14 @@ function closeDialog() {
   bookmarkDialogEl.hidden = true;
   confirmDialogEl.hidden = true;
   groupDialogEl.hidden = true; /* B-027: ensure group dialog is closed too */
+  /* B-029: ensure the picker is closed too so global Escape never leaves a
+     stray picker behind. Local Escape handling in the picker calls
+     closeGroupPickerDialog() directly; this branch only fires when the global
+     handler wins (edge case: overlay click, etc.). */
+  if (groupPickerDialogEl) {
+    groupPickerDialogEl.hidden = true;
+    _resetGroupPicker();
+  }
   _deactivateFocusTrap();
   _editingItemId = null;
   _editingGroupId = null;
@@ -415,18 +431,25 @@ function _buildGroupColorSwatches(selectedColor) {
   _selectedGroupColor = selectedColor || GROUP_COLORS[0];
 }
 
-/** Open the group edit dialog pre-populated with an existing group's data. */
+/**
+ * Open the group dialog. When `group` is null/undefined, runs in "create" mode
+ * (B-029 H-1): heading becomes "New Group", form starts blank, first palette
+ * color is preselected, and submit dispatches MSG_CREATE_GROUP. Otherwise
+ * edit-mode is preserved (heading "Edit Group", dispatches MSG_UPDATE_GROUP).
+ */
 function openGroupEditDialog(group, { triggerEl = null } = {}) {
   if (!dialogOverlayEl.hidden) return;
-  _editingGroupId = group.id;
+  const isCreate = !group;
+  _editingGroupId = isCreate ? null : group.id;
   _dialogTriggerEl = triggerEl;
   groupFormEl.reset();
-  groupFieldNameEl.value = group.name ?? '';
+  groupFieldNameEl.value = isCreate ? '' : (group.name ?? '');
   groupErrorNameEl.hidden = true;
   groupErrorColorEl.hidden = true;
   groupErrorDialogEl.hidden = true;
-  document.getElementById('group-dialog-heading').textContent = 'Edit Group';
-  _buildGroupColorSwatches(group.color || GROUP_COLORS[0]);
+  document.getElementById('group-dialog-heading').textContent =
+    isCreate ? 'New Group' : 'Edit Group';
+  _buildGroupColorSwatches(isCreate ? GROUP_COLORS[0] : (group.color || GROUP_COLORS[0]));
   bookmarkDialogEl.hidden = true;
   confirmDialogEl.hidden = true;
   groupDialogEl.hidden = false;
@@ -434,6 +457,15 @@ function openGroupEditDialog(group, { triggerEl = null } = {}) {
   dialogOverlayEl.removeAttribute('aria-hidden');
   _activateFocusTrap(groupDialogEl);
   groupFieldNameEl.focus();
+}
+
+/**
+ * B-029 H-1: thin wrapper for create mode. Kept separate from
+ * openGroupEditDialog for call-site clarity — the picker's empty-state CTA
+ * calls this, and future callers should too.
+ */
+function openGroupCreateDialog({ triggerEl = null } = {}) {
+  openGroupEditDialog(null, { triggerEl });
 }
 
 /** Close the group dialog and restore focus. */
@@ -472,7 +504,18 @@ async function _handleGroupFormSubmit(e) {
   }
   groupSubmitBtnEl.disabled = true;
   try {
-    await sendMessage(MSG_UPDATE_GROUP, { id: _editingGroupId, patch: { name, color } });
+    if (_editingGroupId) {
+      await sendMessage(MSG_UPDATE_GROUP, { id: _editingGroupId, patch: { name, color } });
+    } else {
+      /* B-029 H-1: create mode — parentId null (top-level) and sortOrder
+         derived from the current group count so new groups land at the end. */
+      await sendMessage(MSG_CREATE_GROUP, {
+        name,
+        color,
+        parentId: null,
+        sortOrder: _cachedGroups.length,
+      });
+    }
     closeGroupDialog();
   } catch (err) {
     const message = err?.message || 'Something went wrong.';
@@ -562,6 +605,487 @@ function openConfirmDialog(
   dialogOverlayEl.removeAttribute('aria-hidden');
   _activateFocusTrap(confirmDialogEl);
   confirmCancelBtnEl.focus();
+}
+
+/* =========================================================================
+   B-029 — Group picker modal primitive
+   =========================================================================
+   Unified "choose a group" surface replacing four previous inline <select>
+   pickers (bulk bar, selection menu, Open-Tabs menu) plus adding the new
+   B-027 "Move items out of group" action.
+
+   API: openGroupPickerDialog({ mode, sourceGroupId, triggerEl, onSelect })
+     - mode         'move' | 'save'  — drives heading text (AC8)
+     - sourceGroupId string|null     — excluded from list (AC5)
+     - triggerEl    HTMLElement|null — focus-restore target
+     - onSelect     (groupId: string|null) => void — null for "Ungrouped"
+
+   Per §30 the picker is a pure view over already-cached state — no IPC on
+   open, no storage writes, no new message types. All cache reads go through
+   `_cachedGroups`, `_cachedItems`, `_cachedLiveStates`.
+   ========================================================================= */
+
+/* Module-scope picker state. Cleared by _resetGroupPicker on close so a
+   subsequent open starts from a deterministic baseline. */
+let _groupPickerOnSelect = null;
+let _groupPickerHighlightIndex = -1;
+let _groupPickerKeydownHandler = null;
+let _groupPickerOverlayClickHandler = null;
+
+function _resetGroupPicker() {
+  _groupPickerOnSelect = null;
+  _groupPickerHighlightIndex = -1;
+  if (groupPickerListEl) {
+    groupPickerListEl.replaceChildren();
+    /* B-029 code-reviewer M-2: clear aria-activedescendant so a subsequent
+       open starts clean. */
+    groupPickerListEl.setAttribute('aria-activedescendant', '');
+  }
+  if (groupPickerFilterEl) groupPickerFilterEl.value = '';
+  if (groupPickerEmptyEl) groupPickerEmptyEl.hidden = true;
+  if (groupPickerListEl) groupPickerListEl.hidden = false;
+  if (_groupPickerKeydownHandler && groupPickerDialogEl) {
+    groupPickerDialogEl.removeEventListener('keydown', _groupPickerKeydownHandler, true);
+    _groupPickerKeydownHandler = null;
+  }
+  if (_groupPickerOverlayClickHandler && dialogOverlayEl) {
+    dialogOverlayEl.removeEventListener('click', _groupPickerOverlayClickHandler);
+    _groupPickerOverlayClickHandler = null;
+  }
+}
+
+/**
+ * Build the flat row list for the picker. Sort mirrors the existing
+ * `_cachedGroups` sort (sortOrder asc); Ungrouped is pinned first.
+ *
+ * Sub-groups render inline with a "Parent / Child" breadcrumb per AC2.
+ *
+ * @param {string|null} sourceGroupId group id to exclude (AC5)
+ * @returns {Array<{id: string|null, name: string, color: string|null,
+ *           breadcrumb: string, savedCount: number, openCount: number,
+ *           searchKey: string}>}
+ */
+function _buildGroupPickerRows(sourceGroupId) {
+  const sortedGroups = [..._cachedGroups].sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
+  );
+  const groupById = new Map(sortedGroups.map((g) => [g.id, g]));
+
+  /* Single-pass counts per groupId (AC10 — O(n) over items). */
+  const savedByGroup = new Map();
+  const openByGroup = new Map();
+  for (const it of _cachedItems) {
+    const key = it.groupId || '__ungrouped__';
+    savedByGroup.set(key, (savedByGroup.get(key) || 0) + 1);
+    const ls = _cachedLiveStates[it.id];
+    if (ls && ls.live) {
+      openByGroup.set(key, (openByGroup.get(key) || 0) + 1);
+    }
+  }
+
+  const rows = [];
+
+  /* Ungrouped pinned first (AC2). Source exclusion allows '__ungrouped__' as
+     a sentinel — '__ungrouped__' is never a real group id so this is safe. */
+  if (sourceGroupId !== '__ungrouped__') {
+    rows.push({
+      id: null,
+      name: 'Ungrouped',
+      color: null,
+      breadcrumb: '',
+      savedCount: savedByGroup.get('__ungrouped__') || 0,
+      openCount: openByGroup.get('__ungrouped__') || 0,
+      searchKey: 'ungrouped',
+    });
+  }
+
+  for (const g of sortedGroups) {
+    if (g.id === sourceGroupId) continue; /* AC5 */
+    let breadcrumb = '';
+    if (g.parentId) {
+      const parent = groupById.get(g.parentId);
+      if (parent) breadcrumb = parent.name + ' / ' + g.name;
+    }
+    const lowerName = (g.name || '').toLowerCase();
+    const lowerBread = breadcrumb.toLowerCase();
+    rows.push({
+      id: g.id,
+      name: g.name || '',
+      color: g.color || null,
+      breadcrumb,
+      savedCount: savedByGroup.get(g.id) || 0,
+      openCount: openByGroup.get(g.id) || 0,
+      searchKey: breadcrumb ? lowerName + ' ' + lowerBread : lowerName,
+    });
+  }
+
+  return rows;
+}
+
+function _renderGroupPickerRows(rows) {
+  groupPickerListEl.replaceChildren();
+  const frag = document.createDocumentFragment();
+  for (const [idx, row] of rows.entries()) {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'group-picker-row';
+    rowEl.setAttribute('role', 'option');
+    rowEl.setAttribute('tabindex', '-1');
+    rowEl.setAttribute('aria-selected', 'false');
+    /* B-029 code-reviewer M-2: stable id per row so the listbox container can
+       advertise the active option via aria-activedescendant (ARIA 1.2 listbox
+       pattern). Clearing happens in _resetGroupPicker. */
+    rowEl.id = 'group-picker-row-' + idx;
+    rowEl.dataset.groupId = row.id == null ? '' : row.id;
+    rowEl.dataset.index = String(idx);
+    rowEl.dataset.searchKey = row.searchKey;
+
+    const chip = document.createElement('span');
+    chip.className = 'group-picker-row-chip';
+    chip.setAttribute('aria-hidden', 'true');
+    /* B-029 security-reviewer M-1: defense-in-depth — only apply the palette
+       class when the color is in the allowlist. Storage validates on write
+       (background/storage/groups.js), but the render boundary must not trust
+       that guarantee alone. Unknown colors fall back to the neutral chip
+       (transparent + subtle border) that Ungrouped uses. */
+    if (row.color && GROUP_COLORS.includes(row.color)) {
+      chip.classList.add('group-color-' + row.color);
+    }
+    rowEl.appendChild(chip);
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'group-picker-row-name';
+    nameEl.textContent = row.name; /* textContent — never innerHTML */
+    rowEl.appendChild(nameEl);
+
+    const breadEl = document.createElement('span');
+    breadEl.className = 'group-picker-row-breadcrumb';
+    breadEl.textContent = row.breadcrumb; /* textContent — empty for top-level */
+    if (!row.breadcrumb) breadEl.hidden = true;
+    rowEl.appendChild(breadEl);
+
+    const countsEl = document.createElement('span');
+    countsEl.className = 'group-picker-row-counts';
+    countsEl.textContent =
+      row.savedCount + ' saved, ' + row.openCount + ' open';
+    rowEl.appendChild(countsEl);
+
+    rowEl.addEventListener('click', () => {
+      _confirmGroupPickerRow(rowEl);
+    });
+
+    frag.appendChild(rowEl);
+  }
+  groupPickerListEl.appendChild(frag);
+}
+
+function _visibleGroupPickerRows() {
+  return [...groupPickerListEl.querySelectorAll('.group-picker-row')].filter(
+    (r) => !r.hidden,
+  );
+}
+
+function _setGroupPickerHighlight(index) {
+  const visible = _visibleGroupPickerRows();
+  if (visible.length === 0) {
+    _groupPickerHighlightIndex = -1;
+    return;
+  }
+  /* Wrap semantics (AC4). */
+  let next = index;
+  if (next < 0) next = visible.length - 1;
+  if (next >= visible.length) next = 0;
+  _groupPickerHighlightIndex = next;
+
+  for (const row of groupPickerListEl.querySelectorAll('.group-picker-row')) {
+    row.classList.remove('group-picker-row--highlighted');
+    row.setAttribute('aria-selected', 'false');
+  }
+  const active = visible[next];
+  active.classList.add('group-picker-row--highlighted');
+  active.setAttribute('aria-selected', 'true');
+  /* B-029 code-reviewer M-2: advertise the active option on the listbox so
+     screen readers announce highlight changes during keyboard navigation. */
+  if (active.id) {
+    groupPickerListEl.setAttribute('aria-activedescendant', active.id);
+  }
+  /* Keep the highlighted row in view without moving DOM focus out of the
+     filter input (AC4 — typing while list is focused must forward to input). */
+  if (typeof active.scrollIntoView === 'function') {
+    active.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+function _confirmGroupPickerRow(rowEl) {
+  if (!rowEl) return;
+  const raw = rowEl.dataset.groupId;
+  const groupId = raw === '' ? null : raw;
+  const callback = _groupPickerOnSelect;
+  /* Close FIRST so AC7 (B-059 handoff) holds: the picker's DOM must be
+     removed before a subsequent confirm/dialog opens from inside `callback`. */
+  closeGroupPickerDialog();
+  if (typeof callback === 'function') {
+    try {
+      callback(groupId);
+    } catch (err) {
+      /* B-029 L-3: surface a fallback toast if the callback throws
+         synchronously. Async rejections are handled by each caller. */
+      showToast(_translateMoveError(err));
+    }
+  }
+}
+
+function _applyGroupPickerFilter() {
+  const query = (groupPickerFilterEl.value || '').trim().toLowerCase();
+  const rows = groupPickerListEl.querySelectorAll('.group-picker-row');
+  let visibleCount = 0;
+  for (const row of rows) {
+    const key = row.dataset.searchKey || '';
+    const match = !query || key.includes(query);
+    row.hidden = !match;
+    if (match) visibleCount++;
+  }
+  /* Re-highlight first visible row on every filter pass. */
+  if (visibleCount === 0) {
+    _groupPickerHighlightIndex = -1;
+    for (const row of rows) {
+      row.classList.remove('group-picker-row--highlighted');
+      row.setAttribute('aria-selected', 'false');
+    }
+    /* B-029 code-reviewer M-2: clear aria-activedescendant when nothing is
+       highlighted so screen readers don't announce a stale row. */
+    groupPickerListEl.setAttribute('aria-activedescendant', '');
+  } else {
+    _setGroupPickerHighlight(0);
+  }
+}
+
+function _onGroupPickerKeydown(e) {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (_visibleGroupPickerRows().length === 0) return;
+    _setGroupPickerHighlight(_groupPickerHighlightIndex + 1);
+    return;
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (_visibleGroupPickerRows().length === 0) return;
+    _setGroupPickerHighlight(_groupPickerHighlightIndex - 1);
+    return;
+  }
+  if (e.key === 'Enter') {
+    const visible = _visibleGroupPickerRows();
+    if (visible.length === 0 || _groupPickerHighlightIndex < 0) return;
+    e.preventDefault();
+    _confirmGroupPickerRow(visible[_groupPickerHighlightIndex]);
+    return;
+  }
+  if (e.key === 'Escape') {
+    /* Stop propagation so neither the global Escape handler (which would
+       also call closeDialog) nor the B-024 Escape-to-clear-selection branch
+       runs. The local close path is safer — closeDialog() was written for
+       the bookmark/confirm dialogs and has broader side effects. */
+    e.preventDefault();
+    e.stopPropagation();
+    closeGroupPickerDialog();
+    return;
+  }
+  if (e.key === 'Tab') {
+    /* B-029 code-reviewer M-1: proper cycle between filter, list/empty-CTA,
+       and back. When the empty-state is visible the Create-group button
+       participates in the cycle; otherwise it's a 2-stop loop.
+
+       Forward order:  filter -> (list | createBtn) -> filter
+       Backward order: filter -> (createBtn | list) -> filter         */
+    const active = document.activeElement;
+    const emptyVisible = groupPickerEmptyEl && !groupPickerEmptyEl.hidden;
+    const listTarget = emptyVisible && groupPickerCreateBtnEl
+      ? groupPickerCreateBtnEl
+      : groupPickerListEl;
+
+    if (active === groupPickerFilterEl) {
+      e.preventDefault();
+      listTarget.focus();
+      return;
+    }
+    if (active === groupPickerListEl || active === groupPickerCreateBtnEl) {
+      e.preventDefault();
+      groupPickerFilterEl.focus();
+      return;
+    }
+  }
+}
+
+function openGroupPickerDialog({
+  mode = 'move',
+  sourceGroupId = null,
+  triggerEl = null,
+  onSelect,
+} = {}) {
+  if (!groupPickerDialogEl) return;
+  /* INVARIANT: the picker can never open over another dialog — this guard
+     preserves the shared _dialogTriggerEl so the prior dialog's focus-restore
+     target is not clobbered. B-029 qa-reviewer Q-M4. */
+  if (!dialogOverlayEl.hidden) return;
+  if (typeof onSelect !== 'function') return; /* defensive — caller bug */
+
+  _resetGroupPicker();
+  _groupPickerOnSelect = onSelect;
+  _dialogTriggerEl = triggerEl;
+
+  /* AC8: heading mirrors mode. Always write on every open — never trust a
+     stale DOM value from a prior open. */
+  groupPickerHeadingEl.textContent =
+    mode === 'save' ? 'Save to group' : 'Move to group';
+
+  const rows = _buildGroupPickerRows(sourceGroupId);
+
+  if (rows.length === 0) {
+    /* AC9 — empty state. */
+    groupPickerListEl.hidden = true;
+    groupPickerEmptyEl.hidden = false;
+  } else {
+    groupPickerListEl.hidden = false;
+    groupPickerEmptyEl.hidden = true;
+    _renderGroupPickerRows(rows);
+  }
+
+  /* Mount sibling modals inert so Tab cannot reach their inputs, matching
+     the existing focus-trap pattern. */
+  bookmarkDialogEl.hidden = true;
+  confirmDialogEl.hidden = true;
+  groupDialogEl.hidden = true;
+  groupPickerDialogEl.hidden = false;
+  dialogOverlayEl.hidden = false;
+  dialogOverlayEl.removeAttribute('aria-hidden');
+  _activateFocusTrap(groupPickerDialogEl);
+
+  _groupPickerKeydownHandler = _onGroupPickerKeydown;
+  groupPickerDialogEl.addEventListener('keydown', _groupPickerKeydownHandler, true);
+
+  /* Outside-click closes without invoking onSelect (same as Escape). Scoped
+     to the overlay so clicks inside the dialog don't fire. */
+  _groupPickerOverlayClickHandler = (ev) => {
+    if (ev.target === dialogOverlayEl) {
+      closeGroupPickerDialog();
+    }
+  };
+  dialogOverlayEl.addEventListener('click', _groupPickerOverlayClickHandler);
+
+  groupPickerFilterEl.focus();
+  if (rows.length > 0) _setGroupPickerHighlight(0);
+}
+
+/**
+ * B-029 H-2: re-render the picker body from fresh _cachedGroups when a
+ * scope='groups' broadcast arrives while the picker is open. Without this,
+ * confirming a highlighted row that has since been deleted in another window
+ * dispatches MSG_BULK_UPDATE_ITEMS against a ghost target (masked by generic
+ * catches). Filter text and the previously-highlighted group id are preserved
+ * if the group still exists.
+ *
+ * @param {{ sourceGroupId?: string|null }} [opts]
+ */
+function _refreshGroupPickerIfOpen({ sourceGroupId = null } = {}) {
+  if (!groupPickerDialogEl || groupPickerDialogEl.hidden) return;
+  /* Snapshot state we need to preserve across the re-render. */
+  const priorQuery = groupPickerFilterEl ? groupPickerFilterEl.value : '';
+  const priorHighlight = _visibleGroupPickerRows()[_groupPickerHighlightIndex];
+  const priorGroupId = priorHighlight
+    ? (priorHighlight.dataset.groupId === '' ? null : priorHighlight.dataset.groupId)
+    : undefined;
+
+  const rows = _buildGroupPickerRows(sourceGroupId);
+
+  if (rows.length === 0) {
+    groupPickerListEl.hidden = true;
+    groupPickerEmptyEl.hidden = false;
+    _groupPickerHighlightIndex = -1;
+    groupPickerListEl.setAttribute('aria-activedescendant', '');
+    return;
+  }
+  groupPickerListEl.hidden = false;
+  groupPickerEmptyEl.hidden = true;
+  _renderGroupPickerRows(rows);
+
+  /* Re-apply filter text so visibility matches the user's typed query. */
+  if (priorQuery) _applyGroupPickerFilter();
+
+  /* Try to restore the previous highlight by group id; fall back to first
+     visible row. */
+  const visible = _visibleGroupPickerRows();
+  if (visible.length === 0) {
+    _groupPickerHighlightIndex = -1;
+    groupPickerListEl.setAttribute('aria-activedescendant', '');
+    return;
+  }
+  let restoredIdx = 0;
+  if (priorGroupId !== undefined) {
+    const idx = visible.findIndex((r) => {
+      const id = r.dataset.groupId === '' ? null : r.dataset.groupId;
+      return id === priorGroupId;
+    });
+    if (idx >= 0) restoredIdx = idx;
+  }
+  _setGroupPickerHighlight(restoredIdx);
+}
+
+function closeGroupPickerDialog() {
+  if (!groupPickerDialogEl || groupPickerDialogEl.hidden) return;
+  groupPickerDialogEl.hidden = true;
+  dialogOverlayEl.hidden = true;
+  dialogOverlayEl.setAttribute('aria-hidden', 'true');
+  _resetGroupPicker();
+  _deactivateFocusTrap();
+  if (_dialogTriggerEl) {
+    _dialogTriggerEl.focus();
+    _dialogTriggerEl = null;
+  }
+}
+
+/* Filter input: synchronous — no debounce (AC3 perf budget easily met). */
+if (groupPickerFilterEl) {
+  groupPickerFilterEl.addEventListener('input', _applyGroupPickerFilter);
+  /* Forward printable keystrokes from the listbox back to the filter per AC4 */
+  groupPickerFilterEl.addEventListener('keydown', (e) => {
+    /* The Tab/Arrow/Enter/Escape routing lives on the dialog-root handler;
+       this listener exists only to keep filter typing responsive. */
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      /* Defer to dialog-root handler (which preventDefaults); stop the
+         browser from moving the text caret. */
+      e.preventDefault();
+    }
+  });
+}
+
+if (groupPickerListEl) {
+  /* When the list has focus, any printable keystroke should fall through to
+     the filter input so the user can keep typing without explicitly re-focusing
+     it (AC4).
+     B-029 qa-reviewer Q-M1: we also manually append the character to the
+     filter value and trigger `_applyGroupPickerFilter`, because shifting
+     focus on keydown does NOT replay the keystroke to the newly focused
+     element — the first printable key was otherwise lost. */
+  groupPickerListEl.addEventListener('keydown', (e) => {
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      groupPickerFilterEl.focus();
+      groupPickerFilterEl.value = (groupPickerFilterEl.value || '') + e.key;
+      _applyGroupPickerFilter();
+    }
+  });
+}
+
+if (groupPickerCreateBtnEl) {
+  groupPickerCreateBtnEl.addEventListener('click', () => {
+    /* B-029 H-1: AC9 — close the picker, then open the group edit dialog in
+       create mode. The picker's _dialogTriggerEl is preserved through the
+       close path, but we pass the create-btn itself for intuitive focus
+       restore if the user cancels the create dialog. Per §30.9 the picker
+       does NOT auto-reopen after create. */
+    const triggerEl = groupPickerCreateBtnEl;
+    closeGroupPickerDialog();
+    openGroupCreateDialog({ triggerEl });
+  });
 }
 
 async function _handleFormSubmit(e) {
@@ -923,6 +1447,15 @@ function _rowForSelectionKey(key) {
  * B-055 M-4: keep `data-selected` and `aria-selected` in sync on every write.
  * `data-selected` drives CSS; `aria-selected` lets screen readers expose the
  * state programmatically.
+ *
+ * B-048 §31.5: additionally mirror the selection state onto the child
+ * `.item-select` element (`aria-checked="true|false"`) so the Gmail-pattern
+ * composite `role="checkbox"` descendant is announced correctly.
+ *
+ * B-048 §31.6: rebuild the row's `aria-label` at every selection change so
+ * screen readers hear the current state (AC7 concat order). Reads item
+ * metadata from module-level caches — the row's itemId / tabId drives the
+ * lookup.
  */
 function _setRowSelected(row, selected) {
   if (!row) return;
@@ -932,6 +1465,29 @@ function _setRowSelected(row, selected) {
   } else {
     delete row.dataset.selected;
     row.removeAttribute('aria-selected');
+  }
+  const checkbox = row.querySelector('.item-select');
+  if (checkbox) {
+    checkbox.setAttribute('aria-checked', selected ? 'true' : 'false');
+  }
+  /* Rebuild the row's aria-label from the freshest caches. Saved-item rows
+     carry `data-item-id`; Open Tabs rows carry `data-tab-id`. */
+  if (row.dataset.itemId) {
+    const id = row.dataset.itemId;
+    const item = _itemById.get(id);
+    if (item) {
+      const live = _cachedLiveStates?.[id];
+      const drifted = _cachedDriftRecords?.[id];
+      row.setAttribute('aria-label', _buildItemRowAriaLabel(item, live, drifted, selected));
+    }
+  } else if (row.dataset.tabId) {
+    const tabId = Number(row.dataset.tabId);
+    const tab = _cachedOpenTabsById.get(tabId);
+    if (tab) {
+      const openTabItem = { title: tab.title || tab.url || 'Untitled tab' };
+      const openTabLive = { live: true, active: !!tab.active, audible: !!tab.audible };
+      row.setAttribute('aria-label', _buildItemRowAriaLabel(openTabItem, openTabLive, false, selected));
+    }
   }
 }
 
@@ -1084,11 +1640,19 @@ function _selectAll() {
 
 /**
  * Clear all selection state.
- * B-024 H-1: also close any open bulk-move picker so Escape/Clear never leaves an orphan.
  * B-024 H-3: reset the range anchor alongside the selection set.
+ *
+ * B-029 security-reviewer M-3: does NOT touch the group picker here. The
+ * picker is a dialog (not a context menu) and must survive selection-clear
+ * flows — in particular the B-027 "Move items out of group" path opens the
+ * picker without ever mutating _selection, and post-op bulk-move success
+ * paths call _clearSelection() AFTER the picker has already closed itself.
+ * Escape-inside-picker is owned by the picker's own capture-phase keydown
+ * handler, and bulkClearBtn is never reachable while the overlay is shown
+ * (focus-trap). Dropping the closeGroupPickerDialog() call here prevents
+ * a future broadcast-driven _clearSelection() from stealing an open picker.
  */
 function _clearSelection() {
-  _closeBulkMovePicker();
   for (const key of _selection) {
     const row = _rowForSelectionKey(key);
     _setRowSelected(row, false);
@@ -1347,7 +1911,11 @@ function buildGroupSection(group, byGroup, liveStates, driftRecords, isChild) {
 function _createAudibleIcon() {
   const span = document.createElement('span');
   span.className = 'item-audible-icon';
-  span.setAttribute('aria-label', 'Playing audio');
+  /* B-048 AC7: the row-level `aria-label` (built by `_buildItemRowAriaLabel`)
+     is now authoritative for screen-reader state announcements. Per-icon
+     `aria-label` would cause duplicate announcements, so the icon is hidden
+     from AT. */
+  span.setAttribute('aria-hidden', 'true');
   span.innerHTML =
     '<svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 5h2l3-3v10L4 9H2a1 1 0 01-1-1V6a1 1 0 011-1z" fill="currentColor"/><path d="M9.5 4.5a3.5 3.5 0 010 5" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg>';
   return span;
@@ -1356,10 +1924,72 @@ function _createAudibleIcon() {
 function _createDriftedIcon() {
   const span = document.createElement('span');
   span.className = 'item-drifted-icon';
-  span.setAttribute('aria-label', 'Tab has navigated away from its saved URL');
+  /* B-048 AC7: see `_createAudibleIcon` — row-level `aria-label` carries
+     the drift state. Icon is visual-only for AT. */
+  span.setAttribute('aria-hidden', 'true');
   span.innerHTML =
     '<svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1l6 11H1L7 1z" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/><path d="M7 5v3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="7" cy="10" r="0.8" fill="currentColor"/></svg>';
   return span;
+}
+
+/**
+ * B-048 §31.5: Build the `.item-select` checkbox child — the real DOM
+ * affordance that replaces the old `[data-selected="true"]::before`
+ * pseudo-element.
+ *
+ * Contract:
+ *  - `role="checkbox"` with `aria-checked="true|false"` mirrored from
+ *    the row's `data-selected` state by `_setRowSelected` (state owner).
+ *  - `tabindex="-1"` — not a tab-stop; the row's Space/Enter handler
+ *    remains the activation path (B-024, Gmail pattern).
+ *  - `aria-hidden="true"` — the row-level `aria-label` already announces
+ *    ", selected" via `_buildItemRowAriaLabel`, so hiding the child from
+ *    AT prevents double-announcement in browse-mode screen readers
+ *    (fix M-1, matches the Gmail pattern referenced in §31.5).
+ *  - Layout slot is reserved at all times via CSS — hover-reveal never
+ *    triggers reflow (AC6).
+ *
+ * `selected` is passed through at build time so the correct `aria-checked`
+ * lands on first DOM insertion — prevents a sub-frame AT race when a row
+ * is rebuilt for an already-selected item (fix Q-M4).
+ */
+function _createItemSelect(selected) {
+  const span = document.createElement('span');
+  span.className = 'item-select';
+  span.setAttribute('role', 'checkbox');
+  span.setAttribute('aria-checked', selected ? 'true' : 'false');
+  span.setAttribute('tabindex', '-1');
+  span.setAttribute('aria-hidden', 'true');
+  return span;
+}
+
+/**
+ * B-048 §31.6: Build the deterministic screen-reader label for an item row.
+ *
+ * AC7 concat order is fixed: active → live → drifted → audible → selected.
+ * Labels are lowercase; only flags that are true are included. The row's
+ * implicit accessible name (the title) is prepended so screen readers
+ * announce the row as `"<title>, active tab, live tab, ..."`.
+ *
+ * @param {Object} item - saved item with `title` (and optional `url`)
+ * @param {Object|undefined} live - `liveStates[item.id]` (may be undefined)
+ * @param {Object|undefined|null} drifted - `driftRecords[item.id]` (truthy when drifted)
+ * @param {boolean} selected - whether the row is currently in `_selection`
+ * @returns {string}
+ */
+function _buildItemRowAriaLabel(item, live, drifted, selected) {
+  /* M-3: null-item contract owned by the helper — callers no longer need
+     their own guard, and a future call-site that forgets one still gets
+     a well-formed label rather than an error. */
+  if (!item) return 'Untitled';
+  const title = item.title || 'Untitled';
+  const parts = [title];
+  if (live?.active) parts.push('active tab');
+  if (live?.live) parts.push('live tab');
+  if (drifted) parts.push('tab content has changed');
+  if (live?.audible) parts.push('playing audio');
+  if (selected) parts.push('selected');
+  return parts.join(', ');
 }
 
 /* --- Item row ---------------------------------------------------------- */
@@ -1374,6 +2004,10 @@ function buildItemRow(item, liveStates, driftRecords) {
   const live = liveStates?.[item.id];
   const drifted = driftRecords?.[item.id];
 
+  /* B-048 §31.2 note: `buildItemRow` assumes a freshly-constructed <div>
+     (no stale state possible at first paint), so guarded-assign is safe.
+     The symmetric patch path `refetchAndPatchLiveState` uses the proper
+     `if ... else delete` pattern. */
   if (live?.live) row.dataset.live = 'true';
   if (live?.active) row.dataset.active = 'true';
   if (live?.audible) row.dataset.audible = 'true';
@@ -1383,6 +2017,20 @@ function buildItemRow(item, liveStates, driftRecords) {
      item has no live claim. */
   if (live?.live && live?.windowId != null) {
     row.dataset.windowId = String(live.windowId);
+  }
+
+  /* B-048 §31.5: prepend the checkbox affordance BEFORE any other flex child
+     so it occupies the first slot visually. `_setRowSelected` keeps the
+     `aria-checked` mirror in sync on every selection change.
+     Q-M4: mirror the open-tab path — compute `isSelected` at build time so a
+     rebuild for an already-selected item lands the correct attributes on
+     first DOM insertion. `_reapplySelection` still runs after renderAll; it
+     is a no-op when the row was already selected here. */
+  const isSelected = _selection.has('item:' + item.id);
+  row.appendChild(_createItemSelect(isSelected));
+  if (isSelected) {
+    row.dataset.selected = 'true';
+    row.setAttribute('aria-selected', 'true');
   }
 
   /* B-004: favicon from live tab state, letter-avatar fallback */
@@ -1473,6 +2121,12 @@ function buildItemRow(item, liveStates, driftRecords) {
   actions.appendChild(editBtn);
   actions.appendChild(deleteBtn);
   row.appendChild(actions);
+
+  /* B-048 AC7: deterministic screen-reader label per `_buildItemRowAriaLabel`
+     contract. Q-M4: use the computed `isSelected` above so a rebuild for
+     an already-selected item emits the correct ", selected" suffix on
+     first paint without waiting for `_reapplySelection`. */
+  row.setAttribute('aria-label', _buildItemRowAriaLabel(item, live, drifted, isSelected));
 
   return row;
 }
@@ -1590,6 +2244,22 @@ function buildOpenTabRow(tab /* , { multiWindow } */) {
     row.title = 'Cannot be saved \u2014 unsupported URL scheme.';
   }
 
+  /* B-048 §31.5: Open Tabs rows participate in multi-select (B-055 AC12),
+     so they get the same `.item-select` checkbox affordance as saved-item
+     rows. Prepended before the favicon.
+
+     Q-M4: compute `isSelected` from the selection set at build time so the
+     correct `aria-checked` / `data-selected` / `aria-selected` land on
+     first DOM insertion — patchOpenTabsSection re-applies via
+     `_setRowSelected`, but that runs AFTER insertion and creates a
+     sub-frame window where AT sees `aria-checked="false"`. */
+  const isSelected = _selection.has('tab:' + tab.tabId);
+  row.appendChild(_createItemSelect(isSelected));
+  if (isSelected) {
+    row.dataset.selected = 'true';
+    row.setAttribute('aria-selected', 'true');
+  }
+
   row.appendChild(_buildOpenTabFavicon(tab));
 
   const textBlock = document.createElement('div');
@@ -1614,6 +2284,15 @@ function buildOpenTabRow(tab /* , { multiWindow } */) {
   _renderWindowBadge(indicators, tab.windowId, OPEN_TAB_WINDOW_BADGE_CLASS);
   if (tab.audible) indicators.appendChild(_createAudibleIcon());
   if (indicators.children.length > 0) row.appendChild(indicators);
+
+  /* B-048 AC7: Open Tabs rows are always `live` (they ARE the open tabs) and
+     never `drifted` (no saved-URL to drift from). Build the aria-label from
+     the tab shape — `active`/`audible` flow through the same helper.
+     Q-M4: pass `isSelected` (computed above) so the label reflects the
+     selection state at first paint, consistent with `aria-checked`. */
+  const openTabItem = { title: tab.title || tab.url || 'Untitled tab' };
+  const openTabLive = { live: true, active: !!tab.active, audible: !!tab.audible };
+  row.setAttribute('aria-label', _buildItemRowAriaLabel(openTabItem, openTabLive, false, isSelected));
 
   return row;
 }
@@ -1825,6 +2504,14 @@ function _patchOpenTabRow(row, tab /* , { multiWindow } */) {
 
     if (indicators.children.length === 0) indicators.remove();
   }
+
+  /* B-048 AC7: rebuild the open-tab row aria-label so screen readers hear
+     the current state ensemble (active/audible toggles). Tab rows are
+     always live and never drifted — see `buildOpenTabRow` for the shape. */
+  const isSelected = _selection.has('tab:' + tab.tabId);
+  const openTabItem = { title: tab.title || tab.url || 'Untitled tab' };
+  const openTabLive = { live: true, active: !!tab.active, audible: !!tab.audible };
+  row.setAttribute('aria-label', _buildItemRowAriaLabel(openTabItem, openTabLive, false, isSelected));
 }
 
 /* =========================================================================
@@ -1923,6 +2610,21 @@ async function refetchAndPatchLiveState() {
     /* B-014: keep the cross-window badge current on every live-state patch
        — handles tab moves between windows as well as initial badge insertion. */
     _patchItemWindowBadge(row, live);
+
+    /* B-048 AC7/AC8: rebuild the row-level aria-label on every live-state
+       patch so screen readers hear the current state ensemble. Reads the
+       item from `itemMap` (built from this MSG_LIST_ITEMS response) rather
+       than `_itemById` because the cache may lag by one frame. Selection is
+       looked up via `_selection` so the label composes correctly for a row
+       that is both live-state-changed AND currently selected. */
+    const itemForLabel = itemMap.get(id);
+    if (itemForLabel) {
+      const isSelected = _selection.has('item:' + id);
+      row.setAttribute(
+        'aria-label',
+        _buildItemRowAriaLabel(itemForLabel, live, drifted, isSelected)
+      );
+    }
 
     /* B-004: patch favicon / letter-avatar without full rebuild */
     const newFavIconUrl = live?.favIconUrl || null;
@@ -2628,6 +3330,11 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       _refreshPanelWindowId();
       renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
       _applyWindowMapToUI();
+      /* B-029 H-2: rebuild the picker body if a groups-scope broadcast
+         arrived while it was open (e.g. a group was deleted/renamed from
+         another window). Preserves filter text and the highlighted group id
+         if that group still exists. */
+      if (scope === 'groups') _refreshGroupPickerIfOpen();
     }).catch((err) => {
       console.warn('[tab-junkie] broadcast re-fetch failed:', err);
     });
@@ -2807,6 +3514,23 @@ async function _bulkClose() {
 }
 
 /**
+ * B-029 H-3: translate a move/dispatch rejection into a user-visible toast
+ * message. Centralises ERR_SAFE_MODE / ERR_NOT_FOUND handling so all three
+ * picker-driven move paths surface consistent, actionable errors instead of
+ * the generic "Couldn't move bookmarks — try again".
+ *
+ * @param {any} err rejection value from sendMessage (may be a StorageError
+ *   with `.code`, a plain Error, or any other thrown value)
+ * @returns {string} toast text
+ */
+function _translateMoveError(err) {
+  const code = err?.code;
+  if (code === ERR_SAFE_MODE) return 'Read-only mode \u2014 can\u2019t move items';
+  if (code === ERR_NOT_FOUND) return 'Target group no longer exists';
+  return 'Couldn\u2019t complete the move \u2014 try again';
+}
+
+/**
  * B-028: core "Move / Save to group" dispatch — applied to whatever the
  * current selection partitions into. Mixed selections are rejected per
  * §26.6 (the caller should hide the control entirely for mixed selections,
@@ -2899,8 +3623,10 @@ async function _bulkMoveToGroup(groupId) {
     try {
       await sendMessage(MSG_BULK_UPDATE_ITEMS, { ids: itemIds, patch: { groupId } });
       _clearSelection();
-    } catch {
-      showToast('Couldn\u2019t move bookmarks \u2014 try again');
+    } catch (err) {
+      /* B-029 H-3: translate ERR_SAFE_MODE / ERR_NOT_FOUND to specific toasts
+         instead of the generic message. */
+      showToast(_translateMoveError(err));
     }
   }
 }
@@ -2913,94 +3639,21 @@ bulkCloseBtn.addEventListener('click', () => {
   _bulkClose();
 });
 
-/* B-024: Move to group — shows a lightweight group picker popover */
-let _bulkMovePickerEl = null;
-/* B-024 H-2: keep the picker's outside-click handler reachable from
-   _closeBulkMovePicker so every close path (outside click, Escape,
-   change-selection, _clearSelection) unconditionally removes it. */
-let _bulkMovePickerDocClick = null;
-
-function _closeBulkMovePicker() {
-  if (_bulkMovePickerDocClick) {
-    document.removeEventListener('click', _bulkMovePickerDocClick, true);
-    _bulkMovePickerDocClick = null;
-  }
-  if (_bulkMovePickerEl) {
-    _bulkMovePickerEl.remove();
-    _bulkMovePickerEl = null;
-  }
-}
-
+/* B-024 + B-029: Move to group — opens the unified group picker modal.
+   Caller 1 per §30.4. Mode toggles to 'save' when the selection is pure-tabs
+   (matches the existing bulkMoveBtn label toggle at ~L1023). */
 bulkMoveBtn.addEventListener('click', () => {
-  /* Toggle: if picker already open, close it */
-  if (_bulkMovePickerEl) {
-    _closeBulkMovePicker();
-    return;
-  }
-
-  const picker = document.createElement('div');
-  picker.id = 'bulk-move-picker';
-
-  const select = document.createElement('select');
-  select.setAttribute('aria-label', 'Select target group');
-
-  /* Ungrouped option */
-  const ungroupedOpt = document.createElement('option');
-  ungroupedOpt.value = '';
-  ungroupedOpt.textContent = 'Ungrouped';
-  select.appendChild(ungroupedOpt);
-
-  /* B-026 H-2: read from in-memory _cachedGroups instead of re-fetching via IPC.
-     _cachedGroups stays fresh via MSG_STATE_CHANGED broadcasts. */
-  const sorted = [..._cachedGroups].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-  for (const group of sorted) {
-    const opt = document.createElement('option');
-    opt.value = group.id;
-    opt.textContent = group.name;
-    select.appendChild(opt);
-  }
-
-  select.addEventListener('change', () => {
-    const groupId = select.value || null;
-    _closeBulkMovePicker();
-    _bulkMoveToGroup(groupId);
-  });
-
-  /* B-024 H-2: Escape on the picker closes it without bubbling up to the
-     global Escape handler (which would also wipe the selection). */
-  select.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') {
-      ev.preventDefault();
-      ev.stopPropagation();
-      _closeBulkMovePicker();
-      bulkMoveBtn.focus();
-    }
-  });
-
-  picker.appendChild(select);
-
-  /* Position above the Move button */
-  const btnRect = bulkMoveBtn.getBoundingClientRect();
-  picker.style.bottom = (window.innerHeight - btnRect.top + 4) + 'px';
-  picker.style.left = btnRect.left + 'px';
-
-  document.body.appendChild(picker);
-  _bulkMovePickerEl = picker;
-  select.focus();
-
-  /* Close picker when clicking outside. Reference is stored module-side so
-     _closeBulkMovePicker() always removes the listener — regardless of which
-     path triggers the close (B-024 H-2). */
-  _bulkMovePickerDocClick = (ev) => {
-    if (!picker.contains(ev.target) && ev.target !== bulkMoveBtn) {
-      _closeBulkMovePicker();
-    }
-  };
-  /* Delay attaching to avoid the current click from closing it */
-  requestAnimationFrame(() => {
-    if (_bulkMovePickerDocClick) {
-      document.addEventListener('click', _bulkMovePickerDocClick, true);
-    }
+  const { itemIds, tabIds } = _partitionSelection();
+  /* Mixed selections already hide the button via _updateBulkBar; guard defensively. */
+  if (itemIds.length === 0 && tabIds.length === 0) return;
+  const onlyTabs = tabIds.length > 0 && itemIds.length === 0;
+  openGroupPickerDialog({
+    mode: onlyTabs ? 'save' : 'move',
+    sourceGroupId: null, /* selection can span groups — AC5 no-op */
+    triggerEl: bulkMoveBtn,
+    onSelect: (groupId) => {
+      _bulkMoveToGroup(groupId);
+    },
   });
 });
 
@@ -3162,6 +3815,38 @@ function _openGroupContextMenu(header, x, y) {
   });
   contextMenuEl.appendChild(selectBookmarkedBtn);
 
+  /* 6. B-029: Move items out of group — opens the group picker with the
+     source group excluded (AC5). Non-destructive; does not mutate _selection
+     (§30.4.3) — we dispatch MSG_BULK_UPDATE_ITEMS directly with the full
+     item set, bypassing _bulkMoveToGroup entirely. */
+  const moveOutBtn = document.createElement('button');
+  moveOutBtn.className = 'context-menu-item';
+  moveOutBtn.setAttribute('role', 'menuitem');
+  moveOutBtn.setAttribute('tabindex', '-1');
+  moveOutBtn.textContent = 'Move items out of group';
+  moveOutBtn.disabled = groupItems.length === 0;
+  moveOutBtn.addEventListener('click', () => {
+    closeContextMenu();
+    if (groupItems.length === 0) return; /* defensive — disabled branch */
+    const itemIds = groupItems.map((it) => it.id);
+    openGroupPickerDialog({
+      mode: 'move',
+      sourceGroupId: groupId, /* AC5: exclude source */
+      triggerEl: header,
+      onSelect: (targetGroupId) => {
+        sendMessage(MSG_BULK_UPDATE_ITEMS, {
+          ids: itemIds,
+          patch: { groupId: targetGroupId },
+        }).catch((err) => {
+          /* B-029 H-3: translate ERR_SAFE_MODE / ERR_NOT_FOUND consistently
+             with the other picker callers. */
+          showToast(_translateMoveError(err));
+        });
+      },
+    });
+  });
+  contextMenuEl.appendChild(moveOutBtn);
+
   /* Separator before edit/delete group actions. */
   const sep2 = document.createElement('div');
   sep2.className = 'context-menu-separator';
@@ -3254,36 +3939,28 @@ function _openSelectionContextMenu(row, x, y) {
   heading.textContent = count + ' selected';
   contextMenuEl.appendChild(heading);
 
-  /* Move to group / Save to group — hidden for mixed selections per §26.6. */
+  /* Move to group / Save to group — hidden for mixed selections per §26.6.
+     B-029: replaces the inline <select> with a button that opens the unified
+     group picker modal. Click closes the context menu synchronously before
+     opening the picker (§30.4.1). */
   if (!mixed) {
-    const moveLabel = document.createElement('span');
-    moveLabel.className = 'context-menu-label';
-    moveLabel.textContent = onlyTabs ? 'Save to group' : 'Move to group';
-    contextMenuEl.appendChild(moveLabel);
-
-    const moveSelect = document.createElement('select');
-    moveSelect.className = 'context-menu-select';
-    moveSelect.setAttribute('aria-label', onlyTabs ? 'Save to group' : 'Move to group');
-
-    const ungroupedOpt = document.createElement('option');
-    ungroupedOpt.value = '';
-    ungroupedOpt.textContent = 'Ungrouped';
-    moveSelect.appendChild(ungroupedOpt);
-
-    const sorted = [..._cachedGroups].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-    for (const group of sorted) {
-      const opt = document.createElement('option');
-      opt.value = group.id;
-      opt.textContent = group.name;
-      moveSelect.appendChild(opt);
-    }
-
-    moveSelect.addEventListener('change', () => {
-      const groupId = moveSelect.value || null;
+    const moveBtn = document.createElement('button');
+    moveBtn.className = 'context-menu-item';
+    moveBtn.setAttribute('role', 'menuitem');
+    moveBtn.setAttribute('tabindex', '-1');
+    moveBtn.textContent = onlyTabs ? 'Save to group' : 'Move to group';
+    moveBtn.addEventListener('click', () => {
       closeContextMenu();
-      _bulkMoveToGroup(groupId);
+      openGroupPickerDialog({
+        mode: onlyTabs ? 'save' : 'move',
+        sourceGroupId: null,
+        triggerEl: row,
+        onSelect: (groupId) => {
+          _bulkMoveToGroup(groupId);
+        },
+      });
     });
-    contextMenuEl.appendChild(moveSelect);
+    contextMenuEl.appendChild(moveBtn);
   }
 
   /* Close tabs — enabled when at least one live target exists. Destructive. */
@@ -3357,81 +4034,69 @@ function _openOpenTabContextMenu(row, x, y) {
 
   contextMenuEl.replaceChildren();
 
-  /* "Save to group" — opens an inline group picker (B-029 full modal deferred). */
-  const saveLabel = document.createElement('span');
-  saveLabel.className = 'context-menu-label';
-  saveLabel.textContent = 'Save to group';
-  contextMenuEl.appendChild(saveLabel);
-
-  const saveSelect = document.createElement('select');
-  saveSelect.className = 'context-menu-select';
-  saveSelect.setAttribute('aria-label', 'Save to group');
-
-  const ungroupedOpt = document.createElement('option');
-  ungroupedOpt.value = '';
-  ungroupedOpt.textContent = 'Ungrouped';
-  saveSelect.appendChild(ungroupedOpt);
-
-  const sorted = [..._cachedGroups].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-  for (const group of sorted) {
-    const opt = document.createElement('option');
-    opt.value = group.id;
-    opt.textContent = group.name;
-    saveSelect.appendChild(opt);
-  }
-
-  saveSelect.addEventListener('change', () => {
-    const groupId = saveSelect.value || null;
-    const tab = _cachedOpenTabsById.get(tabId);
-    /* B-059: pre-dispatch duplicate detection against _cachedItems. */
-    const existing = tab ? _findDuplicateSavedItem(tab.url || '') : null;
-
-    /* B-055 H-5: close menu synchronously; the dialog (if shown) is a separate
-       modal and should not race the menu's focus handling. */
+  /* B-029: "Save to group" opens the unified group picker modal. The picker
+     itself is duplicate-agnostic (§30.4.2) — onSelect runs the existing
+     B-059 soft-warn flow, and the duplicate-warn confirm is only opened
+     AFTER the picker has fully closed (AC7 handoff contract). */
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'context-menu-item';
+  saveBtn.setAttribute('role', 'menuitem');
+  saveBtn.setAttribute('tabindex', '-1');
+  saveBtn.textContent = 'Save to group';
+  saveBtn.addEventListener('click', () => {
+    /* §30.4.1: close context menu synchronously before opening the picker. */
     closeContextMenu();
+    openGroupPickerDialog({
+      mode: 'save',
+      sourceGroupId: null, /* open tab has no current group */
+      triggerEl: row,
+      onSelect: (groupId) => {
+        const tab = _cachedOpenTabsById.get(tabId);
+        /* B-059: pre-dispatch duplicate detection against _cachedItems. */
+        const existing = tab ? _findDuplicateSavedItem(tab.url || '') : null;
 
-    const dispatchSave = () => {
-      sendMessage(MSG_PROMOTE_TAB, { tabId, groupId }).catch((err) => {
-        const code = err?.code;
-        /* B-055 H-4 fix: compare against imported error constants instead of
-           string literals so a rename of the constant surfaces at import time.
-           B-059: ERR_DUPLICATE_URL is unreachable in steady state but remains a
-           correct fall-through during a deploy window where a stale SW might
-           still throw it. */
-        if (code === ERR_SAFE_MODE) {
-          showToast('Cannot save while in safe mode');
-        } else if (code === ERR_DUPLICATE_URL) {
-          showToast('A bookmark with this URL already exists');
-        } else if (code === ERR_VALIDATION) {
-          showToast(err?.message || 'Cannot save this tab');
-        } else {
-          showToast('Couldn\u2019t save tab \u2014 try again');
+        const dispatchSave = () => {
+          sendMessage(MSG_PROMOTE_TAB, { tabId, groupId }).catch((err) => {
+            const code = err?.code;
+            /* B-055 H-4: compare against imported error constants so a rename
+               surfaces at import time. B-059: ERR_DUPLICATE_URL is unreachable
+               in steady state but remains as a deploy-window fall-through. */
+            if (code === ERR_SAFE_MODE) {
+              showToast('Cannot save while in safe mode');
+            } else if (code === ERR_DUPLICATE_URL) {
+              showToast('A bookmark with this URL already exists');
+            } else if (code === ERR_VALIDATION) {
+              showToast(err?.message || 'Cannot save this tab');
+            } else {
+              showToast('Couldn\u2019t save tab \u2014 try again');
+            }
+          });
+        };
+
+        if (!existing) {
+          dispatchSave();
+          return;
         }
-      });
-    };
 
-    if (!existing) {
-      dispatchSave();
-      return;
-    }
-
-    /* B-059: soft-warn confirm. Pass `row` as triggerEl so focus restores to
-       the Open-Tabs row (not to the now-closed context menu's phantom target). */
-    openConfirmDialog(
-      { title: tab?.title || tab?.url || 'this tab' },
-      dispatchSave,
-      {
-        heading: 'URL already saved',
-        body:
-          'This URL is already saved as "' + existing.title + '" in ' +
-          _groupLabelForItem(existing) + '. Save another copy?',
-        confirmLabel: 'Save anyway',
-        variant: 'primary',
-        triggerEl: row,
+        /* B-059: soft-warn confirm. Pass `row` as triggerEl so focus restores
+           to the Open-Tabs row after the confirm closes. */
+        openConfirmDialog(
+          { title: tab?.title || tab?.url || 'this tab' },
+          dispatchSave,
+          {
+            heading: 'URL already saved',
+            body:
+              'This URL is already saved as "' + existing.title + '" in ' +
+              _groupLabelForItem(existing) + '. Save another copy?',
+            confirmLabel: 'Save anyway',
+            variant: 'primary',
+            triggerEl: row,
+          },
+        );
       },
-    );
+    });
   });
-  contextMenuEl.appendChild(saveSelect);
+  contextMenuEl.appendChild(saveBtn);
 
   /* Separator before destructive action */
   const sep = document.createElement('div');
@@ -3698,6 +4363,34 @@ contextMenuEl.addEventListener('keydown', (e) => {
 /* Context menu: close on scroll of item list */
 itemListEl.addEventListener('scroll', () => {
   if (!contextMenuEl.hidden) closeContextMenu();
+});
+
+/* B-063: close any open context menu when the side panel loses focus
+ * (click-off, Cmd/Alt-Tab, tab switch, window switch, minimize).
+ *
+ * AC3: the existing closeContextMenu() restores focus to the trigger row.
+ * On a blur-close the user's focus is already elsewhere, so we null the
+ * trigger BEFORE the close so the focus-restoration branch no-ops.
+ *
+ * AC5/AC6: this handler only touches the context menu. Dialogs, the filter
+ * input, and _selection are intentionally left untouched.
+ *
+ * AC7: the early return in closeContextMenu() (via `contextMenuEl.hidden`)
+ * makes this idempotent; we still guard here to skip the null-assignment
+ * when nothing is open.
+ *
+ * AC8: broadcast-close paths call closeContextMenu() directly with the
+ * trigger row still set — they keep the focus-restoring behavior.
+ *
+ * Native <select> risk: clicking a <select> inside the menu ("Move to
+ * group" / "Save to group") opens a chrome-level dropdown. On Edge the
+ * panel retains focus across that interaction, so a bare window.blur
+ * listener does NOT prematurely close the menu. No mitigation applied.
+ */
+window.addEventListener('blur', () => {
+  if (contextMenuEl.hidden) return;
+  _contextMenuTriggerRow = null;
+  closeContextMenu();
 });
 
 /* =========================================================================

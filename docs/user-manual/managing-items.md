@@ -26,7 +26,7 @@ Double-clicking navigates to an item even when a selection is active.
 
 Once one or more items are selected, a bar appears at the bottom of the panel showing how many items are selected and offering the following actions:
 
-- **Move to group** — opens a group picker so you can reassign all selected items at once.
+- **Move to group** — opens the group picker (see [The group picker](#the-group-picker) below) so you can reassign all selected items at once.
 - **Close tabs** — closes the browser tabs for every selected item that is currently open. Items that are not open are unaffected.
 - **Remove** — removes the saved entry for each selected item. For items whose tab is open, the tab remains open but the bookmark is deleted. For items whose tab is closed, the bookmark is deleted entirely. A confirmation dialog ("Remove N items?") appears before anything is deleted.
 - **Clear** — deselects everything without taking any other action.
@@ -45,7 +45,7 @@ Right-clicking any bookmark row (with no multi-item selection active) opens a co
 |--------|-------------|
 | Navigate | Switch to the item's open tab, or open a new tab if it is not currently open |
 | Edit | Open the edit dialog to change the item's title, URL, or group |
-| Move to group | Reassign the item to a different group via the group picker |
+| Move to group | Reassign the item to a different group via the [group picker](#the-group-picker) |
 | Close tab | Close the browser tab for this item. Only available when the item's tab is currently open. |
 | Delete | Remove the bookmark permanently. This action is shown in red to indicate it is destructive. |
 
@@ -55,7 +55,7 @@ When two or more items are selected, right-clicking any selected row opens the s
 
 | Action | Description |
 |--------|-------------|
-| Move to group | Reassign all selected items to a different group |
+| Move to group | Reassign all selected items to a different group via the [group picker](#the-group-picker) |
 | Close tabs | Close the browser tabs for every selected item that is currently open |
 | Remove | Delete the saved entries for all selected items (with confirmation) |
 
@@ -70,14 +70,38 @@ Right-clicking a named group's header opens a menu that acts on the group as a w
 | Select all | Select every item in the group |
 | Select open | Select only the items in the group whose tabs are currently open |
 | Select bookmarked | Select only the items in the group that have no open tab |
+| Move items out of group | Send every item in the group to Ungrouped in one step. The group itself is kept. |
 | Edit group | Open the edit dialog to rename the group or change its color |
 | Delete group | Delete the group. Items in the group move to Ungrouped. A confirmation is required. |
 
 The **Ungrouped** header is a virtual section, not a real group, so right-clicking it shows the browser's native context menu instead.
 
-**Closing any menu:** press Escape or click anywhere outside the menu.
+**Closing any menu:** press Escape, click anywhere outside the menu, or click outside the side panel entirely (for example, on the web page, the address bar, or another Chrome tab). The menu dismisses itself in all of these cases. Moving the mouse away without clicking does not close it.
 
 The menu automatically adjusts its position so it never renders partially off-screen, even near the edges of the panel.
+
+---
+
+## The group picker
+
+Every **Move to group** action — from the bulk action bar, the single-item and selection context menus, and the Open Tabs **Save to group** action — opens the same modal picker.
+
+The picker shows:
+
+- A filter box (focused automatically) — type part of a group name to narrow the list.
+- One row per group, showing the group's color chip, name, saved-item count, and open-tab count.
+- **Create group** link — shown at the top of an otherwise empty list when no groups exist yet. Selecting it opens the group-create dialog so you can add a group without leaving the picker flow.
+
+Keyboard shortcuts inside the picker:
+
+| Key | Effect |
+|-----|--------|
+| Arrow Up / Down | Move the highlight between groups in the list |
+| Enter | Confirm the highlighted group and run the move |
+| Escape | Close the picker without moving anything |
+| Tab / Shift+Tab | Cycle focus between the filter, the list, and the close control |
+
+While the picker is open, focus stays inside it — pressing Tab will not land outside the modal. Closing the picker with Escape or the close control leaves your selection unchanged.
 
 ---
 
