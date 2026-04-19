@@ -23,21 +23,13 @@
 
 ## Active Items
 
-### [B-067] Flip export sanitizers to §32.5 allow-list
+### [B-066] Remaining `--text-tertiary` a11y sweep
 - **Tier**: Fast Track (S)
 - **Status**: R3 (in progress)
 - **Assigned To**: [frontend-engineer]
-- **Blockers**: None (B-068 Wave 0 merged as `e8c2c25` on `release/v2`)
-- **Feature Context**: Replace the deny-list strip (`ITEM_RUNTIME_FIELDS` / `GROUP_RUNTIME_FIELDS`) in `background/export/{html,json}-export.js` with an explicit allow-list. Allow-list values are defined inline in the BACKLOG.md B-067 ACs; post-split authoritative chapter is `docs/design/32-b-042-b-043-collection-export.md` §32.5. Locks the B-045 import contract semantically.
-- **Handoff Notes**: R1 was pre-approved (skipped per product owner 2026-04-19 — ACs already comprehensive in BACKLOG.md). R2 skipped (Fast Track). R3 in flight on `feature/B-067-sanitizer-allowlist`. Flip the B-043 `sec-S-1: favIconUrl camelCase pass-through` pinned test to assert EXCLUSION after the flip. Must land BEFORE B-045 R3 per AC8.
-
-### [B-066] Remaining `--text-tertiary` a11y sweep
-- **Tier**: Fast Track (S)
-- **Status**: R1 (pending)
-- **Assigned To**: [product-manager]
 - **Blockers**: None
-- **Feature Context**: Fix 5 remaining `--text-tertiary` consumers flagged by `docs/a11y-audit-B-064.md §7`: `.group-drag-handle` (non-text), `#filter-empty-state`, `.group-items-empty`, `.context-menu-label`, `.open-tabs-empty`.
-- **Handoff Notes**: Publish `docs/a11y-audit-B-066.md` mirroring B-064's structure.
+- **Feature Context**: Fix 5 remaining `--text-tertiary` consumers flagged by `docs/a11y-audit-B-064.md §7`: `.group-drag-handle` (non-text, dark hover 2.86:1 vs 3.0:1 floor), `#filter-empty-state`, `.group-items-empty`, `.context-menu-label`, `.open-tabs-empty` (all body text below 4.5:1 AA). CSS-only fix expected.
+- **Handoff Notes**: R1 was pre-approved (skipped per product owner 2026-04-19 — 8 ACs + 8 UAT cases already comprehensive in BACKLOG.md). R2 skipped (Fast Track). R3 in flight on `feature/B-066-text-tertiary-sweep`. Recommended: Option A — promote the 5 offending selectors to `var(--text-secondary)` (mirrors B-064, minimal blast radius). Publish `docs/a11y-audit-B-066.md` using B-064's structure. Test suite baseline is 807/807 after B-067 merge.
 
 ### [B-044] Import HTML (Netscape bookmarks)
 - **Tier**: Full (M)
@@ -58,6 +50,14 @@
 ---
 
 ## Completed This Sprint
+
+### [B-067] Flip export sanitizers to §32.5 allow-list — DONE (Wave 1)
+- **Tier**: Fast Track (S)
+- **Merged**: `2e4e507` on `release/v2` (PR #14, 2026-04-19)
+- **Files Changed**: `background/export/json-export.js` (deny-list → allow-list; dead constants deleted), `tests/b043-json-export.test.js` (`sec-S-1` + B-043 `AC4` flipped to EXCLUSION, new B-067 AC4 runtime-field coverage test). `background/export/html-export.js` untouched (already named-field access per AC3).
+- **R4**: [code-reviewer] PASS (5 LOW, all deferrable), [security-reviewer] PASS (zero findings, allow-list verified true not disguised deny-list per Sprint 17 retro C-7)
+- **Test suite**: 806 → 807 (1 net added, 0 removed, 0 skipped). `./build.sh` clean.
+- **Contract preservation**: B-042 + B-043 byte-identical on valid §32.5 inputs (AC10). `preferences` pass-through preserved (AC7).
 
 ### [B-068] Split SOLUTION_DESIGN + SPRINT_FINDINGS into per-chapter / per-sprint files — DONE (Wave 0)
 - **Tier**: Fast Track (S)

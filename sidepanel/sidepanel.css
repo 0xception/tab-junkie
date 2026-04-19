@@ -378,7 +378,7 @@ html, body {
   width: 24px;
   height: 24px;
   margin-right: 4px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   cursor: grab;
   border-radius: 4px;
   transition: color 0.15s, background-color 0.15s;
@@ -982,7 +982,7 @@ html, body {
   justify-content: center;
   padding: 48px 24px;
   text-align: center;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
@@ -1057,7 +1057,7 @@ mark {
   justify-content: center;
   gap: 8px;
   padding: 16px 12px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
@@ -1192,7 +1192,7 @@ mark {
   padding: 5px 12px 2px;
   font-size: 11px;
   font-weight: 500;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   pointer-events: none;
 }
 
@@ -1495,7 +1495,7 @@ mark {
   justify-content: center;
   gap: 8px;
   padding: 16px 12px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-size: 12px;
   text-align: center;
 }
