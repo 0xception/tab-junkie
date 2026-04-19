@@ -540,3 +540,64 @@ None in this sprint — all fixes were R4-discovered. UAT-9 (dark-theme primary-
 **To Improve:** R2 selector accuracy — §29.4.4 named `.confirm-btn` when the actual class is `.dialog-btn--danger`. Pre-existing token debt (`--accent` dark contrast) surfaces late — invisible until B-059 became the first non-destructive confirm-dialog caller. T-7 wrapper-vs-real-dispatcher gap — first test passed while production handler could still have thrown.
 
 **Action Items:** (1) [solution-architect] R2 process: grep every CSS selector mentioned in designs against actual markup before R3 handoff. (2) Promoting a theme token to a new surface should trigger a proactive contrast check — add to R2 Correctness Checklist. (3) [test-engineer] R5 rule: handler-contract tests MUST dispatch via `chrome.runtime.onMessage._listeners`, not local shims. Document in testing standards.
+
+---
+
+## Sprint 16 — A11y Polish + Group Picker + Visual States (2026-04-18)
+
+**Theme:** Visual-polish + a11y debt paydown — WCAG AA contrast on primary buttons, unified group picker modal, visual-state sweep on item rows, and a small context-menu UX fix.
+**Release:** v1.11.0 · Commit `<HEAD>` on `release/v2` (tag `v1.11.0` staged, pending v2→main merge)
+**Tests:** 605 → 721 (+116 across all 4 items)
+**SOLUTION_DESIGN.md:** §30 added (B-029 R2) + §30.14 (R6 close); §31 added (B-048 R2) + §31.15 (R6 close). ~950 lines combined.
+
+### Completed Items
+
+| ID | Title | Tier | UAT | New Tests |
+|----|-------|------|-----|-----------|
+| B-062 | Dark-theme primary-button contrast audit (WCAG AA) | Fast Track (S) | Regression suite PASS | implicit via existing suite |
+| B-063 | Close open context menu on side-panel blur | Fast Track (S) | Regression suite PASS | b063-blur-close.test.js (12 cases) |
+| B-029 | Group picker modal for move-to-group (+ B-027 Move-out action) | Full (M) | `docs/UAT_B-029.md` 16-case plan; interactive UAT deferred to user | b029-group-picker.test.js (60 cases) + b027 updates |
+| B-048 | Item visual states (live / active / drifted / audible / selected) | Full (M) | `docs/UAT_B-048.md` 14-case plan | b048-visual-states.test.js (40+ cases) |
+
+### Files Changed
+
+- `sidepanel/sidepanel.css` — new tokens `--on-accent`, `--selected-bg`, `--selected-border`, `--active-bg-hover` across all 4 theme blocks; `.dialog-btn--primary` + `.dialog-btn--danger[data-variant="primary"]` + `.empty-state-cta:hover` + window filter chip switched to `--on-accent`; dark-theme `.item-select[aria-checked="true"]` override (H-1 fix); `.group-picker-*` block; `.item-select` block; `::before` pseudo-checkmark removed; `--active-bg-hover` rule; defensive `.item-select:focus-visible`.
+- `sidepanel/sidepanel.html` — new `#group-picker-dialog` sibling inside `#dialog-overlay`.
+- `sidepanel/sidepanel.js` — `window.blur` listener (B-063); `openGroupPickerDialog` / `closeGroupPickerDialog` + helpers (B-029); `_findDuplicateSavedItem` kept; B-059 B-027 B-028 B-055 call-sites refactored to use the picker; `_translateMoveError` helper at 3 sites; `_refreshGroupPickerIfOpen` broadcast hook; `openGroupEditDialog` extended to accept `null` = create-mode + `openGroupCreateDialog` wrapper; `_createItemSelect` factory; `_buildItemRowAriaLabel` helper called from 4 sites; icon factories swapped `aria-label`→`aria-hidden`; `_setRowSelected` extended for `aria-checked` mirroring.
+- `tests/b063-blur-close.test.js` (new, 12 cases)
+- `tests/b029-group-picker.test.js` (new, 60 cases after R3 + R4-fix + R5 additions)
+- `tests/b048-visual-states.test.js` (new, 40+ cases after R3 + R4-fix + R5 additions; 32-combo aria-label sweep)
+- `tests/b027-group-header-menu.test.js` — B-029 integration cases
+- `docs/a11y-audit-B-062.md` (new)
+- `docs/a11y-audit-B-048.md` (new)
+- `docs/UAT_B-029.md`, `docs/UAT_B-048.md` (new)
+- `docs/SOLUTION_DESIGN.md` — §30 + §30.14 + §31 + §31.15 appended
+- `CHANGELOG.md`, `STORE_LISTING.md`, `docs/user-manual/managing-items.md`, `docs/user-manual/open-tabs.md`, `docs/user-manual/accessibility.md` (new) — R7 technical-writer
+- `manifest.json` — version 1.10.0 → 1.11.0
+
+### Notable R4 Findings Fixed
+
+- **B-029 H-1 (qa)**: empty-state "Create group" toast was user-hostile (referenced non-existent menu). Fixed by extending `openGroupEditDialog` to accept `null` = create-mode + wrapping as `openGroupCreateDialog`. Real create flow replaces the toast.
+- **B-029 H-2 (qa)**: stale-target race on `MSG_STATE_CHANGED scope:'groups'` broadcasts. Fixed by new `_refreshGroupPickerIfOpen` that re-renders picker rows while preserving filter + highlight.
+- **B-029 H-3 (qa)**: `ERR_SAFE_MODE` swallowed by generic catches in 2 of 3 error-handling sites. Fixed by `_translateMoveError` helper applied uniformly.
+- **B-048 H-1 (code)**: dark-theme checkmark stroke failed WCAG AA 3:1 (white on `#60a5fa` ≈ 2.9:1). Fixed with dark-theme override using `stroke='%230a0f1a'` (URL-encoded `--on-accent` dark value, ≈10.7:1 AAA).
+- **B-048 M-1 (code)**: `.item-select` `aria-hidden="false"` caused double-announcement. Fixed to `aria-hidden="true"` (row-level `aria-label` is sole announcement).
+- **B-062 M-1 / M-2 (code)**: pre-existing sibling-surface contrast gaps on `.empty-state-cta:hover` and window filter chip absorbed into B-062's scope since the `--on-accent` token infrastructure was right there.
+- Plus 13 additional MEDIUM findings across the 4 items fixed in consolidated R4-fix passes.
+
+### UAT-Discovered Defects
+
+None — all issues were R4-reviewer-discovered. `.item-url` tertiary-text contrast on non-selected rows surfaced during B-048's audit and was consciously scoped out (deferred to **B-064** for Sprint 17).
+
+### Deferred to Sprint 17
+
+- **B-064** — Global `.item-url` tertiary-text contrast audit (P1, S). Pre-existing gap; affects all non-selected saved-item rows in both themes (~2.86–3.48:1).
+- Test-shim reproduction consolidation — 3 items (B-027, B-029, B-048) carry "extract to `shared/` core" tech-debt. Recommend a single XS/S consolidation item in Sprint 17.
+
+### Retrospective
+
+**Went Well:** Four-wave R3 sequencing (B-063 → B-062 → B-029 → B-048) avoided sidepanel merge conflicts. B-062's `--selected-*` + `--on-accent` token pre-seed paid off when B-048 R3 landed. R4 → R4-fix pattern from Sprint 15 repeated cleanly — 4 HIGH + 19 MEDIUM findings closed in 2 focused agent passes.
+
+**To Improve:** `aria-hidden` defaults bit us — §31.5 prescribed `aria-hidden="false"` on the nested checkbox child, correctly flagged by R4. Test-shim reproduction pile is real (3 items now). Cross-item token pre-seeding (B-062 → B-048) happened without an explicit handshake — caused R4 [code-reviewer] to flag scope-creep mid-sprint.
+
+**Action Items:** (1) Add R2 Correctness Checklist C-6: "no double-announcement paths — nested state indicators inside a labelled row MUST default to `aria-hidden='true'`". (2) File tech-debt consolidation item for Sprint 17. (3) Document cross-item token pre-seeding handoff protocol for [solution-architect] R2 checklist.
