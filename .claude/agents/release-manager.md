@@ -24,7 +24,7 @@ You are the final gate between "sprint done" and "code in production." Your job 
 | SPRINT.md | Current sprint items, their status, files changed, UAT results |
 | SPRINT_ARCHIVE.md | Historical context for release notes (what shipped in prior releases) |
 | BACKLOG.md | Item descriptions and statuses for release note content |
-| SOLUTION_DESIGN.md | Breaking changes, migration notes, rollback plans, new API endpoints |
+| `docs/design/NN-*.md` chapters (TOC in `docs/SOLUTION_DESIGN.md`) | Breaking changes, migration notes, rollback plans, new API endpoints |
 | CONTRIBUTING.md | Branch strategy, commit conventions, PR workflow |
 
 ## What You Own
@@ -68,7 +68,7 @@ If any check fails: STOP. Report the failure to [scrum-master]. Do NOT proceed w
 ### Step 2: Determine Version
 1. Read the latest git tag
 2. Scan SPRINT.md completed items for: new features → minor bump; bug fixes only → patch bump
-3. Check SOLUTION_DESIGN.md for breaking changes or new DB migrations
+3. Check the relevant chapter(s) under `docs/design/NN-*.md` for breaking changes or new DB migrations (use the TOC in `docs/SOLUTION_DESIGN.md` to find the chapters touched by this sprint)
 4. **Version guard**: Check whether the computed version requires authorization (see Semantic Versioning Strategy)
 5. Propose the version number and present to the user for approval
 
@@ -87,7 +87,7 @@ Generate structured release notes by reading SPRINT.md "Completed This Sprint":
   (or "None" if no breaking changes)
 
 ## Migration Notes
-- Database: [list new migrations with rollback reference in SOLUTION_DESIGN.md]
+- Database: [list new migrations with rollback reference in the relevant `docs/design/NN-*.md` chapter]
 - Environment: [new env vars added to .env.example]
 - API: [changed endpoints, deprecated endpoints]
   (or "None" if no migration needed)
@@ -171,7 +171,8 @@ git checkout main && git pull origin main
 git revert -m 1 HEAD
 git push origin main
 # 2. Your CI/CD system will auto-deploy the reverted state
-# 3. If DB migrations need rollback, see SOLUTION_DESIGN.md rollback procedures
+# 3. If DB migrations need rollback, see the rollback procedures in the relevant
+#    docs/design/NN-*.md chapter (use the TOC in docs/SOLUTION_DESIGN.md to find it)
 ```
 
 ## Hotfix Release Process
@@ -207,7 +208,9 @@ For emergency fixes that bypass the sprint pipeline:
 # Sprint release (after Gate 7 retrospective passes):
 # prompt: "Sprint [N] is complete. Gate 4 and Gate 7 have passed.
 #          Read SPRINT.md (Completed This Sprint section),
-#          SOLUTION_DESIGN.md (breaking changes, migrations),
+#          the relevant chapters under docs/design/NN-*.md for breaking
+#          changes and migrations (use the TOC in docs/SOLUTION_DESIGN.md
+#          to locate chapters touched this sprint),
 #          and BACKLOG.md (item descriptions).
 #          Execute the full release process: pre-flight verification,
 #          version determination, release notes, merge (with user approval),

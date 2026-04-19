@@ -81,7 +81,7 @@ ROUND 1 — DEFINITION (2-3 agents PARALLEL)
 
 ROUND 2 — ARCHITECTURE (1 agent, sequential)
 └── Solution Architect (must see PM + Data Analyst output first)
-    Reads: updated BACKLOG.md item, PRD.md, SOLUTION_DESIGN.md
+    Reads: updated BACKLOG.md item, PRD.md, and the relevant chapter(s) under `docs/design/NN-*.md` (use the TOC in `docs/SOLUTION_DESIGN.md` to locate them)
 
 ROUND 3 — BUILD (2 agents PARALLEL when they work on different files)
 ├── Backend Engineer (DB migrations, API routes, access control, types, validations)
@@ -103,13 +103,13 @@ ROUND 5 — TESTING (sequential)
 └── Tester UAT (manual browser testing — after automated tests pass)
 
 ROUND 6 — CLOSE (1-2 steps, sequential)
-├── Solution Architect (updates SOLUTION_DESIGN.md with what was actually built)
+├── Solution Architect (updates the relevant chapter under `docs/design/NN-*.md` — or adds a new `NN-slug.md` chapter and extends the TOC in `docs/SOLUTION_DESIGN.md` — with what was actually built)
 └── Scrum Master Release Checklist:
     ✅ All review findings resolved (no open P0/P1 issues from Round 4)
     ✅ All automated tests passing (Round 5 Test Engineer)
     ✅ UAT sign-off received (Round 5 Tester)
     ✅ No open blockers in SPRINT.md
-    ✅ SOLUTION_DESIGN.md updated by Solution Architect
+    ✅ Relevant `docs/design/NN-*.md` chapter updated by Solution Architect (or new chapter added and TOC extended in `docs/SOLUTION_DESIGN.md`)
     ✅ Database migrations reviewed and safe to deploy
     ✅ Environment-specific configs verified (if applicable)
     → If all checks pass: mark sprint items as "done", proceed to Round 7 (Post-Close)
@@ -279,7 +279,7 @@ You are the enforcer of the pipeline. These gates are NON-NEGOTIABLE:
    - ☐ [seo-reviewer] reviewed (Full/Spike-First only, if UI pages exist)
    - ☐ [test-engineer] tests written and passing (Full/Spike-First only)
    - ☐ [tester] UAT completed with PASS (Full/Spike-First only)
-   - ☐ [solution-architect] updated SOLUTION_DESIGN.md (Full/Spike-First only)
+   - ☐ [solution-architect] updated the relevant `docs/design/NN-*.md` chapter (or added a new chapter and extended the TOC in `docs/SOLUTION_DESIGN.md`) (Full/Spike-First only)
    - ☐ Existing test suite passes with zero regressions (all tiers)
    If ANY applicable item is unchecked, the sprint item is NOT done. Route it back.
 
@@ -306,7 +306,7 @@ Include: key architectural decisions, files created, any flags to carry forward.
 
 DOCUMENTS TO READ:
 [List ONLY the documents this agent needs — not all documents. Examples:
-- [backend-engineer]: SOLUTION_DESIGN.md (relevant section only)
+- [backend-engineer]: the relevant chapter(s) under `docs/design/NN-*.md` (use the TOC in `docs/SOLUTION_DESIGN.md` to find them — do not read the full TOC unless needed)
 - [frontend-engineer]: No full docs needed — use Feature Context + prior round summary above
 - [security-reviewer]: No docs — just review the files listed in Files Changed
 - [product-manager]: PRD.md + BACKLOG.md]

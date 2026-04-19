@@ -1,104 +1,87 @@
 # Current Sprint
 
-*Sprint 17 — data-portability exports + a11y contrast + tech-debt. Kicked off 2026-04-18. Closed 2026-04-18.*
+*Sprint 18 — Docs restructure (Wave 0) + imports round-trip + a11y + sanitizer hardening. Kicked off 2026-04-19.*
+
+---
+
+## Sprint Readiness (Gate 6)
+
+- ✅ Scope approved by product owner: **B-068 (Wave 0) +** B-067 + B-066 + B-044 + B-045
+- ✅ Total effort: 2M + 3S — B-068 added after kickoff via pre-R1 mid-sprint scope change (approved by product owner 2026-04-19)
+- ✅ Sprint 17 closed; v1.12.0 tagged on `release/v2` (commit `98373d9`)
+- ⚠️ Carry-over: 5 deferred UAT plans (B-059, B-029, B-048, B-042, B-043 — ~75 cases total). Not blockers; run before v2 → main whenever convenient.
+- ✅ Sprint 17 retro action items applied where relevant (see below)
+- 🆕 **B-068 Wave 0 rationale**: `docs/SOLUTION_DESIGN.md` (485 KB) + `docs/SPRINT_FINDINGS.md` (185 KB) are pulled into every R2/R4/R6 agent context. Splitting them before Sprint 18 R2 reduces per-round token load and compounds across the remaining 4 items. Zero content drift — mechanical split only.
+
+### Sprint 17 Retro Action Items applied
+
+1. **R4 enforcement** — deny-list-implementing-allow-list is HIGH, not MEDIUM. Pass this to R4 reviewer prompts when the design prescribes allow-list semantics (relevant to B-045 which MUST consume B-067's allow-list contract).
+2. **R2 Correctness Checklist C-7 addition** — "If the design prescribes an allow-list or deny-list on a data-flow boundary, R4 reviewers must verify R3 implemented the specified direction." Applies directly to B-067 + B-045.
+3. **Two-read race hardening** — the `listItems → listGroups` race accepted in Sprint 17 D-3 is symmetric in import: B-044/B-045 should write atomically via `writeTransaction` to avoid introducing a new race during import replace.
 
 ---
 
 ## Active Items
 
-*(none — all Sprint 17 items are done)*
+### [B-068] Split SOLUTION_DESIGN + SPRINT_FINDINGS into per-chapter / per-sprint files
+- **Tier**: Fast Track (S) — **Wave 0, blocks all other Sprint 18 R2**
+- **Status**: R1 (pending)
+- **Assigned To**: [product-manager]
+- **Blockers**: None (but blocks Sprint 18 R2 for B-044 / B-045 until R3 of B-068 is merged)
+- **Feature Context**: Mechanical split of the two monolith docs into per-chapter (`docs/design/NN-slug.md`) and per-sprint (`docs/findings/sprint-NN.md`) slices. Root files become index-only TOCs. `CLAUDE.md` Key Documents table + any agent guidance that reads the monoliths updated to point at the slices. Zero body-content drift.
+- **Handoff Notes**: [product-manager] formalizes R1 ACs already seeded in `BACKLOG.md`. R3 execution split: [solution-architect] does SOLUTION_DESIGN split (they own it); [scrum-master] does SPRINT_FINDINGS split (I own it). Per Fast Track tier, R4 runs [code-reviewer] + [security-reviewer] — [security-reviewer] will be a no-op here (no code / no permissions / no network surface) but runs to protect the gate invariant. No R5 automated tests expected beyond the existing suite passing + `./build.sh` clean.
+
+### [B-067] Flip export sanitizers to §32.5 allow-list
+- **Tier**: Fast Track (S)
+- **Status**: R1 (pending)
+- **Assigned To**: [product-manager]
+- **Blockers**: None (gates B-045 but lands in this sprint)
+- **Feature Context**: Replace the deny-list strip (`ITEM_RUNTIME_FIELDS` / `GROUP_RUNTIME_FIELDS`) in `background/export/{html,json}-export.js` with an explicit allow-list derived from `docs/SOLUTION_DESIGN.md §32.5`. Locks the B-045 import contract semantically.
+- **Handoff Notes**: Wave 1 of R3 — must land BEFORE B-045 so the reciprocal contract is stable. Flip the B-043 `sec-S-1: favIconUrl camelCase pass-through` pinned test to assert exclusion after the flip.
+
+### [B-066] Remaining `--text-tertiary` a11y sweep
+- **Tier**: Fast Track (S)
+- **Status**: R1 (pending)
+- **Assigned To**: [product-manager]
+- **Blockers**: None
+- **Feature Context**: Fix 5 remaining `--text-tertiary` consumers flagged by `docs/a11y-audit-B-064.md §7`: `.group-drag-handle` (non-text), `#filter-empty-state`, `.group-items-empty`, `.context-menu-label`, `.open-tabs-empty`.
+- **Handoff Notes**: Publish `docs/a11y-audit-B-066.md` mirroring B-064's structure.
+
+### [B-044] Import HTML (Netscape bookmarks)
+- **Tier**: Full (M)
+- **Status**: R1 (pending)
+- **Assigned To**: [product-manager]
+- **Blockers**: None
+- **Feature Context**: File-picker accepts `.html` / `.htm`. Count-preview dialog before commit. "Import replaces all existing data" warning with explicit confirmation. Folder hierarchy deeper than 1 level flattened safely.
+- **Handoff Notes**: Paired with B-045. Shared infrastructure (`background/import/`) and shared `MSG_IMPORT_COLLECTION { format }` message contract. Default duplicate-handling: skip (matches B-060 AC — B-060 UX toggle is a separate follow-on item).
+
+### [B-045] Import JSON backup
+- **Tier**: Full (M)
+- **Status**: R1 (pending)
+- **Assigned To**: [product-manager]
+- **Blockers**: B-067 (allow-list contract) — lands Wave 1 of R3, so effectively in-sprint
+- **Feature Context**: Consumes `schemaVersion: 1` (the frozen §32.5 shape). Validates and automatically repairs: orphaned sub-groups, circular references, duplicate IDs. Count-preview + confirmation mirror B-044. Repair decisions surfaced in post-import summary.
+- **Handoff Notes**: Paired with B-044 — shared R2 design (§33 to be authored). The `schemaVersion` gate: if the imported file's version is unknown, reject with a clear error ("backup was created in a newer Tab Junkie version").
 
 ---
 
 ## Completed This Sprint
 
-### [B-065] Extract test-duplicated helpers to `shared/*` — ✅ done (Fast Track S)
-- **Completed**: 2026-04-18
-- **Files Changed**: `shared/aria-label.js` (new), `shared/group-picker-core.js` (new), `sidepanel/sidepanel.js`, `tests/b048-visual-states.test.js`, `tests/b029-group-picker.test.js`, `tests/b027-group-header-menu.test.js` (header deferral note only)
-- **Pipeline**: R1 ✅ → R3 ✅ → R4 ([code-reviewer] 0C/0H/2M/3L, [security-reviewer] 0C/0H/0M/0L) → M-1 `matchesGroupPickerRow` added so filter predicate is single-sourced + M-2 comment + L-2 underscore aliases dropped → DONE
-- **Notes**: Behavior-preserving refactor. B-027 `openGroupContextMenu` extraction deferred (DOM + state bound) with in-file comment.
-
-### [B-064] Global `.item-url` tertiary-text contrast audit (WCAG AA) — ✅ done (Fast Track S)
-- **Completed**: 2026-04-18
-- **Files Changed**: `sidepanel/sidepanel.css` (3-line edit), `docs/a11y-audit-B-064.md` (new, 11 sections)
-- **Pipeline**: R1 ✅ → R3 ✅ (Option A — promote `.item-url` default to `--text-secondary`) → R4 ([code-reviewer] 0C/0H/2M/2L, [security-reviewer] 0C/0H/0M/0L) → M-1/M-2 + L fix (B-066 filed as follow-on for remaining tertiary-text surfaces; audit annotated) → DONE
-- **Notes**: Worst post-fix ratio 5.25:1 (AA ✅). Zero new tokens. Mirrors B-048's selected-row treatment.
-
-### [B-042] Export to HTML (Netscape bookmarks) — ✅ done (Full M)
-- **Completed**: 2026-04-18
-- **Files Changed**: `shared/export-schema.js` (new), `background/export/shared.js` (new), `background/export/html-export.js` (new), `shared/messages.js`, `background/messages/storage-handlers.js`, `sidepanel/sidepanel.html`, `sidepanel/sidepanel.js`, `tests/b042-html-export.test.js` (new, 46 tests), `docs/UAT_B-042.md` (new, 14 cases)
-- **Pipeline**: R1 ✅ → R2 ✅ (§32 added, 15 subsections; unified with B-043) → R3 ✅ → R4 ([code-reviewer] 0C/0H/3M/4L, [security-reviewer] 0C/0H/0M/0L, [qa-reviewer] 0C/**3H**/7M/7L) → R4 fix pass: H-1 orphan rescue (data-loss bug), H-2 perf timing test (6.22ms median vs 500ms budget), H-3 toast-copy literal, + 10 MEDIUM/LOW closed → R5 ✅ (+3 regression guards, UAT plan) → R6 ✅ (§32.16 appended) → R7 ✅ → DONE
-- **Notes**: Orphan-item rescue (items whose `groupId` points to a deleted group render under "Ungrouped") sets the policy for any future export format. XSS-clean (`htmlEscape` + test probes), `<a download>` fallback means zero new manifest permissions.
-
-### [B-043] Export to JSON backup — ✅ done (Full M)
-- **Completed**: 2026-04-18
-- **Files Changed**: `background/export/json-export.js` (new), `background/messages/storage-handlers.js`, `sidepanel/sidepanel.html`, `sidepanel/sidepanel.js`, `tests/b043-json-export.test.js` (new, ~39 tests), `docs/UAT_B-043.md` (new, 15 cases)
-- **Pipeline**: R1 ✅ → R2 ✅ (covered by §32 alongside B-042) → R3 ✅ → R4 ([code-reviewer] 0C/0H/3M/4L, [security-reviewer] 0C/0H/2M/2L, [qa-reviewer] 0C/0H/6M/3L — all HIGHs from the B-042 QA pass pre-addressed) → R5 ✅ (+7 tests closing qa/sec MEDIUM gaps) → R6 ✅ (§32.16 appended with 4 architect rulings D-1..D-4) → R7 ✅ → DONE
-- **Notes**: `schemaVersion: 1` is the frozen B-045 import contract (see `shared/export-schema.js`). Deterministic byte-identical output (verified by permutation test). Round-trip-safe. `preferences` present iff user has persisted a change.
+*(none yet)*
 
 ---
 
-## Gate 4 — Release Checklist
+## Planned Pipeline Parallelization
 
-- ✅ All R4 review findings resolved (0 CRITICAL / 3 HIGH all fixed at B-042 R4 / 19 MEDIUM fixed or consciously deferred)
-- ✅ All R5 automated tests passing — **806 / 0 fail** (baseline 721 → +85 new tests)
-- ✅ UAT plans by [test-engineer]: `docs/UAT_B-042.md` (14 cases) + `docs/UAT_B-043.md` (15 cases)
-- ✅ No open blockers in SPRINT.md
-- ✅ `docs/SOLUTION_DESIGN.md` §32 + §32.16 populated (R2 design and R6 close)
-- ✅ `manifest.json` permissions reviewed — zero additions this sprint
-- ✅ Rollback plan documented — §32.12; all 4 items git-revert safe
-- ✅ `CHANGELOG.md` + `STORE_LISTING.md` + `docs/user-manual/exporting-data.md` (new) + `docs/user-manual/accessibility.md` updated by [technical-writer]
-- ✅ `BACKLOG.md` updated — all 4 items `done`; B-066 + B-067 filed as follow-ons
-- ✅ `BACKLOG_BOARD.md` updated — progress 41 → 45 done (66%); in-progress 4 → 0
-- ✅ `SPRINT.md` reflects all 4 items in "Completed This Sprint"
-- ⏳ `SPRINT_ARCHIVE.md` appended — performed during archive step
-
----
-
-## Gate 7 — Sprint Retrospective
-
-### Velocity
-- **Planned**: 4 items — B-042 (M) + B-043 (M) + B-064 (S) + B-065 (S)
-- **Completed**: 4/4 items · total effort 2M + 2S ≈ 10 story points
-- **Carried over**: 0
-
-### What Went Well
-- **Unified §32 design for paired exports (B-042 + B-043)** — sharing the R2 design + module layout + message contract meant R3 Wave 3 landed with infrastructure that Wave 4 could lean on directly. Worth repeating for B-044 + B-045 paired imports.
-- **R4 caught a data-loss bug** — B-042 orphan-item drop was a real user-impacting defect found in qa review, not testing. Reinforces R4 reviewer value.
-- **+85 tests across the sprint, zero regressions** — including the Sprint 15 retro action (real-dispatcher handler tests via `chrome.runtime.onMessage._listeners`) now embedded in B-042/B-043 suites.
-
-### What to Improve
-- **Deny-list runtime stripping is a recurring smell** — §32 specified an allow-list semantic, R3 built deny-list, R4 caught it but it shipped. B-067 filed to flip before B-045. **Action**: when an R2 design specifies allow-list, R4 should block on deny-list implementations instead of flagging MEDIUM.
-- **Two-read race in export handler** — `listItems() → listGroups()` is a known benign window accepted at R6 (D-3). Orphan rescue handles the race, but a single-pass atomic read would be cleaner. Noted for a future hardening pass.
-- **Test-copy-reproduction pattern** — B-065 resolved three specific instances, but B-042/B-043 tests STILL partially shim the dispatcher. Consider a Sprint 18+ "test-infrastructure" audit to identify remaining drift risk.
-
-### Action Items for Next Sprint
-- [ ] **B-066** filed — remaining `--text-tertiary` sweep (drag handle + 4 empty-state body texts). P1/S.
-- [ ] **B-067** filed — allow-list flip for export sanitizers. MUST ship before B-045 to lock the import contract. P2/S.
-- [ ] **Process — R4 enforcement**: deny-list implementations of allow-list designs are HIGH (blocking), not MEDIUM. Update R4 reviewer prompt template.
-- [ ] **Process — R2 Correctness Checklist C-7 addition**: "If the design prescribes an allow-list or deny-list on a data-flow boundary, R4 reviewers must verify R3 implemented the specified direction."
-
----
-
-## R4 Findings Log
-
-See `docs/SPRINT_FINDINGS.md` → Sprint 17 sections. Final rollup:
-
-| Item | Tier | Reviewers | C | H | M | L | Status |
-|------|------|-----------|---|---|---|---|--------|
-| B-065 | S | code + sec | 0 | 0 | 2 | 3 | ✅ MEDIUMs fixed (matchesGroupPickerRow wired, alias cleanup) |
-| B-064 | S | code + sec | 0 | 0 | 2 | 2 | ✅ MEDIUMs addressed (B-066 filed; audit annotated) |
-| B-042 | M | code + sec + qa | 0 | **3** | 10 | 11 | ✅ all HIGH + most MEDIUM fixed in R4 pass (+14 tests) |
-| B-043 | M | code + sec + qa | 0 | 0 | 11 | 9 | ✅ HIGHs pre-addressed; MEDIUMs absorbed into R5 (+7 tests) |
-| **TOTAL** | | | **0** | **3** | **25** | **25** | All HIGH resolved before R5 |
-
-Zero CRITICAL findings. All HIGH fixes landed before R5 launched.
-
----
-
-## Sprint Close Sequence Status
-
-1. ✅ Gate 4 — release checklist verified
-2. ✅ Gate 7 — retrospective written
-3. ⏳ **RELEASE** — [release-manager] v1.12.0 pipeline (pending user approval on destructive steps)
-4. ⏳ **ARCHIVE** — appended to `SPRINT_ARCHIVE.md` after release is tagged
+- **R1 [product-manager]**: all 5 items in parallel (B-068 + B-067 + B-066 + B-044 + B-045). Independent user stories, no dependencies at R1.
+- **R2 [solution-architect]**: single agent writes unified §33 design covering B-044 + B-045. **Gated on B-068 R3 merge** — R2 reads the split `docs/design/NN-*.md` slices, not the monolith.
+- **R3 sequencing**:
+  0. **Wave 0 — B-068** (docs restructure): [solution-architect] splits `SOLUTION_DESIGN.md` into `docs/design/NN-slug.md`; [scrum-master] splits `SPRINT_FINDINGS.md` into `docs/findings/sprint-NN.md`. Can run as two parallel sub-tasks inside R3 since the files are independent. MUST merge before R2 starts for any other item.
+  1. **Wave 1 — B-067** ([frontend-engineer]): flip sanitizers to allow-list. Lands after B-068 so the allow-list design is read from the §32.5 slice, not the monolith.
+  2. **Wave 2 — B-066** ([frontend-engineer]): CSS-only contrast fix. Non-overlap with B-067.
+  3. **Wave 3 — B-044** ([frontend-engineer]): new `background/import/` module + HTML parser + file-picker UI.
+  4. **Wave 4 — B-045** ([frontend-engineer]): reuses B-044's import infra + consumes B-067's allow-list for validation.
+- **R4** per item. Fast Track (B-068, B-066, B-067) = code + security (2 parallel — [security-reviewer] is a no-op on B-068 but runs to protect the gate). Full (B-044, B-045) = code + security + qa (3 parallel).
+- **R5** B-044 + B-045 only (Full tier). B-068 / B-066 / B-067 on Fast Track rely on the existing suite + `./build.sh` staying green.
+- **R6** single architect covers B-068 + B-044 + B-045 — update the now-split `docs/design/*` slices in place.
+- **R7** batched at sprint close.
