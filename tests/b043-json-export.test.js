@@ -222,14 +222,22 @@ test('B-043 AC4: item with standard fields emits them all verbatim', () => {
   assert.deepEqual(parsed.items[0], item);
 });
 
-test('B-043 AC4: unknown fields on the stored record pass through verbatim (forward-compat)', () => {
+test('B-043 AC4 (B-067): unknown fields on the stored record are dropped by the §32.5.2 allow-list', () => {
+  /* B-067 flipped the deny-list to an explicit §32.5.2 allow-list. Any key
+     not enumerated in the allow-list — including hypothetical "future-
+     compatible" persisted keys like `tags` or `notes` — is stripped at
+     export time. If a future schema revision adds `tags` to §32.5.2, the
+     allow-list constant ITEM_ALLOWED_FIELDS must be updated in lockstep;
+     this test is the tripwire that forces that review. */
   const item = makeItem({ tags: ['reading', 'later'], notes: 'custom field' });
   const json = buildJsonExport({
     items: [item], groups: [], schemaVersion: 1, now: FIXED_DATE,
   });
   const parsed = JSON.parse(json);
-  assert.deepEqual(parsed.items[0].tags, ['reading', 'later']);
-  assert.equal(parsed.items[0].notes, 'custom field');
+  assert.ok(!('tags' in parsed.items[0]),
+    'tags is not in §32.5.2 allow-list and must be dropped (B-067 AC4)');
+  assert.ok(!('notes' in parsed.items[0]),
+    'notes is not in §32.5.2 allow-list and must be dropped (B-067 AC4)');
 });
 
 test('B-043 AC4: items missing lastAccessedAt omit the key (not null)', () => {
@@ -800,15 +808,13 @@ test('B-043 qa-Q-7: UTF-8 size diverges from content.length for CJK-only titles 
   );
 });
 
-test('B-043 sec-S-1: favIconUrl (camelCase) enrichment is stripped and never leaks to output', () => {
-  /* Direct injection via the pure builder — if a future refactor threads
-     enriched items from `buildLiveStates` / `open-tabs.js` through the export
-     path, this test fails loudly. Currently the deny-list strips the lowercase
-     runtime fields; `favIconUrl` is passed through verbatim as an "unknown"
-     field per AC4 forward-compat. Today this asserts the CURRENT behavior
-     (unknown-field pass-through) and pins it as a known deviation from S-1's
-     preferred allow-list. If R6 [solution-architect] chooses to switch to an
-     allow-list (S-1 option A), flip this assertion accordingly. */
+test('B-043 sec-S-1 (B-067): favIconUrl camelCase stripped by allow-list', () => {
+  /* B-067 resolved the Sprint 17 sec-S-1 R6 decision: export sanitizers now
+     use an explicit §32.5.2 allow-list. `favIconUrl` (camelCase) is NOT in
+     the allow-list, so any enriched record that reaches the builder — e.g.
+     if a future refactor threads items from `buildLiveStates` / `open-tabs.js`
+     through the export path — has its tracking hint dropped at the boundary.
+     This test is the primary tripwire for the allow-list contract. */
   const json = buildJsonExport({
     items: [makeItem({ favIconUrl: 'https://evil.example/tracker.ico' })],
     groups: [],
@@ -816,17 +822,42 @@ test('B-043 sec-S-1: favIconUrl (camelCase) enrichment is stripped and never lea
     now: FIXED_DATE,
   });
   const parsed = JSON.parse(json);
-  /* Current behavior (AC4 forward-compat pass-through): favIconUrl survives.
-     This pin documents the decision; if allow-list is chosen at R6 it becomes
-     a FAIL that forces the builder update. */
   assert.ok(
-    'favIconUrl' in parsed.items[0],
-    'AC4 forward-compat: unknown persisted keys pass through (pending sec-S-1 R6 allow-list decision)',
+    !('favIconUrl' in parsed.items[0]),
+    'favIconUrl is not in §32.5.2 allow-list — must be stripped (B-067 AC4 + AC5)',
   );
-  /* But the canonical lowercase runtime fields MUST still be stripped even
-     when co-present with favIconUrl — the deny-list is the primary defense. */
+  /* And the canonical lowercase runtime fields stay stripped (they were never
+     in the allow-list either, so the allow-list subsumes the old deny-list). */
   assert.ok(!('live' in parsed.items[0]));
   assert.ok(!('tabId' in parsed.items[0]));
+});
+
+test('B-067 AC4: enriched input with runtime + synthetic-future fields drops everything outside §32.5.2', () => {
+  /* Stronger gate than sec-S-1 alone — probes every runtime field named in
+     §32.5.6 exclusions plus a synthetic `__futureField` that does not exist
+     yet. PASS = none of these survive into the output; FAIL = any key leaks.
+     Complements `AC2: drift / floatingGroups / claims never appear in output`
+     by asserting the allow-list posture directly at the item boundary. */
+  const enriched = makeItem({
+    live: true, active: true, audible: true, drifted: true,
+    tabId: 42, windowId: 7, highlight: '<b>x</b>',
+    favIconUrl: 'https://evil.example/tracker.ico',
+    __futureField: 'not-yet-a-schema-key',
+  });
+  const json = buildJsonExport({
+    items: [enriched], groups: [], schemaVersion: 1, now: FIXED_DATE,
+  });
+  const out = JSON.parse(json).items[0];
+  /* Allow-list keys that were on the fixture must be present verbatim. */
+  for (const allowed of ['id', 'title', 'url', 'groupId', 'sortOrder',
+    'createdAt', 'updatedAt']) {
+    assert.ok(allowed in out, `allow-list key missing: ${allowed}`);
+  }
+  /* Every non-allow-list key must be absent. */
+  for (const forbidden of ['live', 'active', 'audible', 'drifted', 'tabId',
+    'windowId', 'highlight', 'favIconUrl', '__futureField']) {
+    assert.ok(!(forbidden in out), `non-allow-list key leaked: ${forbidden}`);
+  }
 });
 
 test('B-043 sec-S-2: tj:prefs unknown keys pass through verbatim (pinned — R6 decision pending)', async () => {

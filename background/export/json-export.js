@@ -15,25 +15,32 @@
  *   - Only `PARTITION_ITEMS`, `PARTITION_GROUPS`, `PARTITION_PREFS` are read.
  *   - No imports from `background/tabs/**` (no live state, no claims, no
  *     drift, no floating groups, no window ordinals).
- *   - Runtime-enrichment fields that might accidentally decorate an Item or
- *     Group record in memory (`live`, `active`, `audible`, `drifted`, `tabId`,
- *     `windowId`, `highlight`) are stripped before emission.
+ *   - Sanitization is an explicit ALLOW-LIST derived from §32.5.2 (Item) and
+ *     §32.5.3 (Group). Any field not in the allow-list — including runtime
+ *     enrichments (`live`, `active`, `audible`, `drifted`, `tabId`, `windowId`,
+ *     `highlight`), tracking hints (`favIconUrl` camelCase), and any future
+ *     storage addition — is dropped unconditionally. This is stricter than
+ *     the prior deny-list (B-067 Sprint 18 Wave 1, resolving B-043 sec-S-1).
  */
 
 /**
- * Runtime-enrichment field names that may appear on an in-memory record but
- * must never reach the exported file (AC11 privacy + §32.5.6 exclusions).
- *
- * `warning` is excluded because the `DUPLICATE_NAME` flag is a message-response
- * field that is never persisted — keeping it in the deny-list is belt-and-
- * braces per §32.5.3.
+ * §32.5.2 Item allow-list. Exactly these keys may appear on an exported item.
+ * `lastAccessedAt` is optional per §32.5.2 — emitted iff `'lastAccessedAt'`
+ * is an own-key on the input record (distinguishes "never accessed" absence
+ * from "accessed at epoch 0" presence).
  */
-const ITEM_RUNTIME_FIELDS = new Set([
-  'live', 'active', 'audible', 'drifted', 'tabId', 'windowId', 'highlight',
-]);
-const GROUP_RUNTIME_FIELDS = new Set([
-  'warning', 'live', 'active', 'highlight',
-]);
+const ITEM_ALLOWED_FIELDS = [
+  'id', 'title', 'url', 'groupId', 'sortOrder', 'createdAt', 'updatedAt',
+];
+const ITEM_ALLOWED_OPTIONAL_FIELDS = ['lastAccessedAt'];
+
+/**
+ * §32.5.3 Group allow-list. Exactly these keys may appear on an exported group.
+ */
+const GROUP_ALLOWED_FIELDS = [
+  'id', 'name', 'color', 'parentId', 'sortOrder', 'collapsed',
+  'createdAt', 'updatedAt',
+];
 
 /**
  * Null-first string comparator used by the 3-key sort (§32.5.5).
@@ -70,26 +77,33 @@ function compareGroups(a, b) {
 }
 
 /**
- * Shallow-copy a record and drop any forbidden runtime-enrichment keys. This
- * satisfies the AC4 "unknown fields passed through verbatim" requirement —
- * future persisted fields survive without a code change — while the runtime
- * deny-list catches in-memory decorations added by `buildLiveStates`, the
- * open-tabs builder, and highlight rendering (§32.5.6).
+ * Shallow-copy a record, emitting ONLY the §32.5.2 Item allow-list keys.
+ * Any input key not in the allow-list — runtime enrichments, tracking hints
+ * (`favIconUrl` camelCase), future storage additions — is dropped
+ * unconditionally. The optional `lastAccessedAt` key is included iff the
+ * input record has it as an own-key (B-067 AC1 + §32.5.2).
  */
 function sanitizeItem(item) {
   const out = {};
-  for (const key of Object.keys(item)) {
-    if (ITEM_RUNTIME_FIELDS.has(key)) continue;
-    out[key] = item[key];
+  for (const key of ITEM_ALLOWED_FIELDS) {
+    if (key in item) out[key] = item[key];
+  }
+  for (const key of ITEM_ALLOWED_OPTIONAL_FIELDS) {
+    if (key in item) out[key] = item[key];
   }
   return out;
 }
 
+/**
+ * Shallow-copy a record, emitting ONLY the §32.5.3 Group allow-list keys.
+ * Any input key not in the allow-list — including the non-persisted
+ * `warning: DUPLICATE_NAME` response-only flag and any runtime decoration —
+ * is dropped unconditionally (B-067 AC2 + §32.5.3).
+ */
 function sanitizeGroup(group) {
   const out = {};
-  for (const key of Object.keys(group)) {
-    if (GROUP_RUNTIME_FIELDS.has(key)) continue;
-    out[key] = group[key];
+  for (const key of GROUP_ALLOWED_FIELDS) {
+    if (key in group) out[key] = group[key];
   }
   return out;
 }
