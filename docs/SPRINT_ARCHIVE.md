@@ -601,3 +601,76 @@ None — all issues were R4-reviewer-discovered. `.item-url` tertiary-text contr
 **To Improve:** `aria-hidden` defaults bit us — §31.5 prescribed `aria-hidden="false"` on the nested checkbox child, correctly flagged by R4. Test-shim reproduction pile is real (3 items now). Cross-item token pre-seeding (B-062 → B-048) happened without an explicit handshake — caused R4 [code-reviewer] to flag scope-creep mid-sprint.
 
 **Action Items:** (1) Add R2 Correctness Checklist C-6: "no double-announcement paths — nested state indicators inside a labelled row MUST default to `aria-hidden='true'`". (2) File tech-debt consolidation item for Sprint 17. (3) Document cross-item token pre-seeding handoff protocol for [solution-architect] R2 checklist.
+
+---
+
+## Sprint 17 — Data Portability Exports + A11y + Tech-Debt (2026-04-18)
+
+**Theme:** Baseline data-portability (HTML + JSON exports), a global contrast fix, and a tech-debt sweep to eliminate test/production helper duplication.
+**Release:** v1.12.0 · Commit `<HEAD>` on `release/v2` (tag `v1.12.0` staged, pending v2→main merge)
+**Tests:** 721 → 806 (+85 across all 4 items)
+**SOLUTION_DESIGN.md:** §32 added (B-042+B-043 R2 unified design, 15 subsections) + §32.16 (R6 close with 4 architect rulings).
+
+### Completed Items
+
+| ID | Title | Tier | UAT | New Tests |
+|----|-------|------|-----|-----------|
+| B-065 | Extract test-duplicated helpers to `shared/*` (tech-debt) | Fast Track (S) | Regression suite PASS | — (behavior-preserving refactor) |
+| B-064 | Global `.item-url` tertiary-text contrast audit (WCAG AA) | Fast Track (S) | Regression suite PASS | — (CSS-only) |
+| B-042 | Export to HTML (Netscape bookmarks) | Full (M) | `docs/UAT_B-042.md` 14-case plan | b042-html-export.test.js (46 cases) |
+| B-043 | Export to JSON backup | Full (M) | `docs/UAT_B-043.md` 15-case plan | b043-json-export.test.js (~39 cases) |
+
+### Files Changed
+
+- `shared/export-schema.js` (new) — `EXPORT_SCHEMA_VERSION=1`, `EXPORT_FORMATS`, `EXPORT_MIME_TYPES`, `EXPORT_FILENAME_PREFIXES`, `EXPORT_FILENAME_EXTENSIONS`
+- `shared/aria-label.js` (new) — `buildItemRowAriaLabel` (B-065)
+- `shared/group-picker-core.js` (new) — `buildGroupPickerRows`, `applyGroupPickerFilter`, `normalizeGroupPickerQuery`, `matchesGroupPickerRow` (B-065)
+- `shared/messages.js` — new `MSG_EXPORT_COLLECTION` + typedefs
+- `background/export/shared.js` (new) — `htmlEscape`, `buildFilenameWithDate`, `toUnixSeconds`
+- `background/export/html-export.js` (new) — `buildHtmlExport`, `countNonEmptyGroupsForHtml`
+- `background/export/json-export.js` (new) — `buildJsonExport` with allow-list-derivable deny-list runtime strip
+- `background/messages/storage-handlers.js` — `MSG_EXPORT_COLLECTION` dispatcher case (read-only, not in WRITE_MESSAGE_TYPES so safe-mode passes through); direct `tj:prefs` probe for §32.5.4 "persisted iff present" rule
+- `sidepanel/sidepanel.html` — `#export-html-btn` + `#export-json-btn`
+- `sidepanel/sidepanel.js` — `_exportCollectionAsHtml`, `_exportCollectionAsJson`, `_triggerBlobDownload`, `_exportErrorToast`; B-065 wiring
+- `sidepanel/sidepanel.css` — 3-line B-064 edit swapping `.item-url` → `--text-secondary`
+- `tests/b042-html-export.test.js` (new, 46 tests)
+- `tests/b043-json-export.test.js` (new, ~39 tests)
+- `tests/b027-group-header-menu.test.js` — B-065 deferral comment
+- `tests/b029-group-picker.test.js`, `tests/b048-visual-states.test.js` — B-065 imports replacing local reproductions
+- `docs/a11y-audit-B-064.md` (new) · `docs/UAT_B-042.md` (new) · `docs/UAT_B-043.md` (new)
+- `docs/SOLUTION_DESIGN.md` §32 + §32.16 appended
+- `CHANGELOG.md`, `STORE_LISTING.md`, `docs/user-manual/exporting-data.md` (new), `docs/user-manual/accessibility.md`
+- `manifest.json` — version 1.11.0 → 1.12.0
+
+### Notable R4 Findings Fixed
+
+- **B-042 Q-H1 (qa)**: Orphan items (whose `groupId` refers to a deleted group) were silently dropped from HTML export — a real data-loss bug. Fixed in R4 fix pass by rescuing to the "Ungrouped" folder. B-043 implemented the same symmetric rescue + also rescues orphan sub-groups (`parentId` → null).
+- **B-042 Q-H2 (qa)**: Missing `performance.now()` timing test on AC9's 500ms / 1000-item target. Fixed by adding the timing test; median measured at 6.22ms.
+- **B-042 Q-H3 (qa)**: Toast copy drifted from AC7 literal. Fixed verbatim to AC7.
+- **B-065 M-1 (code)**: `applyGroupPickerFilter` was exported but not imported — filter-predicate drift risk persisted on that path. Fixed by adding `matchesGroupPickerRow` helper and wiring it into both sidepanel and test paths.
+- **B-064 code M-1 / M-2**: Audit annotations added referencing B-066 for deferred surfaces.
+- Plus ~15 additional MEDIUM findings across the 4 items fixed in consolidated R4-fix passes.
+
+### R6 Architect Rulings
+
+- **D-1**: Flip export sanitizers from deny-list to §32.5 allow-list before B-045 ships. Filed as **B-067** for Sprint 18.
+- **D-2**: `tj:prefs` unknown-key pass-through is intentional forward-compat. B-045 may filter on re-import.
+- **D-3**: `listItems → listGroups` two-read race is a known benign window (orphan rescue handles it). Defer hardening.
+- **D-4**: `_handleExportError` DRY extraction deferred — keep separate so HTML/JSON toast copy can diverge.
+
+### UAT-Discovered Defects
+
+None during this sprint. All HIGHs were R4-reviewer-discovered. `docs/UAT_B-042.md` + `docs/UAT_B-043.md` carry the interactive cases for the user to run before v2 → main merge.
+
+### Deferred to Sprint 18
+
+- **B-066** — Remaining `--text-tertiary` a11y sweep (drag handle + 4 empty-state body texts). P1/S.
+- **B-067** — Export sanitizers: deny-list → §32.5 allow-list flip. P2/S. MUST ship before B-045.
+
+### Retrospective
+
+**Went Well:** Unified §32 R2 design for the paired B-042+B-043 exports made Wave 4 light work — the infrastructure (`shared/export-schema.js`, `background/export/shared.js`, `MSG_EXPORT_COLLECTION`) was already hardened by the time JSON landed. +85 tests, zero regressions. The Sprint 15 retro "real-dispatcher handler test" action is now embedded in both export suites. R4 caught a data-loss bug (B-042 orphan drop) that unit tests missed — reinforces the qa reviewer's value.
+
+**To Improve:** Deny-list runtime stripping is a recurring smell — §32 specified allow-list semantics, R3 built deny-list, R4 caught it as MEDIUM (should have been HIGH). Two-read race in export handler accepted as benign (D-3) — future hardening opportunity. B-042/B-043 tests partially shim the dispatcher; next tech-debt sweep could push handler-contract tests further toward real integration.
+
+**Action Items:** (1) B-066 + B-067 filed. (2) R4 enforcement: deny-list-implements-allow-list is HIGH, not MEDIUM. (3) Add R2 Correctness Checklist C-7: "If the design prescribes an allow-list or deny-list on a data-flow boundary, R4 reviewers must verify R3 implemented the specified direction."
