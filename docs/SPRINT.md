@@ -23,21 +23,13 @@
 
 ## Active Items
 
-### [B-068] Split SOLUTION_DESIGN + SPRINT_FINDINGS into per-chapter / per-sprint files
-- **Tier**: Fast Track (S) — **Wave 0, blocks all other Sprint 18 R2**
-- **Status**: R1 (pending)
-- **Assigned To**: [product-manager]
-- **Blockers**: None (but blocks Sprint 18 R2 for B-044 / B-045 until R3 of B-068 is merged)
-- **Feature Context**: Mechanical split of the two monolith docs into per-chapter (`docs/design/NN-slug.md`) and per-sprint (`docs/findings/sprint-NN.md`) slices. Root files become index-only TOCs. `CLAUDE.md` Key Documents table + any agent guidance that reads the monoliths updated to point at the slices. Zero body-content drift.
-- **Handoff Notes**: [product-manager] formalizes R1 ACs already seeded in `BACKLOG.md`. R3 execution split: [solution-architect] does SOLUTION_DESIGN split (they own it); [scrum-master] does SPRINT_FINDINGS split (I own it). Per Fast Track tier, R4 runs [code-reviewer] + [security-reviewer] — [security-reviewer] will be a no-op here (no code / no permissions / no network surface) but runs to protect the gate invariant. No R5 automated tests expected beyond the existing suite passing + `./build.sh` clean.
-
 ### [B-067] Flip export sanitizers to §32.5 allow-list
 - **Tier**: Fast Track (S)
-- **Status**: R1 (pending)
-- **Assigned To**: [product-manager]
-- **Blockers**: None (gates B-045 but lands in this sprint)
-- **Feature Context**: Replace the deny-list strip (`ITEM_RUNTIME_FIELDS` / `GROUP_RUNTIME_FIELDS`) in `background/export/{html,json}-export.js` with an explicit allow-list derived from `docs/SOLUTION_DESIGN.md §32.5`. Locks the B-045 import contract semantically.
-- **Handoff Notes**: Wave 1 of R3 — must land BEFORE B-045 so the reciprocal contract is stable. Flip the B-043 `sec-S-1: favIconUrl camelCase pass-through` pinned test to assert exclusion after the flip.
+- **Status**: R3 (in progress)
+- **Assigned To**: [frontend-engineer]
+- **Blockers**: None (B-068 Wave 0 merged as `e8c2c25` on `release/v2`)
+- **Feature Context**: Replace the deny-list strip (`ITEM_RUNTIME_FIELDS` / `GROUP_RUNTIME_FIELDS`) in `background/export/{html,json}-export.js` with an explicit allow-list. Allow-list values are defined inline in the BACKLOG.md B-067 ACs; post-split authoritative chapter is `docs/design/32-b-042-b-043-collection-export.md` §32.5. Locks the B-045 import contract semantically.
+- **Handoff Notes**: R1 was pre-approved (skipped per product owner 2026-04-19 — ACs already comprehensive in BACKLOG.md). R2 skipped (Fast Track). R3 in flight on `feature/B-067-sanitizer-allowlist`. Flip the B-043 `sec-S-1: favIconUrl camelCase pass-through` pinned test to assert EXCLUSION after the flip. Must land BEFORE B-045 R3 per AC8.
 
 ### [B-066] Remaining `--text-tertiary` a11y sweep
 - **Tier**: Fast Track (S)
@@ -67,7 +59,13 @@
 
 ## Completed This Sprint
 
-*(none yet)*
+### [B-068] Split SOLUTION_DESIGN + SPRINT_FINDINGS into per-chapter / per-sprint files — DONE (Wave 0)
+- **Tier**: Fast Track (S)
+- **Merged**: `e8c2c25` on `release/v2` (PR #13, 2026-04-19)
+- **Files Changed**: `docs/SOLUTION_DESIGN.md` (485 KB → ~4 KB index), `docs/SPRINT_FINDINGS.md` (185 KB → ~1 KB index), 38 new `docs/design/NN-*.md` chapter slices, 8 new `docs/findings/sprint-NN.md` slices, `CLAUDE.md` (Key Documents + inline directives), 6 × `.claude/agents/*.md` (read/write directive redirects), Sprint 18 kickoff in `docs/BACKLOG.md` / `docs/SPRINT.md` / `docs/BACKLOG_BOARD.md`
+- **R4**: [code-reviewer] PASS (1 LOW — AC10 rollback deferred, now captured in PR #13 body), [security-reviewer] PASS (no findings, docs-only)
+- **Test suite**: 806/806 green. `./build.sh`: clean.
+- **Content drift**: byte-identical (AC7 verified)
 
 ---
 
