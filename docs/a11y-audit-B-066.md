@@ -248,3 +248,16 @@ Post-fix the grep count dropped from 8 consumers of `--text-tertiary` to 3 consu
 - **Data impact:** none (CSS-only).
 - **User impact:** the five surfaces revert to the pre-B-066 palette (known AA failure on body-text surfaces, known hover-state failure on `.group-drag-handle` in dark theme).
 - **Post-rollback action:** reopen B-066 in the backlog; re-evaluate whether Option B (darken `--text-tertiary`) or Option C (new `--text-body-muted` token) should be chosen instead.
+
+## 13. Post-B-066 addendum — `--danger` token (B-044 Wave 3)
+
+B-044's `.import-replace-emphasis` rule referenced `var(--danger, #c62828)`. The token was never defined, so both themes fell back to `#c62828`, which measures **3.00:1** on dark `--bg-primary` (#1a1d23) — below the 4.5:1 AA body-text floor.
+
+Fix applied during B-044 R4 fix-up pass: defined `--danger` in all four theme blocks (`[data-theme="light"]`, `[data-theme="dark"]`, `[data-theme="system"]` × 2):
+
+| Theme | `--danger` | On `--bg-primary` | On `--bg-secondary` (dialog) |
+|-------|-----------|-------------------|------------------------------|
+| light | `#c62828` | 5.62:1 (pass) | 5.20:1 (pass) |
+| dark  | `#f87171` | 6.10:1 (pass) | 5.48:1 (pass) |
+
+All four values clear WCAG AA 4.5:1 for body text. No other selectors reference `--danger`, so the new token is scoped to the import-preview emphasis only.

@@ -43,6 +43,7 @@ import {
   MSG_BULK_DELETE_ITEMS,
   MSG_BULK_UPDATE_ITEMS,
   MSG_EXPORT_COLLECTION,
+  MSG_IMPORT_COLLECTION,
 } from '../../shared/messages.js';
 
 import {
@@ -54,6 +55,7 @@ import {
 import { buildFilenameWithDate } from '../export/shared.js';
 import { buildHtmlExport, countNonEmptyGroupsForHtml } from '../export/html-export.js';
 import { buildJsonExport } from '../export/json-export.js';
+import { importCollection } from '../import/index.js';
 import { partitionKey, PARTITION_PREFS } from '../storage/partitions.js';
 
 import {
@@ -107,6 +109,7 @@ const MUTATION_BROADCASTS = {
   [MSG_PROMOTE_TAB]: SCOPE.ITEMS,
   [MSG_DEMOTE_ITEM]: SCOPE.ITEMS,
   [MSG_NAVIGATE_TO_ITEM]: SCOPE.ITEMS, // Included because navigate bumps lastAccessedAt via updateItem — a real storage mutation.
+  [MSG_IMPORT_COLLECTION]: SCOPE.ITEMS, // B-044 / B-045 — replace-all import. One broadcast covers items + groups (+ prefs); the sidepanel re-fetches on scope: items.
 };
 
 /**
@@ -123,6 +126,11 @@ const WRITE_MESSAGE_TYPES = new Set([
   MSG_BULK_CREATE_ITEMS, MSG_BULK_DELETE_ITEMS, MSG_BULK_UPDATE_ITEMS,
   MSG_CREATE_GROUP, MSG_UPDATE_GROUP, MSG_DELETE_GROUP,
   MSG_SET_PREFERENCES, MSG_PROMOTE_TAB, MSG_DEMOTE_ITEM,
+  /* B-044 / B-045 — import is a destructive REPLACE. Safe-mode must block it
+     with ERR_SAFE_MODE (B-044 AC12). The preview round-trip is also gated —
+     preview-then-commit is two messages, and we reject both under safe mode
+     to avoid surfacing import UI that can't complete. */
+  MSG_IMPORT_COLLECTION,
 ]);
 
 function isWriteType(message) {
@@ -400,6 +408,46 @@ async function dispatch(type, payload) {
       // Intentionally absent from MUTATION_BROADCASTS — chrome.tabs.remove triggers tabs.onRemoved which handles claim cleanup and broadcasts LIVE_STATE.
       return { closed: validTabIds, notFound: notFoundIds };
     }
+    case MSG_IMPORT_COLLECTION: {
+      /* B-044 / B-045 — two-round preview → commit protocol (§33.4). The
+         safe-mode gate ran above; we still validate payload shape here. */
+      if (!p || typeof p !== 'object') {
+        throw new StorageError(ERR_VALIDATION, 'importCollection: payload required');
+      }
+      if (p.format !== 'html' && p.format !== 'json') {
+        throw new StorageError(ERR_VALIDATION, 'importCollection: format must be "html" or "json"');
+      }
+      if (typeof p.content !== 'string') {
+        throw new StorageError(ERR_VALIDATION, 'importCollection: content must be a string');
+      }
+      if (p.content.length === 0) {
+        throw new StorageError(ERR_VALIDATION, 'importCollection: content must be non-empty');
+      }
+      /* Defense-in-depth (R4 security-reviewer M-1): the sidepanel caps the
+         file read at 5 MiB (§33.10); the SW caps the IPC payload at 10 MiB
+         to tolerate UTF-8 expansion on edge-case inputs while still bounding
+         memory + CPU at the trust boundary. */
+      if (p.content.length > 10 * 1024 * 1024) {
+        throw new StorageError(ERR_VALIDATION, 'Import content exceeds 10 MiB limit');
+      }
+      if (p.commit !== undefined && typeof p.commit !== 'boolean') {
+        throw new StorageError(ERR_VALIDATION, 'importCollection: commit must be boolean');
+      }
+      if (p.options !== undefined) {
+        if (typeof p.options !== 'object' || p.options === null) {
+          throw new StorageError(ERR_VALIDATION, 'importCollection: options must be an object');
+        }
+        if (p.options.skipDuplicates !== undefined && typeof p.options.skipDuplicates !== 'boolean') {
+          throw new StorageError(ERR_VALIDATION, 'importCollection: options.skipDuplicates must be boolean');
+        }
+      }
+      return importCollection({
+        format: p.format,
+        content: p.content,
+        commit: !!p.commit,
+        options: p.options,
+      });
+    }
     case MSG_EXPORT_COLLECTION: {
       /* B-042 / B-043 — read-only export. Never mutates storage and therefore
          is intentionally absent from MUTATION_BROADCASTS and WRITE_MESSAGE_TYPES
@@ -548,7 +596,14 @@ export function registerStorageHandlers(readyPromise) {
           const isNavigateTabIdOnly = message.type === MSG_NAVIGATE_TO_ITEM
             && p.itemId === undefined
             && typeof p.tabId === 'number';
-          if (!isNavigateTabIdOnly) {
+          /* B-044 / B-045: preview round-trip makes no storage mutation. The
+             handler returns `{ previewOnly: true, ... }`; suppress the
+             broadcast so open surfaces do not re-fetch on the preview. The
+             follow-up commit round-trip carries `commit: true` and broadcasts
+             normally. */
+          const isImportPreviewOnly = message.type === MSG_IMPORT_COLLECTION
+            && p.commit !== true;
+          if (!isNavigateTabIdOnly && !isImportPreviewOnly) {
             broadcast(broadcastScope, message.type);
           }
         }

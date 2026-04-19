@@ -41,6 +41,16 @@
           <path d="M6 9h4M6 11h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
         </svg>
       </button>
+      <!-- B-044: import bookmarks from Netscape HTML -->
+      <button id="import-html-btn" class="header-add-btn" aria-label="Import bookmarks from HTML" type="button">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M8 13V4M4.5 8.5L8 5l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M3 14h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <!-- B-044: hidden file input, accept toggled per format at click time -->
+      <input id="import-file-input" type="file" accept=".html,.htm,text/html"
+             hidden tabindex="-1" aria-hidden="true" />
       <!-- B-014: window filter row. Populated at runtime by
            _rebuildWindowFilterRow; hidden until ≥ 2 browser windows are open. -->
       <div id="window-filter-row"

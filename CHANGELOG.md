@@ -2,6 +2,22 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.13.0] — 2026-04-19
+
+### Added
+- Import HTML: a new **Import HTML** button in the side panel header reads a standard Netscape-format bookmarks file (the same `.html` format that Chrome, Edge, Firefox, and Safari produce) and brings every folder and bookmark into Tab Junkie. After you pick a file, a preview dialog shows the filename, how many bookmarks and folders will be imported, any malformed or duplicate entries that will be skipped, and a clearly labelled warning that the import **replaces** every existing group and bookmark. **Cancel** is the default button — you have to explicitly click **Replace all** to commit. The import is atomic: if the commit fails for any reason, your existing data stays intact.
+  - Top-level folders become top-level groups; one-level-nested folders become sub-groups; folders nested deeper are flattened into sub-groups whose names are joined with ` / ` so the original path is preserved.
+  - Loose bookmarks at the root of the file land in the **Ungrouped** section.
+  - Group colors are assigned deterministically from the Tab Junkie palette based on folder name, so re-importing the same file produces the same colors.
+  - Original `ADD_DATE` / `LAST_MODIFIED` timestamps are preserved when the file includes them.
+  - Duplicate URLs within the file are de-duplicated; `javascript:` and `data:` URLs are skipped for safety; all other supported schemes (`http`, `https`, `file`, `chrome`, `edge`, `chrome-extension`, `about`, `view-source`) are imported.
+  - Favicons are re-captured in Tab Junkie at first use; they are not read from the imported file.
+  - Files up to 5 MiB are accepted; larger files are rejected upfront with a clear inline toast.
+
+### Known limitations
+- Import does **not** take an automatic backup of your existing data before committing, and there is no undo. Use **Export HTML** or **Export JSON** first if you want a safety net.
+- JSON import is not yet shipped. It is planned for a future release.
+
 ## [1.12.0] — 2026-04-18
 
 ### Added

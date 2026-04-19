@@ -51,3 +51,4 @@
 - [§30 — B-029 — Group Picker Modal (R2 Design)](design/30-b-029-group-picker-modal.md)
 - [§31 — B-048 — Item Visual-State Matrix (R2 Design)](design/31-b-048-item-visual-state-matrix.md)
 - [§32 — B-042 + B-043 — Collection Export (R2 Design)](design/32-b-042-b-043-collection-export.md)
+- [§33 — B-044 + B-045 — Collection Import (R2 Design)](design/33-b-044-b-045-import.md)

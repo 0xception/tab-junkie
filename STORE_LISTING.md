@@ -28,6 +28,7 @@ KEY FEATURES
 • New tab page — Optional replacement with bookmark grid and web search
 • Chrome tab group sync — Mirror your Tab Junkie groups as Chrome tab groups with matching colors
 • Export to HTML or JSON — one-click **Export HTML** downloads a standard Netscape bookmark file that imports cleanly into Chrome, Firefox, Safari, and Edge; one-click **Export JSON** downloads a schema-versioned, round-trip-safe backup of every group, item, and preference
+• Import from HTML — bring in a Netscape-format bookmarks file from Chrome, Edge, Firefox, Safari, or any other bookmark manager. A preview dialog confirms counts and explicitly warns that the import will replace your existing data; **Replace all** commits atomically, Cancel backs out
 • 12 IDE color themes — Monokai, Dracula, Nord, Solarized, Gruvbox, Tokyo Night, GitHub Light, and more
 
 FOUR WAYS TO ACCESS

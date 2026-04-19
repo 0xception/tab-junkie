@@ -75,6 +75,56 @@ export const MSG_EXPORT_COLLECTION = 'tj/exportCollection';
  * @property {number} groupCount   Number of non-empty groups included — drives toast copy.
  */
 
+// ---- Data import (B-044 / B-045) ----
+/**
+ * Import a user-supplied collection file, replacing all existing data atomically.
+ * Write path: gated by the safe-mode guard (rejects with ERR_SAFE_MODE). On
+ * successful commit, broadcasts scope `'items'` so open surfaces re-fetch
+ * (B-050 pattern). Wave 3 (B-044) implements the HTML branch; Wave 4 (B-045)
+ * fills in the JSON branch.
+ *
+ * Two-round protocol (see §33.4): the same message type carries both the
+ * preview and the commit round-trips; the handler discriminates on
+ * `payload.commit`. Preview (commit: false/absent) parses + returns counts
+ * with zero mutation. Commit (commit: true) re-parses the same content and
+ * applies the atomic writeTransaction.
+ */
+export const MSG_IMPORT_COLLECTION = 'tj/importCollection';
+
+/**
+ * @typedef {Object} ImportCollectionRequest
+ * @property {'html' | 'json'} format
+ *   'html' parses Netscape Bookmark File Format 1 (B-044).
+ *   'json' parses Tab Junkie schema-v1 backup (B-045 — Wave 4).
+ * @property {string} content
+ *   Raw file text (UTF-8). The sidepanel reads the user-picked File via
+ *   FileReader.readAsText before dispatching; Blob/File objects do NOT cross
+ *   the message boundary (structured-clone overhead + test-harness friction).
+ * @property {boolean} [commit]
+ *   When absent/false the handler runs a preview pass (parse + count, no
+ *   storage mutation). When `true`, the handler re-parses and commits via
+ *   writeTransaction.
+ * @property {Object} [options]
+ * @property {boolean} [options.skipDuplicates=true]
+ *   B-060 hook. Default true (skip duplicate URLs inside the file). B-060 flips
+ *   the default via UI; B-044/B-045 always pass true at v1.
+ */
+
+/**
+ * @typedef {Object} ImportCollectionResponse
+ * @property {boolean} previewOnly     True when the response is a preview (no
+ *                                     mutation). Absent/false on commit responses.
+ * @property {number} itemsImported    Count of items that will be / were written.
+ * @property {number} groupsImported   Count of groups that will be / were written.
+ * @property {number} duplicatesSkipped Count of duplicate-URL items dropped
+ *                                     (in-file duplicates only).
+ * @property {number} [skipped]        B-044 only — malformed-entry skip count (AC10).
+ * @property {string} [filename]       Echo of the user-picked filename when provided.
+ *
+ * On success: { ok: true, data: ImportCollectionResponse }.
+ * On failure: { ok: false, error: { code: 'ERR_*', message: string } }.
+ */
+
 // ---- State broadcast ----
 export const MSG_STATE_CHANGED = 'tj/stateChanged';
 

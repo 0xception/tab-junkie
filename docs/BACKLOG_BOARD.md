@@ -7,7 +7,7 @@
 ## Progress Dashboard
 
 ```
-Overall Progress    █████████████░░░░░░░  68% (47/69)  [3 in progress]
+Overall Progress    █████████████░░░░░░░  70% (48/69)  [2 in progress]
 ```
 
 ### Legend
@@ -98,7 +98,7 @@ Overall Progress    █████████████░░░░░░░
 ✅ B-063 — Close open context menu when the side panel loses focus (click-off) · 🟡 · S
 ✅ B-064 — Global `.item-url` tertiary-text contrast audit (WCAG AA) · 🟠 · S
 ✅ B-065 — Extract test-duplicated helpers to `shared/*` (tech-debt) · 🟡 · S
-🔄 B-066 — Remaining `--text-tertiary` a11y sweep (drag handle + empty states) · 🟡 · S
+✅ B-066 — Remaining `--text-tertiary` a11y sweep (drag handle + empty states) · 🟡 · S
 ✅ B-067 — Flip export sanitizers to §32.5 allow-list before B-045 ships · 🟡 · S
 ✅ B-068 — Split SOLUTION_DESIGN + SPRINT_FINDINGS into per-chapter / per-sprint files · 🟠 · S
 
@@ -117,7 +117,7 @@ Overall Progress    █████████████░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 47 | 68% |
-| 🔄 In Progress | 3 | 4% |
+| ✅ Done | 48 | 70% |
+| 🔄 In Progress | 2 | 3% |
 | ⬜ To Do | 17 | 25% |
 | 🧊 Icebox | 2 | 3% |

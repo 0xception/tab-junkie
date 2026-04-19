@@ -17,6 +17,7 @@ import {
   MSG_BULK_UPDATE_ITEMS,
   MSG_PROMOTE_TAB,
   MSG_EXPORT_COLLECTION,
+  MSG_IMPORT_COLLECTION,
 } from '../shared/messages.js';
 
 import {
@@ -85,6 +86,9 @@ const addBookmarkBtnEl = document.getElementById('add-bookmark-btn');
 const exportHtmlBtnEl = document.getElementById('export-html-btn');
 /* B-043: export-to-JSON backup button in header. */
 const exportJsonBtnEl = document.getElementById('export-json-btn');
+/* B-044: import-from-HTML button + hidden file input in header. */
+const importHtmlBtnEl = document.getElementById('import-html-btn');
+const importFileInputEl = document.getElementById('import-file-input');
 const dialogOverlayEl = document.getElementById('dialog-overlay');
 const bookmarkDialogEl = document.getElementById('bookmark-dialog');
 const confirmDialogEl = document.getElementById('confirm-dialog');
@@ -1481,6 +1485,302 @@ async function _exportCollectionAsJson() {
 if (exportJsonBtnEl) {
   exportJsonBtnEl.addEventListener('click', () => {
     void _exportCollectionAsJson();
+  });
+}
+
+/* =========================================================================
+   B-044 — Import from Netscape HTML
+   =========================================================================
+   UX flow (§33.4):
+     click Import HTML → set accept → programmatic file-input.click() → user
+     picks file → FileReader.readAsText → pre-dispatch preview (zero storage
+     mutation) → "Import N bookmarks across M groups… Replace all?" dialog with
+     Cancel default-focused → on Replace-all, re-dispatch with commit:true.
+     Success toast: "Imported N bookmarks into M groups. K skipped."
+
+   Security invariants:
+     - AC2: extension filter enforced client-side before reading the file.
+     - AC15: the parser never uses innerHTML; titles survive as literal text.
+     - AC16: zero network calls during the entire flow.
+     - AC17: no new manifest permissions (programmatic <input type="file">).
+   ========================================================================= */
+
+/** Upper bound — matches §33.10 pre-dispatch oversize guard. */
+const IMPORT_MAX_BYTES = 5 * 1024 * 1024;
+
+/* Single in-flight guard — gates both the preview dispatch and the commit
+   dispatch so repeated clicks on "Import HTML" (or a double-click on
+   "Replace all") cannot fire overlapping round-trips. Also toggles the
+   button's disabled + aria-busy state so users see the import is running. */
+let _importInFlight = false;
+
+/** Enter the in-flight state: disable the Import-HTML button + mark aria-busy. */
+function _setImportInFlight(inFlight) {
+  _importInFlight = inFlight;
+  if (importHtmlBtnEl) {
+    importHtmlBtnEl.disabled = inFlight;
+    if (inFlight) {
+      importHtmlBtnEl.setAttribute('aria-busy', 'true');
+    } else {
+      importHtmlBtnEl.removeAttribute('aria-busy');
+    }
+  }
+}
+
+/**
+ * Map a MSG_IMPORT_COLLECTION failure code to a user-facing toast string.
+ * @param {string} code
+ * @returns {string}
+ */
+function _importErrorToast(code) {
+  switch (code) {
+    case 'ERR_INVALID_FORMAT':
+      return 'Not a valid Netscape bookmarks file';
+    case 'ERR_EMPTY_FILE':
+      return 'File is empty';
+    case 'ERR_MALFORMED_ROOT':
+      return 'Backup file is malformed and cannot be imported';
+    case 'ERR_UNKNOWN_SCHEMA_VERSION':
+      return 'Backup was created in a newer version. Please update Tab Junkie before importing.';
+    case 'ERR_UNREPAIRABLE':
+      return 'Backup file contains unrecoverable errors';
+    case 'ERR_QUOTA_EXCEEDED':
+      return 'Import failed: not enough storage space. Delete items and try again.';
+    case 'ERR_SAFE_MODE':
+      return 'Cannot import while in safe mode. Please update Tab Junkie.';
+    case 'ERR_VALIDATION':
+      return 'Import failed: invalid request';
+    default:
+      return 'Import failed: invalid file format';
+  }
+}
+
+/**
+ * Build the import-preview dialog body as structured DOM nodes — never
+ * innerHTML. "REPLACE" is wrapped in a strong+warning span per AC4.
+ *
+ * @param {{ itemsImported: number, groupsImported: number,
+ *           duplicatesSkipped?: number, skipped?: number }} counts
+ * @param {string} filename
+ */
+function _buildImportPreviewBody(counts, filename) {
+  const { itemsImported, groupsImported, duplicatesSkipped = 0, skipped = 0 } = counts;
+  const frag = document.createDocumentFragment();
+  const line1 = document.createElement('span');
+  line1.textContent =
+    'Import ' + itemsImported + ' bookmark' + (itemsImported === 1 ? '' : 's')
+    + ' across ' + groupsImported + ' folder' + (groupsImported === 1 ? '' : 's')
+    + (filename ? ' from ' + filename : '') + '. ';
+  frag.appendChild(line1);
+  const strong = document.createElement('strong');
+  strong.className = 'import-replace-emphasis';
+  strong.textContent = 'This will REPLACE all existing bookmarks and groups.';
+  frag.appendChild(strong);
+  const line2 = document.createElement('span');
+  line2.textContent = ' Continue?';
+  frag.appendChild(line2);
+  if (skipped > 0) {
+    const extra = document.createElement('span');
+    extra.className = 'import-extra-line';
+    extra.textContent = ' ' + skipped + ' malformed entr'
+      + (skipped === 1 ? 'y' : 'ies') + ' will be skipped.';
+    frag.appendChild(extra);
+  }
+  if (duplicatesSkipped > 0) {
+    const dup = document.createElement('span');
+    dup.className = 'import-extra-line';
+    dup.textContent = ' ' + duplicatesSkipped + ' item'
+      + (duplicatesSkipped === 1 ? '' : 's')
+      + ' have duplicate URLs — duplicates will be skipped.';
+    frag.appendChild(dup);
+  }
+  return frag;
+}
+
+/**
+ * Open the import-preview confirmation dialog. Extends the shared confirm-
+ * dialog primitive (§33.4 Q-2) by replacing the <p> body with a
+ * document-fragment composed of structured DOM nodes — never innerHTML.
+ */
+function _openImportPreviewDialog({ counts, filename, onConfirm, triggerEl }) {
+  _pendingConfirmCallback = onConfirm;
+  _dialogTriggerEl = triggerEl || null;
+  confirmHeadingEl.textContent = 'Replace all bookmarks?';
+  /* Clear prior textContent before appending structured nodes. */
+  confirmBodyEl.replaceChildren();
+  confirmBodyEl.appendChild(_buildImportPreviewBody(counts, filename));
+  confirmDeleteBtnEl.textContent = 'Replace all';
+  confirmDeleteBtnEl.dataset.variant = 'destructive';
+  bookmarkDialogEl.hidden = true;
+  confirmDialogEl.hidden = false;
+  dialogOverlayEl.hidden = false;
+  dialogOverlayEl.removeAttribute('aria-hidden');
+  _activateFocusTrap(confirmDialogEl);
+  /* AC5: Cancel default-focused. */
+  confirmCancelBtnEl.focus();
+}
+
+/**
+ * Read a File to text via FileReader. Wraps the event-based API in a Promise.
+ * @param {File} file
+ * @returns {Promise<string>}
+ */
+function _readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(reader.error || new Error('File read failed'));
+    reader.readAsText(file);
+  });
+}
+
+/**
+ * Kick off the Import-HTML flow. Programmatic file-input.click().
+ */
+function _beginImportHtml() {
+  if (!importFileInputEl) return;
+  /* AC2: enforce the HTML extension filter at the browser level. The listener
+     also double-checks the filename post-pick for robustness against OS file
+     pickers that ignore `accept`. */
+  importFileInputEl.accept = '.html,.htm,text/html';
+  importFileInputEl.value = ''; /* reset so re-picking the same file still fires change */
+  importFileInputEl.click();
+}
+
+/**
+ * Handle a picked import file: validate extension, read text, dispatch
+ * preview round-trip, open confirmation dialog, dispatch commit on confirm.
+ * @param {File} file
+ * @param {HTMLElement} triggerEl element to restore focus to
+ */
+async function _handleImportFile(file, triggerEl) {
+  /* AC2: extension re-check in case the OS picker ignored `accept`. */
+  const lowerName = (file.name || '').toLowerCase();
+  if (!lowerName.endsWith('.html') && !lowerName.endsWith('.htm')) {
+    showToast('Select an .html or .htm file');
+    return;
+  }
+  /* §33.10 oversize guard — reject before reading a huge file. */
+  if (file.size > IMPORT_MAX_BYTES) {
+    showToast('File too large (max 5 MiB)');
+    return;
+  }
+
+  /* Guard the preview round-trip: disable the button until either the
+     dialog opens (then the dialog's own modality prevents re-entry) or
+     the preview short-circuits (empty / error). */
+  _setImportInFlight(true);
+  let content;
+  try {
+    try {
+      content = await _readFileAsText(file);
+    } catch {
+      showToast('Couldn\u2019t read file \u2014 try again');
+      return;
+    }
+    if (!content || content.length === 0) {
+      showToast(_importErrorToast('ERR_EMPTY_FILE'));
+      return;
+    }
+
+    let previewData;
+    try {
+      previewData = await sendMessage(MSG_IMPORT_COLLECTION, {
+        format: 'html',
+        content,
+      });
+    } catch (err) {
+      const code = err && err.code ? String(err.code) : 'ERR_UNKNOWN';
+      /* AC13 privacy: never log titles/URLs/file content — code only. */
+      console.warn('import preview failed:', code);
+      showToast(_importErrorToast(code));
+      return;
+    }
+
+    /* Reject a "valid but empty" file before opening the confirm dialog —
+       a DOCTYPE-only file with zero bookmarks + zero groups would otherwise
+       let the user wipe storage for nothing. Toast + abort. */
+    if ((previewData.itemsImported || 0) === 0 && (previewData.groupsImported || 0) === 0) {
+      showToast('File contains no bookmarks');
+      return;
+    }
+
+    /* Capture `content` + `filename` in the confirm closure so the commit
+       dispatch is independent of any module-level state that `closeDialog()`
+       may clear between the user's Replace-all click and the SW round-trip. */
+    const capturedContent = content;
+    const capturedFilename = file.name;
+    _openImportPreviewDialog({
+      counts: previewData,
+      filename: file.name,
+      triggerEl,
+      onConfirm: () => {
+        /* Re-entry guard: the dialog's click handler already clears
+           _pendingConfirmCallback on first fire, so this is defense-in-depth
+           against future refactors. */
+        if (_importInFlight) return;
+        void _commitImport({ content: capturedContent, filename: capturedFilename });
+      },
+    });
+  } finally {
+    /* Release the guard — the dialog is now modal (commit path will
+       re-acquire on Replace-all) or an error branch already aborted. */
+    _setImportInFlight(false);
+  }
+}
+
+/**
+ * Round-trip 2: dispatch the actual commit. Parses the same content a second
+ * time in the SW (§33.4 "parse twice" decision — cold-start-safe, no session
+ * stash). Shows the success or failure toast.
+ * @param {{content: string, filename: string}} pending
+ */
+async function _commitImport(pending) {
+  if (!pending || typeof pending.content !== 'string') return;
+  /* Commit can take ~2s on a 1000-bookmark file. Block re-entry + visibly
+     disable the trigger so users don't think the click was lost. */
+  _setImportInFlight(true);
+  try {
+    const data = await sendMessage(MSG_IMPORT_COLLECTION, {
+      format: 'html',
+      content: pending.content,
+      commit: true,
+    });
+    /* AC13: success toast copy — "Imported N bookmarks into M groups. K skipped." */
+    let msg = 'Imported ' + data.itemsImported + ' bookmark'
+      + (data.itemsImported === 1 ? '' : 's')
+      + ' into ' + data.groupsImported + ' group'
+      + (data.groupsImported === 1 ? '' : 's') + '.';
+    const totalSkipped = (data.skipped || 0) + (data.duplicatesSkipped || 0);
+    if (totalSkipped > 0) msg += ' ' + totalSkipped + ' skipped.';
+    showToast(msg);
+  } catch (err) {
+    const code = err && err.code ? String(err.code) : 'ERR_UNKNOWN';
+    console.warn('import commit failed:', code);
+    showToast(_importErrorToast(code));
+  } finally {
+    _setImportInFlight(false);
+  }
+}
+
+if (importHtmlBtnEl) {
+  importHtmlBtnEl.addEventListener('click', () => {
+    /* Extra defense: the disabled attribute already prevents the event in
+       most browsers, but ignore the click if somehow an import is still
+       in flight (e.g. a programmatic dispatch that bypasses `disabled`). */
+    if (_importInFlight) return;
+    _beginImportHtml();
+  });
+}
+
+if (importFileInputEl) {
+  importFileInputEl.addEventListener('change', (e) => {
+    const input = e.target;
+    const file = input && input.files && input.files[0];
+    if (!file) return;
+    void _handleImportFile(file, importHtmlBtnEl);
+    /* Reset value so re-picking the same file later still fires `change`. */
+    input.value = '';
   });
 }
 

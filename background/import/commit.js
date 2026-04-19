@@ -1,0 +1,116 @@
+/**
+ * Atomic commit path for MSG_IMPORT_COLLECTION — B-044 / B-045 (§33.7).
+ *
+ * Consumes a normalized import snapshot (produced by either html-parser.js or
+ * — when B-045 lands — json-validator.js) and applies the single atomic
+ * writeTransaction that replaces `tj:items`, `tj:groups`, and optionally
+ * `tj:prefs`. Transient partitions (`tj:drift`, `tj:floatingGroups`) and the
+ * session-scoped TabClaims store are reset *outside* the writeTransaction per
+ * §33.7's partial-atomicity rationale: the items/groups swap is the contract;
+ * the transients are self-healing cleanup.
+ *
+ * D-3 atomicity guarantee: a single `writeTransaction` replaces every user-
+ * data partition in one chrome.storage.local.set. The R4 security-reviewer
+ * greps this file for multiple write calls and flags any splits.
+ */
+
+import {
+  PARTITION_ITEMS,
+  PARTITION_GROUPS,
+  PARTITION_PREFS,
+  PARTITION_DRIFT,
+  PARTITION_FLOATING_GROUPS,
+  DEFAULT_PREFERENCES,
+} from '../storage/shapes.js';
+import { writeTransaction } from '../storage/write-transaction.js';
+import {
+  sanitizeItem,
+  sanitizeGroup,
+} from '../../shared/export-schema.js';
+
+/**
+ * Commit a parsed import snapshot.
+ *
+ * @param {Object} args
+ * @param {Array<Object>} args.items   Items post-parse — already have minted ULIDs,
+ *                                     valid groupId refs, sortOrder, createdAt,
+ *                                     updatedAt. The commit runs each record
+ *                                     through `sanitizeItem` as defence-in-depth:
+ *                                     any stray field is stripped by the §32.5
+ *                                     allow-list before it reaches storage.
+ * @param {Array<Object>} args.groups  Groups post-parse.
+ * @param {Object|null} [args.preferences]
+ *   If present, written verbatim to `tj:prefs` (merged over DEFAULT_PREFERENCES).
+ *   Omitted/absent → `tj:prefs` is left untouched.
+ * @returns {Promise<{itemsImported: number, groupsImported: number}>}
+ */
+export async function commitImport({ items, groups, preferences }) {
+  const safeItems = Array.isArray(items) ? items : [];
+  const safeGroups = Array.isArray(groups) ? groups : [];
+
+  // Defence-in-depth: run every record through the §32.5 allow-list one last
+  // time. Parser output SHOULD already be clean, but R4 security asks for a
+  // non-bypassable boundary at the write edge.
+  const nowMs = Date.now();
+  const scrubbedItems = safeItems.map((it) => {
+    const clean = sanitizeItem(it);
+    if (!Number.isFinite(clean.createdAt)) clean.createdAt = nowMs;
+    if (!Number.isFinite(clean.updatedAt)) clean.updatedAt = nowMs;
+    if (!Number.isFinite(clean.sortOrder)) clean.sortOrder = 0;
+    return clean;
+  });
+  const scrubbedGroups = safeGroups.map((g) => {
+    const clean = sanitizeGroup(g);
+    if (!Number.isFinite(clean.createdAt)) clean.createdAt = nowMs;
+    if (!Number.isFinite(clean.updatedAt)) clean.updatedAt = nowMs;
+    if (!Number.isFinite(clean.sortOrder)) clean.sortOrder = 0;
+    if (typeof clean.collapsed !== 'boolean') clean.collapsed = false;
+    return clean;
+  });
+
+  /* Single atomic writeTransaction across items + groups + (optional) prefs.
+     Mutator functions ignore the prior partition contents — this is a REPLACE.
+     The writeTransaction runs the shape validators post-mutation; corrupt
+     output never reaches storage. */
+  const ops = [
+    { partition: PARTITION_ITEMS, mutator: () => scrubbedItems },
+    { partition: PARTITION_GROUPS, mutator: () => scrubbedGroups },
+  ];
+  if (preferences && typeof preferences === 'object') {
+    ops.push({
+      partition: PARTITION_PREFS,
+      mutator: () => ({ ...DEFAULT_PREFERENCES, ...preferences }),
+    });
+  }
+  await writeTransaction(ops);
+
+  /* Transient-partition resets. These run in a SECOND writeTransaction —
+     structurally separate from the main items/groups/prefs swap so that a
+     failure here cannot roll back the primary commit. Their failure modes are
+     self-healing (§33.7 + B-017 partial-atomicity precedent): drift records
+     lazily clear at read time; floating groups rebuild on tab events. A
+     failure here logs a warning and never rejects the overall import — the
+     items/groups swap is the contract. Using writeTransaction (not a raw
+     chrome.storage.local.set) preserves the single-writer invariant and
+     keeps shape validation on the write path. */
+  try {
+    await writeTransaction([
+      { partition: PARTITION_DRIFT, mutator: () => ({}) },
+      { partition: PARTITION_FLOATING_GROUPS, mutator: () => [] },
+    ]);
+  } catch (err) {
+    console.warn('[import] transient partition reset failed:', err && err.message ? err.message : String(err));
+  }
+  try {
+    if (chrome.storage.session && typeof chrome.storage.session.remove === 'function') {
+      await chrome.storage.session.remove('tj:tabClaims');
+    }
+  } catch (err) {
+    console.warn('[import] session tabClaims reset failed:', err && err.message ? err.message : String(err));
+  }
+
+  return {
+    itemsImported: scrubbedItems.length,
+    groupsImported: scrubbedGroups.length,
+  };
+}
