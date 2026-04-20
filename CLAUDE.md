@@ -231,6 +231,7 @@ Before [scrum-master] kicks off R1 for the first item:
 - ✅ Any unresolved blockers from the previous sprint are acknowledged
 - ✅ `SPRINT.md` "Active Items" section populated with all planned items
 - ✅ `BACKLOG.md` items updated to `in-progress` as work begins
+- ✅ **Deps-resolved check**: For every in-scope item, verify each dependency in BACKLOG.md `Dependencies` column is either `done` OR also in this sprint. If any dep is `backlog`, flag for product-owner triage before kickoff. Prevents mid-sprint dependency-gap deferrals.
 
 ### Gate 7: Sprint Retrospective (After Every Sprint Close)
 
@@ -306,6 +307,7 @@ A sprint item is "ready for build" ONLY when ALL of these are true:
 4. ☐ Dependencies identified and resolved
 5. ☐ [solution-architect] architecture review complete (R2)
 6. ☐ Performance acceptance criteria defined (if the change affects search, render, or startup paths)
+7. ☐ **Destructive-action confirmation explicit on carved-out paths**: when an AC carves out an edge-case path (prefs-only, zero-match, partial-input, etc.), it MUST explicitly state whether destructive-action confirmation is retained or waived on that path, with rationale. Do not rely on readers to infer retention from CLAUDE.md precedence.
 
 **Tier-specific DoR exceptions:**
 - **Fast Track (XS/S)**: Items 1-4 are mandatory. Items 5-6 are skipped. Exception: if the item touches storage schema, message passing, or extension permissions, item 5 is mandatory.
@@ -329,6 +331,8 @@ A sprint item is "ready for build" ONLY when ALL of these are true:
 | C-3 | Service worker cold-start safe | No assumption that the SW is already running; all entry points must re-hydrate state |
 | C-4 | ID stability | Item identity must survive URL drift, rename, and cross-window moves |
 | C-5 | Manifest file references resolvable | Every `default_path`, `default_popup`, and `chrome_url_overrides` entry in `manifest.json` must point to a file that exists at extension load time — stub HTML is acceptable |
+| C-6 | Permission minimization | Any proposed `manifest.json` permission addition MUST list: (a) why the capability is required, (b) whether any lower-scoped alternative exists (e.g., `activeTab` vs `tabs`), (c) explicit confirmation from [security-reviewer] that the addition is justified. |
+| C-7 | Allow-list direction | Any sanitizer, validator, or export surface that filters structured data MUST default to an allow-list (permit known-good fields) rather than a deny-list (strip known-bad fields), per B-067 precedent. Deny-lists are only acceptable when explicitly justified with a blast-radius note in R2 output. |
 | C-8 | SW-context feasibility | If the design prescribes a browser API (`DOMParser`, `document`, `window`, `CSS.paintWorklet`, `IntersectionObserver`, etc.) that must run inside a service worker, R2 MUST verify the API is accessible in SW context before R3 begins. 30-second check: open `chrome://extensions` → SW inspect → `typeof <API>` REPL probe OR a written MDN citation showing SW reachability. |
 | C-9 | Empty-state design | Every user-facing product path must explicitly enumerate its empty-state UX in R2 output: zero-items, zero-groups, zero-matches, zero-network, partial-inputs (e.g., preferences-only, no-title, no-URL). Each enumerated state has expected UI behavior (reject / accept-with-degraded-display / accept-fully) documented. R4 [qa-reviewer] checks against this enumeration. |
 
