@@ -4,6 +4,11 @@ All notable changes to Tab Junkie are documented in this file.
 
 ## [Unreleased]
 
+### Process
+- Sprint Readiness Gate 6 now includes an explicit deps-resolved check: every in-scope item's BACKLOG.md `Dependencies` column entries must be `done` OR also in the same sprint. Prevents mid-sprint dependency-gap deferrals like Sprint 19's B-046. See `CLAUDE.md § Gate 6: Sprint Readiness`.
+- Definition of Ready now requires destructive-action confirmation retention/waiver to be explicitly stated in ACs for carved-out edge-case paths (prefs-only, zero-match, partial-input, etc.). Prevents literal AC readings from silently dropping confirmation dialogs. See `CLAUDE.md § Definition of Ready`.
+- R2 Correctness Checklist backfilled with C-6 (permission minimization) and C-7 (allow-list direction) — closing the historical numbering gap between C-5 and C-8/C-9. See `CLAUDE.md § Round 2: Architecture`.
+
 ## [1.14.0] — 2026-04-19
 
 ### Added

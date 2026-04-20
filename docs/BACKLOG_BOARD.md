@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-19 · **Version:** 2.0 · **Total Items:** 71 · **Sprint 19 closed — v1.14.0**
+**Updated:** 2026-04-20 · **Version:** 2.1 · **Total Items:** 76 · **Sprint 20 active — kicked off 2026-04-20**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████████████░░░░░  76% (54/71)  [0 in progress]
+Overall Progress    ██████████████░░░░░░  71% (54/76)  [6 in progress]
 ```
 
 ### Legend
@@ -39,7 +39,7 @@ Overall Progress    ███████████████░░░░░
 ✅ B-004 — Favicon auto-capture + letter-avatar fallback · 🟠 · S
 ✅ B-005 — Bulk-create saved items (import primitive) · 🟠 · M
 ✅ B-006 — Create / edit / delete groups with color palette · 🔴 · M
-⬜ B-007 — Sub-group nesting (depth = 1) · 🟠 · M
+🔄 B-007 — Sub-group nesting (depth = 1) · 🟠 · M [Sprint 20 Wave 2]
 ✅ B-008 — Group reorder & collapse / expand persistence · 🟠 · M
 ⬜ B-009 — Drag-to-expand collapsed group · 🟡 · S
 ✅ B-010 — Live tab reflection & active-tab highlight · 🔴 · L
@@ -104,22 +104,32 @@ Overall Progress    ███████████████░░░░░
 ✅ B-069 — Add C-8 SW-context feasibility + C-9 empty-state design to R2 Correctness Checklist · 🟠 · XS
 ✅ B-070 — Sprint 18 follow-on polish bundle (prefs-only backup, alias removal, repair-summary rewrite, JSON dialog heading) · 🟡 · S
 
+## Sprint 20 — Retro action items + polish debt + sub-group nesting
+
+> 0/6 done · 6 in progress (plus UAT burndown track parallel)
+
+🔄 B-071 — Gate 6 Sprint Readiness deps-resolved check (CLAUDE.md edit) · 🟠 · XS [Wave 0]
+🔄 B-072 — AC template destructive-action confirmation clause (CLAUDE.md edit) · 🟡 · XS [Wave 0]
+🔄 B-073 — Backfill C-6 + C-7 in R2 Correctness Checklist (CLAUDE.md edit) · 🟡 · XS [Wave 0]
+🔄 B-074 — Remove pre-existing `TODO(sprint-19+)` from json-validator.js · 🟡 · XS [Wave 1]
+🔄 B-075 — Convert B-052 `byId` Map → frozen plain object (§34.14 D-1) · ⚪ · XS [Wave 1]
+
 ---
 
 ## Priority Distribution
 
 | Priority | Count | % |
 |----------|-------|---|
-| 🔴 P0 Critical | 14 | 20% |
-| 🟠 P1 High | 32 | 45% |
-| 🟡 P2 Medium | 9 | 13% |
-| ⚪ P3 Nice-to-have | 4 | 6% |
+| 🔴 P0 Critical | 14 | 18% |
+| 🟠 P1 High | 33 | 43% |
+| 🟡 P2 Medium | 12 | 16% |
+| ⚪ P3 Nice-to-have | 5 | 7% |
 
 ## Status Summary
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 54 | 76% |
-| 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 15 | 21% |
+| ✅ Done | 54 | 71% |
+| 🔄 In Progress | 6 | 8% |
+| ⬜ To Do | 14 | 18% |
 | 🧊 Icebox | 2 | 3% |
