@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-19 · **Version:** 2.0 · **Total Items:** 69 · **Sprint 18 closed — v1.13.0**
+**Updated:** 2026-04-19 · **Version:** 2.0 · **Total Items:** 71 · **Sprint 18 closed (v1.13.0) · Sprint 19 kicked off**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████░░░░░░  72% (50/69)  [0 in progress]
+Overall Progress    ██████████████░░░░░░  70% (50/71)  [5 in progress]
 ```
 
 ### Legend
@@ -78,13 +78,13 @@ Overall Progress    ██████████████░░░░░░
 ✅ B-043 — Export to JSON backup · 🟠 · M
 ✅ B-044 — Import HTML with count preview & flattening · 🟠 · M
 ✅ B-045 — Import JSON with validation & repair · 🟠 · M
-⬜ B-046 — Global keyboard shortcuts (popup + standalone) · 🟠 · S
+🔄 B-046 — Global keyboard shortcuts (popup + standalone) · 🟠 · S
 ✅ B-047 — In-panel keyboard shortcuts (select-all, clear) · 🟠 · XS
 ✅ B-048 — Item visual states (live / active / drifted / audible / selected) · 🟠 · M
 ✅ B-049 — Empty states & error feedback · 🟠 · S
 ✅ B-050 — State broadcast to all extension surfaces · 🔴 · M
 ✅ B-051 — Sort-order normalisation & selection pruning · 🟠 · S
-⬜ B-052 — Fuzzy search index caching & perf targets · 🟠 · M
+🔄 B-052 — Fuzzy search index caching & perf targets · 🟠 · M
 ✅ B-053 — Break circular dep between partitions.js ↔ write-transaction.js (extract shapes module) · 🟡 · S
 ✅ B-054 — Sidepanel shell: item/group rendering + live states + click-to-navigate + broadcasts · 🔴 · L
 ✅ B-055 — Open Tabs section: render live-only ungrouped tabs in the sidepanel · 🟠 · M
@@ -92,7 +92,7 @@ Overall Progress    ██████████████░░░░░░
 ✅ B-057 — SPIKE: URL-scheme allowlist + duplicate-URL policy review · 🟡 · XL
 ✅ B-058 — Relax URL-scheme allowlist (chrome://, edge://, chrome-extension://, about:, view-source:) · 🟡 · S
 ✅ B-059 — Allow duplicate URLs with soft-warn UI · 🟡 · M
-⬜ B-060 — Import duplicate-handling with skip/allow override · 🟡 · S
+🔄 B-060 — Import duplicate-handling with skip/allow override · 🟡 · S
 ✅ B-061 — Dim javascript:/data: rows in Open Tabs (replaces B-056) · ⚪ · XS
 ✅ B-062 — Dark-theme primary-button contrast audit (WCAG AA) · 🟠 · S
 ✅ B-063 — Close open context menu when the side panel loses focus (click-off) · 🟡 · S
@@ -101,6 +101,8 @@ Overall Progress    ██████████████░░░░░░
 ✅ B-066 — Remaining `--text-tertiary` a11y sweep (drag handle + empty states) · 🟡 · S
 ✅ B-067 — Flip export sanitizers to §32.5 allow-list before B-045 ships · 🟡 · S
 ✅ B-068 — Split SOLUTION_DESIGN + SPRINT_FINDINGS into per-chapter / per-sprint files · 🟠 · S
+🔄 B-069 — Add C-8 SW-context feasibility + C-9 empty-state design to R2 Correctness Checklist · 🟠 · XS
+🔄 B-070 — Sprint 18 follow-on polish bundle (prefs-only backup, alias removal, repair-summary rewrite, JSON dialog heading) · 🟡 · S
 
 ---
 
@@ -108,16 +110,16 @@ Overall Progress    ██████████████░░░░░░
 
 | Priority | Count | % |
 |----------|-------|---|
-| 🔴 P0 Critical | 14 | 25% |
-| 🟠 P1 High | 31 | 54% |
-| 🟡 P2 Medium | 8 | 14% |
-| ⚪ P3 Nice-to-have | 4 | 7% |
+| 🔴 P0 Critical | 14 | 20% |
+| 🟠 P1 High | 32 | 45% |
+| 🟡 P2 Medium | 9 | 13% |
+| ⚪ P3 Nice-to-have | 4 | 6% |
 
 ## Status Summary
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 50 | 72% |
-| 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 17 | 25% |
+| ✅ Done | 50 | 70% |
+| 🔄 In Progress | 5 | 7% |
+| ⬜ To Do | 14 | 20% |
 | 🧊 Icebox | 2 | 3% |
