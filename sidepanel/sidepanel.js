@@ -94,6 +94,8 @@ const errorStateEl = document.getElementById('error-state');
 const itemListEl = document.getElementById('item-list');
 const panelHeaderEl = document.getElementById('panel-header');
 const addBookmarkBtnEl = document.getElementById('add-bookmark-btn');
+/* B-081: new-group button in header — opens the group dialog in create mode. */
+const addGroupBtnEl = document.getElementById('add-group-btn');
 /* B-042: export-to-HTML button in header. */
 const exportHtmlBtnEl = document.getElementById('export-html-btn');
 /* B-043: export-to-JSON backup button in header. */
@@ -4008,6 +4010,14 @@ document.addEventListener('click', (e) => {
 
   if (e.target.closest('#add-bookmark-btn') || e.target.closest('.empty-state-cta:not(#filter-empty-clear-btn)')) {
     openCreateDialog({ triggerEl: e.target });
+    return;
+  }
+
+  /* B-081: new-group button opens the group dialog in create mode. Uses the
+     same event-delegation path as #add-bookmark-btn above so focus restoration
+     (addGroupBtnEl) works cleanly on Cancel. */
+  if (e.target.closest('#add-group-btn')) {
+    openGroupCreateDialog({ triggerEl: addGroupBtnEl });
     return;
   }
 
