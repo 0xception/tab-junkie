@@ -10,25 +10,22 @@
  * lives in sidepanel.js and consumes the delta descriptors this module
  * returns.
  *
- * Index contract (structurally immutable via module API):
+ * Index contract (structurally immutable end-to-end):
  *   {
- *     entries:    SearchEntry[]              // flat array, order = items order
- *     byId:       Map<string, SearchEntry>   // O(1) targeted-update lookup
- *     generation: number                     // bumped on every rebuild/patch
+ *     entries:    SearchEntry[]                        // flat array, order = items order
+ *     byId:       Readonly<Record<string, SearchEntry>> // O(1) targeted-update lookup
+ *     generation: number                               // bumped on every rebuild/patch
  *   }
  *
- *   The root object and `entries` array are shallow-frozen with
- *   `Object.freeze`, so property writes / array mutations throw in strict
- *   mode. `byId` is a native Map and cannot be frozen in the same way —
- *   `Object.freeze` on a Map does NOT seal its internal entries (`Map.set`
- *   and `Map.delete` still succeed silently in strict mode). The contract
- *   is therefore "defensively scoped": only this module's own `buildIndex`
- *   and `diffAndPatch` produce/mutate the `byId` Map, and every call in
- *   `diffAndPatch` builds a fresh Map rather than mutating the incoming
- *   one. External callers MUST NOT `byId.set()` / `byId.delete()` — any
- *   such mutation will be overwritten at the next `diffAndPatch` rebuild
- *   and silently drift the cache in the interim. Treat the Map as
- *   read-only (`get`, `has`, `size`, iteration) at all call sites.
+ *   The root object, the `entries` array, and the `byId` object are all
+ *   shallow-frozen with `Object.freeze`, so property writes / array
+ *   mutations / `byId[id] = …` throw in strict mode (ES modules are
+ *   always strict). This replaces the Map-based contract from B-052 which
+ *   could only be "defensively scoped" — Map.set is not caught by
+ *   Object.freeze. B-075 converts byId to a frozen plain object so the
+ *   runtime enforces the read-only contract that callers previously had
+ *   to honour by convention. Treat byId as read-only (property access,
+ *   `in` checks, `Object.keys` iteration) at all call sites.
  *
  * SearchEntry contract:
  *   { id, titleLower, urlLower, groupIdKey, hash }
@@ -58,7 +55,7 @@
 /**
  * @typedef {Object} SearchIndex
  * @property {ReadonlyArray<SearchEntry>} entries
- * @property {Map<string, SearchEntry>}   byId
+ * @property {Readonly<Record<string, SearchEntry>>} byId
  * @property {number}                     generation
  */
 
@@ -127,11 +124,9 @@ function buildEntry(item) {
    ========================================================================= */
 
 /**
- * Build a fresh index from an items array. Frozen shallowly so accidental
- * mutation (e.g. `index.entries.push(...)`) throws in strict mode and is
- * visible during tests. Note: `index.byId` is a Map and therefore cannot
- * be enforced-immutable — see the header comment's "structurally immutable
- * via module API" contract. Callers must not mutate it directly.
+ * Build a fresh index from an items array. All three fields (root,
+ * `entries` array, `byId` object) are shallow-frozen so mutation throws
+ * in strict mode. Entries themselves are deep-immutable via `buildEntry`.
  *
  * @param {IndexableItem[]} items
  * @returns {SearchIndex}
@@ -139,15 +134,15 @@ function buildEntry(item) {
 export function buildIndex(items) {
   const safeItems = Array.isArray(items) ? items : [];
   const entries = new Array(safeItems.length);
-  const byId = new Map();
+  const byId = {};
   for (let i = 0; i < safeItems.length; i++) {
     const entry = buildEntry(safeItems[i]);
     entries[i] = entry;
-    byId.set(entry.id, entry);
+    byId[entry.id] = entry;
   }
   return Object.freeze({
     entries: Object.freeze(entries),
-    byId,
+    byId: Object.freeze(byId),
     generation: 1,
   });
 }
@@ -155,16 +150,18 @@ export function buildIndex(items) {
 /**
  * Internal: build an index with a specified generation counter. Used by
  * the diff path so the caller can see a bumped generation on every patch.
+ * `byId` is frozen here rather than at the callsite so both entry points
+ * into the index lifecycle converge on a single freeze call.
  *
  * @param {SearchEntry[]} entries
- * @param {Map<string, SearchEntry>} byId
+ * @param {Record<string, SearchEntry>} byId
  * @param {number} generation
  * @returns {SearchIndex}
  */
 function makeIndex(entries, byId, generation) {
   return Object.freeze({
     entries: Object.freeze(entries),
-    byId,
+    byId: Object.freeze(byId),
     generation,
   });
 }
@@ -210,7 +207,7 @@ export function diffAndPatch(currentIndex, nextItems) {
 
   /* Walk the current index once: classify as 'removed' or 'carry-over'. */
   const removedIds = [];
-  for (const id of currentIndex.byId.keys()) {
+  for (const id of Object.keys(currentIndex.byId)) {
     if (!nextIds.has(id)) removedIds.push(id);
   }
 
@@ -222,7 +219,7 @@ export function diffAndPatch(currentIndex, nextItems) {
     const it = safeNext[i];
     if (!it || it.id == null) continue;
     const id = String(it.id);
-    const cur = currentIndex.byId.get(id);
+    const cur = currentIndex.byId[id];
     if (cur === undefined) {
       addedIdxs.push(i);
     } else if (cur.hash !== hashItem(it)) {
@@ -254,23 +251,25 @@ export function diffAndPatch(currentIndex, nextItems) {
     };
   }
 
-  /* Patch path: clone the array + map, apply deltas, freeze. */
+  /* Patch path: clone the array + byId object (structural sharing via spread),
+     apply deltas, freeze. Spread gives us O(prunedEntries) entry-ref copy;
+     entries themselves are frozen so no deep copy is needed. */
   const removedSet = new Set(removedIds);
   const prunedEntries = currentIndex.entries.filter((e) => !removedSet.has(e.id));
-  const nextById = new Map();
-  for (const e of prunedEntries) nextById.set(e.id, e);
+  const nextById = { ...currentIndex.byId };
+  for (const id of removedIds) delete nextById[id];
 
-  /* Updates overwrite in place in the array (preserve position) + map. */
+  /* Updates overwrite in place in the array (preserve position) + byId. */
   const updatedIds = new Set();
   for (const i of updatedIdxs) {
     const fresh = buildEntry(safeNext[i]);
     updatedIds.add(fresh.id);
-    nextById.set(fresh.id, fresh);
+    nextById[fresh.id] = fresh;
   }
   /* Array-side in-place overwrite: walk prunedEntries once; if an entry's
-     id is in updatedIds, swap it for the fresh entry from the map. */
+     id is in updatedIds, swap it for the fresh entry from byId. */
   const patchedEntries = prunedEntries.map((e) =>
-    updatedIds.has(e.id) ? nextById.get(e.id) : e
+    updatedIds.has(e.id) ? nextById[e.id] : e
   );
 
   /* Appends: tack on new entries at the end. Order is not load-bearing for
@@ -279,7 +278,7 @@ export function diffAndPatch(currentIndex, nextItems) {
   const appended = [];
   for (const i of addedIdxs) {
     const fresh = buildEntry(safeNext[i]);
-    nextById.set(fresh.id, fresh);
+    nextById[fresh.id] = fresh;
     appended.push(fresh);
   }
   const finalEntries = patchedEntries.concat(appended);

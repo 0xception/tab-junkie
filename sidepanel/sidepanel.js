@@ -1229,7 +1229,7 @@ function applyFilter() {
         let urlMatch;
         if (useIndex) {
           try {
-            const entry = _searchIndex.byId.get(itemId);
+            const entry = _searchIndex.byId[itemId];
             if (entry) {
               titleMatch = entry.titleLower.includes(query);
               urlMatch = entry.urlLower.includes(query);

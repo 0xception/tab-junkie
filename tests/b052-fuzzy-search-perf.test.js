@@ -294,7 +294,7 @@ test('B-052 AC2: single-item title edit → diffAndPatch returns patch with one 
   assert.equal(delta.affected[0].id, next[42].id);
 
   /* Patched entry has the new titleLower. */
-  const entry = delta.index.byId.get(next[42].id);
+  const entry = delta.index.byId[next[42].id];
   assert.equal(entry.titleLower, 'renamed sentinel title');
 
   /* Generation bumped. */
@@ -319,8 +319,8 @@ test('B-052 AC2: single-item add → diffAndPatch returns patch with one "added"
   assert.equal(delta.deltaType, 'patch');
   assert.equal(delta.affected.length, 1);
   assert.equal(delta.affected[0].kind, 'added');
-  assert.equal(delta.index.byId.size, index.byId.size + 1);
-  assert.equal(delta.index.byId.get('itm-new-1').titleLower, 'brand new bookmark');
+  assert.equal(Object.keys(delta.index.byId).length, Object.keys(index.byId).length + 1);
+  assert.equal(delta.index.byId['itm-new-1'].titleLower, 'brand new bookmark');
 });
 
 test('B-052 AC2: single-item delete → diffAndPatch returns patch with one "removed"', () => {
@@ -333,8 +333,8 @@ test('B-052 AC2: single-item delete → diffAndPatch returns patch with one "rem
   assert.equal(delta.deltaType, 'patch');
   assert.equal(delta.affected.length, 1);
   assert.equal(delta.affected[0].kind, 'removed');
-  assert.equal(delta.index.byId.size, index.byId.size - 1);
-  assert.equal(delta.index.byId.has(items[50].id), false);
+  assert.equal(Object.keys(delta.index.byId).length, Object.keys(index.byId).length - 1);
+  assert.equal(items[50].id in delta.index.byId, false);
 });
 
 test('B-052 AC2: group-move-only edit → diffAndPatch detects groupId change (Q-1 decision)', () => {
@@ -349,7 +349,7 @@ test('B-052 AC2: group-move-only edit → diffAndPatch detects groupId change (Q
   assert.equal(delta.deltaType, 'patch', 'Q-1: groupId change must trigger a patch');
   assert.equal(delta.affected.length, 1);
   assert.equal(delta.affected[0].kind, 'updated');
-  assert.equal(delta.index.byId.get(next[10].id).groupIdKey, 'grp-9');
+  assert.equal(delta.index.byId[next[10].id].groupIdKey, 'grp-9');
 });
 
 test('B-052: sortOrder-only edit → diffAndPatch returns noop (index is order-independent)', () => {
@@ -400,12 +400,13 @@ test('B-052: patch-result index equals full-rebuild index for the same end state
   const rebuilt = buildIndex(next);
 
   assert.equal(patched.deltaType, 'patch');
-  assert.equal(patched.index.byId.size, rebuilt.byId.size);
+  assert.equal(Object.keys(patched.index.byId).length, Object.keys(rebuilt.byId).length);
 
   /* byId comparison — every id maps to an entry with identical public
      fields (ignoring object identity + generation). */
-  for (const [id, pat] of patched.index.byId) {
-    const reb = rebuilt.byId.get(id);
+  for (const id of Object.keys(patched.index.byId)) {
+    const pat = patched.index.byId[id];
+    const reb = rebuilt.byId[id];
     assert.ok(reb, `missing id ${id} in rebuilt index`);
     assert.equal(pat.titleLower, reb.titleLower, `titleLower mismatch for ${id}`);
     assert.equal(pat.urlLower, reb.urlLower, `urlLower mismatch for ${id}`);
@@ -552,54 +553,48 @@ test('B-052 AC5: single-item group-move triggers full rebuild, not in-place patc
 });
 
 /* =========================================================================
-   R4 Fix #2 — byId contract is defensively scoped, not runtime-frozen.
-
-   `Object.freeze(index)` only shallow-freezes the root. The `byId` Map is
-   a native object whose `.set()` / `.delete()` methods do NOT throw in
-   strict mode even when the containing object is frozen. The documented
-   contract (see search-index.js header) is therefore "structurally
-   immutable via module API": callers must not mutate `byId` directly,
-   and any such mutation is silently overwritten on the next rebuild.
-
-   This test pins the contract into executable form: (a) the Map IS
-   mutable from a caller's perspective — `set` succeeds and `get` returns
-   the poisoned value — (b) but the next `diffAndPatch` produces a FRESH
-   Map, so the poisoned entry does not persist into subsequent index
-   state. The contract is "defensive by rebuild", not "throw on write".
+   B-075 contract — byId is now a frozen plain object. Mutation throws
+   in strict mode (ES modules are always strict), replacing the B-052
+   "defensively scoped" Map contract. This test pins the new runtime-
+   enforced read-only contract into executable form.
    ========================================================================= */
 
-test('B-052: byId Map is structurally-immutable per module API — mutation is not caught, but is overwritten on rebuild', () => {
+test('B-075: byId is Object.frozen — direct mutation throws in strict mode', () => {
   const { items } = generateItemCollection(20, 2020);
   const index = buildIndex(items);
 
-  /* Contract part A: direct mutation of byId is NOT caught at runtime.
-     This is the limitation Object.freeze cannot defend against on a Map;
-     callers must honour the documented read-only contract. */
-  const poisonId = items[3].id;
-  const originalEntry = index.byId.get(poisonId);
-  assert.ok(originalEntry);
-  /* Silent mutation — we are the attacker here, simulating a bug-prone
-     caller that forgot the contract. */
-  index.byId.set(poisonId, { id: poisonId, titleLower: 'POISONED', urlLower: '', groupIdKey: 'x', hash: 'x' });
-  assert.equal(index.byId.get(poisonId).titleLower, 'POISONED',
-    'Map is mutable at runtime — contract is documented, not enforced.');
+  /* Contract part A: byId is frozen at build time — Object.isFrozen is true. */
+  assert.equal(Object.isFrozen(index.byId), true,
+    'byId must be Object.frozen after buildIndex.');
 
-  /* Contract part B: the next diffAndPatch produces a fresh byId Map.
-     Even a no-op delta installs a new object (on 'patch' / 'full-rebuild')
-     or preserves the existing one (on 'noop'). Trigger a real single-edit
-     patch — the returned index's byId must be a different Map instance
-     whose entry for the poisoned id is the correct, non-poisoned value. */
+  /* Contract part B: direct writes throw a TypeError in strict mode.
+     Both an overwrite (existing key) and a new-key write are rejected. */
+  const poisonId = items[3].id;
+  const originalEntry = index.byId[poisonId];
+  assert.ok(originalEntry);
+  assert.throws(() => {
+    index.byId[poisonId] = { id: poisonId, titleLower: 'POISONED', urlLower: '', groupIdKey: 'x', hash: 'x' };
+  }, /object is not extensible|Cannot assign/,
+    'Direct overwrite on frozen byId must throw in strict mode.');
+  assert.throws(() => {
+    index.byId['brand-new-id'] = { id: 'brand-new-id', titleLower: '', urlLower: '', groupIdKey: 'x', hash: 'x' };
+  }, /object is not extensible|Cannot add property/,
+    'Add-property on frozen byId must throw in strict mode.');
+
+  /* Contract part C: the entry for the attacked id is unchanged. */
+  assert.equal(index.byId[poisonId].titleLower, originalEntry.titleLower,
+    'Original entry must remain intact after throw.');
+
+  /* Contract part D: diffAndPatch still produces a fresh frozen byId
+     (structural sharing via spread) on the next edit. */
   const next = items.map((it) => ({ ...it }));
   next[10].title = 'unrelated edit';
   const delta = diffAndPatch(index, next);
   assert.equal(delta.deltaType, 'patch');
   assert.notEqual(delta.index.byId, index.byId,
-    'diffAndPatch must produce a new byId Map instance, never mutate in place.');
-  const rebuiltEntry = delta.index.byId.get(poisonId);
-  assert.notEqual(rebuiltEntry.titleLower, 'POISONED',
-    'Poisoned entry must not survive into the next index.');
-  assert.equal(rebuiltEntry.titleLower, originalEntry.titleLower,
-    'Rebuilt entry must match the original pre-poison value.');
+    'diffAndPatch must produce a new byId object instance.');
+  assert.equal(Object.isFrozen(delta.index.byId), true,
+    'Post-patch byId must also be Object.frozen.');
 });
 
 /* =========================================================================
@@ -634,14 +629,14 @@ test('B-052 AC1: buildIndex(newItems) never returns a stale cached index when in
   assert.notEqual(indexA, indexB,
     'Each buildIndex call must return a fresh index object, never cached.');
   assert.notEqual(indexA.byId, indexB.byId,
-    'byId Map must be a fresh instance per build.');
+    'byId object must be a fresh instance per build.');
   assert.notEqual(indexA.entries, indexB.entries,
     'entries array must be a fresh instance per build.');
 
   /* The critical AC1 assertion: the post-rebuild index reflects the NEW
      items, not the previously cached ones. Same id, different titleLower. */
-  const entryA = indexA.byId.get(itemsA[0].id);
-  const entryB = indexB.byId.get(itemsB[0].id);
+  const entryA = indexA.byId[itemsA[0].id];
+  const entryB = indexB.byId[itemsB[0].id];
   assert.equal(entryA.titleLower, itemsA[0].title.toLowerCase());
   assert.equal(entryB.titleLower, itemsB[0].title.toLowerCase());
   assert.notEqual(entryA.titleLower, entryB.titleLower,
@@ -711,7 +706,7 @@ test('B-052 AC5 composite: cross-group move then same-item edit both remain patc
     'Cross-group move must be a patch delta (see AC2 groupId check).');
   assert.equal(deltaMove.affected.length, 1);
   assert.equal(deltaMove.affected[0].id, movedOnce[25].id);
-  assert.equal(deltaMove.index.byId.get(movedOnce[25].id).groupIdKey, 'grp-9');
+  assert.equal(deltaMove.index.byId[movedOnce[25].id].groupIdKey, 'grp-9');
   assert.notEqual('grp-9', originalGroup,
     'Fixture sanity: item did actually change groups.');
 
@@ -723,8 +718,8 @@ test('B-052 AC5 composite: cross-group move then same-item edit both remain patc
     'Follow-up edit in the new group must still be a patch.');
   assert.equal(deltaEdit.affected.length, 1);
   assert.equal(deltaEdit.affected[0].id, movedAndEdited[25].id);
-  assert.equal(deltaEdit.index.byId.get(movedAndEdited[25].id).titleLower,
+  assert.equal(deltaEdit.index.byId[movedAndEdited[25].id].titleLower,
     'renamed after group move');
   /* The groupIdKey from the previous step is preserved through the edit. */
-  assert.equal(deltaEdit.index.byId.get(movedAndEdited[25].id).groupIdKey, 'grp-9');
+  assert.equal(deltaEdit.index.byId[movedAndEdited[25].id].groupIdKey, 'grp-9');
 });
