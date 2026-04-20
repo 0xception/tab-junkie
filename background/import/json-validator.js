@@ -156,6 +156,12 @@ function validatePreferences(raw) {
   if (p.autoCollapseSubGroups !== undefined && typeof p.autoCollapseSubGroups !== 'boolean') {
     return null;
   }
+  /* B-060 — `importSkipDuplicates` is a boolean preference added in Sprint 18
+     Wave 2. Type-gate here so the shape validator at the write edge (§32.5.4
+     `isPreferences`) does not reject an imported backup. */
+  if (p.importSkipDuplicates !== undefined && typeof p.importSkipDuplicates !== 'boolean') {
+    return null;
+  }
   /* Build a full-shape object the commit path will pass through — merge over
      DEFAULT_PREFERENCES so any missing key lands with its default. Unknown
      keys pass through verbatim (forward-compat per §32.5.4). */
@@ -419,10 +425,15 @@ function repairOrphanedItems(items, groups) {
  * (groupId null-first, then sortOrder, then id) so the "first" survivor is
  * deterministic. Mutates a fresh array (no in-place remove).
  *
+ * B-060 — when `skipDuplicates === false`, every record is kept, but
+ * `duplicateUrls` still reflects the "would have been skipped" count so the
+ * response envelope reports the user's opt-in consistently.
+ *
  * @param {Array<Object>} items
+ * @param {boolean} skipDuplicates
  * @returns {{items: Array<Object>, duplicateUrls: number}}
  */
-function dedupByUrl(items) {
+function dedupByUrl(items, skipDuplicates) {
   /* Stable sort via toSorted copy, then greedy first-wins. */
   const sorted = [...items].sort((a, b) => {
     /* groupId null first. */
@@ -442,9 +453,11 @@ function dedupByUrl(items) {
   for (const it of sorted) {
     if (seen.has(it.url)) {
       duplicateUrls += 1;
-      continue;
+      if (skipDuplicates) continue;
+      /* B-060 user opt-in — keep the duplicate record. */
+    } else {
+      seen.add(it.url);
     }
-    seen.add(it.url);
     keep.push(it);
   }
   return { items: keep, duplicateUrls };
@@ -458,6 +471,13 @@ function dedupByUrl(items) {
  * Parse + validate + repair a Tab Junkie JSON backup.
  *
  * @param {string} content — raw UTF-8 file text
+ * @param {Object} [options]
+ * @param {boolean} [options.skipDuplicates=true]
+ *   B-060 — when `true` (default) the dedup pass drops later-sorted records
+ *   sharing a URL; the drop count surfaces as `duplicateUrls`. When `false`,
+ *   every record is retained post-dedup check, but `duplicateUrls` still
+ *   reports the "would have been skipped" count for the post-import toast.
+ *   Threaded through `parseByFormat` from the MSG_IMPORT_COLLECTION handler.
  * @returns {{
  *   items: Array<Object>,
  *   groups: Array<Object>,
@@ -476,7 +496,10 @@ function dedupByUrl(items) {
  * @throws {StorageError} — ERR_INVALID_FORMAT, ERR_MALFORMED_ROOT,
  *                          ERR_UNKNOWN_SCHEMA_VERSION, ERR_UNREPAIRABLE
  */
-export function parseAndValidate(content /* , options */) {
+export function parseAndValidate(content, options) {
+  /* B-060 — default true preserves the B-045 v1 contract. Falsy (non-true)
+     non-object options values fall through to default. */
+  const skipDuplicates = !(options && options.skipDuplicates === false);
   /* Step 1 — JSON.parse. */
   let root;
   try {
@@ -552,8 +575,9 @@ export function parseAndValidate(content /* , options */) {
   /* Step 5e — orphaned items. */
   const orphanedItems = repairOrphanedItems(items, groups);
 
-  /* Step 5f — dedup items by URL (§32.5.5 order). */
-  const { items: dedupedItems, duplicateUrls } = dedupByUrl(items);
+  /* Step 5f — dedup items by URL (§32.5.5 order).
+     B-060 — honor the `skipDuplicates` option plumbed from the preview dialog. */
+  const { items: dedupedItems, duplicateUrls } = dedupByUrl(items, skipDuplicates);
 
   /* Step 6 — ULID re-mint (C-4). EVERY record gets a fresh ULID regardless of
      whether it collided in step 5a. Build the pre-remint id → new-id map so

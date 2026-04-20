@@ -34,6 +34,11 @@ function validatePrefsPatch(patch) {
   if ('autoCollapseSubGroups' in patch && typeof patch.autoCollapseSubGroups !== 'boolean') {
     throw new StorageError(ERR_VALIDATION, 'setPreferences: autoCollapseSubGroups must be boolean');
   }
+  /* B-060 — "Import duplicates anyway" checkbox toggle persists the user's
+     last choice as a preference. Boolean-typed like the other flags. */
+  if ('importSkipDuplicates' in patch && typeof patch.importSkipDuplicates !== 'boolean') {
+    throw new StorageError(ERR_VALIDATION, 'setPreferences: importSkipDuplicates must be boolean');
+  }
 }
 
 export async function getPreferences() {

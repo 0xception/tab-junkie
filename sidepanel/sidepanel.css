@@ -656,6 +656,43 @@ html, body {
   color: var(--text-secondary);
 }
 
+/* B-060 — "Import duplicates anyway" checkbox row inside the import preview
+   dialog. Wrapped in a .import-extra-line <span> for the existing margin and
+   secondary-text color; the nested flex layout aligns the checkbox next to
+   its label, and the helper text sits underneath (smaller, secondary color,
+   indented to align with the label copy). */
+.import-dup-toggle {
+  margin-top: 10px;
+}
+
+.import-dup-toggle__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-primary, inherit);
+}
+
+.import-dup-toggle__input {
+  /* Explicit dimensions so the checkbox scales predictably across DPI. */
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.import-dup-toggle__label-text {
+  font-weight: 500;
+}
+
+.import-dup-toggle__help {
+  display: block;
+  margin-top: 4px;
+  margin-left: 24px;
+  font-size: 0.9em;
+  color: var(--text-secondary);
+}
+
 .dialog-form {
   display: flex;
   flex-direction: column;

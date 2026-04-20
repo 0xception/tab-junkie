@@ -7,7 +7,7 @@
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████░░░░░░  72% (51/71)  [4 in progress]
+Overall Progress    ███████████████░░░░░  73% (52/71)  [3 in progress]
 ```
 
 ### Legend
@@ -102,7 +102,7 @@ Overall Progress    ██████████████░░░░░░
 ✅ B-067 — Flip export sanitizers to §32.5 allow-list before B-045 ships · 🟡 · S
 ✅ B-068 — Split SOLUTION_DESIGN + SPRINT_FINDINGS into per-chapter / per-sprint files · 🟠 · S
 ✅ B-069 — Add C-8 SW-context feasibility + C-9 empty-state design to R2 Correctness Checklist · 🟠 · XS
-🔄 B-070 — Sprint 18 follow-on polish bundle (prefs-only backup, alias removal, repair-summary rewrite, JSON dialog heading) · 🟡 · S
+✅ B-070 — Sprint 18 follow-on polish bundle (prefs-only backup, alias removal, repair-summary rewrite, JSON dialog heading) · 🟡 · S
 
 ---
 
@@ -119,7 +119,7 @@ Overall Progress    ██████████████░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 51 | 72% |
-| 🔄 In Progress | 4 | 6% |
+| ✅ Done | 52 | 73% |
+| 🔄 In Progress | 3 | 4% |
 | ⬜ To Do | 14 | 20% |
 | 🧊 Icebox | 2 | 3% |
