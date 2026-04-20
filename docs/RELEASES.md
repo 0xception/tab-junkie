@@ -4,6 +4,64 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.15.0 — Sub-group Nesting + Polish Burndown + Retro Action Items (2026-04-20)
+
+**Tagged on `release/v2` — pending v2 merge to main. Tag: `v1.15.0`.**
+
+Sprint 20 ships one user-visible feature (sub-group nesting at depth 1) plus five internal/process items that close out the Sprint 19 retro action items and burn down the polish queue. A dedicated UAT burndown window is carried to Sprint 21 as a first-class sprint item after two consecutive sprints of UAT debt growth.
+
+### What's new
+
+**Sub-group nesting at depth 1 (B-007)**
+- A new **Parent group** picker in the group dialog lets you nest a group one level deep inside another. Pick it at create time or change it later by editing.
+- Child groups render indented under their parent in the side panel (new CSS token `--group-indent: 20px`).
+- Depth-1 cap is enforced: trying to nest a group that itself has children, or to form a cycle, surfaces a plain-language inline error ("Can't nest this group — groups can only be one level deep" / "Can't nest a group under itself or one of its own sub-groups") and leaves the dialog open.
+- Delete-parent cascade: deleting a parent group promotes its children back to the top level (no data loss). Backend atomic behaviour already shipped in B-001a AC4 + B-006; Sprint 20 wires the UI.
+- Drag-to-nest remains future work — tracked as B-031 in the backlog.
+- Scope: **UI-only** — zero manifest / message-contract / schema drift. Storage-side nesting validation has been in place since Sprint 1.
+
+### Internal + polish
+
+**Pre-existing TODO cleanup (B-074)**
+- The `TODO(sprint-19+)` comment in `background/import/json-validator.js` is gone. The deferred migration-hook work is now tracked as a proper backlog item (**B-076**) and will activate when `MIGRATION_STEPS` ships its first non-empty entry. CLAUDE.md "no TODOs" rule restored.
+
+**Fuzzy search `byId` restructure (B-075)**
+- The B-052 search index's `byId` lookup is now a frozen plain object (was a `Map`). Property access is simpler (`byId[id]` vs `byId.get(id)`) and runtime mutation now throws in strict mode — runtime-enforced contract replaces the previous "defensively scoped" Map contract. No user-visible behaviour change.
+
+### Permanent pipeline quality upgrades
+
+**Gate 6 deps-resolved check (B-071 — Sprint 19 retro HIGH)**
+- Sprint Readiness Gate 6 now requires every in-scope item's dependencies in BACKLOG.md to be `done` or in the same sprint. Prevents mid-sprint deferrals like Sprint 19's B-046 (which had unresolved B-022 + B-035 deps).
+
+**AC destructive-action clause (B-072 — Sprint 19 retro MEDIUM)**
+- Definition of Ready now requires every AC that carves out an edge-case path (prefs-only, zero-match, partial-input, etc.) to explicitly state whether destructive-action confirmation is retained or waived, with rationale. Prevents literal AC readings from silently waiving confirms (nearly happened in Sprint 19 B-070).
+
+**R2 Correctness Checklist C-6 + C-7 backfill (B-073)**
+- **C-6 Permission minimization**: any `manifest.json` permission addition must list rationale, alternatives considered, and security-reviewer sign-off.
+- **C-7 Allow-list direction**: any sanitizer / validator / export surface filtering structured data defaults to an allow-list; deny-lists require a blast-radius justification (B-067 precedent).
+- First exercised by B-007 R2 — both passed (zero new permissions, no new sanitizer surface). The numbering gap between C-5 and C-8 is closed.
+
+### Quality
+
+- **Tests**: 955 → **968 passing** (+13 new B-007 tests in `tests/b007-sub-group-nesting.test.js`)
+- **Build**: `./build.sh` produces a clean 599 K zip (66 files — `shared/group-nesting.js` added).
+- **R4 findings**: 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW across all six items. Cleanest R4 sprint since Sprint 18.
+- **Storage schema**: unchanged — no migration required.
+- **Permissions**: unchanged — zero additions.
+
+### Deferred / known limitations
+
+- **UAT**: 9 plans now deferred (B-042, B-043, B-048, B-029, B-059, B-044, B-045, B-052, B-007). Sprint 21 is committed to a first-class UAT burndown item — no forward feature until at least 4 plans are PASS.
+- **Drag-to-nest**: not shipped in B-007. Tracked as B-031 and will be unblocked by the `filterGroupParentCandidates` helper + rendering scaffold that shipped here.
+- **GitHub Release publication**: skipped per product-owner direction (tag + zip exist for manual publish later).
+
+### Rollback
+
+- All six items have documented rollbacks (pure `git revert` — zero storage schema changes this sprint).
+- Sprint 20 tag `v1.15.0` can be undone without touching on-disk user data. The sub-group nesting UI reverts cleanly (storage already supports `parentId`; pre-B-007 UI always sent `null`).
+
+---
+
 ## v1.14.0 — Near-Instant Search + Import Polish + Internal Quality Gates (2026-04-19)
 
 **Tagged on `release/v2` — pending v2 merge to main. Tag: `v1.14.0`.**

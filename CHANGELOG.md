@@ -4,8 +4,14 @@ All notable changes to Tab Junkie are documented in this file.
 
 ## [Unreleased]
 
+## [1.15.0] — 2026-04-20
+
 ### Added
 - **Sub-group nesting**: you can now nest a group one level deep inside another group. The group dialog has a new **Parent group** picker — set it when you create a group, or change it later by editing. Nested groups render indented under their parent in the side panel. Attempting to nest a group that itself has children, or to form a cycle, shows a plain-language inline error and leaves the dialog open. Deleting a parent promotes its children back to the top level (no data loss). One level of nesting is the cap — a deliberate design choice to keep the tree scannable.
+
+### Internal
+- Pre-existing TODO in the JSON import validator (deferred migration-hook marker) removed; the work is now tracked as a dedicated backlog item (B-076) for activation when a real migration step ships.
+- Fuzzy search index's `byId` lookup restructured from a `Map` to a frozen plain object. Access is simpler and mutation is now caught at runtime (strict-mode `TypeError`). No user-visible behaviour change.
 
 ### Process
 - Sprint Readiness Gate 6 now includes an explicit deps-resolved check: every in-scope item's BACKLOG.md `Dependencies` column entries must be `done` OR also in the same sprint. Prevents mid-sprint dependency-gap deferrals like Sprint 19's B-046. See `CLAUDE.md § Gate 6: Sprint Readiness`.

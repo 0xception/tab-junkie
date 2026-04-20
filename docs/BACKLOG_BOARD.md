@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-20 · **Version:** 2.2 · **Total Items:** 77 · **Sprint 20 active — Wave 2 next**
+**Updated:** 2026-04-20 · **Version:** 2.3 · **Total Items:** 77 · **Sprint 20 closed — v1.15.0**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████████████░░░░░  77% (59/77)  [1 in progress]
+Overall Progress    ████████████████░░░░  78% (60/77)  [0 in progress]
 ```
 
 ### Legend
@@ -39,7 +39,7 @@ Overall Progress    ███████████████░░░░░
 ✅ B-004 — Favicon auto-capture + letter-avatar fallback · 🟠 · S
 ✅ B-005 — Bulk-create saved items (import primitive) · 🟠 · M
 ✅ B-006 — Create / edit / delete groups with color palette · 🔴 · M
-🔄 B-007 — Sub-group nesting (depth = 1) · 🟠 · M [Sprint 20 Wave 2]
+✅ B-007 — Sub-group nesting (depth = 1) · 🟠 · M [Sprint 20 Wave 2 — merged 0993189 / PR #24]
 ✅ B-008 — Group reorder & collapse / expand persistence · 🟠 · M
 ⬜ B-009 — Drag-to-expand collapsed group · 🟡 · S
 ✅ B-010 — Live tab reflection & active-tab highlight · 🔴 · L
@@ -106,7 +106,7 @@ Overall Progress    ███████████████░░░░░
 
 ## Sprint 20 — Retro action items + polish debt + sub-group nesting
 
-> 5/6 done · 1 in progress (plus UAT burndown track parallel)
+> 6/6 done · 0 in progress · UAT burndown track still pending (9 plans — B-007 joined the queue)
 
 ✅ B-071 — Gate 6 Sprint Readiness deps-resolved check (CLAUDE.md edit) · 🟠 · XS [Wave 0 — merged c2154c9 / PR #22]
 ✅ B-072 — AC template destructive-action confirmation clause (CLAUDE.md edit) · 🟡 · XS [Wave 0 — merged c2154c9 / PR #22]
@@ -130,7 +130,7 @@ Overall Progress    ███████████████░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 59 | 77% |
-| 🔄 In Progress | 1 | 1% |
+| ✅ Done | 60 | 78% |
+| 🔄 In Progress | 0 | 0% |
 | ⬜ To Do | 15 | 19% |
 | 🧊 Icebox | 2 | 3% |
