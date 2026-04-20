@@ -89,6 +89,11 @@ const exportJsonBtnEl = document.getElementById('export-json-btn');
 /* B-044: import-from-HTML button + hidden file input in header. */
 const importHtmlBtnEl = document.getElementById('import-html-btn');
 const importFileInputEl = document.getElementById('import-file-input');
+/* B-045: import-from-JSON button + dedicated hidden file input (separate
+   from the HTML input so the `accept` filter + click wiring don't clash
+   per §33.4 Q-3). */
+const importJsonBtnEl = document.getElementById('import-json-btn');
+const importJsonFileInputEl = document.getElementById('import-json-file-input');
 const dialogOverlayEl = document.getElementById('dialog-overlay');
 const bookmarkDialogEl = document.getElementById('bookmark-dialog');
 const confirmDialogEl = document.getElementById('confirm-dialog');
@@ -1514,7 +1519,7 @@ const IMPORT_MAX_BYTES = 5 * 1024 * 1024;
    button's disabled + aria-busy state so users see the import is running. */
 let _importInFlight = false;
 
-/** Enter the in-flight state: disable the Import-HTML button + mark aria-busy. */
+/** Enter the in-flight state: disable the Import buttons + mark aria-busy. */
 function _setImportInFlight(inFlight) {
   _importInFlight = inFlight;
   if (importHtmlBtnEl) {
@@ -1525,17 +1530,31 @@ function _setImportInFlight(inFlight) {
       importHtmlBtnEl.removeAttribute('aria-busy');
     }
   }
+  if (importJsonBtnEl) {
+    importJsonBtnEl.disabled = inFlight;
+    if (inFlight) {
+      importJsonBtnEl.setAttribute('aria-busy', 'true');
+    } else {
+      importJsonBtnEl.removeAttribute('aria-busy');
+    }
+  }
 }
 
 /**
  * Map a MSG_IMPORT_COLLECTION failure code to a user-facing toast string.
  * @param {string} code
+ * @param {'html'|'json'} [format='html']
+ *   Drives the format-specific toast for `ERR_INVALID_FORMAT`: HTML
+ *   imports say "Not a valid Netscape bookmarks file"; JSON imports say
+ *   "Backup file is malformed and cannot be imported".
  * @returns {string}
  */
-function _importErrorToast(code) {
+function _importErrorToast(code, format) {
   switch (code) {
     case 'ERR_INVALID_FORMAT':
-      return 'Not a valid Netscape bookmarks file';
+      return format === 'json'
+        ? 'Backup file is malformed and cannot be imported'
+        : 'Not a valid Netscape bookmarks file';
     case 'ERR_EMPTY_FILE':
       return 'File is empty';
     case 'ERR_MALFORMED_ROOT':
@@ -1556,20 +1575,49 @@ function _importErrorToast(code) {
 }
 
 /**
+ * B-045 — sum AC5+AC6+AC7+AC8+AC12 repair counts for a `RepairReport`.
+ * AC16 exactly: "Imported N items, M groups. K repairs." K is the sum;
+ * AC9 unknown-field drops are NOT counted per AC9.
+ *
+ * @param {Object|undefined} repairs
+ * @returns {number}
+ */
+function _sumRepairs(repairs) {
+  if (!repairs || typeof repairs !== 'object') return 0;
+  return (repairs.orphanedGroups || 0)
+    + (repairs.cyclesBroken || 0)
+    + (repairs.duplicateIds || 0)
+    + (repairs.orphanedItems || 0)
+    + (repairs.duplicateUrls || 0);
+}
+
+/**
  * Build the import-preview dialog body as structured DOM nodes — never
  * innerHTML. "REPLACE" is wrapped in a strong+warning span per AC4.
  *
  * @param {{ itemsImported: number, groupsImported: number,
- *           duplicatesSkipped?: number, skipped?: number }} counts
+ *           duplicatesSkipped?: number, skipped?: number,
+ *           repairs?: Object }} counts
  * @param {string} filename
+ * @param {'html'|'json'} [format='html']
+ *   'json' uses the "items"/"groups" wording to match AC4's
+ *   "... N items in M groups from this backup." copy. 'html' retains the
+ *   B-044 wording ("bookmarks ... folders").
  */
-function _buildImportPreviewBody(counts, filename) {
-  const { itemsImported, groupsImported, duplicatesSkipped = 0, skipped = 0 } = counts;
+function _buildImportPreviewBody(counts, filename, format) {
+  const { itemsImported, groupsImported, duplicatesSkipped = 0, skipped = 0, repairs } = counts;
+  const isJson = format === 'json';
   const frag = document.createDocumentFragment();
   const line1 = document.createElement('span');
+  const itemNoun = isJson
+    ? (itemsImported === 1 ? 'item' : 'items')
+    : (itemsImported === 1 ? 'bookmark' : 'bookmarks');
+  const groupNoun = isJson
+    ? (groupsImported === 1 ? 'group' : 'groups')
+    : (groupsImported === 1 ? 'folder' : 'folders');
   line1.textContent =
-    'Import ' + itemsImported + ' bookmark' + (itemsImported === 1 ? '' : 's')
-    + ' across ' + groupsImported + ' folder' + (groupsImported === 1 ? '' : 's')
+    'Import ' + itemsImported + ' ' + itemNoun
+    + ' in ' + groupsImported + ' ' + groupNoun
     + (filename ? ' from ' + filename : '') + '. ';
   frag.appendChild(line1);
   const strong = document.createElement('strong');
@@ -1594,6 +1642,37 @@ function _buildImportPreviewBody(counts, filename) {
       + ' have duplicate URLs — duplicates will be skipped.';
     frag.appendChild(dup);
   }
+  /* B-045 — structured repair summary (separate span, never innerHTML). The
+     parts are joined with commas in a single textContent assignment so users
+     see one readable footnote rather than a row of bullet points. */
+  if (isJson && repairs) {
+    const parts = [];
+    if (repairs.orphanedGroups > 0) {
+      parts.push(repairs.orphanedGroups + ' orphan'
+        + (repairs.orphanedGroups === 1 ? '' : 's') + ' re-parented');
+    }
+    if (repairs.cyclesBroken > 0) {
+      parts.push(repairs.cyclesBroken + ' cycle'
+        + (repairs.cyclesBroken === 1 ? '' : 's') + ' broken');
+    }
+    if (repairs.duplicateIds > 0) {
+      parts.push(repairs.duplicateIds + ' duplicate ID'
+        + (repairs.duplicateIds === 1 ? '' : 's') + ' re-minted');
+    }
+    if (repairs.orphanedItems > 0) {
+      parts.push(repairs.orphanedItems + ' item'
+        + (repairs.orphanedItems === 1 ? '' : 's') + ' moved to Ungrouped');
+    }
+    if (repairs.preferencesSkipped) {
+      parts.push('preferences skipped (invalid shape)');
+    }
+    if (parts.length > 0) {
+      const rep = document.createElement('span');
+      rep.className = 'import-extra-line import-repair-line';
+      rep.textContent = ' Repairs: ' + parts.join(', ') + '.';
+      frag.appendChild(rep);
+    }
+  }
   return frag;
 }
 
@@ -1602,21 +1681,21 @@ function _buildImportPreviewBody(counts, filename) {
  * dialog primitive (§33.4 Q-2) by replacing the <p> body with a
  * document-fragment composed of structured DOM nodes — never innerHTML.
  */
-function _openImportPreviewDialog({ counts, filename, onConfirm, triggerEl }) {
+function _openImportPreviewDialog({ counts, filename, onConfirm, triggerEl, format }) {
   _pendingConfirmCallback = onConfirm;
   _dialogTriggerEl = triggerEl || null;
   confirmHeadingEl.textContent = 'Replace all bookmarks?';
   /* Clear prior textContent before appending structured nodes. */
   confirmBodyEl.replaceChildren();
-  confirmBodyEl.appendChild(_buildImportPreviewBody(counts, filename));
-  confirmDeleteBtnEl.textContent = 'Replace all';
+  confirmBodyEl.appendChild(_buildImportPreviewBody(counts, filename, format));
+  confirmDeleteBtnEl.textContent = format === 'json' ? 'Replace and import' : 'Replace all';
   confirmDeleteBtnEl.dataset.variant = 'destructive';
   bookmarkDialogEl.hidden = true;
   confirmDialogEl.hidden = false;
   dialogOverlayEl.hidden = false;
   dialogOverlayEl.removeAttribute('aria-hidden');
   _activateFocusTrap(confirmDialogEl);
-  /* AC5: Cancel default-focused. */
+  /* AC4 / B-044 AC5: Cancel default-focused. */
   confirmCancelBtnEl.focus();
 }
 
@@ -1648,17 +1727,42 @@ function _beginImportHtml() {
 }
 
 /**
+ * B-045 — kick off the Import-JSON flow. Programmatic file-input.click().
+ * Separate input from the HTML flow per §33.4 Q-3 (dedicated inputs keep
+ * the `accept` attribute + `change` wiring isolated).
+ */
+function _beginImportJson() {
+  if (!importJsonFileInputEl) return;
+  /* AC1: enforce the JSON extension filter at the browser level. The
+     listener re-checks the filename post-pick for robustness against
+     OS file pickers that ignore `accept`. */
+  importJsonFileInputEl.accept = 'application/json,.json';
+  importJsonFileInputEl.value = '';
+  importJsonFileInputEl.click();
+}
+
+/**
  * Handle a picked import file: validate extension, read text, dispatch
  * preview round-trip, open confirmation dialog, dispatch commit on confirm.
  * @param {File} file
  * @param {HTMLElement} triggerEl element to restore focus to
+ * @param {'html'|'json'} [format='html']
  */
-async function _handleImportFile(file, triggerEl) {
-  /* AC2: extension re-check in case the OS picker ignored `accept`. */
+async function _handleImportFile(file, triggerEl, format) {
+  const fmt = format === 'json' ? 'json' : 'html';
+  /* Extension re-check in case the OS picker ignored `accept`. */
   const lowerName = (file.name || '').toLowerCase();
-  if (!lowerName.endsWith('.html') && !lowerName.endsWith('.htm')) {
-    showToast('Select an .html or .htm file');
-    return;
+  if (fmt === 'html') {
+    if (!lowerName.endsWith('.html') && !lowerName.endsWith('.htm')) {
+      showToast('Select an .html or .htm file');
+      return;
+    }
+  } else {
+    /* B-045 AC1 — non-.json must not open a parse. */
+    if (!lowerName.endsWith('.json')) {
+      showToast('Please select a .json file');
+      return;
+    }
   }
   /* §33.10 oversize guard — reject before reading a huge file. */
   if (file.size > IMPORT_MAX_BYTES) {
@@ -1666,7 +1770,7 @@ async function _handleImportFile(file, triggerEl) {
     return;
   }
 
-  /* Guard the preview round-trip: disable the button until either the
+  /* Guard the preview round-trip: disable the buttons until either the
      dialog opens (then the dialog's own modality prevents re-entry) or
      the preview short-circuits (empty / error). */
   _setImportInFlight(true);
@@ -1679,52 +1783,59 @@ async function _handleImportFile(file, triggerEl) {
       return;
     }
     if (!content || content.length === 0) {
-      showToast(_importErrorToast('ERR_EMPTY_FILE'));
+      showToast(_importErrorToast('ERR_EMPTY_FILE', fmt));
       return;
     }
 
     let previewData;
     try {
       previewData = await sendMessage(MSG_IMPORT_COLLECTION, {
-        format: 'html',
+        format: fmt,
         content,
       });
     } catch (err) {
       const code = err && err.code ? String(err.code) : 'ERR_UNKNOWN';
-      /* AC13 privacy: never log titles/URLs/file content — code only. */
+      /* AC14 / AC13 privacy: never log titles/URLs/file content — code only. */
       console.warn('import preview failed:', code);
-      showToast(_importErrorToast(code));
+      showToast(_importErrorToast(code, fmt));
       return;
     }
 
     /* Reject a "valid but empty" file before opening the confirm dialog —
-       a DOCTYPE-only file with zero bookmarks + zero groups would otherwise
-       let the user wipe storage for nothing. Toast + abort. */
+       a DOCTYPE-only file (HTML) or a backup with zero items + zero groups
+       (JSON) would otherwise let the user wipe storage for nothing. */
     if ((previewData.itemsImported || 0) === 0 && (previewData.groupsImported || 0) === 0) {
-      showToast('File contains no bookmarks');
+      showToast(fmt === 'json' ? 'Backup contains no bookmarks' : 'File contains no bookmarks');
       return;
     }
 
-    /* Capture `content` + `filename` in the confirm closure so the commit
-       dispatch is independent of any module-level state that `closeDialog()`
-       may clear between the user's Replace-all click and the SW round-trip. */
+    /* Capture `content` + `filename` + `fmt` in the confirm closure so the
+       commit dispatch is independent of any module-level state that
+       `closeDialog()` may clear between the user's Replace click and the
+       SW round-trip. */
     const capturedContent = content;
     const capturedFilename = file.name;
+    const capturedFormat = fmt;
     _openImportPreviewDialog({
       counts: previewData,
       filename: file.name,
       triggerEl,
+      format: fmt,
       onConfirm: () => {
         /* Re-entry guard: the dialog's click handler already clears
            _pendingConfirmCallback on first fire, so this is defense-in-depth
            against future refactors. */
         if (_importInFlight) return;
-        void _commitImport({ content: capturedContent, filename: capturedFilename });
+        void _commitImport({
+          content: capturedContent,
+          filename: capturedFilename,
+          format: capturedFormat,
+        });
       },
     });
   } finally {
     /* Release the guard — the dialog is now modal (commit path will
-       re-acquire on Replace-all) or an error branch already aborted. */
+       re-acquire on Replace) or an error branch already aborted. */
     _setImportInFlight(false);
   }
 }
@@ -1733,31 +1844,49 @@ async function _handleImportFile(file, triggerEl) {
  * Round-trip 2: dispatch the actual commit. Parses the same content a second
  * time in the SW (§33.4 "parse twice" decision — cold-start-safe, no session
  * stash). Shows the success or failure toast.
- * @param {{content: string, filename: string}} pending
+ * @param {{content: string, filename: string, format?: 'html'|'json'}} pending
  */
 async function _commitImport(pending) {
   if (!pending || typeof pending.content !== 'string') return;
+  const fmt = pending.format === 'json' ? 'json' : 'html';
   /* Commit can take ~2s on a 1000-bookmark file. Block re-entry + visibly
      disable the trigger so users don't think the click was lost. */
   _setImportInFlight(true);
   try {
     const data = await sendMessage(MSG_IMPORT_COLLECTION, {
-      format: 'html',
+      format: fmt,
       content: pending.content,
       commit: true,
     });
-    /* AC13: success toast copy — "Imported N bookmarks into M groups. K skipped." */
-    let msg = 'Imported ' + data.itemsImported + ' bookmark'
-      + (data.itemsImported === 1 ? '' : 's')
-      + ' into ' + data.groupsImported + ' group'
-      + (data.groupsImported === 1 ? '' : 's') + '.';
-    const totalSkipped = (data.skipped || 0) + (data.duplicatesSkipped || 0);
-    if (totalSkipped > 0) msg += ' ' + totalSkipped + ' skipped.';
+    let msg;
+    if (fmt === 'json') {
+      /* B-045 AC16 — exact toast copy: "Imported N items, M groups." with an
+         optional " K repairs." segment when K > 0. */
+      const repairsK = _sumRepairs(data.repairs);
+      msg = 'Imported ' + data.itemsImported + ' item'
+        + (data.itemsImported === 1 ? '' : 's')
+        + ', ' + data.groupsImported + ' group'
+        + (data.groupsImported === 1 ? '' : 's') + '.';
+      if (repairsK > 0) {
+        msg += ' ' + repairsK + ' repair' + (repairsK === 1 ? '' : 's') + '.';
+      }
+      if (data.repairs && data.repairs.preferencesSkipped) {
+        msg += ' Preferences skipped (invalid shape).';
+      }
+    } else {
+      /* B-044 AC13: "Imported N bookmarks into M groups. K skipped." */
+      msg = 'Imported ' + data.itemsImported + ' bookmark'
+        + (data.itemsImported === 1 ? '' : 's')
+        + ' into ' + data.groupsImported + ' group'
+        + (data.groupsImported === 1 ? '' : 's') + '.';
+      const totalSkipped = (data.skipped || 0) + (data.duplicatesSkipped || 0);
+      if (totalSkipped > 0) msg += ' ' + totalSkipped + ' skipped.';
+    }
     showToast(msg);
   } catch (err) {
     const code = err && err.code ? String(err.code) : 'ERR_UNKNOWN';
     console.warn('import commit failed:', code);
-    showToast(_importErrorToast(code));
+    showToast(_importErrorToast(code, fmt));
   } finally {
     _setImportInFlight(false);
   }
@@ -1778,8 +1907,27 @@ if (importFileInputEl) {
     const input = e.target;
     const file = input && input.files && input.files[0];
     if (!file) return;
-    void _handleImportFile(file, importHtmlBtnEl);
+    void _handleImportFile(file, importHtmlBtnEl, 'html');
     /* Reset value so re-picking the same file later still fires `change`. */
+    input.value = '';
+  });
+}
+
+/* B-045 — Import-from-JSON click + file-picker wiring. Mirrors the HTML
+   path (separate input + change listener per §33.4 Q-3). */
+if (importJsonBtnEl) {
+  importJsonBtnEl.addEventListener('click', () => {
+    if (_importInFlight) return;
+    _beginImportJson();
+  });
+}
+
+if (importJsonFileInputEl) {
+  importJsonFileInputEl.addEventListener('change', (e) => {
+    const input = e.target;
+    const file = input && input.files && input.files[0];
+    if (!file) return;
+    void _handleImportFile(file, importJsonBtnEl, 'json');
     input.value = '';
   });
 }

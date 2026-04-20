@@ -7,7 +7,7 @@
 ## Progress Dashboard
 
 ```
-Overall Progress    █████████████░░░░░░░  70% (48/69)  [2 in progress]
+Overall Progress    ██████████████░░░░░░  71% (49/69)  [1 in progress]
 ```
 
 ### Legend
@@ -76,7 +76,7 @@ Overall Progress    █████████████░░░░░░░
 ⬜ B-041 — Sync tab order action (Chrome tab group sync) · 🟡 · L
 ✅ B-042 — Export to HTML (Netscape bookmarks) · 🟠 · M
 ✅ B-043 — Export to JSON backup · 🟠 · M
-🔄 B-044 — Import HTML with count preview & flattening · 🟠 · M
+✅ B-044 — Import HTML with count preview & flattening · 🟠 · M
 🔄 B-045 — Import JSON with validation & repair · 🟠 · M
 ⬜ B-046 — Global keyboard shortcuts (popup + standalone) · 🟠 · S
 ✅ B-047 — In-panel keyboard shortcuts (select-all, clear) · 🟠 · XS
@@ -117,7 +117,7 @@ Overall Progress    █████████████░░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 48 | 70% |
-| 🔄 In Progress | 2 | 3% |
+| ✅ Done | 49 | 71% |
+| 🔄 In Progress | 1 | 1% |
 | ⬜ To Do | 17 | 25% |
 | 🧊 Icebox | 2 | 3% |

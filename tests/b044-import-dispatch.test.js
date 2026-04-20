@@ -129,10 +129,17 @@ test('B-044 dispatch: non-Netscape content → ERR_INVALID_FORMAT', async () => 
 });
 
 /* =========================================================================
- * JSON format deferred per B-045 (AC19)
- * ========================================================================= */
+ * JSON format wired by B-045 (Sprint 18 Wave 4)
+ * =========================================================================
+ * Before Wave 4, `format: 'json'` was deliberately rejected with
+ * ERR_INVALID_FORMAT by the stub validator. Wave 4 replaced the stub with
+ * the full parser; `{}` now passes JSON.parse but fails root-shape
+ * validation (schemaVersion / items / groups missing) → ERR_MALFORMED_ROOT.
+ * Retained as a dispatch smoke-test: the JSON branch is wired through and
+ * the handler envelope surfaces the typed error code verbatim.
+ */
 
-test('B-044 dispatch: format=json currently unsupported — ERR_INVALID_FORMAT', async () => {
+test('B-044 dispatch: format=json routes to JSON validator and surfaces typed errors', async () => {
   seedPartitions({ meta: { schemaVersion: KNOWN_VERSION, createdAt: Date.now() } });
   registerStorageHandlers(Promise.resolve());
   const resp = await dispatch(getListener(), {
@@ -140,7 +147,7 @@ test('B-044 dispatch: format=json currently unsupported — ERR_INVALID_FORMAT',
     content: '{}',
   });
   assert.equal(resp.ok, false);
-  assert.equal(resp.error.code, 'ERR_INVALID_FORMAT');
+  assert.equal(resp.error.code, 'ERR_MALFORMED_ROOT');
 });
 
 /* =========================================================================

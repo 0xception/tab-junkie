@@ -66,9 +66,12 @@ The output is **deterministic**: running two exports back-to-back produces files
 
 ### Importing back into Tab Junkie
 
-HTML files produced by **Export HTML** can be imported back into Tab Junkie via the **Import HTML** button in the side panel header. See [Importing Bookmarks](./importing-bookmarks.md) for the full flow, including the mandatory confirmation dialog and the list of what is and isn't preserved.
+Both formats can be imported back into Tab Junkie from the side panel header:
 
-JSON import is not yet available. For now, the JSON export is a one-way backup; if you need to move data between Tab Junkie installs today, use **Export HTML** and pair it with **Import HTML**.
+- **Import HTML** reads the file produced by **Export HTML** (and Netscape-format HTML files from other browsers).
+- **Import JSON** reads the file produced by **Export JSON** as a lossless round trip — groups, group colors, timestamps, and preferences come back exactly as exported.
+
+See [Importing Bookmarks](./importing-bookmarks.md) for the full flow in both formats, including the mandatory confirmation dialog and the list of what is and isn't preserved.
 
 ---
 
