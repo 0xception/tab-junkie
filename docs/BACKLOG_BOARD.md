@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-20 · **Version:** 2.3 · **Total Items:** 77 · **Sprint 20 closed — v1.15.0**
+**Updated:** 2026-04-20 · **Version:** 2.4 · **Total Items:** 81 · **Sprint 21 active — UAT burndown + polish**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ████████████████░░░░  78% (60/77)  [0 in progress]
+Overall Progress    ███████████████░░░░░  74% (60/81)  [4 in progress · UAT burndown track]
 ```
 
 ### Legend
@@ -104,6 +104,17 @@ Overall Progress    ████████████████░░░░
 ✅ B-069 — Add C-8 SW-context feasibility + C-9 empty-state design to R2 Correctness Checklist · 🟠 · XS
 ✅ B-070 — Sprint 18 follow-on polish bundle (prefs-only backup, alias removal, repair-summary rewrite, JSON dialog heading) · 🟡 · S
 
+## Sprint 21 — UAT burndown (first-class) + process + safety-net polish
+
+> 0/4 done · 4 in progress · UAT burndown track PRIMARY (target ≥ 4 of 9 plans PASS)
+
+🔄 B-077 — Add "DoR Gate 7 check" subsection to R1 AC template · 🟡 · XS [Wave 0]
+🔄 B-078 — `breakCycles` adversarial-input hardening · 🟡 · XS [Wave 1]
+🔄 B-079 — Query-length cap on filter input · 🟡 · XS [Wave 1]
+🔄 B-080 — Repair-summary toast plain-language parity · ⚪ · XS [Wave 1]
+
+---
+
 ## Sprint 20 — Retro action items + polish debt + sub-group nesting
 
 > 6/6 done · 0 in progress · UAT burndown track still pending (9 plans — B-007 joined the queue)
@@ -121,16 +132,16 @@ Overall Progress    ████████████████░░░░
 
 | Priority | Count | % |
 |----------|-------|---|
-| 🔴 P0 Critical | 14 | 18% |
-| 🟠 P1 High | 33 | 43% |
-| 🟡 P2 Medium | 13 | 17% |
-| ⚪ P3 Nice-to-have | 5 | 6% |
+| 🔴 P0 Critical | 14 | 17% |
+| 🟠 P1 High | 33 | 41% |
+| 🟡 P2 Medium | 16 | 20% |
+| ⚪ P3 Nice-to-have | 6 | 7% |
 
 ## Status Summary
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 60 | 78% |
-| 🔄 In Progress | 0 | 0% |
+| ✅ Done | 60 | 74% |
+| 🔄 In Progress | 4 | 5% |
 | ⬜ To Do | 15 | 19% |
-| 🧊 Icebox | 2 | 3% |
+| 🧊 Icebox | 2 | 2% |
