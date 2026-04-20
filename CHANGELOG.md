@@ -4,6 +4,12 @@ All notable changes to Tab Junkie are documented in this file.
 
 ## [Unreleased]
 
+### Improved
+- Side panel search and filter are now near-instant, even with large bookmark collections. Typing in the filter bar stays snappy whether you have 50 items or 1,000+.
+  - Opening the side panel paints immediately — a skeleton appears right away and your items fill in within a blink, even on large collections.
+  - Adding, editing, or deleting bookmarks no longer causes a perceptible pause the next time you search.
+  - No change to the filter UI, keyboard shortcuts, or what it matches — only speed.
+
 ### Process
 - R2 Correctness Checklist: added C-8 (SW-context feasibility) and C-9 (empty-state design enumeration) from Sprint 18 retro. See `CLAUDE.md § Round 2: Architecture`.
 
