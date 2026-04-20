@@ -193,6 +193,14 @@
             <div id="group-color-swatches" class="group-color-swatches" role="radiogroup" aria-label="Group color"></div>
             <span id="group-error-color" class="dialog-field-error" aria-live="polite" hidden></span>
           </div>
+          <!-- B-007: Parent group picker -->
+          <div class="dialog-field">
+            <label for="group-field-parent" class="dialog-label">Parent group</label>
+            <select id="group-field-parent" name="parentId" class="dialog-input">
+              <option value="">Top-level (no parent)</option>
+            </select>
+            <span id="group-error-parent" class="dialog-field-error" aria-live="polite" hidden></span>
+          </div>
           <span id="group-error-dialog" class="dialog-level-error" aria-live="assertive" hidden></span>
           <div class="dialog-actions">
             <button type="button" id="group-cancel-btn" class="dialog-btn dialog-btn--secondary">Cancel</button>

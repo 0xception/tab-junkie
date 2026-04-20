@@ -56,6 +56,11 @@ import {
    than bare string literals. Only the WINDOW_MAP branch uses SCOPE for now —
    the other bare-string comparisons are out of scope per R4 findings. */
 import { SCOPE } from '../shared/scopes.js';
+/* B-007 */
+import {
+  filterGroupParentCandidates,
+  translateGroupError,
+} from '../shared/group-nesting.js';
 
 /* B-052: pre-lowercased in-memory search index. §34 (docs/design/34) is the
    authoritative spec. The module is pure (no DOM); sidepanel owns the DOM-
@@ -142,6 +147,9 @@ const groupColorSwatchesEl = document.getElementById('group-color-swatches');
 const groupErrorNameEl = document.getElementById('group-error-name');
 const groupErrorColorEl = document.getElementById('group-error-color');
 const groupErrorDialogEl = document.getElementById('group-error-dialog');
+/* B-007: Parent group picker in group dialog */
+const groupFieldParentEl = document.getElementById('group-field-parent');
+const groupErrorParentEl = document.getElementById('group-error-parent');
 const groupCancelBtnEl = document.getElementById('group-cancel-btn');
 const groupSubmitBtnEl = document.getElementById('group-submit-btn');
 /* B-029: Group picker modal */
@@ -498,10 +506,16 @@ function openGroupEditDialog(group, { triggerEl = null } = {}) {
   groupFieldNameEl.value = isCreate ? '' : (group.name ?? '');
   groupErrorNameEl.hidden = true;
   groupErrorColorEl.hidden = true;
+  groupErrorParentEl.hidden = true;
   groupErrorDialogEl.hidden = true;
   document.getElementById('group-dialog-heading').textContent =
     isCreate ? 'New Group' : 'Edit Group';
   _buildGroupColorSwatches(isCreate ? GROUP_COLORS[0] : (group.color || GROUP_COLORS[0]));
+  /* B-007: populate parent picker. Valid parents are top-level groups that
+     (a) are not the group being edited (AC2 self-exclusion), (b) do not
+     already have children (AC8 depth-2 prevention — storage would reject
+     with ERR_DEPTH_EXCEEDED, this pre-filter avoids the error round-trip). */
+  _buildGroupParentOptions(isCreate ? null : group);
   bookmarkDialogEl.hidden = true;
   confirmDialogEl.hidden = true;
   groupDialogEl.hidden = false;
@@ -509,6 +523,38 @@ function openGroupEditDialog(group, { triggerEl = null } = {}) {
   dialogOverlayEl.removeAttribute('aria-hidden');
   _activateFocusTrap(groupDialogEl);
   groupFieldNameEl.focus();
+}
+
+/**
+ * B-007: Build the Parent group <select> options for the group dialog.
+ * In edit mode, `editingGroup` is the group being edited (used to pre-select
+ * its current parent and to exclude it from the list). In create mode,
+ * `editingGroup` is null.
+ *
+ * Excluded from the list (beyond Top-level which is always first):
+ *   - any group with `parentId != null` (already nested — can't be a parent, depth-1 cap)
+ *   - the group being edited itself (AC2, AC14 self-nest defence)
+ *   - any group that has at least one child already (AC8 — would become depth-2)
+ *
+ * Pre-selection:
+ *   - edit mode: group's current `parentId`, or '' (Top-level) if null
+ *   - create mode: '' (Top-level) by default
+ */
+function _buildGroupParentOptions(editingGroup) {
+  /* Reset options; keep only the first "Top-level" option as the default. */
+  while (groupFieldParentEl.options.length > 1) groupFieldParentEl.remove(1);
+
+  const candidates = filterGroupParentCandidates(_cachedGroups, editingGroup);
+  for (const g of candidates) {
+    const opt = document.createElement('option');
+    opt.value = g.id;
+    opt.textContent = g.name;
+    groupFieldParentEl.appendChild(opt);
+  }
+
+  groupFieldParentEl.value = editingGroup && editingGroup.parentId
+    ? editingGroup.parentId
+    : '';
 }
 
 /**
@@ -554,29 +600,40 @@ async function _handleGroupFormSubmit(e) {
     groupErrorColorEl.hidden = false;
     return;
   }
+  /* B-007: read parentId from the select; empty-string → top-level (null). */
+  const parentId = groupFieldParentEl.value === '' ? null : groupFieldParentEl.value;
   groupSubmitBtnEl.disabled = true;
   try {
     if (_editingGroupId) {
-      await sendMessage(MSG_UPDATE_GROUP, { id: _editingGroupId, patch: { name, color } });
+      await sendMessage(MSG_UPDATE_GROUP, {
+        id: _editingGroupId,
+        patch: { name, color, parentId },
+      });
     } else {
-      /* B-029 H-1: create mode — parentId null (top-level) and sortOrder
+      /* B-007: create mode now honours the parent picker; sortOrder remains
          derived from the current group count so new groups land at the end. */
       await sendMessage(MSG_CREATE_GROUP, {
         name,
         color,
-        parentId: null,
+        parentId,
         sortOrder: _cachedGroups.length,
       });
     }
     closeGroupDialog();
   } catch (err) {
-    const message = err?.message || 'Something went wrong.';
+    /* B-007: translate storage-level error codes to friendly inline messages
+       (ERR_DEPTH_EXCEEDED + ERR_CIRCULAR_REF + ERR_NOT_FOUND for a parent that
+       disappeared in another window). Falls back to the raw message for
+       unknown codes. */
+    const code = err?.code || '';
+    const message = translateGroupError(code) || err?.message || 'Something went wrong.';
     groupErrorDialogEl.textContent = message;
     groupErrorDialogEl.hidden = false;
   } finally {
     groupSubmitBtnEl.disabled = false;
   }
 }
+
 
 groupFormEl.addEventListener('submit', _handleGroupFormSubmit);
 

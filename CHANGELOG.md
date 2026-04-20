@@ -4,6 +4,9 @@ All notable changes to Tab Junkie are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Sub-group nesting**: you can now nest a group one level deep inside another group. The group dialog has a new **Parent group** picker — set it when you create a group, or change it later by editing. Nested groups render indented under their parent in the side panel. Attempting to nest a group that itself has children, or to form a cycle, shows a plain-language inline error and leaves the dialog open. Deleting a parent promotes its children back to the top level (no data loss). One level of nesting is the cap — a deliberate design choice to keep the tree scannable.
+
 ### Process
 - Sprint Readiness Gate 6 now includes an explicit deps-resolved check: every in-scope item's BACKLOG.md `Dependencies` column entries must be `done` OR also in the same sprint. Prevents mid-sprint dependency-gap deferrals like Sprint 19's B-046. See `CLAUDE.md § Gate 6: Sprint Readiness`.
 - Definition of Ready now requires destructive-action confirmation retention/waiver to be explicitly stated in ACs for carved-out edge-case paths (prefs-only, zero-match, partial-input, etc.). Prevents literal AC readings from silently dropping confirmation dialogs. See `CLAUDE.md § Definition of Ready`.
