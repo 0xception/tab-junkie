@@ -854,3 +854,72 @@ None during sprint. All findings surfaced in R4 review (1 HIGH + 6 MEDIUM + 9 LO
 1. [scrum-master] Extend Gate 6 with deps-resolved check. [HIGH]
 2. [product-manager] Explicit destructive-action confirmation guidance in ACs for carved-out paths. [MEDIUM]
 3. Sprint 20 kickoff budget UAT burndown (Fast-Track-S equivalent). Target: clear 4-6 of 8 plans. [HIGH]
+
+---
+
+## Sprint 20 — Retro Action Items + Polish Debt + Sub-group Nesting (2026-04-20)
+
+**Theme:** Land all three Sprint 19 retrospective action items as permanent CLAUDE.md rules (HIGH + MEDIUM), burn down two polish items from the Sprint 19 queue, and ship one forward feature (sub-group nesting at depth 1) — all under the Sprint 19 retro's HIGH-priority "first Full-tier R2 under the new C-6/C-7 checklist" proof point.
+**Release:** v1.15.0 · Commit `a587462` on `release/v2` (tag `v1.15.0` pushed; GitHub Release publication skipped per product-owner policy)
+**Tests:** 955 → 968 (+13 — all in B-007)
+**Docs structure:** New §35 chapter for B-007 (`docs/design/35-b-007-sub-group-nesting.md`). R2 Correctness Checklist gained C-6 + C-7 rows in `CLAUDE.md` (closing the numbering gap between C-5 and C-8/C-9). DoR gained item 7 (destructive-action confirmation explicit on carved-out paths). Gate 6 gained deps-resolved check.
+
+### Completed Items
+
+#### [B-007] Sub-group nesting (depth = 1) — ✅ DONE
+- **Tier**: Full (M) · **Closed**: 2026-04-20 · **PR**: #24 → `0993189`
+- **Pipeline**: R1 ✅ (15 PASS/FAIL ACs) · R2 ✅ (first R2 under new C-6+C-7 + C-8+C-9 — all PASS/NA) · R3 ✅ · R4 ✅ (code+security+qa all PASS, 0 findings) · R5 ✅ (13 new tests; total 968) · R6 ✅ (§35 new chapter) · R7 ✅ (CHANGELOG + UAT plan)
+- **Files**: NEW `shared/group-nesting.js` (pure helpers), `sidepanel/sidepanel.html` (parent picker), `sidepanel/sidepanel.js` (dialog + error translation + parentId threading), `sidepanel/sidepanel.css` (`--group-indent` token), NEW `tests/b007-sub-group-nesting.test.js` (+13), NEW `docs/design/35-b-007-sub-group-nesting.md`, `docs/SOLUTION_DESIGN.md` TOC, NEW `docs/UAT_B-007.md`
+- **Key scope-finding**: storage layer for depth-1 + cycle + cascade was already complete from B-001a + B-006. B-007 shipped as UI-only. Drag-to-nest deferred to B-031.
+
+#### [B-075] Convert B-052 `byId` Map → frozen plain object — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-20 · **PR**: #23 → `a488c90`
+- **Files**: `sidepanel/search-index.js` (Map → frozen `{}` + freeze in buildIndex/makeIndex; spread in diffAndPatch), `sidepanel/sidepanel.js` (1 call site), `tests/b052-fuzzy-search-perf.test.js` (~10 call-site migrations + R4 Fix #2 mutation-contract test rewritten for B-075 semantics — now asserts `Object.isFrozen === true` and direct writes throw).
+- **Contract upgrade**: "defensively scoped" Map → runtime-enforced frozen object. Strict-mode TypeError on external mutation.
+
+#### [B-074] Remove pre-existing `TODO(sprint-19+)` from json-validator.js — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-20 · **PR**: #23 → `a488c90`
+- **Files**: `background/import/json-validator.js` (TODO replaced with non-TODO reference comment pointing at B-076 + §33.18 F-4 design-doc deferral rationale), `docs/BACKLOG.md` (B-076 filed as future-work placeholder).
+- **Decision**: AC1 option (b) — file backlog item + replace TODO with reference comment. Not option (a) inline because implementing the MIGRATION_STEPS hook without a real migration step is YAGNI.
+
+#### [B-073] Backfill C-6 + C-7 in R2 Correctness Checklist — ✅ DONE (Wave 0)
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-20 · **PR**: #22 → `c2154c9`
+- **Files**: `CLAUDE.md` (+2 rows C-6 Permission minimization + C-7 Allow-list direction), `CHANGELOG.md` Process breadcrumb.
+- **Impact**: Numbering gap closed (C-1..C-5, C-6, C-7, C-8, C-9). First exercised by B-007 R2 same sprint — both PASS/NA.
+
+#### [B-072] AC template — destructive-action confirmation clause — ✅ DONE (Wave 0)
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-20 · **PR**: #22 → `c2154c9`
+- **Files**: `CLAUDE.md` (+1 DoR item 7 covering carved-out-path destructive-action clarification), `CHANGELOG.md` Process breadcrumb.
+- **Origin**: Sprint 19 retro MEDIUM action item (B-070 AC1 literal reading nearly dropped confirmation dialog).
+
+#### [B-071] Extend Gate 6 Sprint Readiness with deps-resolved check — ✅ DONE (Wave 0)
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-20 · **PR**: #22 → `c2154c9`
+- **Files**: `CLAUDE.md` (+1 Gate 6 bullet requiring every in-scope item's deps to be done or in-sprint), `CHANGELOG.md` Process breadcrumb.
+- **Origin**: Sprint 19 retro HIGH action item (B-046 deferral showed Gate 6 was missing this check).
+- **Applied retroactively**: Sprint 20 Gate 6 itself used the new check (all 6 items passed).
+
+### Backlog additions
+- **B-076** (S, P2, `backlog`): Apply MIGRATION_STEPS in-memory hook in JSON import validator. Future-work placeholder — activates when `MIGRATION_STEPS` ships first non-empty entry.
+
+### Velocity
+- Planned: 6 items / 1M + 5XS
+- Completed: 6 items / 1M + 5XS = 100% scope
+- Carried over: 0 items
+- New backlog items: 1 (B-076)
+
+### Retrospective (carry-over action items to Sprint 21)
+- **HIGH**: Sprint 21 MUST treat UAT burndown as a first-class sprint item. 9 plans deferred (~195 cases). Two consecutive sprints of UAT-debt growth — no forward feature in Sprint 21 until UAT burndown is budgeted.
+- **MEDIUM**: [product-manager] Add a "DoR Gate 7 check" subsection to the R1 AC template — every AC block explicitly states destructive-action confirmation status up front.
+- **MEDIUM**: [scrum-master] For every M/L item, spend ≥ 15 min pre-sprint verifying ACs are PASS/FAIL-level, not concept-level (B-007 needed mid-sprint R1 refinement).
+
+### R4 Findings Summary (Sprint 20)
+- **B-071 / B-072 / B-073**: 0 findings (docs-only smoke-checks).
+- **B-074**: 0 must-fix.
+- **B-075**: 0 must-fix.
+- **B-007**: 0 must-fix (all 3 reviewers PASS at smoke-check — B-065 pattern compliance, zero perm/message drift, C-9 enumerated + U17).
+- **Total**: 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW — cleanest-R4 sprint since Sprint 18 (docs restructure).
+
+**Action Items for Sprint 21:**
+1. [scrum-master] UAT burndown becomes a first-class sprint item, not a side track. No forward feature until at least 4 of 9 plans are PASS. [HIGH]
+2. [product-manager] Add "DoR Gate 7 check" subsection to R1 AC template. [MEDIUM]
+3. [scrum-master] 15-min pre-sprint AC health check for every M/L item. [MEDIUM]
