@@ -23,6 +23,7 @@ KEY FEATURES
 • Clear feedback — Empty-state messages with CTAs and dismissible error notifications for failed operations
 • Accessible by design — Row states (live, active, drifted, audible, selected) are distinguishable without relying on color alone; every row's title and URL meet WCAG AA contrast (4.5:1 or better) in every theme and on every background state; each row announces a consistent screen-reader label
 • Quick search (Alt+J) — Fuzzy search across all bookmarks and tabs from a popup
+• Near-instant search and filter — the side panel filter bar stays snappy even with large bookmark collections
 • Group search and drill-in — Browse groups and view their contents inline from the popup
 • Quick jump to group (Alt+K) — Jump directly to any group from anywhere
 • New tab page — Optional replacement with bookmark grid and web search

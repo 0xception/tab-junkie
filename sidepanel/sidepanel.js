@@ -57,6 +57,12 @@ import {
    the other bare-string comparisons are out of scope per R4 findings. */
 import { SCOPE } from '../shared/scopes.js';
 
+/* B-052: pre-lowercased in-memory search index. §34 (docs/design/34) is the
+   authoritative spec. The module is pure (no DOM); sidepanel owns the DOM-
+   patch path (`_patchSingleRow`) and the render path (`renderAll`) that
+   installs the index. */
+import { buildIndex, diffAndPatch, search as searchIndex } from './search-index.js';
+
 /**
  * Returns true only for favicon URLs that are safe to assign to img.src.
  * Rejects javascript:, data:text/, and any unknown schemes.
@@ -174,6 +180,22 @@ let _cachedGroups = [];
 let _cachedLiveStates = {};
 let _cachedDriftRecords = {};
 let _itemById = new Map();
+
+/* =========================================================================
+   B-052 — Fuzzy search index cache.
+   The index is sidepanel-scoped and rebuilt at the tail of `renderAll` +
+   patched incrementally from the `scope: 'items'` broadcast branch. §34.11
+   `SEARCH_INDEX_ENABLED` is the single-variable rollback gate — flip to
+   `false` to fall back to the B-021 linear-scan path without reverting the
+   commit.
+   ========================================================================= */
+const SEARCH_INDEX_ENABLED = true;
+/** @type {import('./search-index.js').SearchIndex|null} */
+let _searchIndex = null;
+/* §34.9: sticky flag set on first catch inside the indexed search path.
+   Suppresses noisy per-keystroke warnings for the rest of the session and
+   routes `applyFilter` to the B-021 linear-scan fallback. */
+let _searchIndexDisabled = false;
 
 /* =========================================================================
    Open Tabs cache (B-055) — parallel to _cachedLiveStates to keep saved-item
@@ -1165,6 +1187,12 @@ function buildHighlightedText(text, query) {
 function applyFilter() {
   const query = _filterQuery.trim().toLowerCase();
 
+  /* B-052: prefer the pre-lowercased index for the saved-items hot path.
+     Falls back to the B-021 per-row lowercase scan when the index is
+     disabled (rollback gate) or unavailable (pre-hydrate). */
+  const useIndex =
+    SEARCH_INDEX_ENABLED && !_searchIndexDisabled && _searchIndex !== null;
+
   const groupSections = itemListEl.querySelectorAll('.group-section');
   let totalVisible = 0;
 
@@ -1192,8 +1220,36 @@ function applyFilter() {
         const item = _itemById.get(itemId);
         if (!item) { row.hidden = true; continue; }
 
-        const titleMatch = (item.title || '').toLowerCase().includes(query);
-        const urlMatch = (item.url || '').toLowerCase().includes(query);
+        /* B-052: read pre-lowercased fields from the index when available —
+           avoids N × 2 toLowerCase() calls per keystroke at 1 000 items.
+           A single try/catch wraps the index read so a malformed entry
+           never breaks the filter UX; §34.9 "graceful degrade" flips
+           `_searchIndexDisabled` on the first miss. */
+        let titleMatch;
+        let urlMatch;
+        if (useIndex) {
+          try {
+            const entry = _searchIndex.byId.get(itemId);
+            if (entry) {
+              titleMatch = entry.titleLower.includes(query);
+              urlMatch = entry.urlLower.includes(query);
+            } else {
+              /* Index not yet patched for this id (broadcast race): fall
+                 through to linear compute for this single row without
+                 disabling the index for the session. */
+              titleMatch = (item.title || '').toLowerCase().includes(query);
+              urlMatch = (item.url || '').toLowerCase().includes(query);
+            }
+          } catch (err) {
+            console.warn('[tab-junkie:b052] search index unusable; falling back to linear scan');
+            _searchIndexDisabled = true;
+            titleMatch = (item.title || '').toLowerCase().includes(query);
+            urlMatch = (item.url || '').toLowerCase().includes(query);
+          }
+        } else {
+          titleMatch = (item.title || '').toLowerCase().includes(query);
+          urlMatch = (item.url || '').toLowerCase().includes(query);
+        }
 
         if (titleMatch || urlMatch) {
           row.hidden = false;
@@ -2608,6 +2664,20 @@ function renderAll(items, groups, liveStates, driftRecords, openTabs) {
   itemListEl.hidden = false;
   panelHeaderEl.hidden = false;
 
+  /* B-052 §34.3: rebuild the search index from the freshly rendered items
+     array. Safe to call unconditionally — cheap (≈2–5 ms at 500 items) and
+     the module-level gate + try/catch keep the error surface minimal. */
+  if (SEARCH_INDEX_ENABLED) {
+    try {
+      _searchIndex = buildIndex(items);
+      _searchIndexDisabled = false;
+    } catch (err) {
+      console.warn('[tab-junkie:b052] index rebuild failed; linear-scan fallback active');
+      _searchIndex = null;
+      _searchIndexDisabled = true;
+    }
+  }
+
   /* Re-apply active filter after DOM rebuild (B-021).
      B-014 H-2: also re-apply when a window chip is active but no text query —
      otherwise a broadcast-driven renderAll restores all rows while the chip
@@ -2925,6 +2995,118 @@ function buildItemRow(item, liveStates, driftRecords) {
   row.setAttribute('aria-label', buildItemRowAriaLabel(item, live, drifted, isSelected));
 
   return row;
+}
+
+/* =========================================================================
+   B-052 — Targeted DOM patch path (AC5).
+   Called from the `scope: 'items'` broadcast branch when `diffAndPatch`
+   reports a small delta. §34.7 spells out the contract:
+     - added   → build one row via `buildItemRow` and insert at the correct
+                 sortOrder position within its group section.
+     - removed → remove the row from DOM.
+     - updated → rebuild the row in place (covers title/url/groupId edits
+                 + live-state changes; cheaper than per-field text patches
+                 given how much attribute/indicator logic `buildItemRow`
+                 already encodes).
+   After the patch the active filter is re-applied to the affected row set
+   so a search query stays sticky across single-item edits.
+   ========================================================================= */
+
+/**
+ * Find or create the `.group-items` container for a given groupId.
+ * Returns null when the group section hasn't been rendered yet
+ * (e.g. a new item in an empty group created in the same broadcast) —
+ * caller falls through to `renderAll` in that case.
+ *
+ * @param {string|null} groupId
+ * @returns {HTMLElement|null}
+ */
+function _findGroupItemsContainer(groupId) {
+  const id = groupId == null ? '__ungrouped__' : groupId;
+  return itemListEl.querySelector('#group-items-' + CSS.escape(id));
+}
+
+/**
+ * Apply a single-item DOM patch keyed by `change.id` + `change.kind`.
+ * Assumes `_cachedItems`, `_itemById`, `_cachedLiveStates`, and
+ * `_cachedDriftRecords` have already been updated to the post-broadcast
+ * snapshot so any downstream reads land on fresh state.
+ *
+ * Returns `true` when the patch lands; `false` when the caller should
+ * fall through to `renderAll` (e.g. a new row's target group section
+ * doesn't exist yet).
+ *
+ * @param {{ id: string, kind: 'added'|'removed'|'updated' }} change
+ * @returns {boolean}
+ */
+function _patchSingleRow(change) {
+  const { id, kind } = change;
+
+  if (kind === 'removed') {
+    const row = itemListEl.querySelector(
+      '.item-row[data-item-id="' + CSS.escape(id) + '"]'
+    );
+    if (!row) return true; /* already gone; nothing to patch */
+    /* Prune from selection before detaching. */
+    _selection.delete('item:' + id);
+    row.remove();
+    return true;
+  }
+
+  const item = _itemById.get(id);
+  if (!item) return false; /* impossible unless caches drifted; fall through */
+
+  if (kind === 'added') {
+    const container = _findGroupItemsContainer(item.groupId);
+    if (!container) return false;
+    const freshRow = buildItemRow(item, _cachedLiveStates, _cachedDriftRecords);
+    /* Insert at the correct sortOrder position within the container so the
+       visible order matches `renderAll`'s ascending-sortOrder sort. Skip
+       rows inside nested child sections while seeking the insertion point —
+       a sub-group lives at a different sortOrder namespace. */
+    const siblings = container.querySelectorAll(':scope > .item-row[data-item-id]');
+    const freshOrder = item.sortOrder ?? 0;
+    let inserted = false;
+    for (const sib of siblings) {
+      const sibItem = _itemById.get(sib.dataset.itemId);
+      const sibOrder = sibItem?.sortOrder ?? 0;
+      if (sibOrder > freshOrder) {
+        container.insertBefore(freshRow, sib);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) {
+      /* Append before any child group section so empty-state divs and
+         child-section placement stay untouched. */
+      const childSection = container.querySelector(':scope > .group-section');
+      if (childSection) container.insertBefore(freshRow, childSection);
+      else container.appendChild(freshRow);
+    }
+    /* Caller (broadcast dispatch) re-applies the active filter once after
+       all patches land — don't thrash applyFilter per-patch. */
+    return true;
+  }
+
+  /* kind === 'updated' — swap the row in place. A cross-group move (groupId
+     change without add/remove) reaches this branch with the row still parented
+     by the OLD group's container. replaceWith would leave the row at the old
+     DOM position, diverging from the group-items layout until the next
+     renderAll. Detect the mismatch here and signal a full rebuild — the
+     patcher cannot reparent without re-sorting the destination container
+     against fresh sortOrder, which is cheaper to do in renderAll. */
+  const existing = itemListEl.querySelector(
+    '.item-row[data-item-id="' + CSS.escape(id) + '"]'
+  );
+  if (!existing) return false;
+  const expectedContainer = _findGroupItemsContainer(item.groupId);
+  if (!expectedContainer || !expectedContainer.contains(existing)) {
+    return false; /* Cross-group move — caller falls through to renderAll. */
+  }
+  const freshRow = buildItemRow(item, _cachedLiveStates, _cachedDriftRecords);
+  existing.replaceWith(freshRow);
+  /* Caller handles applyFilter after all patches — see 'added' branch. */
+  return true;
 }
 
 /* =========================================================================
@@ -4124,8 +4306,72 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
          rendering so fresh rows are built with the correct badges. */
       _setWindowOrdinalMap(itemsResp.windowMap || {});
       _refreshPanelWindowId();
-      renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
-      _applyWindowMapToUI();
+
+      /* B-052 §34.4: on an items-scope broadcast, diff the incoming items
+         against the cached index. Small deltas patch DOM + index in place
+         (AC5); large deltas (bulk import, group-scoped cascade, empty
+         cache) fall through to `renderAll`. The diff is skipped when:
+           - scope === 'groups' (group render needs a full rebuild because
+             section DOM encodes group identity)
+           - the feature gate is off (§34.11 rollback path)
+           - the index has been disabled by the graceful-degrade path
+           - the cached items count is zero (cold-open never patches) */
+      const canPatch =
+        SEARCH_INDEX_ENABLED &&
+        !_searchIndexDisabled &&
+        _searchIndex !== null &&
+        scope === 'items' &&
+        _cachedItems.length > 0;
+
+      let patched = false;
+      if (canPatch) {
+        const delta = diffAndPatch(_searchIndex, itemsResp.items);
+        if (delta.deltaType === 'noop') {
+          /* Live-state / drift / openTabs may still have changed. Keep
+             caches fresh but skip the full DOM rebuild — renderAll would
+             thrash. Re-apply the filter so a sticky query's row-visibility
+             stays consistent with the refreshed liveStates. */
+          _cachedItems = itemsResp.items;
+          _cachedGroups = groups;
+          _cachedLiveStates = itemsResp.liveStates || {};
+          _cachedDriftRecords = itemsResp.driftRecords || {};
+          _setCachedOpenTabs(itemsResp.openTabs);
+          _searchIndex = delta.index;
+          _applyWindowMapToUI();
+          if (_filterQuery || _activeWindowFilter !== null) applyFilter();
+          patched = true;
+        } else if (delta.deltaType === 'patch') {
+          /* Update caches so `buildItemRow` reads the freshest data as it
+             constructs the replacement rows. */
+          _cachedItems = itemsResp.items;
+          _cachedGroups = groups;
+          _cachedLiveStates = itemsResp.liveStates || {};
+          _cachedDriftRecords = itemsResp.driftRecords || {};
+          _setCachedOpenTabs(itemsResp.openTabs);
+          _itemById = new Map(itemsResp.items.map((it) => [it.id, it]));
+          _searchIndex = delta.index;
+
+          /* Apply row deltas in delta.affected order (remove → update →
+             add). Abort to full rebuild at the first delta the DOM can't
+             service (e.g. a new row for a group that isn't rendered yet). */
+          let allApplied = true;
+          for (const change of delta.affected) {
+            if (!_patchSingleRow(change)) { allApplied = false; break; }
+          }
+          if (allApplied) {
+            _applyWindowMapToUI();
+            if (_filterQuery || _activeWindowFilter !== null) applyFilter();
+            patched = true;
+          }
+        }
+        /* 'full-rebuild' deltas fall through to `renderAll` below. */
+      }
+
+      if (!patched) {
+        renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
+        _applyWindowMapToUI();
+      }
+
       /* B-029 H-2: rebuild the picker body if a groups-scope broadcast
          arrived while it was open (e.g. a group was deleted/renamed from
          another window). Preserves filter text and the highlighted group id
