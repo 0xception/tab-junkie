@@ -7,7 +7,7 @@
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████████████░░░░░  73% (52/71)  [3 in progress]
+Overall Progress    ███████████████░░░░░  75% (53/71)  [1 in progress]
 ```
 
 ### Legend
@@ -78,7 +78,7 @@ Overall Progress    ███████████████░░░░░
 ✅ B-043 — Export to JSON backup · 🟠 · M
 ✅ B-044 — Import HTML with count preview & flattening · 🟠 · M
 ✅ B-045 — Import JSON with validation & repair · 🟠 · M
-🔄 B-046 — Global keyboard shortcuts (popup + standalone) · 🟠 · S
+⬜ B-046 — Global keyboard shortcuts (popup + standalone) · 🟠 · S [deferred — requires B-022 + B-035 to ship first]
 ✅ B-047 — In-panel keyboard shortcuts (select-all, clear) · 🟠 · XS
 ✅ B-048 — Item visual states (live / active / drifted / audible / selected) · 🟠 · M
 ✅ B-049 — Empty states & error feedback · 🟠 · S
@@ -92,7 +92,7 @@ Overall Progress    ███████████████░░░░░
 ✅ B-057 — SPIKE: URL-scheme allowlist + duplicate-URL policy review · 🟡 · XL
 ✅ B-058 — Relax URL-scheme allowlist (chrome://, edge://, chrome-extension://, about:, view-source:) · 🟡 · S
 ✅ B-059 — Allow duplicate URLs with soft-warn UI · 🟡 · M
-🔄 B-060 — Import duplicate-handling with skip/allow override · 🟡 · S
+✅ B-060 — Import duplicate-handling with skip/allow override · 🟡 · S
 ✅ B-061 — Dim javascript:/data: rows in Open Tabs (replaces B-056) · ⚪ · XS
 ✅ B-062 — Dark-theme primary-button contrast audit (WCAG AA) · 🟠 · S
 ✅ B-063 — Close open context menu when the side panel loses focus (click-off) · 🟡 · S
@@ -119,7 +119,7 @@ Overall Progress    ███████████████░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 52 | 73% |
-| 🔄 In Progress | 3 | 4% |
-| ⬜ To Do | 14 | 20% |
+| ✅ Done | 53 | 75% |
+| 🔄 In Progress | 1 | 1% |
+| ⬜ To Do | 15 | 21% |
 | 🧊 Icebox | 2 | 3% |

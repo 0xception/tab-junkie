@@ -6,8 +6,9 @@
 
 ## Sprint Readiness (Gate 6)
 
-- ✅ Scope approved by product owner: B-069 + B-070 + B-060 + B-046 + B-052
-- ✅ Total effort: 1M + 3S + 1XS — matches Sprints 17/18 cadence (2M+2S / 2M+3S ranges)
+- ✅ Scope approved by product owner: B-069 + B-070 + B-060 + ~~B-046~~ + B-052 (B-046 deferred mid-sprint — see Scope Change Log below)
+- ✅ Total effort: 1M + 2S + 1XS (after B-046 deferral) — matches Sprints 17/18 cadence lower-bound
+- 🔄 **Scope change (B-046 deferred, 2026-04-19)**: Scrum-master caught dependency gap at Wave 3 start — B-046 AC explicitly targets "quick search popup" (B-022, ⬜ not shipped) AND "standalone Tab Junkie window" (B-035, ⬜ not shipped). Shipping stubs creates dead-shortcut UX friction; scope-reducing to one shortcut distorts the item. Clean choice: defer B-046 to whichever future sprint ships B-022 or B-035. Status reverted to `backlog`.
 - ✅ Sprint 18 closed; v1.13.0 tag on `release/v2` (commit `cb019ba`); archive commit `54bd608`
 - ⚠️ Carry-over from Sprint 18: **7 deferred UAT plans** (B-042, B-043, B-048, B-029, B-059, B-044, B-045 — ~165 cases total). User-executed burndown scheduled for **start of Sprint 19** (per product-owner instruction). Runs in parallel with the R2/R3 pipeline — does NOT block B-069/B-070/B-060/B-046/B-052 from proceeding.
 - ✅ Sprint 18 retro action items C-8 + C-9 are the subject of B-069 (Wave 0) — delivered within the sprint, not carried as meta-items.
@@ -35,33 +36,25 @@ Each UAT plan has PASS/FAIL/WARN/SKIP columns pre-laid for the user. Gate 3 sign
 
 ## Active Items
 
-### [B-060] Import duplicate-handling with skip/allow override
-- **Tier**: Fast Track (S) — Wave 2
-- **Status**: R3 (in progress)
-- **Assigned To**: [frontend-engineer]
-- **Blockers**: None (B-044 + B-045 + B-070 all merged; allow-list contract stable; shared preview dialog primitive stable)
-- **Feature Context**: Import preview dialog already surfaces "new vs duplicate" counts (shipped in B-044/B-045). B-060 adds the user-toggleable "Import duplicates anyway" checkbox, which — when checked — creates additional items even when URLs match existing. Default: skip. Preference persists in `tj:prefs` if user explicitly changes it.
-- **Handoff Notes**: R1 pre-approved. R2 skipped (Fast Track). R3 in flight on `feature/B-060-import-dup-handling`. Extends `_buildImportPreviewBody` with a checkbox + plumbs the option through `MSG_IMPORT_COLLECTION.options.skipDuplicates` (already a defined payload field — see `shared/messages.js`). Storage side: small `importSkipDuplicates` preference addition if AC specifies persistence. Covers both HTML and JSON import paths. Tests: update `b044-e2e-import.test.js` + `b045-e2e-import.test.js` to cover the allow-duplicates branch.
-
-### [B-046] Global keyboard shortcuts (popup + standalone)
-- **Tier**: Fast Track (S) — Wave 3
-- **Status**: R1 (pre-approved — ACs comprehensive in BACKLOG.md)
-- **Assigned To**: [frontend-engineer]
-- **Blockers**: None (but the `commands` entries in manifest warrant R2 checklist review — auto-upgrade if scope expands per CLAUDE.md Auto-upgrade rule, since this touches manifest permissions)
-- **Feature Context**: Two default global shortcuts registered in `manifest.json` (quick search popup + standalone window). Both trigger from any active tab (within Chrome/Edge shortcut constraints). Reassignable via `edge://extensions/shortcuts`. Standalone shortcut focuses existing window if open.
-- **Handoff Notes**: Touches `manifest.json` (new `commands` section), `background/service-worker.js` (new `chrome.commands.onCommand` listener), possibly a new stub for the standalone window if not yet present. **Auto-upgrade trigger**: new `manifest.json` permission-adjacent section → upgrade to Full tier if the scope expands beyond basic wiring; re-evaluate at R3 start. Note: memory: user runs Edge, not Chrome — verify `commands` works in Edge (it does per MDN — chromium-base).
-
 ### [B-052] Fuzzy search index caching & perf targets
-- **Tier**: Full (M) — Wave 4
-- **Status**: R1 (pre-approved — ACs comprehensive in BACKLOG.md)
+- **Tier**: Full (M) — Wave 3 (re-sequenced from Wave 4 after B-046 deferred)
+- **Status**: R2 (in progress)
 - **Assigned To**: [solution-architect] (R2) → [frontend-engineer] (R3)
-- **Blockers**: B-069 (Wave 0) — R2 runs the updated Correctness Checklist with C-8 + C-9. Effectively in-sprint since B-069 is XS.
+- **Blockers**: None (B-069 merged `11a7d33` so C-8 + C-9 active; B-044 / B-045 / B-060 / B-070 all merged — import/storage contracts stable)
 - **Feature Context**: Fuzzy search index built once, cached in memory, invalidated only when items/groups change. Target: < 50 ms P95 on 1,000-item collection. Sidepanel first paint with 500 items: < 200 ms. No full re-render on single-item updates.
-- **Handoff Notes**: R2 design must cover: (a) where the index lives (SW memory vs sidepanel vs both), (b) invalidation strategy on CRUD broadcasts, (c) measurement harness for P95 (reuse existing perf-test infrastructure from B-001a/B-001b), (d) fallback when index is stale during rebuild. Paired with the Sprint 18 retro C-9: R2 MUST enumerate empty-state (zero-items, zero-matches, invalidation-in-flight) UX explicitly. Performance AC is concrete: this is a measurable pass/fail gate.
+- **Handoff Notes**: R1 pre-approved. R2 authors new §34 chapter at `docs/design/34-b-052-fuzzy-search-caching.md` covering: (a) where the index lives (SW memory vs sidepanel vs both), (b) invalidation strategy on CRUD broadcasts, (c) measurement harness for P95 (reuse existing perf-test infrastructure from B-001a/B-001b), (d) fallback when index is stale during rebuild. Per C-9 (Sprint 18 retro): R2 MUST enumerate empty-state (zero-items, zero-matches, invalidation-in-flight, zero-network) UX explicitly. Per C-8: R2 MUST verify any browser API needed (e.g., `IntersectionObserver` if virtualization is considered) is SW-reachable. Performance AC is concrete and measurable.
 
 ---
 
 ## Completed This Sprint
+
+### [B-060] Import duplicate-handling with skip/allow override — DONE (Wave 2)
+- **Tier**: Fast Track (S)
+- **Merged**: `81b8a2d` on `release/v2` (PR #20, 2026-04-19)
+- **Files Changed**: `sidepanel/sidepanel.{js,css}` (checkbox UI + pref read/write + toast branching), `background/storage/shapes.js` (DEFAULT_PREFERENCES + tolerant isPreferences for upgrade path), `background/storage/preferences.js` (validatePrefsPatch), `background/import/{html-parser,json-validator,index}.js` (options threading); NEW `tests/b060-import-dup-handling.test.js` (7 tests); updates to `tests/b04{4,5}-e2e-import.test.js` + `tests/b045-json-validator.test.js`
+- **R4**: [code-reviewer] PASS with 2 LOW (pre-existing sprint-19+ TODO in json-validator from B-070; cosmetic `<span>` vs `<div>` — a11y correct). [security-reviewer] PASS zero findings.
+- **Test suite**: 926 → 937 green (+11 new). `./build.sh`: clean (192 K zip).
+- **Schema migration**: none required — tolerant `isPreferences` + `getPreferences()` merge preserves backward compat for pre-B-060 profiles.
 
 ### [B-070] Sprint 18 follow-on polish bundle — DONE (Wave 1)
 - **Tier**: Fast Track (S)
