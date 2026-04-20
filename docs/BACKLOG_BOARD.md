@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-20 · **Version:** 2.1 · **Total Items:** 76 · **Sprint 20 active — kicked off 2026-04-20**
+**Updated:** 2026-04-20 · **Version:** 2.2 · **Total Items:** 77 · **Sprint 20 active — Wave 2 next**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████░░░░░░  75% (57/76)  [3 in progress]
+Overall Progress    ███████████████░░░░░  77% (59/77)  [1 in progress]
 ```
 
 ### Legend
@@ -106,13 +106,14 @@ Overall Progress    ██████████████░░░░░░
 
 ## Sprint 20 — Retro action items + polish debt + sub-group nesting
 
-> 3/6 done · 3 in progress (plus UAT burndown track parallel)
+> 5/6 done · 1 in progress (plus UAT burndown track parallel)
 
 ✅ B-071 — Gate 6 Sprint Readiness deps-resolved check (CLAUDE.md edit) · 🟠 · XS [Wave 0 — merged c2154c9 / PR #22]
 ✅ B-072 — AC template destructive-action confirmation clause (CLAUDE.md edit) · 🟡 · XS [Wave 0 — merged c2154c9 / PR #22]
 ✅ B-073 — Backfill C-6 + C-7 in R2 Correctness Checklist (CLAUDE.md edit) · 🟡 · XS [Wave 0 — merged c2154c9 / PR #22]
-🔄 B-074 — Remove pre-existing `TODO(sprint-19+)` from json-validator.js · 🟡 · XS [Wave 1]
-🔄 B-075 — Convert B-052 `byId` Map → frozen plain object (§34.14 D-1) · ⚪ · XS [Wave 1]
+✅ B-074 — Remove pre-existing `TODO(sprint-19+)` from json-validator.js · 🟡 · XS [Wave 1 — merged a488c90 / PR #23; filed B-076 as deferral]
+✅ B-075 — Convert B-052 `byId` Map → frozen plain object (§34.14 D-1) · ⚪ · XS [Wave 1 — merged a488c90 / PR #23]
+⬜ B-076 — Apply MIGRATION_STEPS in-memory hook in JSON import validator (future-work placeholder) · 🟡 · S [activates when MIGRATION_STEPS ships first non-empty entry]
 
 ---
 
@@ -122,14 +123,14 @@ Overall Progress    ██████████████░░░░░░
 |----------|-------|---|
 | 🔴 P0 Critical | 14 | 18% |
 | 🟠 P1 High | 33 | 43% |
-| 🟡 P2 Medium | 12 | 16% |
-| ⚪ P3 Nice-to-have | 5 | 7% |
+| 🟡 P2 Medium | 13 | 17% |
+| ⚪ P3 Nice-to-have | 5 | 6% |
 
 ## Status Summary
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 57 | 75% |
-| 🔄 In Progress | 3 | 4% |
-| ⬜ To Do | 14 | 18% |
+| ✅ Done | 59 | 77% |
+| 🔄 In Progress | 1 | 1% |
+| ⬜ To Do | 15 | 19% |
 | 🧊 Icebox | 2 | 3% |

@@ -41,22 +41,6 @@ Each plan has PASS/FAIL/WARN/SKIP columns pre-laid for the user. Gate 3 sign-off
 
 ## Active Items
 
-### [B-074] Remove pre-existing `TODO(sprint-19+)` from `background/import/json-validator.js`
-- **Tier**: Fast Track (XS)
-- **Status**: backlog → in-progress (Wave 1)
-- **Assigned To**: [frontend-engineer]
-- **Blockers**: None
-- **Feature Context**: Pre-existing `TODO(sprint-19+)` at `background/import/json-validator.js:531` flagged by [code-reviewer] in Sprint 19 B-060 R4 as violating the CLAUDE.md "no TODOs" rule. Either resolve the underlying concern (adversarial-input hardening on `breakCycles`, filed as a separate sibling item) or strip the TODO and replace with an intentional no-op (or Enforce + Test if the concern is real). R3 must decide which path based on file inspection.
-- **Handoff Notes**: Can run in parallel with B-075 and with B-007 R1.
-
-### [B-075] Convert B-052 `byId` Map → frozen plain object
-- **Tier**: Fast Track (XS)
-- **Status**: backlog → in-progress (Wave 1)
-- **Assigned To**: [frontend-engineer]
-- **Blockers**: None
-- **Feature Context**: Sprint 19 B-052 R4 [code-reviewer] MEDIUM finding — current `byId` is a `new Map()` where every consumer needs `.get(id)`. §34.14 D-1 decision was to restructure to a frozen plain object `Object.freeze({ ...byId })` for simpler property access + structural sharing. Fast Track XS — 1 file touch plus 2-3 call sites.
-- **Handoff Notes**: Can run in parallel with B-074 and with B-007 R1.
-
 ### [B-007] Sub-group nesting (depth = 1)
 - **Tier**: Full (M)
 - **Status**: backlog → in-progress (Wave 2)
@@ -72,6 +56,22 @@ Each plan has PASS/FAIL/WARN/SKIP columns pre-laid for the user. Gate 3 sign-off
 ---
 
 ## Completed This Sprint
+
+### [B-075] Convert B-052 `byId` Map → frozen plain object — DONE (Wave 1)
+- **Tier**: Fast Track (XS)
+- **Merged**: `a488c90` on `release/v2` (PR #23, 2026-04-20)
+- **Files Changed**: `sidepanel/search-index.js` (Map → frozen `{}` + `Object.freeze` in `buildIndex` + `makeIndex` + structural-share spread in `diffAndPatch`; header docstring + JSDoc `Readonly<Record>` types updated), `sidepanel/sidepanel.js` (one `.get()` → `[id]`), `tests/b052-fuzzy-search-perf.test.js` (~10 call sites migrated + R4 Fix #2 mutation-contract test rewritten for B-075 semantics)
+- **R4**: [code-reviewer] PASS (grep-clean migration), [security-reviewer] PASS (internal data structure; zero storage/message drift)
+- **Test suite**: 955/955 unchanged (all B-052 perf assertions still green on deterministic seed → AC3/AC4 perf parity held)
+- **Scope**: internal to sidepanel/search-index module + 1 external reader + tests. Zero manifest / messages / errors drift.
+
+### [B-074] Remove pre-existing `TODO(sprint-19+)` from json-validator.js — DONE (Wave 1)
+- **Tier**: Fast Track (XS)
+- **Merged**: `a488c90` on `release/v2` (PR #23, 2026-04-20)
+- **Files Changed**: `background/import/json-validator.js` (TODO replaced with non-TODO reference comment pointing at B-076 + §33.18 F-4), `docs/BACKLOG.md` (new B-076 row added as future-work placeholder)
+- **R4**: [code-reviewer] PASS (grep-clean: `grep -rn 'TODO(sprint' background/` returns zero matches), [security-reviewer] PASS (comment-only edit)
+- **Test suite**: 955/955 unchanged (no semantic code change; just comment + backlog row)
+- **Decision**: chose AC1 option (b) — file new backlog item (B-076) + replace TODO with reference comment. Not option (a) inline because implementing the MIGRATION_STEPS hook without a real migration step is YAGNI.
 
 ### [B-073] Backfill C-6 + C-7 slots in R2 Correctness Checklist — DONE (Wave 0)
 - **Tier**: Fast Track (XS)
@@ -141,4 +141,4 @@ Each plan has PASS/FAIL/WARN/SKIP columns pre-laid for the user. Gate 3 sign-off
 
 ---
 
-## Status: ACTIVE — Wave 0 complete (3/6 done) · Wave 1 next (B-074 + B-075 parallel)
+## Status: ACTIVE — Wave 0 + Wave 1 complete (5/6 done) · Wave 2 next (B-007 Full tier M — pausing for product-owner check-in before R1 kickoff)
