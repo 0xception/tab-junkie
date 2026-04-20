@@ -7,7 +7,7 @@
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████░░░░░░  71% (54/76)  [6 in progress]
+Overall Progress    ██████████████░░░░░░  75% (57/76)  [3 in progress]
 ```
 
 ### Legend
@@ -106,11 +106,11 @@ Overall Progress    ██████████████░░░░░░
 
 ## Sprint 20 — Retro action items + polish debt + sub-group nesting
 
-> 0/6 done · 6 in progress (plus UAT burndown track parallel)
+> 3/6 done · 3 in progress (plus UAT burndown track parallel)
 
-🔄 B-071 — Gate 6 Sprint Readiness deps-resolved check (CLAUDE.md edit) · 🟠 · XS [Wave 0]
-🔄 B-072 — AC template destructive-action confirmation clause (CLAUDE.md edit) · 🟡 · XS [Wave 0]
-🔄 B-073 — Backfill C-6 + C-7 in R2 Correctness Checklist (CLAUDE.md edit) · 🟡 · XS [Wave 0]
+✅ B-071 — Gate 6 Sprint Readiness deps-resolved check (CLAUDE.md edit) · 🟠 · XS [Wave 0 — merged c2154c9 / PR #22]
+✅ B-072 — AC template destructive-action confirmation clause (CLAUDE.md edit) · 🟡 · XS [Wave 0 — merged c2154c9 / PR #22]
+✅ B-073 — Backfill C-6 + C-7 in R2 Correctness Checklist (CLAUDE.md edit) · 🟡 · XS [Wave 0 — merged c2154c9 / PR #22]
 🔄 B-074 — Remove pre-existing `TODO(sprint-19+)` from json-validator.js · 🟡 · XS [Wave 1]
 🔄 B-075 — Convert B-052 `byId` Map → frozen plain object (§34.14 D-1) · ⚪ · XS [Wave 1]
 
@@ -129,7 +129,7 @@ Overall Progress    ██████████████░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 54 | 71% |
-| 🔄 In Progress | 6 | 8% |
+| ✅ Done | 57 | 75% |
+| 🔄 In Progress | 3 | 4% |
 | ⬜ To Do | 14 | 18% |
 | 🧊 Icebox | 2 | 3% |

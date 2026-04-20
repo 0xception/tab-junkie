@@ -41,30 +41,6 @@ Each plan has PASS/FAIL/WARN/SKIP columns pre-laid for the user. Gate 3 sign-off
 
 ## Active Items
 
-### [B-071] Extend Gate 6 Sprint Readiness with deps-resolved check
-- **Tier**: Fast Track (XS)
-- **Status**: backlog → in-progress (Wave 0)
-- **Assigned To**: [scrum-master] (R3 build — CLAUDE.md edit)
-- **Blockers**: None
-- **Feature Context**: Sprint 19 retro HIGH. Prevents mid-sprint deferrals (B-046 Sprint 19 style) by making the Gate 6 check explicit. Adds a new bullet to the Gate 6 block in `CLAUDE.md` enumerating: "For every in-scope item, verify each dependency in BACKLOG.md `Dependencies` column is either `done` OR also in this sprint. If any dep is `backlog`, flag for product-owner triage before kickoff."
-- **Handoff Notes**: Batch with B-072 + B-073 in a single Wave 0 commit + single R4 smoke-check.
-
-### [B-072] AC template — destructive-action confirmation clause
-- **Tier**: Fast Track (XS)
-- **Status**: backlog → in-progress (Wave 0)
-- **Assigned To**: [product-manager] (R3 build — CLAUDE.md edit)
-- **Blockers**: None
-- **Feature Context**: Sprint 19 retro MEDIUM. B-070 AC1 "proceed with commit" nearly shipped a silent destructive-action waiver — literal reading skipped the confirmation dialog; R4 caught the HIGH inline. Future ACs for carved-out edge cases (prefs-only, zero-match, partial-input) MUST explicitly state whether destructive-action confirmation is retained or waived, with rationale. Adds a new bullet to the Definition of Ready section in `CLAUDE.md`.
-- **Handoff Notes**: Batch with B-071 + B-073.
-
-### [B-073] Backfill C-6 + C-7 slots in R2 Correctness Checklist
-- **Tier**: Fast Track (XS)
-- **Status**: backlog → in-progress (Wave 0)
-- **Assigned To**: [solution-architect] (R3 build — CLAUDE.md edit)
-- **Blockers**: None
-- **Feature Context**: B-069 (Sprint 19) appended C-8 + C-9 leaving a numbering gap — Sprint 17 retro's aspirational "C-7 allow-list direction check" was never codified, and C-6 slot was similarly aspirational. Close the gap by writing both rows based on the Sprint 17 retro intent: C-6 covers permission-minimization review; C-7 covers allow-list direction (outputs prefer allow-lists over deny-lists per B-067 Sprint 18 precedent).
-- **Handoff Notes**: Batch with B-071 + B-072.
-
 ### [B-074] Remove pre-existing `TODO(sprint-19+)` from `background/import/json-validator.js`
 - **Tier**: Fast Track (XS)
 - **Status**: backlog → in-progress (Wave 1)
@@ -97,7 +73,27 @@ Each plan has PASS/FAIL/WARN/SKIP columns pre-laid for the user. Gate 3 sign-off
 
 ## Completed This Sprint
 
-*(none yet — sprint just kicked off)*
+### [B-073] Backfill C-6 + C-7 slots in R2 Correctness Checklist — DONE (Wave 0)
+- **Tier**: Fast Track (XS)
+- **Merged**: `c2154c9` on `release/v2` (PR #22, 2026-04-20)
+- **Files Changed**: `CLAUDE.md` (+2 R2 Correctness Checklist rows C-6 + C-7), `CHANGELOG.md` Process breadcrumb
+- **R4**: [code-reviewer] smoke PASS (exact-text ACs matched, C-1..C-5 untouched, C-8+C-9 preserved), [security-reviewer] no-op gate protector PASS
+- **Test suite**: 955/955 unchanged (docs-only)
+- **Scope**: zero code / manifest / test drift
+
+### [B-072] AC template — destructive-action confirmation clause — DONE (Wave 0)
+- **Tier**: Fast Track (XS)
+- **Merged**: `c2154c9` on `release/v2` (PR #22, 2026-04-20)
+- **Files Changed**: `CLAUDE.md` (+1 DoR item 7), `CHANGELOG.md` Process breadcrumb
+- **R4**: [code-reviewer] smoke PASS, [security-reviewer] no-op gate protector PASS
+- **Scope**: Sprint 19 retro MEDIUM action item; addresses B-070 AC1 literal-reading silent-waiver risk.
+
+### [B-071] Extend Gate 6 Sprint Readiness with deps-resolved check — DONE (Wave 0)
+- **Tier**: Fast Track (XS)
+- **Merged**: `c2154c9` on `release/v2` (PR #22, 2026-04-20)
+- **Files Changed**: `CLAUDE.md` (+1 Gate 6 bullet), `CHANGELOG.md` Process breadcrumb
+- **R4**: [code-reviewer] smoke PASS, [security-reviewer] no-op gate protector PASS
+- **Scope**: Sprint 19 retro HIGH action item; deps check applied as house rule for Sprint 20 itself (all 6 items passed).
 
 ---
 
@@ -145,4 +141,4 @@ Each plan has PASS/FAIL/WARN/SKIP columns pre-laid for the user. Gate 3 sign-off
 
 ---
 
-## Status: ACTIVE — Wave 0 starting
+## Status: ACTIVE — Wave 0 complete (3/6 done) · Wave 1 next (B-074 + B-075 parallel)
