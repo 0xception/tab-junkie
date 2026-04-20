@@ -1592,6 +1592,44 @@ function _sumRepairs(repairs) {
 }
 
 /**
+ * B-070 AC1 — detect whether a JSON backup string carries a populated
+ * `preferences` object. Used by the zero-bookmark guard to decide between
+ * rejecting an empty backup ("Backup contains no bookmarks") and routing a
+ * prefs-only backup through the prefs-only confirmation dialog.
+ *
+ * Best-effort, cold-start-safe: a malformed file that fails JSON.parse is
+ * treated as "no preferences" (the real validator will surface the actual
+ * error on commit). Only the top-level `preferences` key is inspected here —
+ * the validator remains the source of truth for key-level validation.
+ *
+ * B-070 R4 F-2 note: this check is intentionally permissive — ANY non-empty
+ * `preferences` object routes the prefs-only path (even one that happens to
+ * match every system default). This is safe because the prefs-only
+ * confirmation dialog (see `_openImportPreviewDialog({ prefsOnly: true })`
+ * below) is an explicit click-to-confirm gate on the destructive
+ * items/groups replace. Do NOT re-introduce a direct `_commitImport`
+ * short-circuit here — the CLAUDE.md "Confirmation dialogs for destructive
+ * actions" rule applies even when the user's existing bookmarks would be
+ * wiped by a backup whose prefs are all defaults.
+ *
+ * @param {string} content
+ * @returns {boolean}
+ */
+function _hasPopulatedPreferences(content) {
+  if (typeof content !== 'string' || content.length === 0) return false;
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return false;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  const prefs = parsed.preferences;
+  if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) return false;
+  return Object.keys(prefs).length > 0;
+}
+
+/**
  * Build the import-preview dialog body as structured DOM nodes — never
  * innerHTML. "REPLACE" is wrapped in a strong+warning span per AC4.
  *
@@ -1644,24 +1682,27 @@ function _buildImportPreviewBody(counts, filename, format) {
   }
   /* B-045 — structured repair summary (separate span, never innerHTML). The
      parts are joined with commas in a single textContent assignment so users
-     see one readable footnote rather than a row of bullet points. */
+     see one readable footnote rather than a row of bullet points.
+     B-070 AC3 — labels rewritten to plain language. */
   if (isJson && repairs) {
     const parts = [];
     if (repairs.orphanedGroups > 0) {
-      parts.push(repairs.orphanedGroups + ' orphan'
-        + (repairs.orphanedGroups === 1 ? '' : 's') + ' re-parented');
+      parts.push(repairs.orphanedGroups + ' group'
+        + (repairs.orphanedGroups === 1 ? '' : 's')
+        + ' had missing parents, moved to the top level');
     }
     if (repairs.cyclesBroken > 0) {
-      parts.push(repairs.cyclesBroken + ' cycle'
-        + (repairs.cyclesBroken === 1 ? '' : 's') + ' broken');
+      parts.push(repairs.cyclesBroken + ' group loop'
+        + (repairs.cyclesBroken === 1 ? '' : 's') + ' fixed');
     }
     if (repairs.duplicateIds > 0) {
-      parts.push(repairs.duplicateIds + ' duplicate ID'
-        + (repairs.duplicateIds === 1 ? '' : 's') + ' re-minted');
+      parts.push(repairs.duplicateIds + ' duplicate group/item ID'
+        + (repairs.duplicateIds === 1 ? '' : 's') + ' renumbered');
     }
     if (repairs.orphanedItems > 0) {
       parts.push(repairs.orphanedItems + ' item'
-        + (repairs.orphanedItems === 1 ? '' : 's') + ' moved to Ungrouped');
+        + (repairs.orphanedItems === 1 ? '' : 's')
+        + ' with no group moved to Ungrouped');
     }
     if (repairs.preferencesSkipped) {
       parts.push('preferences skipped (invalid shape)');
@@ -1677,18 +1718,67 @@ function _buildImportPreviewBody(counts, filename, format) {
 }
 
 /**
+ * B-070 R4 F-1 — build the prefs-only confirmation body as structured DOM
+ * nodes. A prefs-only backup (items: [], groups: []) still triggers the
+ * atomic replace in commit.js, so the user MUST see and click-confirm the
+ * destruction of their existing bookmarks+groups. "REPLACE" uses the same
+ * `import-replace-emphasis` class as the bookmark/data path so the
+ * `--danger` token styling is consistent across all three dialog variants.
+ *
+ * @param {string} filename
+ * @returns {DocumentFragment}
+ */
+function _buildPrefsOnlyImportBody(filename) {
+  const frag = document.createDocumentFragment();
+  const line1 = document.createElement('span');
+  line1.textContent = 'This backup contains only preferences (0 items, 0 groups)'
+    + (filename ? ' from ' + filename : '') + '. Importing will ';
+  frag.appendChild(line1);
+  const strong = document.createElement('strong');
+  strong.className = 'import-replace-emphasis';
+  strong.textContent = 'REPLACE';
+  frag.appendChild(strong);
+  const line2 = document.createElement('span');
+  line2.textContent = ' all your existing bookmarks and groups with an empty'
+    + ' collection. Your preferences will be updated. Continue?';
+  frag.appendChild(line2);
+  return frag;
+}
+
+/**
  * Open the import-preview confirmation dialog. Extends the shared confirm-
  * dialog primitive (§33.4 Q-2) by replacing the <p> body with a
  * document-fragment composed of structured DOM nodes — never innerHTML.
+ *
+ * B-070 R4 F-1: `prefsOnly: true` opens a dedicated prefs-only variant with
+ * its own heading/body/button copy. The dialog is still the same primitive;
+ * the opt-in flag just swaps the three copy slots.
  */
-function _openImportPreviewDialog({ counts, filename, onConfirm, triggerEl, format }) {
+function _openImportPreviewDialog(
+  { counts, filename, onConfirm, triggerEl, format, prefsOnly },
+) {
   _pendingConfirmCallback = onConfirm;
   _dialogTriggerEl = triggerEl || null;
-  confirmHeadingEl.textContent = 'Replace all bookmarks?';
-  /* Clear prior textContent before appending structured nodes. */
-  confirmBodyEl.replaceChildren();
-  confirmBodyEl.appendChild(_buildImportPreviewBody(counts, filename, format));
-  confirmDeleteBtnEl.textContent = format === 'json' ? 'Replace and import' : 'Replace all';
+  if (prefsOnly === true) {
+    /* B-070 R4 F-1 — prefs-only variant: distinct heading so the user
+       understands the context is "restore settings from a prefs-only
+       backup" (which still wipes bookmarks per §33.7 atomic-replace
+       semantics). */
+    confirmHeadingEl.textContent = 'Import preferences-only backup?';
+    confirmBodyEl.replaceChildren();
+    confirmBodyEl.appendChild(_buildPrefsOnlyImportBody(filename));
+    confirmDeleteBtnEl.textContent = 'Replace and apply preferences';
+  } else {
+    /* B-070 AC4 — JSON restores groups + preferences, not just bookmarks, so the
+       heading scope is broader on the JSON path. HTML path keeps the B-044 copy. */
+    confirmHeadingEl.textContent = format === 'json'
+      ? 'Replace all data?'
+      : 'Replace all bookmarks?';
+    /* Clear prior textContent before appending structured nodes. */
+    confirmBodyEl.replaceChildren();
+    confirmBodyEl.appendChild(_buildImportPreviewBody(counts, filename, format));
+    confirmDeleteBtnEl.textContent = format === 'json' ? 'Replace and import' : 'Replace all';
+  }
   confirmDeleteBtnEl.dataset.variant = 'destructive';
   bookmarkDialogEl.hidden = true;
   confirmDialogEl.hidden = false;
@@ -1803,8 +1893,47 @@ async function _handleImportFile(file, triggerEl, format) {
 
     /* Reject a "valid but empty" file before opening the confirm dialog —
        a DOCTYPE-only file (HTML) or a backup with zero items + zero groups
-       (JSON) would otherwise let the user wipe storage for nothing. */
+       AND empty/absent preferences (JSON) would otherwise let the user wipe
+       storage for nothing.
+       B-070 AC1 — a JSON backup with zero items + zero groups BUT a populated
+       preferences object is a legitimate "restore settings" flow: route it
+       through the prefs-only confirmation dialog.
+       B-070 R4 F-1 — even though commit returns 0 items + 0 groups, the
+       underlying `writeTransaction` still atomically REPLACES the user's
+       items and groups with empty arrays (§33.7). That is destructive and
+       MUST show a confirm dialog per CLAUDE.md "Confirmation dialogs for
+       destructive actions." The prefs-only dialog variant opened below
+       gives the user a click-to-confirm gate with body copy that makes the
+       destruction explicit.
+       The client-side check below only needs to detect that SOMETHING
+       non-empty exists in the `preferences` slot so we route correctly; the
+       validator is the source of truth for key-level validation and will set
+       `preferencesSkipped: true` if the shape is invalid. */
     if ((previewData.itemsImported || 0) === 0 && (previewData.groupsImported || 0) === 0) {
+      if (fmt === 'json' && _hasPopulatedPreferences(content)) {
+        const capturedContent = content;
+        const capturedFilename = file.name;
+        _openImportPreviewDialog({
+          counts: previewData,
+          filename: file.name,
+          triggerEl,
+          format: 'json',
+          prefsOnly: true,
+          onConfirm: () => {
+            /* Re-entry guard — see below for the populated-backup path.
+               Dialog click handler clears _pendingConfirmCallback on first
+               fire; this is defense-in-depth. */
+            if (_importInFlight) return;
+            void _commitImport({
+              content: capturedContent,
+              filename: capturedFilename,
+              format: 'json',
+              prefsOnly: true,
+            });
+          },
+        });
+        return;
+      }
       showToast(fmt === 'json' ? 'Backup contains no bookmarks' : 'File contains no bookmarks');
       return;
     }
@@ -1849,6 +1978,7 @@ async function _handleImportFile(file, triggerEl, format) {
 async function _commitImport(pending) {
   if (!pending || typeof pending.content !== 'string') return;
   const fmt = pending.format === 'json' ? 'json' : 'html';
+  const prefsOnly = pending.prefsOnly === true;
   /* Commit can take ~2s on a 1000-bookmark file. Block re-entry + visibly
      disable the trigger so users don't think the click was lost. */
   _setImportInFlight(true);
@@ -1861,17 +1991,29 @@ async function _commitImport(pending) {
     let msg;
     if (fmt === 'json') {
       /* B-045 AC16 — exact toast copy: "Imported N items, M groups." with an
-         optional " K repairs." segment when K > 0. */
-      const repairsK = _sumRepairs(data.repairs);
-      msg = 'Imported ' + data.itemsImported + ' item'
-        + (data.itemsImported === 1 ? '' : 's')
-        + ', ' + data.groupsImported + ' group'
-        + (data.groupsImported === 1 ? '' : 's') + '.';
-      if (repairsK > 0) {
-        msg += ' ' + repairsK + ' repair' + (repairsK === 1 ? '' : 's') + '.';
-      }
-      if (data.repairs && data.repairs.preferencesSkipped) {
-        msg += ' Preferences skipped (invalid shape).';
+         optional " K repairs." segment when K > 0.
+         B-070 AC1 — prefs-only backup: when the sidepanel routed through the
+         preferences-only short-circuit AND the commit returned zero items +
+         zero groups, surface the "Preferences applied." success copy. If the
+         validator rejected the preferences (preferencesSkipped), fall back to
+         the default empty-zero message rather than claiming prefs applied. */
+      if (prefsOnly
+        && (data.itemsImported || 0) === 0
+        && (data.groupsImported || 0) === 0
+        && !(data.repairs && data.repairs.preferencesSkipped)) {
+        msg = 'Imported 0 items, 0 groups. Preferences applied.';
+      } else {
+        const repairsK = _sumRepairs(data.repairs);
+        msg = 'Imported ' + data.itemsImported + ' item'
+          + (data.itemsImported === 1 ? '' : 's')
+          + ', ' + data.groupsImported + ' group'
+          + (data.groupsImported === 1 ? '' : 's') + '.';
+        if (repairsK > 0) {
+          msg += ' ' + repairsK + ' repair' + (repairsK === 1 ? '' : 's') + '.';
+        }
+        if (data.repairs && data.repairs.preferencesSkipped) {
+          msg += ' Preferences skipped (invalid shape).';
+        }
       }
     } else {
       /* B-044 AC13: "Imported N bookmarks into M groups. K skipped." */

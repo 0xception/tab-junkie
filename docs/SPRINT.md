@@ -35,21 +35,13 @@ Each UAT plan has PASS/FAIL/WARN/SKIP columns pre-laid for the user. Gate 3 sign
 
 ## Active Items
 
-### [B-069] Add C-8 + C-9 to R2 Correctness Checklist
-- **Tier**: Fast Track (XS) — **Wave 0, blocks B-052 R2**
-- **Status**: R1 (pre-approved — ACs comprehensive in BACKLOG.md)
-- **Assigned To**: [solution-architect] (CLAUDE.md owner for the checklist)
-- **Blockers**: None (but B-052 R2 waits for B-069 merge so C-8 + C-9 apply)
-- **Feature Context**: Codify Sprint 18 retro action items as permanent R2 quality gates. C-8 catches SW-context API infeasibility (the B-044 DOMParser case) pre-R3. C-9 forces empty-state enumeration in R2 output (the B-045 preferences-only edge case would have surfaced in R2 if C-9 existed).
-- **Handoff Notes**: Pure CLAUDE.md edit. Zero code / test / manifest surface. R4 runs [code-reviewer] as a smoke check (verify no other section drifted). [security-reviewer] is a no-op gate protector. Test suite stays 923/923.
-
 ### [B-070] Sprint 18 follow-on polish bundle
 - **Tier**: Fast Track (S) — Wave 1
-- **Status**: R1 (pre-approved — ACs comprehensive in BACKLOG.md)
+- **Status**: R3 (in progress)
 - **Assigned To**: [frontend-engineer]
-- **Blockers**: None
+- **Blockers**: None (B-069 merged `11a7d33` on `release/v2` — C-8 + C-9 active for all subsequent R2 passes)
 - **Feature Context**: Four small Sprint 18 follow-on items bundled: (1) preferences-only backup support, (2) `validateAndRepair` alias removal, (3) repair-summary plain-language rewrite, (4) JSON-path dialog heading scope. All in `background/import/` + `sidepanel/`.
-- **Handoff Notes**: Touches `sidepanel/sidepanel.js` (zero-guard logic + repair summary + dialog heading format switch) and `background/import/json-validator.js` (alias delete). One new e2e test for prefs-only commit flow. Target suite 923 → 924+. Frontend-engineer must confirm `shared/*` frozen files untouched per AC6.
+- **Handoff Notes**: R1 pre-approved. R2 skipped (Fast Track). R3 in flight on `feature/B-070-import-polish`. Touches `sidepanel/sidepanel.js` (zero-guard logic + repair summary + dialog heading format switch) and `background/import/json-validator.js` (alias delete). One new e2e test for prefs-only commit flow. Target suite 923 → 924+. Frontend-engineer must confirm `shared/*` frozen files untouched per AC6.
 
 ### [B-060] Import duplicate-handling with skip/allow override
 - **Tier**: Fast Track (S) — Wave 2
@@ -79,7 +71,13 @@ Each UAT plan has PASS/FAIL/WARN/SKIP columns pre-laid for the user. Gate 3 sign
 
 ## Completed This Sprint
 
-*(none yet — sprint just kicked off)*
+### [B-069] Add C-8 + C-9 to R2 Correctness Checklist — DONE (Wave 0)
+- **Tier**: Fast Track (XS)
+- **Merged**: `11a7d33` on `release/v2` (PR #18, 2026-04-19)
+- **Files Changed**: `CLAUDE.md` (+2 R2 Correctness Checklist rows C-8 SW-context feasibility + C-9 empty-state design), `CHANGELOG.md` (+5 lines [Unreleased] → Process breadcrumb)
+- **R4**: [code-reviewer] PASS (zero findings), [security-reviewer] no-op gate protector
+- **Test suite**: 923/923 unchanged (documentation edit). `./build.sh` clean.
+- **Known artifact**: pre-existing numbering gap at C-6 + C-7 (Sprint 17 retro's aspirational "C-7 allow-list direction check" never codified). Backfill item to be filed for future sprint.
 
 ---
 

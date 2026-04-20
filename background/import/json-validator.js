@@ -634,22 +634,6 @@ export function parseAndValidate(content /* , options */) {
   };
 }
 
-/* =========================================================================
- * Backward-compat named export
- * ========================================================================= */
-
-/**
- * Legacy symbol retained for the Wave 3 stub call path. Delegates to
- * `parseAndValidate`. Kept only so any stale imports don't crash; new
- * callers should use `parseAndValidate` directly.
- *
- * @param {string} content
- * @returns {ReturnType<typeof parseAndValidate>}
- */
-export function validateAndRepair(content) {
-  return parseAndValidate(content);
-}
-
 /* R3 note (§33.6 step 7): allow-list strip is implemented implicitly via
    `sanitizeItem` / `sanitizeGroup` in step 4 (normalize*). The allow-list
    iteration happens inside the shared sanitizers in `shared/export-schema.js`

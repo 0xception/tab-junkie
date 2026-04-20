@@ -327,3 +327,153 @@ test('B-045 roundtrip: B-043 export → B-045 import preserves titles/urls/group
   /* Cross-reference survives the re-mint: both items point at the one group. */
   assert.ok(items.every((it) => it.groupId === groups[0].id));
 });
+
+/* =========================================================================
+ * B-070 AC1 — preferences-only backup commits atomically
+ *
+ * A backup with `items: []` + `groups: []` + populated `preferences` (any
+ * non-default key) MUST commit successfully (Sprint 19 polish, resolves
+ * §33.20 MEDIUM). Pre-B-070 this hit the sidepanel zero-bookmark guard and
+ * aborted before the confirm dialog opened.
+ *
+ * B-070 R4 F-1: post-fix, the sidepanel routes this case through a dedicated
+ * prefs-only confirmation dialog (CLAUDE.md "Confirmation dialogs for
+ * destructive actions" — commit.js still atomically REPLACES items+groups
+ * with empty arrays, so the user must explicitly confirm). The UI dialog is
+ * covered by UAT + the "cancel preserves data" test below; this test pins
+ * the validator + commit half of the flow (once the user confirms).
+ * ========================================================================= */
+
+test('B-070 AC1 e2e: prefs-only backup commits; prefs applied atomically', async () => {
+  /* Seed storage with a pre-existing prefs block at the default theme so we
+     can verify the commit applies the new theme from the backup. The
+     replace-all semantics of commit.js (§33.7) mean items+groups become
+     empty post-commit — that matches the "Imported 0 items, 0 groups.
+     Preferences applied." success toast copy per AC1. */
+  seedPartitions({
+    meta: { schemaVersion: KNOWN_VERSION, createdAt: Date.now() },
+    prefs: {
+      theme: 'light',
+      displayMode: 'sidepanel',
+      newTabOverride: false,
+      autoCollapseSubGroups: false,
+    },
+  });
+  registerStorageHandlers(Promise.resolve());
+  const prefs = {
+    theme: 'dark',
+    displayMode: 'sidepanel',
+    newTabOverride: true,
+    autoCollapseSubGroups: true,
+  };
+  const content = backup([], [], prefs);
+
+  /* Preview returns zero counts — matches the sidepanel signal that would
+     trigger the B-070 AC1 short-circuit. */
+  const preview = await dispatch(getListener(), { format: 'json', content });
+  assert.equal(preview.ok, true);
+  assert.equal(preview.data.itemsImported, 0);
+  assert.equal(preview.data.groupsImported, 0);
+  assert.equal(preview.data.repairs.preferencesSkipped, false,
+    'valid prefs must not be flagged as skipped');
+
+  /* Commit succeeds — prefs apply atomically. */
+  const commit = await dispatch(getListener(), { format: 'json', content, commit: true });
+  assert.equal(commit.ok, true);
+  assert.equal(commit.data.itemsImported, 0);
+  assert.equal(commit.data.groupsImported, 0);
+  assert.equal(commit.data.repairs.preferencesSkipped, false);
+
+  const storedPrefs = __getRawStore('tj:prefs');
+  assert.equal(storedPrefs.theme, 'dark', 'new theme applied from backup');
+  assert.equal(storedPrefs.newTabOverride, true, 'newTabOverride applied');
+  assert.equal(storedPrefs.autoCollapseSubGroups, true, 'autoCollapseSubGroups applied');
+});
+
+/* =========================================================================
+ * B-070 R4 F-1 — prefs-only Cancel path preserves existing data
+ *
+ * The R4 [code-reviewer] caught a HIGH finding: before the F-1 fix, a
+ * prefs-only backup skipped the confirmation dialog and directly dispatched
+ * commit, silently wiping the user's existing bookmarks+groups via the
+ * atomic `writeTransaction` replace in commit.js (§33.7). Post-fix, the
+ * sidepanel opens a dedicated confirmation dialog; Cancel must NOT dispatch
+ * commit and existing items/groups/prefs must remain intact.
+ *
+ * This test pins the invariant by seeding real data and dispatching ONLY
+ * the preview (no `commit: true`) — that matches the sidepanel state when
+ * the user clicks Cancel. The preview round-trip must not mutate storage.
+ * ========================================================================= */
+
+test('B-070 R4 F-1: prefs-only preview without commit preserves existing data', async () => {
+  /* Seed bookmarks + groups + a prefs block the user would not want wiped. */
+  seedPartitions({
+    meta: { schemaVersion: KNOWN_VERSION, createdAt: Date.now() },
+    items: [{
+      id: 'keep-1', title: 'Keeper', url: 'https://keep.example/',
+      groupId: 'keep-g', sortOrder: 0, createdAt: 1, updatedAt: 1,
+    }],
+    groups: [{
+      id: 'keep-g', name: 'Keepers', color: 'blue', parentId: null,
+      sortOrder: 0, collapsed: false, createdAt: 1, updatedAt: 1,
+    }],
+    prefs: {
+      theme: 'light',
+      displayMode: 'sidepanel',
+      newTabOverride: false,
+      autoCollapseSubGroups: false,
+    },
+  });
+  registerStorageHandlers(Promise.resolve());
+
+  /* Prefs-only backup that WOULD wipe items+groups if committed. */
+  const content = backup([], [], {
+    theme: 'dark',
+    displayMode: 'sidepanel',
+    newTabOverride: true,
+    autoCollapseSubGroups: true,
+  });
+
+  /* Preview only — no commit. This matches the sidepanel state at the
+     instant the prefs-only confirm dialog is open and the user has NOT yet
+     clicked "Replace and apply preferences". */
+  const preview = await dispatch(getListener(), { format: 'json', content });
+  assert.equal(preview.ok, true);
+  assert.equal(preview.data.previewOnly, true);
+  assert.equal(preview.data.itemsImported, 0);
+  assert.equal(preview.data.groupsImported, 0);
+
+  /* Storage invariants — preview must not mutate any partition. */
+  const items = __getRawStore('tj:items');
+  const groups = __getRawStore('tj:groups');
+  const prefs = __getRawStore('tj:prefs');
+  assert.equal(items.length, 1, 'items untouched on cancel');
+  assert.equal(items[0].id, 'keep-1');
+  assert.equal(groups.length, 1, 'groups untouched on cancel');
+  assert.equal(groups[0].id, 'keep-g');
+  assert.equal(prefs.theme, 'light', 'prefs untouched on cancel');
+  assert.equal(prefs.newTabOverride, false);
+  assert.equal(prefs.autoCollapseSubGroups, false);
+});
+
+/* =========================================================================
+ * B-070 AC2 — `validateAndRepair` alias removed from production code
+ *
+ * The 1-line back-compat export in `background/import/json-validator.js` was
+ * slated for removal once callers converged on `parseAndValidate`. This
+ * grep-based regression guard confirms no production code path re-adds the
+ * alias. Comments and docs MAY still mention the name (historical context).
+ * ========================================================================= */
+
+test('B-070 AC2: validateAndRepair export removed from production code', async () => {
+  const fs = await import('node:fs');
+  const url = new URL('../background/import/json-validator.js', import.meta.url);
+  const src = fs.readFileSync(url, 'utf8');
+  /* The alias form (exactly one of these) must NOT appear: */
+  assert.ok(!/export\s+function\s+validateAndRepair\b/.test(src),
+    'named export function alias must be absent');
+  assert.ok(!/export\s+const\s+validateAndRepair\b/.test(src),
+    'const alias export must be absent');
+  assert.ok(!/export\s*\{[^}]*\bvalidateAndRepair\b[^}]*\}/.test(src),
+    're-export alias must be absent');
+});
