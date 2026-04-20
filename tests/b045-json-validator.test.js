@@ -443,7 +443,15 @@ test('B-045 AC10: valid preferences pass through', () => {
   };
   const content = baseBackup({ preferences: prefs });
   const res = parseAndValidate(content);
-  assert.deepEqual(res.preferences, prefs);
+  /* B-060 — post-validation, preferences are merged over DEFAULT_PREFERENCES
+     (§32.5.4 forward-compat). The validator fills defaults for any known key
+     missing from the backup, including the `importSkipDuplicates` default
+     added in Sprint 18 Wave 2. Assert the explicitly-set keys here; the new
+     default is covered by a dedicated B-060 test below. */
+  assert.equal(res.preferences.theme, 'dark');
+  assert.equal(res.preferences.displayMode, 'sidepanel');
+  assert.equal(res.preferences.newTabOverride, true);
+  assert.equal(res.preferences.autoCollapseSubGroups, false);
   assert.equal(res.repairs.preferencesSkipped, false);
 });
 

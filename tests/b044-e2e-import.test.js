@@ -126,6 +126,64 @@ test('B-044 e2e AC13: preview response carries skipped + duplicatesSkipped count
  * AC14 — performance ceiling
  * ========================================================================= */
 
+/* =========================================================================
+ * B-060 Wave 2 — "Import duplicates anyway" toggle (HTML path)
+ *
+ * The parser now accepts `options.skipDuplicates`. Default `true` preserves
+ * the B-044 AC11 contract (in-file URL duplicates skipped). When the dialog
+ * checkbox is ticked the sidepanel forwards `skipDuplicates: false` and the
+ * parser retains every record, while `duplicatesSkipped` still reports the
+ * "would have been skipped" count so the post-import toast surfaces the
+ * user's choice.
+ * ========================================================================= */
+
+test('B-060 HTML: default skipDuplicates=true drops in-file URL duplicates (legacy)', async () => {
+  seedPartitions({ meta: { schemaVersion: KNOWN_VERSION, createdAt: Date.now() } });
+  registerStorageHandlers(Promise.resolve());
+  const content = wrapDoc(
+    '  <DT><A HREF="https://same.example">First</A>\n'
+    + '  <DT><A HREF="https://same.example">Second</A>\n'
+    + '  <DT><A HREF="https://other.example">Other</A>\n',
+  );
+  /* No `options` → default-skip path. */
+  const commit = await dispatch(getListener(), { format: 'html', content, commit: true });
+  assert.equal(commit.ok, true);
+  assert.equal(commit.data.itemsImported, 2, 'duplicate URL dropped');
+  assert.equal(commit.data.duplicatesSkipped, 1);
+  const items = __getRawStore('tj:items');
+  assert.equal(items.length, 2);
+});
+
+test('B-060 HTML: skipDuplicates=false retains duplicates but reports the count', async () => {
+  seedPartitions({ meta: { schemaVersion: KNOWN_VERSION, createdAt: Date.now() } });
+  registerStorageHandlers(Promise.resolve());
+  const content = wrapDoc(
+    '  <DT><A HREF="https://same.example">First</A>\n'
+    + '  <DT><A HREF="https://same.example">Second</A>\n'
+    + '  <DT><A HREF="https://other.example">Other</A>\n',
+  );
+  const commit = await dispatch(getListener(), {
+    format: 'html',
+    content,
+    commit: true,
+    options: { skipDuplicates: false },
+  });
+  assert.equal(commit.ok, true);
+  assert.equal(commit.data.itemsImported, 3, 'duplicate kept alongside original');
+  /* `duplicatesSkipped` still reports the count so the toast can surface
+     "K duplicates included." The name is legacy — semantically it's the
+     number of URLs that repeated within the file. */
+  assert.equal(commit.data.duplicatesSkipped, 1);
+  const items = __getRawStore('tj:items');
+  assert.equal(items.length, 3);
+  const urls = items.map((it) => it.url).sort();
+  assert.deepEqual(urls, [
+    'https://other.example/',
+    'https://same.example/',
+    'https://same.example/',
+  ]);
+});
+
 test('B-044 AC14: 1000-item / 50-folder preview + commit under 2000ms', async () => {
   seedPartitions({ meta: { schemaVersion: KNOWN_VERSION, createdAt: Date.now() } });
   registerStorageHandlers(Promise.resolve());

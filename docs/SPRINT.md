@@ -35,21 +35,13 @@ Each UAT plan has PASS/FAIL/WARN/SKIP columns pre-laid for the user. Gate 3 sign
 
 ## Active Items
 
-### [B-070] Sprint 18 follow-on polish bundle
-- **Tier**: Fast Track (S) — Wave 1
-- **Status**: R3 (in progress)
-- **Assigned To**: [frontend-engineer]
-- **Blockers**: None (B-069 merged `11a7d33` on `release/v2` — C-8 + C-9 active for all subsequent R2 passes)
-- **Feature Context**: Four small Sprint 18 follow-on items bundled: (1) preferences-only backup support, (2) `validateAndRepair` alias removal, (3) repair-summary plain-language rewrite, (4) JSON-path dialog heading scope. All in `background/import/` + `sidepanel/`.
-- **Handoff Notes**: R1 pre-approved. R2 skipped (Fast Track). R3 in flight on `feature/B-070-import-polish`. Touches `sidepanel/sidepanel.js` (zero-guard logic + repair summary + dialog heading format switch) and `background/import/json-validator.js` (alias delete). One new e2e test for prefs-only commit flow. Target suite 923 → 924+. Frontend-engineer must confirm `shared/*` frozen files untouched per AC6.
-
 ### [B-060] Import duplicate-handling with skip/allow override
 - **Tier**: Fast Track (S) — Wave 2
-- **Status**: R1 (pre-approved — ACs comprehensive in BACKLOG.md)
+- **Status**: R3 (in progress)
 - **Assigned To**: [frontend-engineer]
-- **Blockers**: None (B-044 + B-045 shipped; allow-list contract stable)
+- **Blockers**: None (B-044 + B-045 + B-070 all merged; allow-list contract stable; shared preview dialog primitive stable)
 - **Feature Context**: Import preview dialog already surfaces "new vs duplicate" counts (shipped in B-044/B-045). B-060 adds the user-toggleable "Import duplicates anyway" checkbox, which — when checked — creates additional items even when URLs match existing. Default: skip. Preference persists in `tj:prefs` if user explicitly changes it.
-- **Handoff Notes**: Extends `_buildImportPreviewBody` with a checkbox + plumbs the option through `MSG_IMPORT_COLLECTION.options.skipDuplicates` (already a defined payload field — see `shared/messages.js`). Storage side: small `importSkipDuplicates` preference addition if AC specifies persistence. Covers both HTML and JSON import paths. Tests: update `b044-e2e-import.test.js` + `b045-e2e-import.test.js` to cover the allow-duplicates branch.
+- **Handoff Notes**: R1 pre-approved. R2 skipped (Fast Track). R3 in flight on `feature/B-060-import-dup-handling`. Extends `_buildImportPreviewBody` with a checkbox + plumbs the option through `MSG_IMPORT_COLLECTION.options.skipDuplicates` (already a defined payload field — see `shared/messages.js`). Storage side: small `importSkipDuplicates` preference addition if AC specifies persistence. Covers both HTML and JSON import paths. Tests: update `b044-e2e-import.test.js` + `b045-e2e-import.test.js` to cover the allow-duplicates branch.
 
 ### [B-046] Global keyboard shortcuts (popup + standalone)
 - **Tier**: Fast Track (S) — Wave 3
@@ -70,6 +62,14 @@ Each UAT plan has PASS/FAIL/WARN/SKIP columns pre-laid for the user. Gate 3 sign
 ---
 
 ## Completed This Sprint
+
+### [B-070] Sprint 18 follow-on polish bundle — DONE (Wave 1)
+- **Tier**: Fast Track (S)
+- **Merged**: `5a3e1e9` on `release/v2` (PR #19, 2026-04-19)
+- **Files Changed**: `sidepanel/sidepanel.js` (new `_hasPopulatedPreferences` helper + `_buildPrefsOnlyImportBody` helper + `prefsOnly` flag on `_openImportPreviewDialog` + plain-language repair-summary labels + JSON-path dialog heading ternary), `background/import/json-validator.js` (removed `validateAndRepair` alias), `tests/b045-e2e-import.test.js` (+3 tests)
+- **R4**: [code-reviewer] flagged HIGH F-1 (prefs-only silent-wipe UX) — **FIXED inline** with dedicated confirmation dialog. [security-reviewer] PASS zero findings. LOW/MEDIUM deferrables filed for future triage.
+- **Test suite**: 923 → 926 green (+3). `./build.sh`: clean (188 K zip).
+- **Scope**: zero manifest / messages / errors / export-schema / html-parser / commit drift.
 
 ### [B-069] Add C-8 + C-9 to R2 Correctness Checklist — DONE (Wave 0)
 - **Tier**: Fast Track (XS)

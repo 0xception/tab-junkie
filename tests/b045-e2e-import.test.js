@@ -241,6 +241,70 @@ test('B-045 AC16 e2e: repair counts on commit envelope match preview', async () 
 });
 
 /* =========================================================================
+ * B-060 Wave 2 — "Import duplicates anyway" toggle (JSON path)
+ *
+ * `parseAndValidate` honours `options.skipDuplicates`. Default `true`
+ * preserves the B-045 v1 contract (repeat URLs dropped during the dedup
+ * pass). When the preview dialog checkbox is ticked the sidepanel forwards
+ * `skipDuplicates: false` and the validator keeps every record, while
+ * `duplicatesSkipped` still reports the count for the post-import toast.
+ * ========================================================================= */
+
+test('B-060 JSON: default skipDuplicates=true drops in-file URL duplicates (legacy)', async () => {
+  seedPartitions({ meta: { schemaVersion: KNOWN_VERSION, createdAt: Date.now() } });
+  registerStorageHandlers(Promise.resolve());
+  const content = backup(
+    [
+      mkItem({ id: 'i1', url: 'https://same.example/' }),
+      mkItem({ id: 'i2', url: 'https://same.example/' }),
+      mkItem({ id: 'i3', url: 'https://other.example/' }),
+    ],
+    [],
+  );
+  /* No `options` → default-skip path. */
+  const commit = await dispatch(getListener(), { format: 'json', content, commit: true });
+  assert.equal(commit.ok, true);
+  assert.equal(commit.data.itemsImported, 2);
+  assert.equal(commit.data.duplicatesSkipped, 1);
+  const items = __getRawStore('tj:items');
+  assert.equal(items.length, 2);
+});
+
+test('B-060 JSON: skipDuplicates=false retains duplicates but reports the count', async () => {
+  seedPartitions({ meta: { schemaVersion: KNOWN_VERSION, createdAt: Date.now() } });
+  registerStorageHandlers(Promise.resolve());
+  const content = backup(
+    [
+      mkItem({ id: 'i1', url: 'https://same.example/' }),
+      mkItem({ id: 'i2', url: 'https://same.example/' }),
+      mkItem({ id: 'i3', url: 'https://other.example/' }),
+    ],
+    [],
+  );
+  const commit = await dispatch(getListener(), {
+    format: 'json',
+    content,
+    commit: true,
+    options: { skipDuplicates: false },
+  });
+  assert.equal(commit.ok, true);
+  assert.equal(commit.data.itemsImported, 3);
+  assert.equal(commit.data.duplicatesSkipped, 1);
+  /* Every ULID is re-minted during commit so verify by URL. */
+  const items = __getRawStore('tj:items');
+  assert.equal(items.length, 3);
+  const urls = items.map((it) => it.url).sort();
+  assert.deepEqual(urls, [
+    'https://other.example/',
+    'https://same.example/',
+    'https://same.example/',
+  ]);
+  /* ULIDs must still be unique post-mint (§33.8 assertion). */
+  const ids = new Set(items.map((it) => it.id));
+  assert.equal(ids.size, items.length);
+});
+
+/* =========================================================================
  * AC13 — performance ceiling (1000 items / 100 groups under 2s)
  * ========================================================================= */
 

@@ -27,15 +27,21 @@ import {
  *
  * @param {'html'|'json'} format
  * @param {string} content
+ * @param {Object} [options]
+ * @param {boolean} [options.skipDuplicates=true]
+ *   B-060 — forwarded to both parsers. Defaults to `true` (skip in-file URL
+ *   duplicates, preserving the B-044 / B-045 v1 contract); the sidepanel
+ *   preview dialog flips to `false` when the user ticks the "Import duplicates
+ *   anyway" checkbox.
  * @returns {{ items: Object[], groups: Object[], preferences?: Object,
  *             skipped: number, duplicateUrls: number,
  *             repairs?: Object }}
  */
-function parseByFormat(format, content) {
+function parseByFormat(format, content, options) {
   if (format === 'html') {
     /* parseNetscape is pure. It throws StorageError(ERR_INVALID_FORMAT) on
        doctype / root failure, which surfaces verbatim. */
-    const parsed = parseNetscape(content);
+    const parsed = parseNetscape(content, options);
     return {
       items: parsed.items,
       groups: parsed.groups,
@@ -48,7 +54,7 @@ function parseByFormat(format, content) {
      StorageError codes (ERR_INVALID_FORMAT, ERR_MALFORMED_ROOT,
      ERR_UNKNOWN_SCHEMA_VERSION, ERR_UNREPAIRABLE) per §33.11; those
      surface verbatim through the handler envelope. */
-  const parsed = parseJson(content);
+  const parsed = parseJson(content, options);
   return {
     items: parsed.items,
     groups: parsed.groups,
@@ -71,7 +77,7 @@ function parseByFormat(format, content) {
  * @param {Object} [args.options]
  * @returns {Promise<Object>} ImportCollectionResponse (preview or commit variant).
  */
-export async function importCollection({ format, content, commit, /* options */ }) {
+export async function importCollection({ format, content, commit, options }) {
   if (typeof content !== 'string' || content.length === 0) {
     throw new StorageError(ERR_EMPTY_FILE, 'File is empty');
   }
@@ -80,8 +86,10 @@ export async function importCollection({ format, content, commit, /* options */ 
   }
 
   /* Always parse. Preview and commit are two round-trips that each re-parse
-     the same content — see §33.4 "parse twice" decision. */
-  const parsed = parseByFormat(format, content);
+     the same content — see §33.4 "parse twice" decision.
+     B-060 — forward the payload options (skipDuplicates) to the parser so
+     preview counts and commit results agree when the user opts in. */
+  const parsed = parseByFormat(format, content, options);
 
   if (!commit) {
     /* Preview: no storage mutation. Return counts so the sidepanel can render

@@ -51,6 +51,12 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   displayMode: 'sidepanel',
   newTabOverride: false,
   autoCollapseSubGroups: false,
+  /* B-060 — persist the user's last "Import duplicates anyway" choice so
+     subsequent import preview dialogs default to their preferred behavior.
+     `true` = skip in-file URL duplicates (original B-044/B-045 v1 default).
+     `false` = keep every duplicate (user opted in via the checkbox on a
+     previous import). */
+  importSkipDuplicates: true,
 });
 
 /** Default empty shape for a given partition. */
@@ -96,10 +102,18 @@ function isGroup(v) {
 }
 
 function isPreferences(v) {
-  return v && typeof v === 'object'
-    && (v.theme === 'light' || v.theme === 'dark' || v.theme === 'system')
-    && (v.displayMode === 'sidepanel' || v.displayMode === 'window')
-    && isBool(v.newTabOverride) && isBool(v.autoCollapseSubGroups);
+  if (!v || typeof v !== 'object') return false;
+  if (!(v.theme === 'light' || v.theme === 'dark' || v.theme === 'system')) return false;
+  if (!(v.displayMode === 'sidepanel' || v.displayMode === 'window')) return false;
+  if (!isBool(v.newTabOverride) || !isBool(v.autoCollapseSubGroups)) return false;
+  /* B-060 — `importSkipDuplicates` was added in Sprint 18 Wave 2. It is
+     OPTIONAL on the shape validator: pre-B-060 stored prefs lack the key,
+     and `getPreferences()` merges DEFAULT_PREFERENCES over stored so the
+     runtime value is always populated. If the key IS present on disk (new
+     writes or backup restores), its type must be boolean — protects against
+     adversarial values landing via MSG_SET_PREFERENCES / import restore. */
+  if ('importSkipDuplicates' in v && !isBool(v.importSkipDuplicates)) return false;
+  return true;
 }
 
 /**

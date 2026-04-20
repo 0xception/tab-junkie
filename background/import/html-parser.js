@@ -315,6 +315,14 @@ function deterministicGroupColor(displayName) {
  * Parse a Netscape bookmarks file string into the normalized import snapshot.
  *
  * @param {string} content — raw UTF-8 file text
+ * @param {Object} [options]
+ * @param {boolean} [options.skipDuplicates=true]
+ *   B-060 — when `true` (default) the parser drops subsequent records whose
+ *   normalized URL was already seen within this file; the drop count surfaces
+ *   as `duplicateUrls`. When `false`, every record is kept regardless of
+ *   duplicate URLs (per user opt-in in the import preview dialog).
+ *   `duplicateUrls` still reports the "would have been skipped" count so the
+ *   post-import toast can say "K duplicates included."
  * @returns {{
  *   items: Array<{ id: string, title: string, url: string, groupId: string|null,
  *                  sortOrder: number, createdAt: number, updatedAt: number }>,
@@ -325,7 +333,10 @@ function deterministicGroupColor(displayName) {
  * }}
  * @throws {StorageError} ERR_INVALID_FORMAT on doctype / root `<DL>` missing.
  */
-export function parseNetscape(content) {
+export function parseNetscape(content, options) {
+  /* B-060 — default skip-duplicates matches the B-044 v1 contract. The
+     sidepanel dialog checkbox flips this when the user opts in. */
+  const skipDuplicates = !(options && options.skipDuplicates === false);
   if (typeof content !== 'string' || content.length === 0) {
     throw new StorageError(ERR_INVALID_FORMAT, 'Not a Netscape bookmarks file');
   }
@@ -415,12 +426,17 @@ export function parseNetscape(content) {
         // AC10 (d) — truncate, do NOT skip on oversize
         if (title.length > MAX_TITLE) title = title.slice(0, MAX_TITLE);
 
-        // AC11: duplicate-URL skip default
+        /* AC11 + B-060: duplicate-URL handling. `duplicateUrls` always counts
+           repeat occurrences so the post-import toast can report them; the
+           `skipDuplicates` flag only controls whether the record is kept.
+           B-060 AC: default skip (legacy behavior); user opt-in keeps the
+           duplicate in the final item list. */
         if (seenUrls.has(normalizedUrl)) {
           duplicateUrls += 1;
-          continue;
+          if (skipDuplicates) continue;
+        } else {
+          seenUrls.add(normalizedUrl);
         }
-        seenUrls.add(normalizedUrl);
 
         const createdAt = attrToEpochMs(a.attrs.get('ADD_DATE'));
         const updatedAt = attrToEpochMs(a.attrs.get('LAST_MODIFIED'));

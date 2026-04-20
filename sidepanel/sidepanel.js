@@ -2,6 +2,7 @@ import {
   MSG_LIST_ITEMS,
   MSG_LIST_GROUPS,
   MSG_GET_PREFERENCES,
+  MSG_SET_PREFERENCES,
   MSG_CREATE_GROUP,
   MSG_UPDATE_GROUP,
   MSG_DELETE_GROUP,
@@ -1633,6 +1634,13 @@ function _hasPopulatedPreferences(content) {
  * Build the import-preview dialog body as structured DOM nodes — never
  * innerHTML. "REPLACE" is wrapped in a strong+warning span per AC4.
  *
+ * B-060 — when `includeDupToggle === true`, appends an "Import duplicates
+ * anyway" checkbox with a helper-text description. The caller reads
+ * `_pendingImportDupCheckboxEl.checked` when the user confirms; element id
+ * `import-dup-checkbox` is unique per dialog open (stale handle resets on
+ * next `_buildImportPreviewBody` call). The checkbox is omitted on the
+ * prefs-only dialog variant (nothing to dedupe in a zero-item backup).
+ *
  * @param {{ itemsImported: number, groupsImported: number,
  *           duplicatesSkipped?: number, skipped?: number,
  *           repairs?: Object }} counts
@@ -1641,10 +1649,22 @@ function _hasPopulatedPreferences(content) {
  *   'json' uses the "items"/"groups" wording to match AC4's
  *   "... N items in M groups from this backup." copy. 'html' retains the
  *   B-044 wording ("bookmarks ... folders").
+ * @param {Object} [opts]
+ * @param {boolean} [opts.includeDupToggle=false]
+ *   B-060 — render the "Import duplicates anyway" checkbox row.
+ * @param {boolean} [opts.dupToggleDefault=true]
+ *   B-060 — default state for the checkbox. `true` = checkbox UNchecked (skip,
+ *   the system default). `false` = checkbox CHECKED (last user choice was
+ *   "import duplicates anyway"). Read from preferences.importSkipDuplicates.
  */
-function _buildImportPreviewBody(counts, filename, format) {
+function _buildImportPreviewBody(counts, filename, format, opts) {
   const { itemsImported, groupsImported, duplicatesSkipped = 0, skipped = 0, repairs } = counts;
   const isJson = format === 'json';
+  const includeDupToggle = !!(opts && opts.includeDupToggle);
+  /* `dupToggleDefault` mirrors the preference: `true` means "skip duplicates"
+     which maps to an UNCHECKED checkbox; `false` means "import duplicates
+     anyway" → CHECKED. */
+  const dupSkipDefault = !(opts && opts.dupToggleDefault === false);
   const frag = document.createDocumentFragment();
   const line1 = document.createElement('span');
   const itemNoun = isJson
@@ -1677,7 +1697,7 @@ function _buildImportPreviewBody(counts, filename, format) {
     dup.className = 'import-extra-line';
     dup.textContent = ' ' + duplicatesSkipped + ' item'
       + (duplicatesSkipped === 1 ? '' : 's')
-      + ' have duplicate URLs — duplicates will be skipped.';
+      + ' have duplicate URLs.';
     frag.appendChild(dup);
   }
   /* B-045 — structured repair summary (separate span, never innerHTML). The
@@ -1713,6 +1733,39 @@ function _buildImportPreviewBody(counts, filename, format) {
       rep.textContent = ' Repairs: ' + parts.join(', ') + '.';
       frag.appendChild(rep);
     }
+  }
+  /* B-060 — "Import duplicates anyway" checkbox row. Structured DOM only,
+     never innerHTML. The checkbox is tabbable between the REPLACE warning
+     copy and the Cancel / Replace buttons (confirm-dialog action order).
+     aria-describedby links the checkbox label to its helper text so screen
+     readers announce the description alongside the checkbox label. */
+  if (includeDupToggle) {
+    const row = document.createElement('span');
+    row.className = 'import-extra-line import-dup-toggle';
+    const label = document.createElement('label');
+    label.className = 'import-dup-toggle__label';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.id = 'import-dup-checkbox';
+    checkbox.className = 'import-dup-toggle__input';
+    /* Default state: UNCHECKED when the user's stored preference is
+       "skip duplicates" (the system default); CHECKED when the user
+       previously toggled on "Import duplicates anyway". */
+    checkbox.checked = !dupSkipDefault;
+    checkbox.setAttribute('aria-describedby', 'import-dup-checkbox-help');
+    label.appendChild(checkbox);
+    const labelText = document.createElement('span');
+    labelText.className = 'import-dup-toggle__label-text';
+    labelText.textContent = ' Import duplicates anyway';
+    label.appendChild(labelText);
+    row.appendChild(label);
+    const help = document.createElement('span');
+    help.id = 'import-dup-checkbox-help';
+    help.className = 'import-dup-toggle__help';
+    help.textContent = 'By default, items with URLs that already exist in'
+      + ' this file are skipped. Check this to import them anyway.';
+    row.appendChild(help);
+    frag.appendChild(row);
   }
   return frag;
 }
@@ -1753,9 +1806,14 @@ function _buildPrefsOnlyImportBody(filename) {
  * B-070 R4 F-1: `prefsOnly: true` opens a dedicated prefs-only variant with
  * its own heading/body/button copy. The dialog is still the same primitive;
  * the opt-in flag just swaps the three copy slots.
+ *
+ * B-060: `skipDuplicatesDefault` controls the "Import duplicates anyway"
+ * checkbox initial state (read from preferences.importSkipDuplicates by the
+ * caller). The checkbox only renders on the bookmark-data variant, never on
+ * the prefs-only variant (no items to dedupe in a zero-item backup).
  */
 function _openImportPreviewDialog(
-  { counts, filename, onConfirm, triggerEl, format, prefsOnly },
+  { counts, filename, onConfirm, triggerEl, format, prefsOnly, skipDuplicatesDefault },
 ) {
   _pendingConfirmCallback = onConfirm;
   _dialogTriggerEl = triggerEl || null;
@@ -1776,7 +1834,11 @@ function _openImportPreviewDialog(
       : 'Replace all bookmarks?';
     /* Clear prior textContent before appending structured nodes. */
     confirmBodyEl.replaceChildren();
-    confirmBodyEl.appendChild(_buildImportPreviewBody(counts, filename, format));
+    confirmBodyEl.appendChild(_buildImportPreviewBody(counts, filename, format, {
+      /* B-060 — show the dup-toggle on the bookmark-data variants. */
+      includeDupToggle: true,
+      dupToggleDefault: skipDuplicatesDefault !== false,
+    }));
     confirmDeleteBtnEl.textContent = format === 'json' ? 'Replace and import' : 'Replace all';
   }
   confirmDeleteBtnEl.dataset.variant = 'destructive';
@@ -1877,11 +1939,32 @@ async function _handleImportFile(file, triggerEl, format) {
       return;
     }
 
+    /* B-060 — read the user's stored duplicate-handling default BEFORE the
+       preview round-trip. Best-effort: if MSG_GET_PREFERENCES fails, fall
+       back to the system default (skip duplicates = true) so the import
+       flow never blocks on a preferences read.
+       Read fresh each open so another window changing the preference
+       reflects on this dialog without cross-window broadcast plumbing. */
+    let importSkipDuplicatesPref = true;
+    try {
+      const prefs = await sendMessage(MSG_GET_PREFERENCES);
+      if (prefs && typeof prefs.importSkipDuplicates === 'boolean') {
+        importSkipDuplicatesPref = prefs.importSkipDuplicates;
+      }
+    } catch {
+      /* Fall through with the `true` default — non-blocking. */
+    }
+
+    /* B-060 — forward the user's stored preference to the preview round-trip
+       so the preview count matches what a commit with the same preference
+       would produce. The dialog checkbox can still override the commit
+       round-trip (preview numbers are advisory, not load-bearing). */
     let previewData;
     try {
       previewData = await sendMessage(MSG_IMPORT_COLLECTION, {
         format: fmt,
         content,
+        options: { skipDuplicates: importSkipDuplicatesPref },
       });
     } catch (err) {
       const code = err && err.code ? String(err.code) : 'ERR_UNKNOWN';
@@ -1945,20 +2028,34 @@ async function _handleImportFile(file, triggerEl, format) {
     const capturedContent = content;
     const capturedFilename = file.name;
     const capturedFormat = fmt;
+    /* B-060 — snapshot the pref at dialog-open time so the "did the user
+       change the setting?" diff is stable even if preferences mutate between
+       the preview read and the commit click. */
+    const capturedPrefDefault = importSkipDuplicatesPref;
     _openImportPreviewDialog({
       counts: previewData,
       filename: file.name,
       triggerEl,
       format: fmt,
+      skipDuplicatesDefault: importSkipDuplicatesPref,
       onConfirm: () => {
         /* Re-entry guard: the dialog's click handler already clears
            _pendingConfirmCallback on first fire, so this is defense-in-depth
            against future refactors. */
         if (_importInFlight) return;
+        /* B-060 — read the checkbox at confirm time. The element may be
+           missing (defensive) in which case we fall back to the pref default.
+           `checked === true` means "import duplicates anyway" → skip=false. */
+        const cb = document.getElementById('import-dup-checkbox');
+        const userSkipDuplicates = cb instanceof HTMLInputElement
+          ? !cb.checked
+          : capturedPrefDefault;
         void _commitImport({
           content: capturedContent,
           filename: capturedFilename,
           format: capturedFormat,
+          skipDuplicates: userSkipDuplicates,
+          pendingPrefDefault: capturedPrefDefault,
         });
       },
     });
@@ -1973,12 +2070,25 @@ async function _handleImportFile(file, triggerEl, format) {
  * Round-trip 2: dispatch the actual commit. Parses the same content a second
  * time in the SW (§33.4 "parse twice" decision — cold-start-safe, no session
  * stash). Shows the success or failure toast.
- * @param {{content: string, filename: string, format?: 'html'|'json'}} pending
+ *
+ * B-060: `skipDuplicates` (derived from the dialog checkbox state) gates the
+ * in-file URL dedup pass on the SW parser. The client also persists the last
+ * explicit choice to `tj:prefs.importSkipDuplicates` iff it differs from the
+ * prior preference default (`pendingPrefDefault`). On the prefs-only variant
+ * we never touch the preference — there's nothing to dedupe.
+ *
+ * @param {{content: string, filename: string, format?: 'html'|'json',
+ *          prefsOnly?: boolean, skipDuplicates?: boolean,
+ *          pendingPrefDefault?: boolean}} pending
  */
 async function _commitImport(pending) {
   if (!pending || typeof pending.content !== 'string') return;
   const fmt = pending.format === 'json' ? 'json' : 'html';
   const prefsOnly = pending.prefsOnly === true;
+  /* B-060 — `skipDuplicates` is only a user-facing knob on bookmark-data
+     imports. Default true (= skip) when undefined so the v1 contract still
+     holds for any caller that doesn't opt in. */
+  const skipDuplicates = pending.skipDuplicates !== false;
   /* Commit can take ~2s on a 1000-bookmark file. Block re-entry + visibly
      disable the trigger so users don't think the click was lost. */
   _setImportInFlight(true);
@@ -1987,6 +2097,9 @@ async function _commitImport(pending) {
       format: fmt,
       content: pending.content,
       commit: true,
+      /* B-060 — forward the user's duplicate-handling choice. Prefs-only
+         imports never carry this (there are no records to dedupe). */
+      ...(prefsOnly ? {} : { options: { skipDuplicates } }),
     });
     let msg;
     if (fmt === 'json') {
@@ -2011,20 +2124,52 @@ async function _commitImport(pending) {
         if (repairsK > 0) {
           msg += ' ' + repairsK + ' repair' + (repairsK === 1 ? '' : 's') + '.';
         }
+        /* B-060 — surface the user's choice in the post-import toast. */
+        const dupCount = data.duplicatesSkipped || 0;
+        if (dupCount > 0) {
+          msg += skipDuplicates
+            ? ' ' + dupCount + ' duplicate' + (dupCount === 1 ? '' : 's') + ' skipped.'
+            : ' ' + dupCount + ' duplicate' + (dupCount === 1 ? '' : 's') + ' included.';
+        }
         if (data.repairs && data.repairs.preferencesSkipped) {
           msg += ' Preferences skipped (invalid shape).';
         }
       }
     } else {
-      /* B-044 AC13: "Imported N bookmarks into M groups. K skipped." */
+      /* B-044 AC13 + B-060: "Imported N bookmarks into M groups." plus a
+         tail that surfaces the user's duplicate-handling choice. `skipped`
+         still counts malformed entries; `duplicatesSkipped` counts repeated
+         URLs (which are either dropped or kept depending on the checkbox). */
       msg = 'Imported ' + data.itemsImported + ' bookmark'
         + (data.itemsImported === 1 ? '' : 's')
         + ' into ' + data.groupsImported + ' group'
         + (data.groupsImported === 1 ? '' : 's') + '.';
-      const totalSkipped = (data.skipped || 0) + (data.duplicatesSkipped || 0);
-      if (totalSkipped > 0) msg += ' ' + totalSkipped + ' skipped.';
+      const malformed = data.skipped || 0;
+      if (malformed > 0) {
+        msg += ' ' + malformed + ' malformed entr'
+          + (malformed === 1 ? 'y' : 'ies') + ' skipped.';
+      }
+      const dupCount = data.duplicatesSkipped || 0;
+      if (dupCount > 0) {
+        msg += skipDuplicates
+          ? ' ' + dupCount + ' duplicate' + (dupCount === 1 ? '' : 's') + ' skipped.'
+          : ' ' + dupCount + ' duplicate' + (dupCount === 1 ? '' : 's') + ' included.';
+      }
     }
     showToast(msg);
+    /* B-060 — persist the user's choice when it differs from the stored
+     default. Best-effort: a setPreferences failure must NEVER block the
+     post-import toast or invalidate the completed import. */
+    if (!prefsOnly && typeof pending.pendingPrefDefault === 'boolean'
+      && pending.pendingPrefDefault !== skipDuplicates) {
+      sendMessage(MSG_SET_PREFERENCES, {
+        patch: { importSkipDuplicates: skipDuplicates },
+      }).catch((err) => {
+        /* AC13 privacy: log code only — never titles/URLs. */
+        const code = err && err.code ? String(err.code) : 'ERR_UNKNOWN';
+        console.warn('import preference persist failed:', code);
+      });
+    }
   } catch (err) {
     const code = err && err.code ? String(err.code) : 'ERR_UNKNOWN';
     console.warn('import commit failed:', code);
