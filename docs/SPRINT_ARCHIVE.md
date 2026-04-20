@@ -674,3 +674,96 @@ None during this sprint. All HIGHs were R4-reviewer-discovered. `docs/UAT_B-042.
 **To Improve:** Deny-list runtime stripping is a recurring smell — §32 specified allow-list semantics, R3 built deny-list, R4 caught it as MEDIUM (should have been HIGH). Two-read race in export handler accepted as benign (D-3) — future hardening opportunity. B-042/B-043 tests partially shim the dispatcher; next tech-debt sweep could push handler-contract tests further toward real integration.
 
 **Action Items:** (1) B-066 + B-067 filed. (2) R4 enforcement: deny-list-implements-allow-list is HIGH, not MEDIUM. (3) Add R2 Correctness Checklist C-7: "If the design prescribes an allow-list or deny-list on a data-flow boundary, R4 reviewers must verify R3 implemented the specified direction."
+
+---
+
+## Sprint 18 — Imports Round-Trip + A11y + Docs Restructure (2026-04-19)
+
+**Theme:** Complete the data-portability round-trip (imports pair with Sprint 17's exports), finish the a11y sweep from B-064, harden the export sanitizers before import ships, and restructure monolith design docs into per-chapter / per-sprint slices to cut agent-round context load.
+**Release:** v1.13.0 · Commit `cb019ba` on `release/v2` (tag `v1.13.0` staged on release/v2; GitHub Release publication skipped per product-owner instruction)
+**Tests:** 806 → 923 (+117 across all 5 items)
+**Docs structure:** `docs/SOLUTION_DESIGN.md` split into a ~4 KB chapter index + 38 per-chapter slices under `docs/design/NN-*.md` (B-068 Wave 0). §33 new chapter authored for B-044 + B-045 import design (R2 + R6 close for both waves).
+
+### Completed Items
+
+| ID | Title | Tier | Wave | UAT | New Tests |
+|----|-------|------|------|-----|-----------|
+| B-068 | Split SOLUTION_DESIGN + SPRINT_FINDINGS into per-chapter / per-sprint files | Fast Track (S) | 0 | N/A (docs) | — (content-drift AC7: byte-identical) |
+| B-067 | Flip export sanitizers to §32.5 allow-list | Fast Track (S) | 1 | Regression suite PASS | +1 B-067 AC4 runtime-field coverage (inside b043-json-export.test.js) |
+| B-066 | Remaining `--text-tertiary` a11y sweep (drag handle + 4 empty states) | Fast Track (S) | 2 | Regression suite PASS | — (CSS-only) |
+| B-044 | Import HTML (Netscape bookmarks) with preview + atomic replace | Full (M) | 3 | `docs/UAT_B-044.md` 29-case plan (DEFERRED) | 50 B-044 tests across b044-html-parser / b044-import-dispatch / b044-commit / b044-e2e-import |
+| B-045 | Import JSON backup with validation + auto-repair | Full (M) | 4 | `docs/UAT_B-045.md` 30-case plan (DEFERRED) | 64 B-045 tests across b045-json-validator / b045-import-dispatch / b045-e2e-import |
+
+### Files Changed
+
+- **B-068 docs restructure:**
+  - `docs/SOLUTION_DESIGN.md` (485 KB → ~4 KB chapter index)
+  - `docs/SPRINT_FINDINGS.md` (185 KB → ~1 KB sprint index)
+  - 38 new `docs/design/NN-*.md` chapter slices (§1–§32 + §10.5–§10.10)
+  - 8 new `docs/findings/sprint-NN.md` slices (Sprints 9, 10, 12–17)
+  - `CLAUDE.md` (Key Documents table + inline R2/R6 + R4-findings directives redirected to slices)
+  - `.claude/agents/*.md` (6 files, ~26 edits to redirect read/write directives)
+- **Import module (B-044 + B-045):**
+  - `background/import/index.js` (new dispatcher)
+  - `background/import/html-parser.js` (new, hand-rolled Netscape tokenizer — DOMParser unavailable in MV3 SW context)
+  - `background/import/commit.js` (new, two-round writeTransaction — primary items/groups/prefs + secondary drift/floating reset; `storage.session.TabClaims` wiped)
+  - `background/import/json-validator.js` (B-044 stub → B-045 full 545-line `parseAndValidate` with schemaVersion gate + 4 auto-repair routines + ULID re-mint)
+- **Shared infrastructure:**
+  - `shared/messages.js` — `MSG_IMPORT_COLLECTION` + `ImportCollectionRequest/Response` + `RepairReport` typedefs (two-round preview/commit protocol)
+  - `shared/errors.js` — 6 new import error codes (`ERR_INVALID_FORMAT`, `ERR_MALFORMED_ROOT`, `ERR_UNKNOWN_SCHEMA_VERSION`, `ERR_UNREPAIRABLE`, `ERR_EMPTY_FILE`, `ERR_USER_CANCELLED`)
+  - `shared/export-schema.js` — extended (existed from Sprint 17) as single source of truth for `ITEM_ALLOWED_FIELDS` / `ITEM_ALLOWED_OPTIONAL_FIELDS` / `GROUP_ALLOWED_FIELDS` / `sanitizeItem` / `sanitizeGroup`
+  - `background/messages/storage-handlers.js` — `MSG_IMPORT_COLLECTION` handler with payload validation + 10 MiB SW-side content cap (defense-in-depth vs 5 MiB UI cap)
+- **B-067 allow-list flip:** `background/export/json-export.js` (deny-list → allow-list; `ITEM_RUNTIME_FIELDS` / `GROUP_RUNTIME_FIELDS` constants deleted); `tests/b043-json-export.test.js` (`sec-S-1` + B-043 `AC4` flipped to EXCLUSION; new B-067 AC4 test)
+- **B-066 a11y fix:** `sidepanel/sidepanel.css` (5 × `var(--text-tertiary)` → `var(--text-secondary)` at `.group-drag-handle`, `#filter-empty-state`, `.group-items-empty`, `.context-menu-label`, `.open-tabs-empty`); new `--danger` CSS token per theme for B-044 dialog emphasis; `docs/a11y-audit-B-066.md` (new, before/after ratios for all 16 cells) + §13 addendum for `--danger`
+- **UI (B-044 + B-045):** `sidepanel/sidepanel.html` (+ `#import-html-btn`, `#import-json-btn`, hidden file inputs); `sidepanel/sidepanel.js` (+ `_beginImportHtml`, `_beginImportJson`, `_handleImportFile`, `_buildImportPreviewBody` with repair summary, `_commitImport`, `_setImportInFlight` guard, zero-bookmark early-reject, `aria-busy` wiring, post-pick extension re-check, 5 MiB UI guard)
+- **Design:** `docs/design/33-b-044-b-045-import.md` (new, unified B-044 + B-045 R2 design + R6 close for both waves + §33.19 build-deviations table + §33.20 preferences-only deferred polish)
+- **UAT plans:** `docs/UAT_B-044.md` (new, 29 cases), `docs/UAT_B-045.md` (new, 30 cases) — both DEFERRED for user execution on Edge
+- **User-facing docs:** `docs/user-manual/importing-bookmarks.md` (new, extended for JSON in Wave 4); `docs/user-manual/exporting-data.md` (cross-link update); `CHANGELOG.md` v1.13.0 (Added + Known limitations); `STORE_LISTING.md` (Import HTML + Import JSON bullets); `docs/RELEASES.md` v1.13.0 entry
+- **Manifest:** `manifest.json` version 1.12.0 → 1.13.0 (no new permissions, no CSP change)
+
+### Notable R4 Findings Fixed
+
+- **B-044 [qa-reviewer] HIGH #1**: Dark-theme contrast regression on the preview dialog `--danger` emphasis (fallback `#c62828` on `#1a1d23` = 4.27:1, below AA). Fixed by introducing a new `--danger` CSS token per theme (light `#c62828` 5.62:1, dark `#f87171` 6.10:1). B-066 audit doc §13 addendum updated.
+- **B-044 [qa-reviewer] MEDIUM #2**: No loading feedback during commit. Fixed via `_importInFlight` flag + `aria-busy` on the import buttons + `disabled` during both preview and commit dispatch.
+- **B-044 [qa-reviewer] MEDIUM #3**: Zero-bookmark preview silently wiped data. Fixed via sidepanel short-circuit: zero-count preview returns to trigger without opening the confirm dialog, toast "File contains no bookmarks".
+- **B-044 [security-reviewer] MEDIUM M-1**: No SW-side content-length cap. Fixed by adding 10 MiB guard in the `MSG_IMPORT_COLLECTION` handler (defense-in-depth vs 5 MiB UI cap).
+- **B-067 [code-reviewer] / [security-reviewer]**: Zero disguised-deny-list patterns — true allow-list iteration verified (Sprint 17 retro C-7 satisfied).
+- **B-045 [security-reviewer] L-1**: No explicit prototype-pollution regression test. Fixed in R5 by adding `sec-proto-1/2/3` tests in `b045-json-validator.test.js`.
+
+### R6 Architect Rulings
+
+- **D-1 (B-044)**: `DOMParser` deviation accepted permanently. MV3 service workers have no DOM (`DOMParser`, `document`, `window` all undefined). Hand-rolled Netscape tokenizer is structurally safer than a DOMParser-based path — text-only by construction, six-entity decoder, bounded numeric references. Documented in §33.5 + §33.19.
+- **D-2 (B-045)**: `validatePreferences` returns `{...DEFAULT_PREFERENCES, ...validatedPartial}` — fills defaults for missing known keys rather than rejecting the whole preferences block. Passes unknown future keys through verbatim (§32.5.4 forward-compat intent). Documented in §33.6 + §33.19.
+- **D-3 (B-045)**: `remintGroupMap` is a JavaScript `Map`, not a plain `{}` — prototype-pollution defense for `__proto__` as a map key. Documented in §33.6 + §33.19.
+- **D-4 (B-045)**: Preferences-only backup (items=[] AND groups=[] with populated preferences) is currently REJECTED by the sidepanel zero-bookmark guard. Sprint 18 ship behavior documented in §33.20; deferred for user UAT decision — may become a follow-on polish backlog item.
+
+### UAT-Discovered Defects
+
+None during sprint. All findings surfaced in R4 review and were fixed inline (HIGH + MEDIUM) or deferred with rationale (LOW / INFO). `docs/UAT_B-044.md` + `docs/UAT_B-045.md` (59 combined cases) carry the deferred interactive tests for the user to run on Edge before v2 → main.
+
+### Deferred to Sprint 19
+
+- **UAT burndown window** — 7 deferred UAT plans accumulated (B-042, B-043, B-048, B-029, B-059, B-044, B-045) ≈ 165 cases. Schedule a Fast-Track-S equivalent window in Sprint 19 kickoff.
+- **Preferences-only backup support** — resolve §33.20 MEDIUM (allow prefs-only imports or explicit separate "Import preferences only" entry).
+- **Remove `validateAndRepair` alias** — XS cleanup in `background/import/json-validator.js`.
+- **Repair-summary plain-language rewrite** — user-facing dialog copy (currently uses "orphaned", "circular", "re-minted" jargon).
+- **`breakCycles` adversarial-input hardening** — cap depth or convert to iterative to eliminate worst-case O(n·depth) on crafted inputs.
+- **"Replace all bookmarks?" dialog heading scope** — JSON path should say "Replace all data?" since JSON restores groups + preferences too.
+
+### Retrospective
+
+**What Went Well:**
+- B-068 Wave 0 paid off immediately — agent R2/R4/R6 rounds consumed per-chapter slices instead of 485 KB + 185 KB monoliths. Compound savings across the remaining 4 items.
+- Sprint 17 retro C-7 (allow-list direction verification) surfaced in every R4 touch where it applied (B-067, B-045) — zero disguised-deny-list implementations shipped.
+- R4 parallel reviewer pattern held firm on Full-tier items. 3 simultaneous reviews caught 1 HIGH + 4 MEDIUM + 13 LOW across B-044 + B-045, all resolved or intentionally deferred with rationale.
+- R2-as-contract-not-scripture: B-044 engineer discovered the SW/DOM impossibility mid-R3, proposed a safer tokenizer, both R4 reviewers endorsed, R6 documented permanently. Pipeline absorbed mid-flight course correction cleanly.
+
+**To Improve:**
+- Pre-R2 feasibility sniff-test missing — a 30-second `typeof DOMParser` check in the SW console would have caught the R2 deviation before R3 started.
+- Deferred-UAT debt growing — 7 plans now accumulated. Risk of crystallizing into technical debt if not addressed before v2 → main.
+- Late-surfacing empty-state UX (B-045 prefs-only MEDIUM) — R2 didn't enumerate expected behavior for zero-items/zero-groups/partial-preferences edge cases. Surfaces a gap in the R2 Correctness Checklist.
+
+**Action Items for Sprint 19:**
+- [ ] Add **C-8** to R2 Correctness Checklist: "SW-context feasibility — if the design prescribes a browser API in the service worker, verify SW has access before R3 starts." [HIGH]
+- [ ] Add **C-9** to R2 Correctness Checklist: "Every product-path empty-state must be explicitly designed (zero-items, zero-groups, partial-preferences, zero-network, zero-matches) with expected UI behavior enumerated." [HIGH]
+- [ ] Schedule UAT burndown window in Sprint 19 kickoff — budget Fast-Track-S equivalent for user to execute 4–6 deferred UAT plans. [MEDIUM]
