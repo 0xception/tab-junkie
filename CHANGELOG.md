@@ -2,6 +2,11 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [Unreleased]
+
+### Process
+- R2 Correctness Checklist: added C-8 (SW-context feasibility) and C-9 (empty-state design enumeration) from Sprint 18 retro. See `CLAUDE.md § Round 2: Architecture`.
+
 ## [1.13.0] — 2026-04-19
 
 ### Added
