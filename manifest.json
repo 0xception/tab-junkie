@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Tab Junkie",
   "description": "Unified bookmark and tab manager",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "permissions": ["tabs", "tabGroups", "storage", "sidePanel", "search"],
   "background": {
     "service_worker": "background/service-worker.js",

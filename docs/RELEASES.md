@@ -4,6 +4,127 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.14.0 — Near-Instant Search + Import Polish + Internal Quality Gates (2026-04-19)
+
+**Tagged on `release/v2` — pending v2 merge to main. Tag: `v1.14.0`.**
+
+Sprint 19 ships three user-visible improvements plus one permanent pipeline quality upgrade. The side-panel filter is now near-instant on 1,000-item collections (measured 0.152 ms P95 — 329× under the product AC). The Sprint 18 import flow gets a dedicated preferences-only restore path, a plain-language repair summary, and a per-format dialog heading. The bookmarks import flow gains a user-controllable duplicate-handling toggle (default: skip duplicates within the file) so you can deliberately keep repeats on the rare occasions that is what you want. Under the hood, the R2 Correctness Checklist gained two new items (SW-context feasibility + empty-state design) exercised for the first time on the very sprint that shipped them.
+
+### What's new
+
+**Near-instant side-panel search (B-052)**
+- Typing in the filter bar stays snappy whether you have 50 items or 1,000+. Measured 0.152 ms P95 search latency on a seeded 1,000-item collection (versus the 50 ms product AC) and 1.14 ms first-paint DOM-build on a 500-item collection (versus the 200 ms budget).
+- Opening the side panel paints immediately — a skeleton appears right away and your items fill in within a blink, even on large collections.
+- Adding, editing, or deleting bookmarks no longer causes a perceptible pause the next time you search. A diff-and-patch index update runs instead of a full rebuild on every single-item change; bulk mutations above the 50-item threshold trigger a single rebuild (faster than N patches).
+- No change to the filter UI, keyboard shortcuts, or what it matches — only speed. Index is invalidated and rebuilt only when items or groups are added, edited, deleted, or reordered.
+- Targeted DOM patches on single-item updates — no full re-renders, no list-level reflow during mutation.
+- Rollback flag: a module-level `SEARCH_INDEX_ENABLED` constant in `sidepanel/sidepanel.js` routes the filter through the Sprint 5 linear-scan path if ever set to `false`. Zero-code-change fallback.
+
+**Import duplicate-handling override (B-060)**
+- A new "Skip duplicates in this file" checkbox in the Import preview dialog (both HTML and JSON paths) lets you choose per-import whether to de-duplicate rows with the same URL.
+- Default is **skip on** (matches prior behaviour). Unchecking the box imports every row verbatim, including repeats.
+- Your last choice is remembered as a preference (`importSkipDuplicates`) and pre-applied to the next import dialog.
+- Copy correction: summary wording uses "duplicates in this file" (accurate — the import replaces all existing data, so duplicates-in-collection doesn't apply).
+- Fully backward-compatible: the preference is additive. Existing profiles read as if the default is `true`; no migration is required.
+
+**Sprint 18 import polish bundle (B-070)**
+- Preferences-only JSON backups now restore successfully. Previously a backup containing only preferences (zero items and zero groups) was rejected with "Backup contains no bookmarks"; now it opens a dedicated prefs-only confirmation dialog that explicitly states "This backup contains no bookmarks — only preferences. Importing will overwrite your current preferences." with Cancel as the default button.
+- Repair-summary text on the JSON import preview is rewritten in plain language. Engineering-level strings like "broke 2 parent cycles" became "fixed 2 folders whose parent link formed a loop"; "reparented 3 orphaned items to Ungrouped" became "moved 3 bookmarks whose group was missing to Ungrouped." Every repair category has a plain-language equivalent.
+- JSON import preview dialog now shows a format-specific heading ("Replace all bookmarks with JSON backup?") — removes the cross-format heading that was shared with HTML import.
+- Removed a deprecated `validateAndRepair` alias in `background/import/json-validator.js`.
+
+**R2 Correctness Checklist: C-8 + C-9 (B-069)**
+- Permanent quality-gate addition. Every Full-tier R2 architecture review now explicitly verifies:
+  - **C-8 SW-context feasibility** — any module introduced in R2 that runs inside the MV3 service worker must be checked for `DOMParser` / `document` / `window` access; if any is required, the R2 must propose a hand-rolled alternative or escalate.
+  - **C-9 Empty-state design enumeration** — every new UI surface must enumerate its empty states (zero data, loading, error, filter-no-match, denied, offline, drifted) and specify the rendering for each.
+- First exercise: B-052 R2 listed 7 empty states in §34.9 which R4 [qa-reviewer] used to confirm coverage. Caught implicit-empty-state assumptions before they shipped as bugs.
+
+### Known limitations
+
+- **Deferred UAT**: 8 UAT plans (~180 cases) remain DEFERRED — `docs/UAT_B-042.md`, `UAT_B-043.md`, `UAT_B-048.md`, `UAT_B-029.md`, `UAT_B-059.md`, `UAT_B-044.md`, `UAT_B-045.md`, `UAT_B-052.md`. Not a release blocker; Sprint 20 has a dedicated burndown window.
+- **Follow-on polish for Sprint 20 triage**: B-052 `byId` Map → frozen plain object restructure; B-070 `breakCycles` adversarial-input hardening; pre-existing `TODO(sprint-19+)` in `background/import/json-validator.js:531` (violates CLAUDE.md no-TODOs rule); backfill `C-6` + `C-7` slots in the R2 Correctness Checklist (historical numbering gap surfaced during B-069); B-060 query-length cap on filter input; repair-summary jargon → plain-language extended pass.
+- **Deferred item**: B-046 Global keyboard shortcuts was removed from Sprint 19 at Wave 3 start. Its ACs depend on B-022 (quick search popup) and B-035 (standalone Tab Junkie window), neither of which has shipped. Returns in the sprint that ships either of those.
+
+### Breaking changes
+
+None. No message-contract removal. No manifest permission change. v1.13.0 export files import cleanly into v1.14.0 and vice versa.
+
+### Storage schema changes
+
+None. `importSkipDuplicates` preference was added to `DEFAULT_PREFERENCES` and its validator made tolerant — rolling back to v1.13.0 leaves the stored partition untouched (the unknown-to-v1.13.0 key is simply not read). No `schemaVersion` bump. No migration step. `tj:items`, `tj:groups`, `tj:prefs`, `tj:meta`, `tj:drift`, `tj:floatingGroups` shapes remain frozen.
+
+### Manifest permission changes
+
+None. Zero additions across all 4 Sprint 19 items.
+
+### Internal
+
+| Item | Files added | Files changed |
+|------|-------------|---------------|
+| B-069 | — | `CLAUDE.md` (+2 R2 Correctness Checklist rows), `CHANGELOG.md` |
+| B-070 | — | `sidepanel/sidepanel.js` (`_hasPopulatedPreferences`, `_buildPrefsOnlyImportBody`, `prefsOnly` flag, plain-language repair-summary labels, JSON-path dialog heading ternary), `background/import/json-validator.js` (alias removal), `tests/b045-e2e-import.test.js` (+3 tests) |
+| B-060 | `tests/b060-import-dup-handling.test.js` (7 tests) | `sidepanel/sidepanel.{js,css}` (checkbox UI + pref read/write + toast branching), `background/storage/shapes.js` (DEFAULT_PREFERENCES + tolerant `isPreferences`), `background/storage/preferences.js` (`validatePrefsPatch`), `background/import/{html-parser,json-validator,index}.js` (options threading), `tests/b04{4,5}-e2e-import.test.js`, `tests/b045-json-validator.test.js` |
+| B-052 | `sidepanel/search-index.js` (333-line pure module), `tests/b052-fuzzy-search-perf.test.js` (18 tests), `docs/design/34-b-052-fuzzy-search-caching.md` (R2 + R6 close), `docs/UAT_B-052.md` (15 cases, DEFERRED) | `sidepanel/sidepanel.js` (+241/-4 — index integration, `_patchSingleRow`, `_findGroupItemsContainer`, broadcast-branch dispatch, SEARCH_INDEX_ENABLED rollback gate), `CHANGELOG.md`, `STORE_LISTING.md` |
+
+- **+32 new automated tests** (923 → 955 total). All passing.
+- **New message contract**: none. B-052 stays sidepanel-only; B-060 threads through existing `MSG_IMPORT_COLLECTION`.
+- **New error codes**: none.
+- **Perf measurements (deterministic seed=4242)**: AC3 search P95 on 1000 items **0.152 ms** (263× under 40 ms CI budget, 329× under 50 ms product AC); AC4 first-paint DOM-build proxy on 500 items **1.14 ms** (140× under 160 ms budget); index build wall time on 1000 items **0.96 ms**.
+- **Schema tolerance**: `background/storage/shapes.js::isPreferences` now accepts unknown keys (pass-through) so new prefs additions (like `importSkipDuplicates`) don't force a migration. Known keys still shape-validate strictly.
+
+### Test results
+
+- Automated: **955 / 955 passing** (0 fail, 0 skipped, 0 todo). Growth: 923 → 955 (+32).
+- UAT: DEFERRED per established pattern — `docs/UAT_B-052.md` (15 cases). Fast Track items (B-069, B-070, B-060) covered by zero-regressions against the full suite.
+- R4 review rollup: 0 CRITICAL, 1 HIGH (B-070 prefs-only wipe UX — fixed inline with confirmation dialog), 6 MEDIUM (all fixed inline: B-052 `byId` freeze gap + cross-group-move DOM divergence + redundant `applyFilter` in `_patchSingleRow`; B-070 default-key sensitivity + dead guard), 9 LOW (deferred to Sprint 20 polish triage).
+- `./build.sh`: clean, 200 K zip, 65 files.
+
+### PRs merged to `release/v2`
+
+| PR | Item | Merge SHA | Wave |
+|----|------|-----------|------|
+| #18 | B-069 C-8 + C-9 checklist | `11a7d33` | 0 |
+| #19 | B-070 polish bundle | `5a3e1e9` | 1 |
+| #20 | B-060 duplicate-handling | `81b8a2d` | 2 |
+| #21 | B-052 search index + perf | `b727979` | 3 |
+
+**Commit range**: `cb019ba..b727979` on `release/v2` (Sprint 18 close → B-052 merge).
+
+### Rollback
+
+No storage schema change — downgrade is safe. v1.14.0 import/export files are forward-compatible with v1.13.0 (unknown `importSkipDuplicates` pref is ignored by v1.13.0's validator via `getPreferences()` merge).
+
+```
+# On release/v2 — revert all 4 Sprint 19 merges in reverse order:
+git -C <repo> checkout release/v2
+git revert -m 1 b727979 81b8a2d 5a3e1e9 11a7d33
+
+# OR install the prior zip:
+# Download tab-junkie-v1.13.0.zip from
+# https://github.com/0xception/tab-junkie/releases/tag/v1.13.0
+# (Note: the v1.13.0 tag exists on release/v2; no published GitHub Release
+#  per product-owner policy — the zip artifact lives under the tag object.)
+# 1. Unload the extension in edge://extensions
+# 2. Load the unpacked v1.13.0 build
+
+# Storage schema: NO MIGRATION needed. v1.14.0 added importSkipDuplicates
+# preference with a tolerant isPreferences validator. Rolling back to v1.13.0
+# leaves the stored partition untouched — the unknown-to-v1.13.0 key is
+# simply not read.
+
+# Search-index rollback (B-052 only, no revert needed):
+# SEARCH_INDEX_ENABLED=false in sidepanel/sidepanel.js routes the filter
+# through the B-021 linear scan — no-code-change fallback.
+```
+
+**Post-rollback behaviour:**
+- B-052: Sidepanel reverts to Sprint 5 linear-scan filter. Filter still functional; just slower on 1000+-item collections. No data loss.
+- B-060: Duplicate-handling checkbox disappears from import preview. Default-skip behaviour from v1.13.0 (Sprint 18) returns — matches the v1.14.0 default. `importSkipDuplicates` preference remains in storage but is ignored.
+- B-070: Preferences-only JSON backups once again reject with "Backup contains no bookmarks." Repair-summary text reverts to engineering-level phrasing. JSON import dialog heading reverts to the cross-format wording.
+- B-069: R2 Correctness Checklist reverts to 7 items (C-1 through C-5, skipping the pre-existing C-6/C-7 numbering gap). Process-only revert; no runtime effect.
+
+---
+
 ## v1.13.0 — Imports Round-Trip + A11y + Docs Restructure (2026-04-19)
 
 **Tagged on `release/v2` — pending v2 merge to main. Tag: `v1.13.0`.**

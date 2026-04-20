@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-19 · **Version:** 2.0 · **Total Items:** 71 · **Sprint 18 closed (v1.13.0) · Sprint 19 kicked off**
+**Updated:** 2026-04-19 · **Version:** 2.0 · **Total Items:** 71 · **Sprint 19 closed — v1.14.0**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████████████░░░░░  75% (53/71)  [1 in progress]
+Overall Progress    ███████████████░░░░░  76% (54/71)  [0 in progress]
 ```
 
 ### Legend
@@ -84,7 +84,7 @@ Overall Progress    ███████████████░░░░░
 ✅ B-049 — Empty states & error feedback · 🟠 · S
 ✅ B-050 — State broadcast to all extension surfaces · 🔴 · M
 ✅ B-051 — Sort-order normalisation & selection pruning · 🟠 · S
-🔄 B-052 — Fuzzy search index caching & perf targets · 🟠 · M
+✅ B-052 — Fuzzy search index caching & perf targets · 🟠 · M
 ✅ B-053 — Break circular dep between partitions.js ↔ write-transaction.js (extract shapes module) · 🟡 · S
 ✅ B-054 — Sidepanel shell: item/group rendering + live states + click-to-navigate + broadcasts · 🔴 · L
 ✅ B-055 — Open Tabs section: render live-only ungrouped tabs in the sidepanel · 🟠 · M
@@ -119,7 +119,7 @@ Overall Progress    ███████████████░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 53 | 75% |
-| 🔄 In Progress | 1 | 1% |
+| ✅ Done | 54 | 76% |
+| 🔄 In Progress | 0 | 0% |
 | ⬜ To Do | 15 | 21% |
 | 🧊 Icebox | 2 | 3% |

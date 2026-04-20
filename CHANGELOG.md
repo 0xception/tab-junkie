@@ -4,11 +4,19 @@ All notable changes to Tab Junkie are documented in this file.
 
 ## [Unreleased]
 
+## [1.14.0] — 2026-04-19
+
+### Added
+- Import duplicate-handling override: a **Skip duplicates in this file** checkbox on the Import preview dialog (both HTML and JSON) lets you choose per-import whether to de-duplicate rows with the same URL. Default is **on** (matches prior behaviour). Your choice is remembered as a preference and pre-applied to the next import.
+- Preferences-only JSON backup restore: importing a JSON backup that contains only preferences (zero items and zero groups) now opens a dedicated confirmation dialog ("This backup contains no bookmarks — only preferences. Importing will overwrite your current preferences.") with **Cancel** as the default button. Previously such backups were rejected with "Backup contains no bookmarks."
+
 ### Improved
 - Side panel search and filter are now near-instant, even with large bookmark collections. Typing in the filter bar stays snappy whether you have 50 items or 1,000+.
   - Opening the side panel paints immediately — a skeleton appears right away and your items fill in within a blink, even on large collections.
   - Adding, editing, or deleting bookmarks no longer causes a perceptible pause the next time you search.
   - No change to the filter UI, keyboard shortcuts, or what it matches — only speed.
+- Import repair-summary text rewritten in plain language. Engineering-level strings like "broke 2 parent cycles" became "fixed 2 folders whose parent link formed a loop"; "reparented 3 orphaned items to Ungrouped" became "moved 3 bookmarks whose group was missing to Ungrouped."
+- JSON import preview now shows a format-specific heading ("Replace all bookmarks with JSON backup?") instead of the cross-format heading shared with HTML import.
 
 ### Process
 - R2 Correctness Checklist: added C-8 (SW-context feasibility) and C-9 (empty-state design enumeration) from Sprint 18 retro. See `CLAUDE.md § Round 2: Architecture`.
