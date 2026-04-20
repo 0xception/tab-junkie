@@ -329,6 +329,8 @@ A sprint item is "ready for build" ONLY when ALL of these are true:
 | C-3 | Service worker cold-start safe | No assumption that the SW is already running; all entry points must re-hydrate state |
 | C-4 | ID stability | Item identity must survive URL drift, rename, and cross-window moves |
 | C-5 | Manifest file references resolvable | Every `default_path`, `default_popup`, and `chrome_url_overrides` entry in `manifest.json` must point to a file that exists at extension load time — stub HTML is acceptable |
+| C-8 | SW-context feasibility | If the design prescribes a browser API (`DOMParser`, `document`, `window`, `CSS.paintWorklet`, `IntersectionObserver`, etc.) that must run inside a service worker, R2 MUST verify the API is accessible in SW context before R3 begins. 30-second check: open `chrome://extensions` → SW inspect → `typeof <API>` REPL probe OR a written MDN citation showing SW reachability. |
+| C-9 | Empty-state design | Every user-facing product path must explicitly enumerate its empty-state UX in R2 output: zero-items, zero-groups, zero-matches, zero-network, partial-inputs (e.g., preferences-only, no-title, no-URL). Each enumerated state has expected UI behavior (reject / accept-with-degraded-display / accept-fully) documented. R4 [qa-reviewer] checks against this enumeration. |
 
 ### Round 3: Build (Frontend)
 - [frontend-engineer]: UI code, service worker code, storage layer, message handlers, components.
