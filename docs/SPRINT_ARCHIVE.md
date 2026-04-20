@@ -767,3 +767,90 @@ None during sprint. All findings surfaced in R4 review and were fixed inline (HI
 - [ ] Add **C-8** to R2 Correctness Checklist: "SW-context feasibility — if the design prescribes a browser API in the service worker, verify SW has access before R3 starts." [HIGH]
 - [ ] Add **C-9** to R2 Correctness Checklist: "Every product-path empty-state must be explicitly designed (zero-items, zero-groups, partial-preferences, zero-network, zero-matches) with expected UI behavior enumerated." [HIGH]
 - [ ] Schedule UAT burndown window in Sprint 19 kickoff — budget Fast-Track-S equivalent for user to execute 4–6 deferred UAT plans. [MEDIUM]
+
+---
+
+## Sprint 19 — Retro Action Items + Sprint 18 Polish + Imports Polish + Search Perf (2026-04-19)
+
+**Theme:** Codify Sprint 18 retrospective action items into permanent R2 checklist (B-069), consume Sprint 18 polish backlog (B-070), close the import duplicate-handling UX gap (B-060), and ship the fuzzy-search perf target (B-052). Plus mid-sprint scope-change handling for B-046 deferral.
+**Release:** v1.14.0 · Commit `e4f992b` on `release/v2` (tag `v1.14.0` staged; GitHub Release publication skipped per product-owner policy)
+**Tests:** 923 → 955 (+32 across all 4 shipped items)
+**Docs structure:** New §34 chapter authored + closed for B-052 (`docs/design/34-b-052-fuzzy-search-caching.md`). R2 Correctness Checklist gained C-8 + C-9 rows in `CLAUDE.md`.
+
+### Completed Items
+
+| ID | Title | Tier | Wave | UAT | New Tests |
+|----|-------|------|------|-----|-----------|
+| B-069 | Add C-8 (SW-context feasibility) + C-9 (empty-state design) to R2 Correctness Checklist | Fast Track (XS) | 0 | N/A (CLAUDE.md edit) | — |
+| B-070 | Sprint 18 follow-on polish bundle (prefs-only backup + alias removal + repair-summary rewrite + JSON dialog heading) | Fast Track (S) | 1 | Regression suite PASS | +3 B-070 tests |
+| B-060 | Import duplicate-handling with skip/allow override | Fast Track (S) | 2 | Regression suite PASS | +11 B-060 tests (b060-import-dup-handling.test.js + b044/b045 e2e updates) |
+| B-052 | Fuzzy search index caching + perf targets | Full (M) | 3 | `docs/UAT_B-052.md` 15-case plan (DEFERRED) | +18 B-052 tests (13 R3 + 2 R4 fix-up + 3 R5 gap-fillers) |
+
+### Deferred Mid-Sprint
+
+| ID | Title | Reason |
+|----|-------|--------|
+| B-046 | Global keyboard shortcuts (popup + standalone) | ACs target B-022 (⬜) + B-035 (⬜) — neither shipped. Shipping stubs creates dead-shortcut UX friction; scope-reducing distorts the item. Deferred to whichever future sprint ships B-022 or B-035. Status reverted `in-progress` → `backlog`. |
+
+### Files Changed
+
+- **B-069 R2 checklist additions:** `CLAUDE.md` (+2 rows C-8/C-9), `CHANGELOG.md` (Process breadcrumb). Pre-existing numbering gap at C-6 + C-7 acknowledged (Sprint 17 retro C-7 never codified).
+- **B-070 Sprint 18 polish:** `sidepanel/sidepanel.js` (`_hasPopulatedPreferences` + `_buildPrefsOnlyImportBody` + `prefsOnly` flag + plain-language labels + JSON heading ternary), `background/import/json-validator.js` (removed `validateAndRepair` alias), `tests/b045-e2e-import.test.js` (+3 tests).
+- **B-060 duplicate-handling override:** `sidepanel/sidepanel.{js,css}` (checkbox UI + BEM styles), `background/storage/shapes.js` (`DEFAULT_PREFERENCES.importSkipDuplicates: true` + tolerant `isPreferences`), `background/storage/preferences.js` (`validatePrefsPatch`), `background/import/{html-parser,json-validator,index}.js` (options threading); NEW `tests/b060-import-dup-handling.test.js` (7 tests) + updates to `tests/b04{4,5}-e2e-import.test.js` + `tests/b045-json-validator.test.js`.
+- **B-052 fuzzy-search perf:** NEW `sidepanel/search-index.js` (333-line pure module), `sidepanel/sidepanel.js` (+241/-4 — index integration + `_patchSingleRow` + `_findGroupItemsContainer` + `SEARCH_INDEX_ENABLED` rollback gate); NEW `tests/b052-fuzzy-search-perf.test.js` (18 tests); NEW `docs/design/34-b-052-fuzzy-search-caching.md` (R2 + R6 close); NEW `docs/UAT_B-052.md` (15 cases DEFERRED).
+- **User-facing + release:** `CHANGELOG.md` `[1.14.0]` (Added + Improved + Process), `STORE_LISTING.md` "Near-instant search" bullet, `docs/RELEASES.md` v1.14.0 entry. `manifest.json` 1.13.0 → 1.14.0 (no new permissions, no CSP change).
+
+### Measured Perf (B-052)
+
+| Metric | Measured | Budget | Headroom |
+|---|---|---|---|
+| AC3 search P95 on 1000 items (50 samples, seed 4242) | **0.152 ms** | 40 ms (20% margin under 50 ms product AC) | 263× (329× vs product AC) |
+| AC4 first-paint DOM-build proxy on 500 items | **1.14 ms** | 160 ms (20% margin under 200 ms product AC) | 140× |
+| Index build wall time on 1000 items | **0.96 ms** | 30 ms sanity | 31× |
+
+### Notable R4 Findings Fixed
+
+- **B-070 [code-reviewer] HIGH F-1**: prefs-only commit silently wiped user's existing bookmarks (atomic replace semantics). Contradicted CLAUDE.md "confirmation for destructive actions" rule. FIXED inline with dedicated confirmation dialog ("Import preferences-only backup?" + REPLACE warning body + Cancel-default-focused).
+- **B-052 [code-reviewer] MEDIUM F-2**: `_patchSingleRow` DOM divergence on cross-group moves — row inserted into wrong group container. FIXED: patch path detects cross-group move and falls through to full `renderAll`.
+- **B-052 [code-reviewer] MEDIUM F-1**: `byId` Map freeze contract gap (`Object.freeze` does not deep-freeze Map). Addressed via Option A (document "structurally immutable via module API" contract). Future Sprint 20 tech-debt candidate.
+- **B-052 [qa-reviewer] MEDIUM F-1**: Redundant `applyFilter()` calls in `_patchSingleRow` caused N+1 passes per broadcast batch. FIXED: removed inner calls; caller handles once per batch.
+- **B-060 [code-reviewer]** flagged pre-existing `TODO(sprint-19+)` in `json-validator.js:531` (from B-070) — filed for Sprint 20 tech-debt.
+
+### R6 Architect Rulings
+
+- **D-1 (B-052)**: `byId` Map freeze gap — Option A (document contract) rather than restructure to frozen plain object. Future Sprint 20 tech-debt candidate.
+- **D-2 (B-052)**: `_patchSingleRow` replaces the ENTIRE row via `buildItemRow` rather than piecemeal text patching. Preserves indicator/live-state matrix coherence. AC5 met literally. Documented in §34.7 + §34.14.
+- **D-3 (B-060)**: UX wording "URLs that already exist in this file" (not "in your collection") — imports are atomic REPLACE so dedup happens within the imported file. Engineer caught during R3; accepted.
+- **D-4 (B-060)**: No schema version bump required for `importSkipDuplicates` addition. Tolerant `isPreferences` + `getPreferences()` default-merge preserves backward compat.
+
+### UAT-Discovered Defects
+
+None during sprint. All findings surfaced in R4 review (1 HIGH + 6 MEDIUM + 9 LOW). `docs/UAT_B-044.md`, `docs/UAT_B-045.md`, `docs/UAT_B-052.md` carry deferred interactive tests for Edge execution before v2 → main.
+
+### Deferred to Sprint 20
+
+- **UAT burndown window** — 8 deferred UAT plans accumulated (B-042, B-043, B-048, B-029, B-059, B-044, B-045, B-052) ≈ 180 cases. Sprint 20 MUST budget time per Sprint 19 retro.
+- **B-046 Global keyboard shortcuts** — return when B-022 OR B-035 ships.
+- **B-052 `byId` Map restructure** — XS tech-debt from §34.14 D-1.
+- **Pre-existing `TODO(sprint-19+)` in `json-validator.js:531`** — XS cleanup (CLAUDE.md "no TODOs" rule).
+- **`C-6` + `C-7` backfill in R2 Correctness Checklist** — XS (Sprint 17 retro's aspirational C-7 never codified).
+- **`breakCycles` adversarial-input hardening** — XS defensive item from B-045 R4 (code-reviewer F-3 in Sprint 18).
+- **Repair-summary plain-language extended pass + query-length cap on filter input** — XS UX polish + security LOW (DoS-only).
+
+### Retrospective
+
+**What Went Well:**
+- C-8 + C-9 delivered value on first use — B-052 R2 was the first Full-tier R2 under the new checklist; C-9 forced explicit empty-state enumeration (7 states) that R4 qa-reviewer verified.
+- Perf ACs work when they're concrete — B-052's 0.152 ms measured vs 50 ms product target (329× headroom) demonstrates hard numeric thresholds beat "it feels fast".
+- Scope Change Control followed its own rules — B-046 deferral caught at Wave 3 start, rationale documented.
+- R4 parallel reviewer pattern caught correctness bugs R3 missed — B-052's cross-group-move DOM divergence would have been user-reported.
+
+**To Improve:**
+- Sprint Readiness Gate 6 missed B-046's dep gap (deps: B-022, B-035 — neither shipped). Gate 6 needs a deps-resolved check.
+- UAT debt grew 7 → 8 plans. Sprint 20 MUST budget burndown window.
+- B-070 AC1 literal reading nearly shipped a UX defect. PM output should be explicit on destructive-action confirmation for carved-out paths.
+
+**Action Items for Sprint 20:**
+1. [scrum-master] Extend Gate 6 with deps-resolved check. [HIGH]
+2. [product-manager] Explicit destructive-action confirmation guidance in ACs for carved-out paths. [MEDIUM]
+3. Sprint 20 kickoff budget UAT burndown (Fast-Track-S equivalent). Target: clear 4-6 of 8 plans. [HIGH]
