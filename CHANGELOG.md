@@ -13,10 +13,17 @@ All notable changes to Tab Junkie are documented in this file.
   - Duplicate URLs within the file are de-duplicated; `javascript:` and `data:` URLs are skipped for safety; all other supported schemes (`http`, `https`, `file`, `chrome`, `edge`, `chrome-extension`, `about`, `view-source`) are imported.
   - Favicons are re-captured in Tab Junkie at first use; they are not read from the imported file.
   - Files up to 5 MiB are accepted; larger files are rejected upfront with a clear inline toast.
+- Import JSON: a new **Import JSON** button in the side panel header restores a Tab Junkie-native `.json` backup (produced by **Export JSON**) as a lossless round trip — groups, group colors, timestamps, and preferences come back exactly as they were exported. The preview dialog shows the filename, group and bookmark counts, and a short repair summary if the importer had to fix structural defects in the backup; **Cancel** is the default button, and the import commits atomically so existing data is preserved on any failure.
+  - Auto-repair for backups with missing group parents, circular group references, duplicate internal IDs, or items whose group no longer exists — repairs are summarised in the preview dialog before you commit.
+  - Preferences in the backup (theme, side-panel settings) are applied on import; missing or malformed preferences fall back to Tab Junkie defaults instead of rejecting the file.
+  - Schema-version gate: backups from a newer Tab Junkie version are refused with a clear "update Tab Junkie first" message; backups from older versions run through any registered migrations before importing.
+  - Every imported bookmark and group is assigned a fresh internal ID; the content you see is preserved exactly across a round trip, but internal identifiers change by design.
+  - Same URL-scheme rules as HTML import: `http`, `https`, `file`, `chrome`, `edge`, `chrome-extension`, `about`, and `view-source` are imported; `javascript:` and `data:` are skipped. Duplicate URLs within the backup are de-duplicated.
+  - Files up to 5 MiB are accepted through the UI, with a secondary 10 MiB hard cap enforced in the background for defense in depth.
 
 ### Known limitations
 - Import does **not** take an automatic backup of your existing data before committing, and there is no undo. Use **Export HTML** or **Export JSON** first if you want a safety net.
-- JSON import is not yet shipped. It is planned for a future release.
+- A JSON backup that contains only preferences (zero items and zero groups) is currently rejected with "Backup contains no bookmarks." To restore preferences today, include at least one item or group in the backup.
 
 ## [1.12.0] — 2026-04-18
 

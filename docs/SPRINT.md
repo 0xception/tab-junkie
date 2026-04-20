@@ -23,26 +23,28 @@
 
 ## Active Items
 
-### [B-044] Import HTML (Netscape bookmarks)
-- **Tier**: Full (M)
-- **Status**: R2 (in progress)
-- **Assigned To**: [solution-architect]
-- **Blockers**: None (B-067 merged, allow-list contract locked)
-- **Feature Context**: File-picker accepts `.html` / `.htm`. Count-preview dialog before commit. "Import replaces all existing data" warning with explicit confirmation. Folder hierarchy deeper than 1 level flattened safely.
-- **Handoff Notes**: R1 pre-approved (skipped — comprehensive ACs in BACKLOG.md). R2 authors unified §33 design covering both B-044 + B-045 on `feature/B-044-import-html`. R2 writes a new chapter slice `docs/design/33-b-044-b-045-import.md` and extends root index. Post-R2, R3 implements B-044 only on this branch; B-045 branches off separately after B-044 merges (shared `background/import/` + `MSG_IMPORT_COLLECTION` contract stable by then).
-- **R2 Correctness Checklist focus**: C-1 (no new storage partitions, imports use `writeTransaction` to replace atomically per Sprint 17 D-3 retro), C-2 (new `MSG_IMPORT_COLLECTION { format: 'html' | 'json' }` message), C-4 (imports MUST mint new ULIDs, not reuse any file-provided IDs), C-7 (B-045 consumes B-067 allow-list — direction verified). Performance AC: 1,000-bookmark HTML import completes < 3s in chrome-mock.
-
 ### [B-045] Import JSON backup
 - **Tier**: Full (M)
-- **Status**: R2 (in progress — covered by unified B-044 R2 pass)
-- **Assigned To**: [solution-architect] (shared with B-044)
-- **Blockers**: B-044 R3 (shared `background/import/` infrastructure must merge first)
+- **Status**: R3 (in progress)
+- **Assigned To**: [frontend-engineer]
+- **Blockers**: None (B-044 merged `1cd3905` on `release/v2` — shared import infra + `MSG_IMPORT_COLLECTION` contract + §33 R2 design all available).
 - **Feature Context**: Consumes `schemaVersion: 1` (the frozen §32.5 shape). Validates and automatically repairs: orphaned sub-groups, circular references, duplicate IDs. Count-preview + confirmation mirror B-044. Repair decisions surfaced in post-import summary.
-- **Handoff Notes**: R1 pre-approved. R2 covered by B-044's unified pass (single §33 chapter). After B-044 merges, B-045 branches as `feature/B-045-import-json` for R3–R7 on its own. The `schemaVersion` gate: if the imported file's version is unknown, reject with a clear error ("backup was created in a newer Tab Junkie version"). Consumes the §32.5 allow-list locked by B-067 (merged `2e4e507`).
+- **Handoff Notes**: R1 pre-approved. R2 covered by B-044's §33 unified design (`docs/design/33-b-044-b-045-import.md`) — the JSON parse + validator sections are intact and form B-045's implementation contract. Replaces the `background/import/json-validator.js` stub from B-044 with the full implementation. Reuses `background/import/commit.js`, dispatcher, shared export-schema.js, and the preview/commit dialog pattern. Consumes §32.5 allow-list locked by B-067. `schemaVersion` gate: if > KNOWN_VERSION reject with clear error; if = KNOWN_VERSION proceed; if < KNOWN_VERSION apply migration chain (none registered today per §10.6). Test suite baseline is 859/859 after B-044 merge.
 
 ---
 
 ## Completed This Sprint
+
+### [B-044] Import HTML (Netscape bookmarks) — DONE (Wave 3)
+- **Tier**: Full (M)
+- **Merged**: `1cd3905` on `release/v2` (PR #16, 2026-04-19)
+- **Files Changed**: NEW `background/import/` module (`html-parser.js` hand-rolled Netscape tokenizer, `commit.js` two-round writeTransaction, `index.js` dispatcher, `json-validator.js` B-045 stub); `shared/messages.js` (MSG_IMPORT_COLLECTION + two-round preview/commit contract); `shared/errors.js` (6 new import error codes); `shared/export-schema.js` (extended to be single source of truth); `background/messages/storage-handlers.js` (handler with 10 MiB SW cap); `sidepanel/sidepanel.{html,css,js}` (Import HTML button + preview dialog + loading guard + zero-bookmark early reject); NEW `--danger` token per theme; NEW `docs/design/33-b-044-b-045-import.md` (R2 design + R6 close); NEW `docs/UAT_B-044.md` (29 cases deferred); NEW `docs/user-manual/importing-bookmarks.md`; CHANGELOG.md v1.13.0; STORE_LISTING.md bullet; `docs/a11y-audit-B-066.md` §13 addendum; 4 new test files (50 new tests).
+- **DOMParser deviation**: accepted permanently — MV3 SW has no DOM. Hand-rolled tokenizer endorsed by code + security reviewers as structurally safer (text-only, no markup evaluation).
+- **R4**: [code-reviewer] PASS with concerns (1 LOW, 1 INFO deferred to R6 cleanup), [security-reviewer] PASS (2 MEDIUM + 2 LOW — M-1 shipped inline), [qa-reviewer] PASS with concerns (1 HIGH + 2 MEDIUM fixed inline).
+- **R5**: 50 automated tests (859/859). UAT plan `docs/UAT_B-044.md` (29 cases) DEFERRED for user execution on Edge (consistent pattern).
+- **R6**: §33 chapter amended with as-shipped decisions; new §33.19 Build Deviations table.
+- **R7**: user manual + CHANGELOG + STORE_LISTING updated.
+- **Test suite**: 857 → 859 green. `./build.sh`: clean (176 K zip).
 
 ### [B-066] Remaining `--text-tertiary` a11y sweep — DONE (Wave 2)
 - **Tier**: Fast Track (S)
