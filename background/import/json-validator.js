@@ -524,11 +524,13 @@ export function parseAndValidate(content, options) {
   }
   /* § 33.6 note: `schemaVersion < KNOWN_VERSION` is tolerated. MIGRATION_STEPS
      is currently empty (KNOWN_VERSION = 1), so no migration runs. When the
-     first real migration lands, the in-memory migration hook below will apply
-     the registered steps to the { items, groups, preferences, meta } snapshot
+     first real migration lands, the in-memory migration hook will apply the
+     registered steps to the { items, groups, preferences, meta } snapshot
      before the normalize+repair passes. Until then the snapshot flows through
-     unchanged, and the version is simply noted. */
-  // TODO(sprint-19+): apply MIGRATION_STEPS in-memory here once the registry is non-empty.
+     unchanged, and the version is simply noted.
+     Deferred to B-076 — see §33.18 F-4 in docs/design/33-b-044-b-045-import.md
+     for the deferral rationale; activate when MIGRATION_STEPS ships its first
+     non-empty entry alongside a KNOWN_VERSION bump in migration.js. */
 
   /* Step 4 — per-record allow-list + coercion. Records that fail coercion
      (wrong types, unsupported URL scheme, etc.) are dropped silently — the
