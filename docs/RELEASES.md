@@ -4,6 +4,129 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.13.0 — Imports Round-Trip + A11y + Docs Restructure (2026-04-19)
+
+**Tagged on `release/v2` — pending v2 merge to main. Tag: `v1.13.0`.**
+
+Sprint 18 closes the export/import round-trip started in Sprint 17. Tab Junkie can now import standard Netscape HTML bookmarks (the format Chrome, Edge, Firefox, and Safari produce) and restore its own JSON backups with validation, auto-repair, and atomic commit. Accessibility work finishes the `--text-tertiary` contrast sweep, and the monolithic SOLUTION_DESIGN + SPRINT_FINDINGS documents are split into per-chapter / per-sprint slices to reduce agent context load going forward.
+
+### What's new
+
+**Import HTML (Netscape bookmarks) (B-044)**
+- New **Import HTML** button in the sidepanel header reads any standard Netscape bookmarks file (up to 5 MiB via the UI; 10 MiB hard cap in the background service worker for defense in depth).
+- A preview dialog shows the filename, group/bookmark counts, skipped-entry summary (malformed/duplicate/unsupported), and a red destructive-action warning: the import **replaces** every existing group and bookmark. **Cancel** is the default button; commit requires explicit **Replace all**.
+- Atomic commit via `writeTransaction` — if anything fails, existing data stays intact.
+- Top-level folders become top-level groups; one-level-nested folders become sub-groups; deeper nesting is flattened into sub-groups whose names preserve the original path joined with ` / `.
+- Loose bookmarks at the HTML root land in **Ungrouped**.
+- Group colors assigned deterministically from the Tab Junkie palette by folder-name hash — re-importing produces the same colors.
+- Original `ADD_DATE` / `LAST_MODIFIED` timestamps preserved when present.
+- Duplicate URLs within the file de-duplicated. `javascript:` and `data:` URLs skipped. All other supported schemes (`http`, `https`, `file`, `chrome`, `edge`, `chrome-extension`, `about`, `view-source`) imported.
+- Favicons re-captured at first use — not read from the imported file.
+- Parser is a hand-rolled Netscape tokenizer (no DOMParser — unavailable in MV3 service workers). Endorsed by code + security review as structurally safer than DOM-evaluation.
+
+**Import JSON backup (B-045)**
+- New **Import JSON** button restores a Tab Junkie-native `.json` backup (produced by **Export JSON**) as a lossless round trip — groups, colors, timestamps, and preferences come back exactly as exported.
+- Schema-version gate: backups from a newer Tab Junkie refused with "update Tab Junkie first"; older backups run through any registered migrations before import.
+- Auto-repair for four structural defect classes — missing group parents, circular group references, duplicate internal IDs, items whose group no longer exists. Repairs summarised in the preview dialog before commit.
+- Preferences from the backup applied on import; missing/malformed preferences fall back to defaults instead of rejecting the file.
+- Prototype-pollution defense: three dedicated regression tests (`sec-proto-1/2/3`) verify `__proto__` / `constructor` / `prototype` keys in JSON are treated as ordinary property names, never reach `Object.prototype`.
+- Every imported bookmark/group receives a fresh internal ULID — content preserved exactly; internal identifiers change by design.
+- Same URL-scheme policy as HTML import. Files up to 5 MiB via UI; 10 MiB hard cap in SW.
+
+**Remaining `--text-tertiary` a11y sweep (B-066)**
+- Five sidepanel surfaces still using `--text-tertiary` (group drag handle + four empty-state body texts) promoted to `--text-secondary`. Closes the contrast sweep started in v1.12.0 (B-064).
+- All 16 audit ratios (8 theme × surface combinations × 2 text weights) now pass WCAG AA. Worst post-fix ratio: 4.93:1 on `.group-drag-handle` over light `--bg-hover` (non-text floor 3.0:1 — 64% headroom).
+- Approach: Option A (promote offending selectors), zero new tokens, mirrors B-064's pattern. Pure CSS edit.
+
+**Export sanitizers flipped to §32.5 allow-list (B-067)**
+- `background/export/json-export.js` now uses a named-field allow-list (true allow-list, not disguised deny-list per Sprint 17 retro C-7) — dead deny-list constants deleted.
+- B-042 + B-043 output remains byte-identical on valid §32.5 inputs (AC10). `preferences` pass-through preserved (AC7).
+- Locks the §32.5 export schema as the authoritative B-045 import contract.
+
+**Docs restructure — SOLUTION_DESIGN + SPRINT_FINDINGS split (B-068, Wave 0)**
+- `docs/SOLUTION_DESIGN.md` (485 KB monolith → ~4 KB index) split into 38 per-chapter `docs/design/NN-slug.md` files.
+- `docs/SPRINT_FINDINGS.md` (185 KB monolith → ~1 KB index) split into 8 per-sprint `docs/findings/sprint-NN.md` files.
+- Content byte-identical (AC7 verified) — mechanical split only. CLAUDE.md and 6 agent prompts updated to read/write the split files.
+- Pre-R2 infrastructure work that reduced agent context load on every subsequent R2/R4/R6 round this sprint.
+
+### Known limitations
+
+- **Preferences-only backups**: a JSON backup containing only preferences (zero items + zero groups) is rejected with "Backup contains no bookmarks." Filed for Sprint 19 polish triage (§33.20). Workaround: include at least one item or group in the backup to restore preferences.
+- **No auto-backup before import**: imports do not automatically snapshot existing data before the destructive replace. No undo. Workaround: run **Export HTML** or **Export JSON** before importing anything you did not produce yourself.
+- **Deferred UAT**: 6 UAT plans (~165 cases) remain DEFERRED per precedent — `docs/UAT_B-042.md`, `UAT_B-043.md`, `UAT_B-048.md`, `UAT_B-029.md`, `UAT_B-059.md`, `UAT_B-044.md`, `UAT_B-045.md`. Not a release blocker; must be executed before v2 → main merge.
+- **Follow-on polish for Sprint 19 triage**: preferences-only backup support; remove `validateAndRepair` alias; repair-summary plain-language rewrite; `breakCycles` adversarial-input hardening; "Replace all bookmarks?" dialog heading scope for JSON.
+
+### Breaking changes
+
+None. Export file format (B-042/B-043) unchanged. No message contract removal. v1.12.0 export files import cleanly into v1.13.0 and vice versa.
+
+### Storage schema changes
+
+None. §32.5 partition shapes (`tj:items`, `tj:groups`, `tj:prefs`, `tj:meta`, `tj:drift`, `tj:floatingGroups`) remain frozen. Import does not bump `schemaVersion`.
+
+### Manifest permission changes
+
+None. Zero additions across all 5 Sprint 18 items. Import uses a plain `<input type="file">` + `FileReader` — no `downloads` permission, no host permissions, no network access.
+
+### Internal
+
+| Item | Files added | Files changed |
+|------|-------------|---------------|
+| B-068 | 38 × `docs/design/NN-*.md`, 8 × `docs/findings/sprint-NN.md` | `docs/SOLUTION_DESIGN.md` (monolith → index), `docs/SPRINT_FINDINGS.md` (monolith → index), `CLAUDE.md`, 6 × `.claude/agents/*.md` |
+| B-067 | — | `background/export/json-export.js`, `tests/b043-json-export.test.js` |
+| B-066 | `docs/a11y-audit-B-066.md` | `sidepanel/sidepanel.css` (5-line edit) |
+| B-044 | `background/import/html-parser.js`, `background/import/commit.js`, `background/import/index.js`, `background/import/json-validator.js` (stub), `shared/export-schema.js` extensions, 4 test files (50 tests), `docs/design/33-b-044-b-045-import.md`, `docs/UAT_B-044.md`, `docs/user-manual/importing-bookmarks.md` | `shared/messages.js` (+ MSG_IMPORT_COLLECTION), `shared/errors.js` (6 import codes), `background/messages/storage-handlers.js`, `sidepanel/sidepanel.{html,css,js}`, `CHANGELOG.md`, `STORE_LISTING.md` |
+| B-045 | 3 test files (64 tests), `docs/UAT_B-045.md` | `background/import/json-validator.js` (stub → full 545-line), `background/import/index.js` (JSON branch), `sidepanel/sidepanel.{html,js}`, `docs/design/33-b-044-b-045-import.md` (§33.6 / §33.11 / §33.12 / §33.19 / §33.20), `docs/user-manual/importing-bookmarks.md`, `docs/user-manual/exporting-data.md`, `CHANGELOG.md`, `STORE_LISTING.md` |
+
+- **+117 new automated tests** (806 → 923 total). All passing.
+- **New message contract**: `MSG_IMPORT_COLLECTION` — two-round preview/commit shape with 10 MiB SW cap.
+- **New error codes**: 6 additions in `shared/errors.js` covering import parse/schema/size/scheme/replace failures.
+- **New CSS token**: `--danger` per theme (used by destructive-action Replace-all button).
+- **Contract preservation**: B-067 allow-list flip keeps B-042 + B-043 export output byte-identical on valid §32.5 inputs.
+
+### Test results
+
+- Automated: **923 / 923 passing** (0 fail, 0 skipped, 0 todo). Growth: 806 → 923 (+117).
+- UAT: DEFERRED per established pattern — `docs/UAT_B-044.md` (29 cases), `docs/UAT_B-045.md` (30 cases). Fast Track items (B-068, B-067, B-066) covered by zero-regressions against the full suite.
+- R4 review rollup: 0 CRITICAL, 1 HIGH (fixed inline pre-R5, QA B-044), 4 MEDIUM (fixed or deferred with rationale), 13 LOW (mostly deferred as nits).
+- `./build.sh`: clean, 184 K zip, 64 files.
+
+### PRs merged to `release/v2`
+
+| PR | Item | Merge SHA | Wave |
+|----|------|-----------|------|
+| #13 | B-068 docs restructure | `e8c2c25` | 0 |
+| #14 | B-067 allow-list flip | `2e4e507` | 1 |
+| #15 | B-066 a11y sweep | `5bf985f` | 2 |
+| #16 | B-044 Import HTML | `1cd3905` | 3 |
+| #17 | B-045 Import JSON | `5736c2c` | 4 |
+
+**Commit range**: `e113b41..5736c2c` on `release/v2` (Sprint 17 archive → B-045 merge).
+
+### Rollback
+
+No storage schema change — downgrade is safe. v1.13.0 import/export files are forward-compatible with v1.12.0 (v1.12.0 only sees the export shape it authored; the new import paths are additive).
+
+```
+# On release/v2 — revert all 5 Sprint 18 merges in reverse order:
+git revert -m 1 5736c2c 1cd3905 5bf985f 2e4e507 e8c2c25
+
+# OR install the prior zip:
+# 1. Download tab-junkie-v1.12.0.zip from
+#    https://github.com/0xception/tab-junkie/releases/tag/v1.12.0
+# 2. Unload the extension in edge://extensions
+# 3. Load the unpacked v1.12.0 build
+# No storage cleanup required — tj:* partition shapes unchanged.
+```
+
+**Post-rollback behaviour:**
+- B-044 + B-045: Import buttons disappear. Any imports committed while v1.13.0 was active remain in storage (they were written through the normal atomic pathway; v1.12.0 reads them back via standard list-items). No data loss.
+- B-066: Five a11y surfaces revert to `--text-tertiary` (re-introduces sub-AA contrast on those cells only).
+- B-067: json-export reverts to deny-list — functionally byte-identical on valid §32.5 inputs, so exports produced pre- and post-revert are interchangeable.
+- B-068: docs monolith reconstituted — no runtime effect (docs only).
+
+---
+
 ## v1.12.0 — Data Portability Exports + A11y + Tech-Debt (2026-04-18)
 
 **Staged on `release/v2` — pending v2 merge to main. Intended tag: `v1.12.0`.**

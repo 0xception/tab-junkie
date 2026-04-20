@@ -23,17 +23,22 @@
 
 ## Active Items
 
-### [B-045] Import JSON backup
-- **Tier**: Full (M)
-- **Status**: R3 (in progress)
-- **Assigned To**: [frontend-engineer]
-- **Blockers**: None (B-044 merged `1cd3905` on `release/v2` — shared import infra + `MSG_IMPORT_COLLECTION` contract + §33 R2 design all available).
-- **Feature Context**: Consumes `schemaVersion: 1` (the frozen §32.5 shape). Validates and automatically repairs: orphaned sub-groups, circular references, duplicate IDs. Count-preview + confirmation mirror B-044. Repair decisions surfaced in post-import summary.
-- **Handoff Notes**: R1 pre-approved. R2 covered by B-044's §33 unified design (`docs/design/33-b-044-b-045-import.md`) — the JSON parse + validator sections are intact and form B-045's implementation contract. Replaces the `background/import/json-validator.js` stub from B-044 with the full implementation. Reuses `background/import/commit.js`, dispatcher, shared export-schema.js, and the preview/commit dialog pattern. Consumes §32.5 allow-list locked by B-067. `schemaVersion` gate: if > KNOWN_VERSION reject with clear error; if = KNOWN_VERSION proceed; if < KNOWN_VERSION apply migration chain (none registered today per §10.6). Test suite baseline is 859/859 after B-044 merge.
+*(all 5 Sprint 18 items are now in "Completed This Sprint" below — sprint closed 2026-04-19)*
 
 ---
 
 ## Completed This Sprint
+
+### [B-045] Import JSON backup — DONE (Wave 4)
+- **Tier**: Full (M)
+- **Merged**: `5736c2c` on `release/v2` (PR #17, 2026-04-19)
+- **Files Changed**: `background/import/json-validator.js` (stub → full 545-line `parseAndValidate` with schemaVersion gate + 4 auto-repair routines + ULID re-mint); `background/import/index.js` (JSON branch wired); `sidepanel/sidepanel.{html,js}` (Import JSON button + file input + preview dialog repair-summary); 3 new test files (64 B-045 tests: 47 validator + 10 dispatch + 7 e2e); NEW `docs/UAT_B-045.md` (1092 lines, 30 cases deferred); `docs/design/33-b-044-b-045-import.md` amended (§33.6 / §33.11 / §33.12 / §33.19 / new §33.20 preferences-only deferred polish); `docs/user-manual/importing-bookmarks.md` + `exporting-data.md` extended; CHANGELOG v1.13.0 + STORE_LISTING.md JSON bullet.
+- **R4**: [code-reviewer] PASS with 3 LOW (preferences-merge doc-note, validateAndRepair alias, breakCycles perf note), [security-reviewer] PASS zero findings (prototype-pollution defense sufficient by construction; L-1 regression added in R5), [qa-reviewer] PASS with 1 MEDIUM (preferences-only backup DEFERRED for UAT decision) + 3 LOW.
+- **R5**: 3 prototype-pollution regression tests (sec-proto-1/2/3) + 2 AC-gap tests. 918 → 923 passing. UAT plan DEFERRED for user Edge execution.
+- **R6**: §33 chapter amended; new §33.20 preferences-only policy deferred.
+- **R7**: user manual JSON section, CHANGELOG, STORE_LISTING updated.
+- **Test suite**: 859 → 923 green (+64 new B-045 tests). `./build.sh`: clean (184 K zip).
+- **Follow-on polish items** (for Sprint 19 triage): preferences-only backup support (§33.20 MEDIUM); remove `validateAndRepair` alias; repair-summary plain-language rewrite; `breakCycles` adversarial-input hardening; "Replace all bookmarks?" dialog heading scope for JSON.
 
 ### [B-044] Import HTML (Netscape bookmarks) — DONE (Wave 3)
 - **Tier**: Full (M)
@@ -87,3 +92,62 @@
 - **R5** B-044 + B-045 only (Full tier). B-068 / B-066 / B-067 on Fast Track rely on the existing suite + `./build.sh` staying green.
 - **R6** single architect covers B-068 + B-044 + B-045 — update the now-split `docs/design/*` slices in place.
 - **R7** batched at sprint close.
+
+---
+
+## Gate 4 — Release Checklist (verified 2026-04-19)
+
+| # | Check | Status |
+|---|-------|--------|
+| 1 | All R4 review findings resolved (no open CRITICAL/HIGH) | ✅ — every HIGH/CRITICAL resolved inline; LOWs filed for Sprint 19 polish triage |
+| 2 | All R5 automated tests passing | ✅ — 923/923 green on `feature/B-045-import-json` pre-merge; release/v2 post-merge (commit `5736c2c`) |
+| 3 | UAT sign-off recorded | ⏳ DEFERRED — 6 UAT plans (B-042, B-043, B-048, B-029, B-059, B-044, B-045 — ~165 cases total) per established pattern; not a blocker per precedent, must be run before v2 → main merge |
+| 4 | No open blockers in `SPRINT.md` | ✅ |
+| 5 | `docs/design/*` slices updated (post-B-068 structure) | ✅ — §33 authored in R2 + amended in B-044 R6 + extended in B-045 R6 |
+| 6 | `manifest.json` permissions reviewed | ✅ — zero additions across all 5 Sprint 18 items |
+| 7 | `./build.sh` produces clean package | ✅ — 184 K zip (post-B-045) |
+| 8 | Rollback plan documented for any storage schema changes | ✅ — §33.13 (import destructive replace + export-first safety net) |
+| 9 | README / user manual updated for user-facing features | ✅ — `docs/user-manual/importing-bookmarks.md` created for B-044 + extended for B-045 |
+| 10 | `BACKLOG.md` — all Sprint 18 items `done` | ✅ (50/69) |
+| 11 | `BACKLOG_BOARD.md` — progress dashboard + summary accurate | ✅ (72%, 0 in progress, Sprint 18 closed) |
+| 12 | `SPRINT.md` "Completed This Sprint" reflects all 5 items | ✅ |
+| 13 | `SPRINT_ARCHIVE.md` updated with Sprint 18 entries | ⏳ — pending [release-manager] → archive step |
+
+**Gate 4 verdict**: PASS conditional on post-release archive step.
+
+---
+
+## Sprint Retrospective — Sprint 18
+
+### Velocity
+
+- **Planned (pre-kickoff)**: 4 items — B-044 (M), B-045 (M), B-066 (S), B-067 (S). Total: 2M + 2S.
+- **Scope-added mid-sprint**: B-068 (S, Wave 0 docs restructure — approved by product owner 2026-04-19 as pre-R2 infrastructure to reduce agent context load on subsequent R2/R4/R6 rounds).
+- **Completed**: 5 items / 2M + 3S. 100% of planned scope plus the mid-sprint addition.
+- **Carried over**: 0.
+- **Test suite growth**: 806 → 923 (+117 tests across all 5 items).
+
+### What Went Well
+
+1. **B-068 Wave 0 paid off immediately.** Splitting `SOLUTION_DESIGN.md` (485 KB → ~4 KB index) and `SPRINT_FINDINGS.md` (185 KB → ~1 KB index) into per-chapter / per-sprint slices reduced agent context load on every subsequent R2/R4/R6 round. Byte-identical content drift (AC7) gave us a near-zero-risk refactor that compounded value across the remaining 4 items.
+2. **Sprint 17 retro action items delivered.** C-7 (allow-list / deny-list direction verification) was surfaced in every R4 review touch where it applied (B-067, B-045) — zero disguised-deny-list implementations shipped. R4 reviewer prompts explicitly probed for the inverse pattern.
+3. **R4 parallel reviewer pattern held firm.** On Full-tier B-044 + B-045, 3 simultaneous R4 reviewers surfaced 1 HIGH + 4 MEDIUM + 13 LOW findings between them — all addressed inline, deferred with rationale, or filed as follow-on polish. No finding was missed, no reviewer produced a rubber-stamp.
+4. **R2-as-contract-not-scripture worked.** B-044's R3 engineer discovered the DOMParser SW-context impossibility, proposed a hand-rolled tokenizer, and got it endorsed by both [code-reviewer] + [security-reviewer] as architecturally safer than R2's spec. R6 documented the deviation permanently. The pipeline absorbed the mid-flight course correction without breaking the tier gate.
+
+### What to Improve
+
+1. **Pre-R2 feasibility sniff-test missing.** R2 specified `DOMParser('text/html')` in an MV3 service-worker context — a 30-second sanity check (`chrome://extensions` → inspect SW → `typeof DOMParser`) would have caught this before R3 started. Avoidable rework for next sprint.
+2. **Deferred-UAT debt growing.** 6 plans now DEFERRED: B-042, B-043, B-048, B-029, B-059, B-044, B-045 = ~165 cases. Acceptable under precedent but risks crystallizing into technical UAT debt. Needs a burndown plan before v2 → main.
+3. **Late-surfacing empty-state UX (QA B-045 MEDIUM #1).** The "preferences-only backup rejected" case wasn't in R2's design — surfaced only during R4 QA. Suggests R2 Correctness Checklist is missing an "empty-state coverage" item.
+
+### Action Items for Sprint 19
+
+- [ ] **[solution-architect]** — Add **C-8** to R2 Correctness Checklist: "SW-context feasibility — if the design prescribes a browser API in the service worker (DOMParser, `document`, `window`, `CSS.paintWorklet`, etc.), verify SW has access before R3 starts (quick REPL check)." [HIGH]
+- [ ] **[solution-architect]** — Add **C-9** to R2 Correctness Checklist: "Every product-path empty-state must be explicitly designed (zero-items, zero-groups, partial-preferences, zero-network, zero-matches) — enumerate expected UI behavior for each." Prevents late-surfacing UX MEDIUMs. [HIGH]
+- [ ] **[scrum-master]** — Schedule a UAT burndown window in Sprint 19 — budget Fast-Track-S equivalent for user to execute 4–6 deferred UAT plans. Don't let the debt grow past 10 items. [MEDIUM]
+
+---
+
+## Sprint Close
+
+**Status**: CLOSED 2026-04-19. v1.13.0 release pending [release-manager] execution.

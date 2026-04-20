@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-19 · **Version:** 2.0 · **Total Items:** 69
+**Updated:** 2026-04-19 · **Version:** 2.0 · **Total Items:** 69 · **Sprint 18 closed — v1.13.0**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████░░░░░░  71% (49/69)  [1 in progress]
+Overall Progress    ██████████████░░░░░░  72% (50/69)  [0 in progress]
 ```
 
 ### Legend
@@ -77,7 +77,7 @@ Overall Progress    ██████████████░░░░░░
 ✅ B-042 — Export to HTML (Netscape bookmarks) · 🟠 · M
 ✅ B-043 — Export to JSON backup · 🟠 · M
 ✅ B-044 — Import HTML with count preview & flattening · 🟠 · M
-🔄 B-045 — Import JSON with validation & repair · 🟠 · M
+✅ B-045 — Import JSON with validation & repair · 🟠 · M
 ⬜ B-046 — Global keyboard shortcuts (popup + standalone) · 🟠 · S
 ✅ B-047 — In-panel keyboard shortcuts (select-all, clear) · 🟠 · XS
 ✅ B-048 — Item visual states (live / active / drifted / audible / selected) · 🟠 · M
@@ -117,7 +117,7 @@ Overall Progress    ██████████████░░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 49 | 71% |
-| 🔄 In Progress | 1 | 1% |
+| ✅ Done | 50 | 72% |
+| 🔄 In Progress | 0 | 0% |
 | ⬜ To Do | 17 | 25% |
 | 🧊 Icebox | 2 | 3% |
