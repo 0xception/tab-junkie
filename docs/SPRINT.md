@@ -1,112 +1,153 @@
 # Current Sprint
 
-*Sprint 22 — Drag foundation attempt; B-030 reverted mid-sprint due to perf regression + correctness bug. Closed 2026-04-21 without release. Drag work slips one sprint — re-architected re-implementation scheduled for S23.*
+*Sprint 23 — Drag foundation v2: B-030 re-architected + B-009 + B-033. Kicked off 2026-04-21 per FEATURE_PARITY_ROADMAP.*
+
+Second attempt at the drag foundation after the S22 revert. Every Sprint 22 retro action item is **explicitly addressed** at kickoff (see "Retro Action-Item Application" below) so the lessons don't recur.
 
 ---
 
-## Sprint Readiness (Gate 6) — original scope
+## Sprint Readiness (Gate 6)
 
-Kicked off 2026-04-20 per FEATURE_PARITY_ROADMAP with B-030 (L) + B-009 (S) + B-033 (S) — drag foundation theme.
+- ✅ Scope approved: B-030 L (Spike-First tier 3) + B-009 S (Fast Track) + B-033 S (Fast Track)
+- ✅ Total effort: 1L + 2S — matches P-1 (one L max) + P-2 (S pairs with L)
+- ✅ **Deps-resolved check** (Sprint 20 B-071 rule):
+  - **B-030** (Item drag-reorder v2): deps B-001 ✅, B-008 ✅ — both resolved; no new deps vs S22 attempt
+  - **B-009** (Drag-to-expand collapsed): deps B-008 ✅, B-030 ⬜ (in-sprint) — resolved per "done OR in-sprint" rule
+  - **B-033** (Drag saved+live to Open Tabs → demote): deps B-017 ✅, B-030 ⬜ (in-sprint), B-055 ✅ — all resolved
+- ✅ Sprint 22 closed 2026-04-21 WITHOUT release; v1.16.0 remains live on `release/v2`; archive commit `772364e`
+- ✅ **Post-S22-revert baseline**: 979/979 tests green; 605 K zip; 66 files; no code-surface residue from the reverted B-030 work (clean `git revert`)
 
 ---
 
-## Scope Change Log
+## Retro Action-Item Application (explicit — do NOT skip)
 
-**2026-04-20 — S22 ↔ S23 swap at kickoff** (original entry preserved). Applied before build started; no impact on retrospective.
+Per Sprint 22 retrospective `docs/SPRINT_ARCHIVE.md`. Each HIGH/MEDIUM item gets a here's-how-we're-applying-it note at kickoff, not after-the-fact.
 
-**2026-04-21 — B-030 reverted mid-sprint (MAJOR scope change)**. After R1 + R2 + R3 + R5 + R6 shipped (PR #27, commit `bfe0559`), product-owner UAT smoke test in Edge surfaced two blocker-grade issues:
-1. **Correctness**: same-group reorder indicator positioned correctly but drop produced no actual reorder. Cross-group move worked, drop-onto-Ungrouped worked; only same-group silently failed.
-2. **Performance**: cumulative drag-over lag that compounded the longer the drag continued, affecting both the new item drag AND the pre-existing B-008 group drag (regression).
+### HIGH-1: R2 perf decisions MUST be R3 ACs
 
-Root-cause analysis in retrospective below. Decision: revert B-030 (`git revert bfe0559` → commit `<this-commit>`) rather than patch forward, because:
-- The perf issue stemmed from skipping the R2-specified rAF coalescing + cached-rect optimisation — that's an architectural gap, not a surface bug.
-- The same-group correctness bug needs Edge-side debug instrumentation that wasn't feasible in-session.
-- B-009 + B-033 were both blocked on B-030 — shipping them on a known-broken foundation would compound the regression.
-- Clean revert preserves the roadmap accounting honestly (one-sprint slip, not a quiet patch-over).
+Per retro: the rAF coalescing + cached rects in S22's R2 §36.3.4 were aspirational notes that R3 silently dropped. This sprint:
 
-**Consequences**: Sprint 22 closes with **zero features shipped** (no v1.17.0 release). B-009 + B-033 revert to `backlog` with their R1 ACs preserved. FEATURE_PARITY_ROADMAP.md updated — drag foundation theme moves to S23; drag stack (B-025 + B-031 + B-032) moves to S24; downstream sprints shift by one.
+- **B-030's updated AC block** (in BACKLOG.md) gains FOUR new perf-guardrail ACs:
+  - `AC16 — dragover handler MUST NOT call getBoundingClientRect outside a rAF callback`
+  - `AC17 — dragover DOM mutations MUST be batched into a single rAF per frame`
+  - `AC18 — per-drag bounding-rect cache is built at dragstart; invalidated only on scroll events within itemListEl`
+  - `AC19 — R5 test suite MUST include an explicit "getBoundingClientRect call count during dragover" assertion with a bounded budget`
+- Enforced in R4 [code-reviewer]: grep for `getBoundingClientRect` inside the dragover handler body → any hit outside a rAF closure is a REJECT.
+
+### HIGH-2: R1 authors per-feature UAT plans (including perf probes)
+
+Per retro: in S22, UAT plans were deferred to "R3 or later" and never materialised. This sprint:
+
+- **R1 is blocked from closing** until `docs/UAT_B-030.md`, `docs/UAT_B-009.md`, and `docs/UAT_B-033.md` exist on the feature branch with ≥ 6 cases each.
+- **B-030's smoke UAT plan MUST include perf probes**: (a) continuous 10-second drag → measure cumulative lag; (b) simulated 500-item drag budget — pointer-follow observed ≤ 20ms (real-world headroom above the 16ms AC10 target); (c) `getBoundingClientRect` call-count ≤ `(drag duration seconds) * 60 + 2 * (item count in active group)` over the full drag.
+- **Every UAT plan also includes a "same-group reorder" case** (specifically: drag first item to last position, then drag last to first; assert visible reorder happens AND persists across reload).
+
+### HIGH-3: L items require in-browser UAT BEFORE PR merge
+
+Per retro: S22 B-030 was merged with R4 inline smoke-check but UAT smoke-test only ran the next day, after merge. This sprint:
+
+- **B-030 PR gating rule**: no merge until product-owner executes the smoke UAT in Edge and reports ≥ 6/8 cases PASS (any of the perf/correctness cases must be PASS to merge).
+- **Wave 0 order**: R1 → R2 → R3 BUILD → R4 inline reviews → **PRE-MERGE UAT** (pause for product-owner) → R5 automated tests → R6 close → merge.
+- Fast Track B-009 + B-033 retain the existing "smoke check is the merge gate" pattern (they're S, not L, and runtime behaviour is simpler).
+
+### MEDIUM-1: Fake-DOM drag simulation in tests
+
+Per retro: S22 automated tests covered pure helpers + backend, but not the sidepanel ↔ storage wiring where the same-group-reorder bug lived. This sprint:
+
+- **AC20 added to B-030**: `tests/b030-item-drag-reorder.test.js` MUST include a primitive fake-DOM drag simulation exercising the full sidepanel path (dragstart → dragover × 3 → drop → dispatch). Four cases: same-group drag-to-end, same-group drag-to-start, cross-group, drop-onto-Ungrouped.
+- Reuses the `chrome-mock` pattern; DOM shim follows the `tests/b054-sidepanel.test.js` precedent (FakeNode class).
+
+### MEDIUM-2 (from S22 retro): same-group reorder dedicated test
+
+Per retro: same-group drag in S22 silently dropped writes — no test caught it because the cases were implicit (first-to-last, last-to-first happened to exercise reorder but the bug was something else in wiring).
+
+- **AC21 added to B-030**: `tests/sort-order.test.js` (re-created in R3) MUST pin same-group reorder at THREE destinations for a 5-item group: drag-to-start, drag-to-middle, drag-to-end. Asserts final `bulkReorderItems` call is dispatched with the correct update list in each case.
+
+### LOW: frontend-engineer debug strategy for same-group reorder
+
+Per retro: need to pin down the exact failure path. This sprint:
+
+- R3 build starts with a feature-flagged `DRAG_DEBUG` constant (default off); when on, logs every drop-handler branch decision. Engineer walks an Edge UAT pass, confirms execution path matches expectation. Flag stays in code behind `false` default until R4 approval, then removed before merge.
 
 ---
 
 ## Active Items
 
-*(none — sprint closed; all three in-flight items reverted to backlog)*
+### [B-030] Item drag-reorder within / between groups (v2)
+- **Tier**: **Spike-First (L)** — Tier 3 escalation per Sprint 22 retro action-item. R0 spike before R1 validates the rAF-coalesced dragover approach in code (not spec) so R1 ACs can encode real-world perf findings.
+- **Status**: backlog → in-progress (R0 spike next)
+- **Assigned To**: [solution-architect] for R0 spike; then [product-manager] for R1 (incl. UAT plan authoring)
+- **Blockers**: None
+- **Feature Context**: Same scope as S22 attempt — drag-reorder within group + cross-group move + drop-onto-Ungrouped. Full backend shipped then reverted in S22 (`bulkReorderItems` + `MSG_BULK_REORDER_ITEMS` + `computeItemReorder` helper); S23 re-implements with perf + correctness guardrails baked into ACs.
+- **R0 Spike scope**:
+  - Feasibility: rAF-coalesced dragover achieves ≤ 16ms pointer-follow on 500 items (AC10 target).
+  - Risk flags: scroll-during-drag rect invalidation; Edge browser quirks re: `dataTransfer.effectAllowed`; indicator DOM-reparent vs fixed-position overlay.
+  - Major decisions: cache invalidation strategy (on scroll vs on every frame vs hybrid); indicator positioning algorithm (reparent vs transform).
+  - Sub-item candidates: if spike reveals the same-group reorder bug is a broadcast-loop issue, split off as B-083 (or similar); if rAF coalescing alone isn't enough, escalate to a fixed-position overlay indicator (separate follow-up).
+  - Output: written R0 spike note (1-2 pages) in SPRINT.md or a dedicated `docs/spikes/b-030-v2.md`.
+
+### [B-009] Drag-to-expand collapsed group
+- **Tier**: Fast Track (S)
+- **Status**: backlog → in-progress (R1 after B-030 R0 spike)
+- **Assigned To**: [product-manager] for R1 (UAT plan authoring mandatory per HIGH-2)
+- **Blockers**: None — will run R3 after B-030 R3 merges.
+- **Feature Context**: unchanged from S22 attempt — hover-hold 600ms over collapsed group header during drag triggers expansion. ACs already authored in S22 R1 (BACKLOG.md — status flip only, no AC rewrite needed).
+
+### [B-033] Drag saved+live item to Open Tabs → demote
+- **Tier**: Fast Track (S)
+- **Status**: backlog → in-progress (R1 after B-030 R0 spike)
+- **Assigned To**: [product-manager] for R1 (UAT plan authoring mandatory)
+- **Blockers**: None — will run R3 after B-030 R3 merges.
+- **Feature Context**: unchanged from S22 attempt — drag saved+live row into Open Tabs section → `MSG_DEMOTE_ITEM` (existing message from B-017). ACs already authored in S22 R1.
 
 ---
 
 ## Completed This Sprint
 
-*(none — B-030 R1+R2+R3+R5+R6 work was shipped as PR #27 but reverted as commit `<revert-commit>`; no items kept in release/v2 state)*
+*(none yet — sprint just kicked off)*
 
 ---
 
-## Gate 4 — Release Checklist (2026-04-21)
+## Planned Pipeline Parallelization
 
-| # | Check | Status |
-|---|-------|--------|
-| 1 | All R4 review findings resolved | N/A — no items shipped |
-| 2 | All R5 automated tests passing | ✅ — **979/979** (baseline restored post-revert) |
-| 3 | UAT sign-off | ⚠️ — B-030 UAT smoke test FAIL (2/8 cases); triggered revert |
-| 4 | No open blockers | ✅ |
-| 5 | `docs/design/*` slices updated | Reverted (§36 chapter removed) |
-| 6 | `manifest.json` permissions reviewed | ✅ — zero changes |
-| 7 | `./build.sh` produces clean package | ✅ |
-| 8 | Rollback plan documented | ✅ — clean `git revert` executed |
-| 9 | README / user manual updated | N/A — no user-visible change |
-| 10 | `BACKLOG.md` — all Sprint 22 items status accurate | ✅ (B-030/B-009/B-033 back to `backlog`) |
-| 11 | `BACKLOG_BOARD.md` — dashboard accurate | ✅ |
-| 12 | `SPRINT.md` reflects actual outcome | ✅ |
-| 13 | `SPRINT_ARCHIVE.md` updated | ⏳ — post-close archive step |
+- **R0 [solution-architect]**: B-030 spike (~1–2 hours). Output: perf feasibility note + cache-invalidation decision + indicator-strategy decision + sub-item split (if any).
+- **R1 [product-manager]**: All three items — R1 AC refinement + smoke UAT plan authoring. MUST NOT close R1 until all three `docs/UAT_B-*.md` plans exist with ≥ 6 cases each.
+- **R2 [solution-architect]**: B-030 only. Incorporates R0 spike findings into a locked architecture. C-1..C-9 checklist. All perf specs become explicit ACs (HIGH-1).
+- **R3 sequencing**:
+  1. **Wave 0 — B-030 R3** ([frontend-engineer]): drag infrastructure with perf guardrails baked in. Feature-flagged `DRAG_DEBUG` during build; removed pre-merge.
+  2. **Wave 1 — B-009 + B-033 R3** (parallel Fast Track after B-030 merges).
+- **R4** per item:
+  - **B-030**: [code-reviewer] + [security-reviewer] + [qa-reviewer] — 3 parallel (Full tier). **Enforcement**: [code-reviewer] greps for `getBoundingClientRect` outside rAF → REJECT.
+  - **B-009, B-033**: [code-reviewer] + [security-reviewer] parallel (Fast Track).
+- **PRE-MERGE UAT for B-030** (NEW gate per HIGH-3): product-owner executes `docs/UAT_B-030.md` in Edge → ≥ 6/8 cases PASS before PR merge.
+- **R5** — B-030 only (Full tier automated tests with fake-DOM drag simulation per MEDIUM-1). B-009 + B-033 rely on existing suite + build green.
+- **R6** [solution-architect] — **new** chapter `docs/design/36-b-030-item-drag-reorder-v2.md` (NOT the reverted §36; this is the v2 close). Documents as-shipped architecture + S22→S23 lessons-learned addendum.
+- **R7** [technical-writer] — CHANGELOG + user manual update.
 
-**Gate 4 verdict**: PASS (zero features to release; revert verified clean).
+### Cross-Item Parallelization (per CLAUDE.md P-1/P-2/P-3)
 
----
-
-## Sprint Retrospective — Sprint 22
-
-### Velocity
-
-- **Planned**: B-030 L + B-009 S + B-033 S (3 items, ~L + 2S)
-- **Shipped**: 0 items (B-030 merged then reverted; B-009 + B-033 never started R3)
-- **Work output**: R1 ACs for all 3 items + R2 architecture for B-030 + R3/R5/R6 for B-030 authored and merged, then reverted
-- **Tests**: 979 → 997 (during B-030) → 979 (after revert). Net zero.
-- **Release**: none (v1.17.0 skipped; next release will be v1.17.0 in S23 if drag foundation v2 ships clean)
-
-### What Went Well
-
-1. **Gate 6 deps-resolved check (B-071) caught the S22↔S23 ordering mismatch at kickoff.** Without that check, B-025 + B-031 + B-032 would have been attempted first with B-030 as an unmet dep — likely compounding the eventual failure. The new checklist item earned its keep on its second sprint.
-2. **Product-owner UAT smoke test surfaced the defect before B-009/B-033 layered on top.** If I'd proceeded to Wave 1 without the check-in, the drag helpers would have inherited the broken foundation. The "pause-for-UAT-before-next-wave" discipline worked as designed.
-3. **Clean revert restored baseline in one commit.** `git revert bfe0559` undid the full B-030 surface (9 files, 850 LoC, 18 tests) without touching unrelated work. No rollback friction.
-
-### What to Improve
-
-1. **HIGH — R2 perf specs MUST be implemented in R3, not aspirational.** My R2 §36.3.4 explicitly said "rAF-coalesced indicator writes, bounding-rect reads cached per-drag". My R3 build did neither — the dragover handler recomputed rects and moved DOM on every event (60–120 Hz), causing compounding layout thrash. **Future R2 perf decisions must be encoded as R3 code guardrails** (e.g., an AC: "dragover handler MUST NOT call getBoundingClientRect outside a rAF callback") so R3 can't silently drop them.
-2. **HIGH — Drag features need dedicated UAT plan authored at R1, not deferred to S27.** I filed `docs/UAT_B-030.md` as "TBD during R3" per the roadmap's smoke-UAT protocol, but never actually wrote it. If the UAT plan had been authored with perf-specific probes ("drag continuously for 10 seconds; measure cumulative lag") it would have caught the issue at R5, before merge. **Next time: R1 authors the smoke UAT — the plan is a design artefact, not post-hoc documentation.**
-3. **MEDIUM — Same-group vs cross-group branching had no dedicated test.** My `computeItemReorder` had a "no-op detection" path for same-group same-position drops, and my pure-helper tests covered the happy path, but I didn't explicitly test same-group reorder at multiple destinations (only "first to last" and "last to first" — boundary cases that happened to work in the simulated backend). The real-world bug (same-group reorder silently dropping) was invisible because the backend `bulkReorderItems` test did work, and the pure helper test did work — but the sidepanel DOM-to-helper wiring had a bug that only manifests in a real browser. **Next time: add sidepanel-side drag simulation (even a primitive fake-DOM test) for drag flows, not just pure-helper + backend tests.**
-4. **LOW — UAT smoke test was ad-hoc, not plan-driven.** The user and I walked through 8 checks I generated on the fly. Some were strong (Esc cancel, cross-group move, perf timeline), some were weak (e.g., "tooltip shows disclosure" — barely a smoke-signal). **Next time: pre-authored UAT plan for every feature; walkthrough drives the plan, not the other way around.**
-
-### Action Items for Sprint 23 (Drag Foundation v2)
-
-- [ ] **[scrum-master]** S23 scope: B-030 re-architected + B-009 + B-033. Treat as a new Full-tier L for B-030 (Spike-first tier 3 escalation is optional but recommended given the revert). [HIGH]
-- [ ] **[product-manager]** Author `docs/UAT_B-030.md` in R1 with explicit perf probes (continuous 10-second drag → measure cumulative lag; getBoundingClientRect call-count budget). [HIGH]
-- [ ] **[solution-architect]** R2 for B-030 v2 MUST include explicit code guardrails for perf decisions — "dragover handler calls rAF and batches DOM writes" as an AC, not a note. Consider an R3 lint rule or ESLint no-synchronous-layout-in-dragover pattern. [HIGH]
-- [ ] **[frontend-engineer]** R3 debug strategy for same-group reorder: add targeted console.log at every drop-handler branch in a feature-flagged build, walk an Edge UAT pass, confirm execution path matches expectation. Remove logs before merge. [MEDIUM]
-- [ ] **[test-engineer]** Add a primitive fake-DOM drag simulation to `tests/b030-item-drag-reorder.test.js` that exercises the full sidepanel drag path (dragstart → dragover → drop → dispatch). Cover same-group drag-to-end, same-group drag-to-start, cross-group, drop-onto-Ungrouped. [MEDIUM]
-- [ ] **Roadmap slip**: all sprints S23+ shift by one. Update FEATURE_PARITY_ROADMAP.md accordingly. [HIGH, done in same commit as this revert]
-
-### R4 Findings Summary (Sprint 22)
-
-- **B-030**: 0 findings at R4 code-review/security-review/qa-review smoke-checks. UAT found 2 blocker-grade issues (correctness + perf). The smoke-check process didn't catch either — because my R4 was a self-attested inline review without a dedicated agent, and the perf issue required instrumented Edge testing that the smoke-check doesn't simulate.
-- **Lesson**: R4 smoke-check is a cheap sanity gate; it is NOT a substitute for in-browser UAT. For L items, UAT must happen BEFORE the PR merges, not after.
+- P-1 Max one L/XL active: ✅ one L (B-030 Spike-First); no other L/XL.
+- P-2 S/XS pair with anything: ✅ B-009 + B-033 pair with B-030.
+- P-3 Max two M in parallel: ✅ zero M items.
+- P-4 Interleave, don't overlap: B-030 R3 + pre-merge UAT + merge BEFORE B-009 + B-033 R3 start.
 
 ---
 
-## Sprint Close
+## Sprint 23 Goals (Definition of Success)
 
-**Status**: CLOSED 2026-04-21. **Zero releases.** v1.16.0 remains the current production tag on `release/v2`.
+1. B-030 drag-reorder infrastructure shipped and **UAT-validated in Edge before PR merge** — Full tier L with R0 spike + R1-authored UAT plan.
+2. B-009 drag-to-expand + B-033 drag-to-demote shipped on top of B-030.
+3. All three items have R1-authored UAT plans on disk (`docs/UAT_B-030.md` with perf probes, `docs/UAT_B-009.md`, `docs/UAT_B-033.md`).
+4. B-030 test coverage includes fake-DOM drag simulation covering the full sidepanel path.
+5. v1.17.0 ships drag foundation v2 (the release S22 was meant to be).
+6. Zero S22-style regressions: B-008 group drag remains performant; same-group reorder works; no UAT FAIL on core cases.
 
-### Follow-on for Sprint 23
+---
 
-Per the updated FEATURE_PARITY_ROADMAP:
-- **S23 theme**: Drag foundation v2 (B-030 re-architected) + B-009 + B-033. Smoke UAT plan authored in R1 for each item.
-- Subsequent sprints shift by one: S24 drag stack (B-025 + B-031 + B-032); S25 quick search (B-022); S26 group jump + standalone; S27 shortcuts + prefs + new tab page; S28 comprehensive UAT; S29 TBD v2→main.
+## Scope Change Log
+
+*(none yet)*
+
+---
+
+## Status: ACTIVE — R0 spike for B-030 next
