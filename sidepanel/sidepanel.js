@@ -16,7 +16,6 @@ import {
   MSG_CLOSE_TABS,
   MSG_BULK_DELETE_ITEMS,
   MSG_BULK_UPDATE_ITEMS,
-  MSG_BULK_REORDER_ITEMS,
   MSG_PROMOTE_TAB,
   MSG_EXPORT_COLLECTION,
   MSG_IMPORT_COLLECTION,
@@ -62,11 +61,6 @@ import {
   filterGroupParentCandidates,
   translateGroupError,
 } from '../shared/group-nesting.js';
-
-/* B-030 — pure helper that computes the per-item sortOrder update spec for
-   a drag-reorder drop event (within group or cross-group). Keeps drop
-   computation DOM-free + testable in isolation (B-065 precedent). */
-import { computeItemReorder } from '../shared/sort-order.js';
 
 /* B-052: pre-lowercased in-memory search index. §34 (docs/design/34) is the
    authoritative spec. The module is pure (no DOM); sidepanel owns the DOM-
@@ -260,8 +254,6 @@ let _toastTimer = null;
 let _dragSrcGroupId = null;
 let _dragInitiatedFromHandle = false;
 let _pendingGroupsRender = false;
-/* B-030 — item-drag state. Non-null while an item-row drag is in flight. */
-let _itemDragState = null;
 
 const dropIndicatorEl = document.createElement('div');
 dropIndicatorEl.className = 'drop-indicator';
@@ -2957,11 +2949,6 @@ function buildItemRow(item, liveStates, driftRecords) {
   row.setAttribute('role', 'listitem');
   row.setAttribute('tabindex', '0');
   row.dataset.itemId = item.id;
-  /* B-030 AC1 — every item row is draggable. Title discloses the native-DnD
-     keyboard-inaccessibility limitation per AC12 (matches B-008 group-drag
-     pattern). */
-  row.draggable = true;
-  row.title = 'Drag to reorder (keyboard reorder not yet available)';
 
   const live = liveStates?.[item.id];
   const drifted = driftRecords?.[item.id];
@@ -4252,12 +4239,7 @@ function navigateToItem(row) {
 }
 
 /* =========================================================================
-   Group drag-to-reorder (B-008) + Item drag-reorder (B-030) listeners
-
-   Event delegation at #item-list level handles both drag types. A dragstart
-   sets either `_dragSrcGroupId` (group drag, B-008) or `_itemDragState`
-   (item drag, B-030); all subsequent handlers branch on which is active.
-   Both paths reuse the shared `dropIndicatorEl` for the insertion marker.
+   Group drag-to-reorder listeners (B-008)
    ========================================================================= */
 
 itemListEl.addEventListener('mousedown', (e) => {
@@ -4265,26 +4247,6 @@ itemListEl.addEventListener('mousedown', (e) => {
 });
 
 itemListEl.addEventListener('dragstart', (e) => {
-  /* B-030 — item drag takes precedence when the drag originated from an
-     .item-row (not the group drag handle). */
-  const itemRow = e.target.closest('.item-row');
-  if (itemRow && !_dragInitiatedFromHandle) {
-    const groupSection = itemRow.closest('.group-section');
-    const srcGroupIdAttr = groupSection && groupSection.dataset ? groupSection.dataset.groupId : null;
-    const sourceGroupId = srcGroupIdAttr === '__ungrouped__' || !srcGroupIdAttr ? null : srcGroupIdAttr;
-    _itemDragState = {
-      itemId: itemRow.dataset.itemId,
-      sourceGroupId,
-    };
-    e.dataTransfer.effectAllowed = 'move';
-    /* Set a dummy payload so Firefox / some edge cases actually initiate the drag. */
-    try { e.dataTransfer.setData('text/plain', itemRow.dataset.itemId); } catch { /* noop */ }
-    itemRow.classList.add('item-row--dragging');
-    itemListEl.classList.add('is-dragging');
-    return;
-  }
-
-  /* B-008 group drag path (unchanged). */
   const section = e.target.closest('[data-group-id]');
   if (!section) { e.preventDefault(); return; }
   if (!_dragInitiatedFromHandle) { e.preventDefault(); return; }
@@ -4295,44 +4257,6 @@ itemListEl.addEventListener('dragstart', (e) => {
 });
 
 itemListEl.addEventListener('dragover', (e) => {
-  /* B-030 — item-drag indicator positioning. */
-  if (_itemDragState) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-
-    /* Find the nearest valid drop container (a .group-items block) and the
-       insertion point within it. */
-    const containerSelector = '.group-items';
-    const container = e.target.closest(containerSelector);
-    if (!container) {
-      /* Hovering the gap between groups — hide indicator. */
-      dropIndicatorEl.hidden = true;
-      return;
-    }
-
-    /* Collect item-row children (exclude the dragged row + any non-row nodes). */
-    const rows = [...container.children].filter((el) =>
-      el.classList && el.classList.contains('item-row')
-      && el.dataset.itemId !== _itemDragState.itemId);
-
-    /* Decide insertion position by clientY vs each row's midpoint. */
-    let insertBefore = null;
-    for (const row of rows) {
-      const rect = row.getBoundingClientRect();
-      const mid = rect.top + rect.height / 2;
-      if (e.clientY < mid) { insertBefore = row; break; }
-    }
-
-    dropIndicatorEl.hidden = false;
-    if (insertBefore) {
-      insertBefore.before(dropIndicatorEl);
-    } else {
-      container.appendChild(dropIndicatorEl);
-    }
-    return;
-  }
-
-  /* B-008 group drag path. */
   if (!_dragSrcGroupId) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
@@ -4362,79 +4286,6 @@ itemListEl.addEventListener('dragleave', (e) => {
 });
 
 itemListEl.addEventListener('drop', (e) => {
-  /* B-030 — item drag commit. */
-  if (_itemDragState) {
-    e.preventDefault();
-    dropIndicatorEl.hidden = true;
-
-    /* Determine destination group from the indicator's current parent. */
-    const container = dropIndicatorEl.parentElement;
-    if (!container || !container.classList.contains('group-items')) {
-      /* Invalid drop target — treat as cancel. */
-      _cleanupItemDragDom();
-      _itemDragState = null;
-      return;
-    }
-
-    /* Destination group is the container's parent section's data-group-id
-       (or null for Ungrouped which uses the synthetic `__ungrouped__` id). */
-    const destSection = container.closest('.group-section');
-    const destGroupIdAttr = destSection && destSection.dataset
-      ? destSection.dataset.groupId : null;
-    const destGroupId = destGroupIdAttr === '__ungrouped__' || !destGroupIdAttr
-      ? null : destGroupIdAttr;
-
-    /* Compute destIndex: the indicator's current position among sibling item-
-       rows in the container. */
-    const rows = [...container.children].filter((el) =>
-      el.classList && el.classList.contains('item-row')
-      && el.dataset.itemId !== _itemDragState.itemId);
-    const indicatorIdx = [...container.children].indexOf(dropIndicatorEl);
-    /* indicatorIdx counts ALL children; destIndex counts only item-rows
-       positioned before the indicator. */
-    let destIndex = 0;
-    for (let i = 0; i < indicatorIdx; i++) {
-      const child = container.children[i];
-      if (child.classList && child.classList.contains('item-row')
-        && child.dataset.itemId !== _itemDragState.itemId) {
-        destIndex += 1;
-      }
-    }
-
-    const updates = computeItemReorder(
-      _cachedItems,
-      _itemDragState.itemId,
-      destGroupId,
-      destIndex,
-    );
-
-    _cleanupItemDragDom();
-    const itemDragSnapshot = _itemDragState;
-    _itemDragState = null;
-
-    if (updates.length === 0) {
-      /* No-op drop (same-position). No message dispatch. */
-      return;
-    }
-
-    sendMessage(MSG_BULK_REORDER_ITEMS, { updates })
-      .catch((err) => {
-        console.warn('[tab-junkie:b030] bulkReorderItems failed', err);
-        showToast('Couldn\u2019t save new order \u2014 reverting');
-        /* Re-fetch authoritative state to restore any optimistic visual. */
-        Promise.all([sendMessage(MSG_LIST_ITEMS), sendMessage(MSG_LIST_GROUPS)])
-          .then(([itemsResp, groups]) => {
-            _setWindowOrdinalMap(itemsResp.windowMap || {});
-            renderAll(itemsResp.items, groups, itemsResp.liveStates,
-              itemsResp.driftRecords, itemsResp.openTabs);
-            _applyWindowMapToUI();
-          })
-          .catch(() => {});
-      });
-    return;
-  }
-
-  /* B-008 group drag commit (unchanged). */
   e.preventDefault();
   if (!_dragSrcGroupId) return;
   dropIndicatorEl.hidden = true;
@@ -4475,11 +4326,6 @@ itemListEl.addEventListener('dragend', () => {
   itemListEl.querySelector('.dragging-src')?.classList.remove('dragging-src');
   _dragSrcGroupId = null;
   _dragInitiatedFromHandle = false;
-  /* B-030 — item drag cleanup on cancel (Escape or invalid drop). */
-  if (_itemDragState) {
-    _cleanupItemDragDom();
-    _itemDragState = null;
-  }
   if (_pendingGroupsRender) {
     _pendingGroupsRender = false;
     Promise.all([sendMessage(MSG_LIST_ITEMS), sendMessage(MSG_LIST_GROUPS)])
@@ -4492,15 +4338,6 @@ itemListEl.addEventListener('dragend', () => {
       .catch(() => {});
   }
 });
-
-/* B-030 — remove item-drag visual affordances (dragging class, indicator). */
-function _cleanupItemDragDom() {
-  dropIndicatorEl.hidden = true;
-  itemListEl.classList.remove('is-dragging');
-  itemListEl.querySelectorAll('.item-row--dragging').forEach((row) => {
-    row.classList.remove('item-row--dragging');
-  });
-}
 
 /* =========================================================================
    Broadcast listener (B4 — sender validation)
