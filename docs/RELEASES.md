@@ -4,6 +4,55 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.17.0 — Drag Foundation v2 (2026-04-21)
+
+**Tagged on `release/v2` — pending v2 merge to main. Tag: `v1.17.0`.**
+
+Sprint 23 ships the drag infrastructure that Sprint 22 attempted and reverted. This time the R2 perf + correctness decisions shipped as R3 acceptance criteria (not aspirational design notes), and L-tier UAT ran **before** PR merge. Pre-merge UAT caught two blocker-grade regressions — both fixed before merge.
+
+### What's new (user-visible)
+
+- **Drag-and-drop item reorder (B-030)** — drag any bookmark within its group, across groups, or onto Ungrouped. Horizontal insertion indicator shows the drop position; **Escape** cancels without writing. Order persists across reload.
+- **Drag-to-expand collapsed groups (B-009)** — hovering over a collapsed group's header for ~600 ms during a drag auto-expands that group so you can drop into it. Expansion persists.
+- **Drag-to-demote saved+live items (B-033)** — drag a saved+live item onto the Open Tabs section to remove its saved state while keeping the tab open. Toast: "Bookmark removed — tab stays open."
+
+### Architecture highlights
+
+- **Perf**: `dragover` handler is 3 statements only — no `getBoundingClientRect`, no DOM mutations. All DOM work runs via `requestAnimationFrame` coalescing. Bounding-rect cache built once at dragstart, scroll-invalidated only. Transform-positioned indicator (no reparenting during drag).
+- **Correctness**: logical drop state (`_itemDragState.pendingTargetRowId`) is decoupled from visual indicator position — the S22 bug root cause is eliminated by design. Broadcast-race guard checks `_cachedItemsGen` at drop time; re-fetches if stale.
+- **Cross-ownership**: `_computeDropTarget` returns a discriminated union (`'item'` | `'openTabs'`) so B-030 reorder and B-033 demote can never both fire on the same drop event.
+
+### Process wins
+
+- Sprint 22 retro HIGH action items all applied at kickoff:
+  - R2 perf decisions became R3 acceptance criteria (ACs 16–24), not design notes.
+  - R1 authored UAT plans for all three items (including perf probes for B-030).
+  - L items required pre-merge UAT — which caught 2 blocker bugs that R4 smoke-check alone missed.
+  - Fake-DOM drag simulation tests added to pin the S22 failure case.
+
+### Quality
+
+- **Tests**: 979 → **1001 passing** (+22 Sprint 23 sort-order + backend + simulation tests).
+- **Build**: `./build.sh` clean (636 K zip, 67 files).
+- **R4 findings**: 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW across all 3 items.
+- **UAT**: B-030 round 1 → 2 blocker bugs found → fixed → round 2 9/9 PASS. B-009 + B-033 UAT deferred to S28 comprehensive sweep (product-owner option — Fast Track S items don't require pre-merge UAT).
+- **Storage schema**: unchanged. **Permissions**: unchanged.
+
+### Deferred / known limitations
+
+- **Full UAT sweep**: S28 per `FEATURE_PARITY_ROADMAP.md`. `UAT_B-030.md` was executed at merge; `UAT_B-009.md` + `UAT_B-033.md` defer to S28.
+- **B-052 `hashItem`** omits `sortOrder` — same-group reorder takes an explicit `renderAll` fallback in the drop handler rather than the diffAndPatch path. Documented in §36 as a known follow-up optimisation.
+- **Custom drag preview**: v2 uses the browser's default drag ghost. A custom preview with selection count is a follow-up for B-025 multi-item drag in S24.
+- **Touch / mobile**: out of scope per CLAUDE.md desktop-first rule.
+- **GitHub Release publication**: skipped per product-owner direction (tag + zip exist for manual publish later).
+
+### Rollback
+
+- Clean `git revert` path: no storage schema change; no new permissions; no new message types beyond `MSG_BULK_REORDER_ITEMS` (which is uninvoked if reverted).
+- Sprint 22 revert proved the rollback path works.
+
+---
+
 ## v1.16.0 — Polish Burndown + UAT Essentials + Feature Parity Roadmap (2026-04-20)
 
 **Tagged on `release/v2` — pending v2 merge to main. Tag: `v1.16.0`.**

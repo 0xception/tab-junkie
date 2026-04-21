@@ -4,6 +4,20 @@ All notable changes to Tab Junkie are documented in this file.
 
 ## [Unreleased]
 
+## [1.17.0] — 2026-04-21
+
+### Added
+- **Drag-and-drop item reorder** — drag any bookmark row up or down within its group to reorder, or across groups to move it. Drop onto the **Ungrouped** section to ungroup an item. A horizontal insertion indicator shows exactly where the item will land; release to commit, or press **Escape** to cancel without any change. The new order persists across browser restarts.
+- **Drag-to-expand collapsed groups** — while dragging a bookmark, hover over a **collapsed** group's header for about half a second and the group auto-expands so you can drop into it. Fast passes over the header don't trigger the expansion — you have to dwell. The expansion sticks after you drop (persists across reload).
+- **Drag-to-demote saved+live items** — drag a bookmark that's currently open as a live tab onto the **Open Tabs** section, and the bookmark is removed (demoted) while the tab stays open. The section highlights as a valid drop target only for saved+live items — saved-only drags are silently rejected. Success toast confirms: "Bookmark removed — tab stays open."
+
+### Internal
+- Re-architected drag infrastructure after Sprint 22's revert. `dragover` handler is now 3 statements only (no synchronous layout reads, no DOM mutations) — all work runs in a `requestAnimationFrame` callback. Bounding-rect cache built once at dragstart, invalidated only on container scroll. Transform-positioned indicator avoids reparenting during drag. Broadcast-race guard checks the items-generation counter at drop time; re-fetches if a background state change landed mid-drag.
+- New `bulkReorderItems` storage function + `MSG_BULK_REORDER_ITEMS` message (per-item `sortOrder` + optional `groupId` updates in a single `writeTransaction`). Shared `computeItemReorder` helper handles the drop-position math — pure, DOM-free, testable.
+
+### Process
+- Sprint 22's retro HIGH action items were applied explicitly at S23 kickoff. Pre-merge UAT caught two blocker-grade regressions (invisible indicator + same-group reorder no-op); both fixed before PR merge. Full retrospective in `docs/SPRINT_ARCHIVE.md` Sprint 23 entry.
+
 ## [1.16.0] — 2026-04-20
 
 ### Added

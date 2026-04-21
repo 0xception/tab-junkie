@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-21 · **Version:** 2.8 · **Total Items:** 82 · **Sprint 23 active — drag foundation v2**
+**Updated:** 2026-04-21 · **Version:** 2.9 · **Total Items:** 82 · **Sprint 23 closed — v1.17.0 (drag foundation v2 + helpers)**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████████████░░░░░  79% (65/82)  [3 in progress · S23]
+Overall Progress    █████████████████░░░  83% (68/82)  [0 in progress · S24 next]
 ```
 
 ### Legend
@@ -41,7 +41,7 @@ Overall Progress    ███████████████░░░░░
 ✅ B-006 — Create / edit / delete groups with color palette · 🔴 · M
 ✅ B-007 — Sub-group nesting (depth = 1) · 🟠 · M [Sprint 20 Wave 2 — merged 0993189 / PR #24]
 ✅ B-008 — Group reorder & collapse / expand persistence · 🟠 · M
-🔄 B-009 — Drag-to-expand collapsed group · 🟡 · S [S23 Wave 1 — after B-030 v2 lands]
+✅ B-009 — Drag-to-expand collapsed group · 🟡 · S [S23 Wave 1 — merged df4a024 / PR #29]
 ✅ B-010 — Live tab reflection & active-tab highlight · 🔴 · L
 ✅ B-011 — Drift detection & persistence · 🔴 · L
 ✅ B-012 — Audible tab indicator · 🟠 · XS
@@ -65,7 +65,7 @@ Overall Progress    ███████████████░░░░░
 ✅ B-030 — Item drag-reorder within / between groups · 🟠 · L [S23 Wave 0 — merged 791d50e / PR #28; pre-merge UAT 9/9 PASS]
 ⬜ B-031 — Group drag-reorder & nesting via drag · 🟠 · M
 ⬜ B-032 — Auto-scroll during drag · 🟡 · S
-🔄 B-033 — Drag saved+live item to Open Tabs → demote · 🟡 · S [S23 Wave 1 — after B-030 v2 lands]
+✅ B-033 — Drag saved+live item to Open Tabs → demote · 🟡 · S [S23 Wave 1 — merged df4a024 / PR #29]
 🧊 B-034 — Window filter row (2+ windows) · 🟡 · S [absorbed into B-014]
 ⬜ B-035 — Standalone window display mode · 🟡 · M
 ⬜ B-036 — New tab page replacement (optional) · ⚪ · L
@@ -143,7 +143,7 @@ Overall Progress    ███████████████░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 65 | 79% |
-| 🔄 In Progress | 3 | 4% |
+| ✅ Done | 68 | 83% |
+| 🔄 In Progress | 0 | 0% |
 | ⬜ To Do | 12 | 15% |
 | 🧊 Icebox | 2 | 2% |
