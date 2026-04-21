@@ -1708,6 +1708,39 @@ function _sumRepairs(repairs) {
 }
 
 /**
+ * B-080 — build the plain-language repair breakdown array, shared between the
+ * preview-dialog body (`_buildImportPreviewBody`) and the post-import success
+ * toast. Matches the exact B-070 AC3 label wording so both surfaces stay in
+ * sync.
+ *
+ * @param {Object|undefined} repairs
+ * @returns {string[]}  non-empty parts; empty array if no repairs
+ */
+function _plainLanguageRepairParts(repairs) {
+  if (!repairs || typeof repairs !== 'object') return [];
+  const parts = [];
+  if (repairs.orphanedGroups > 0) {
+    parts.push(repairs.orphanedGroups + ' group'
+      + (repairs.orphanedGroups === 1 ? '' : 's')
+      + ' had missing parents, moved to the top level');
+  }
+  if (repairs.cyclesBroken > 0) {
+    parts.push(repairs.cyclesBroken + ' group loop'
+      + (repairs.cyclesBroken === 1 ? '' : 's') + ' fixed');
+  }
+  if (repairs.duplicateIds > 0) {
+    parts.push(repairs.duplicateIds + ' duplicate group/item ID'
+      + (repairs.duplicateIds === 1 ? '' : 's') + ' renumbered');
+  }
+  if (repairs.orphanedItems > 0) {
+    parts.push(repairs.orphanedItems + ' item'
+      + (repairs.orphanedItems === 1 ? '' : 's')
+      + ' with no group moved to Ungrouped');
+  }
+  return parts;
+}
+
+/**
  * B-070 AC1 — detect whether a JSON backup string carries a populated
  * `preferences` object. Used by the zero-bookmark guard to decide between
  * rejecting an empty backup ("Backup contains no bookmarks") and routing a
@@ -1820,25 +1853,9 @@ function _buildImportPreviewBody(counts, filename, format, opts) {
      see one readable footnote rather than a row of bullet points.
      B-070 AC3 — labels rewritten to plain language. */
   if (isJson && repairs) {
-    const parts = [];
-    if (repairs.orphanedGroups > 0) {
-      parts.push(repairs.orphanedGroups + ' group'
-        + (repairs.orphanedGroups === 1 ? '' : 's')
-        + ' had missing parents, moved to the top level');
-    }
-    if (repairs.cyclesBroken > 0) {
-      parts.push(repairs.cyclesBroken + ' group loop'
-        + (repairs.cyclesBroken === 1 ? '' : 's') + ' fixed');
-    }
-    if (repairs.duplicateIds > 0) {
-      parts.push(repairs.duplicateIds + ' duplicate group/item ID'
-        + (repairs.duplicateIds === 1 ? '' : 's') + ' renumbered');
-    }
-    if (repairs.orphanedItems > 0) {
-      parts.push(repairs.orphanedItems + ' item'
-        + (repairs.orphanedItems === 1 ? '' : 's')
-        + ' with no group moved to Ungrouped');
-    }
+    /* B-080 — plain-language labels now come from the shared helper so the
+       preview dialog and the post-import toast stay in sync. */
+    const parts = _plainLanguageRepairParts(repairs);
     if (repairs.preferencesSkipped) {
       parts.push('preferences skipped (invalid shape)');
     }
@@ -2237,7 +2254,14 @@ async function _commitImport(pending) {
           + ', ' + data.groupsImported + ' group'
           + (data.groupsImported === 1 ? '' : 's') + '.';
         if (repairsK > 0) {
-          msg += ' ' + repairsK + ' repair' + (repairsK === 1 ? '' : 's') + '.';
+          /* B-080 — plain-language repair breakdown in the toast, matching
+             the preview-dialog body (B-070 AC3). Previously the toast surfaced
+             only a count ("K repairs"); users had no way to see WHICH repairs
+             happened without re-running an import. This appends the same
+             per-type summary the preview dialog uses. */
+          msg += ' ' + repairsK + ' repair' + (repairsK === 1 ? '' : 's') + ':';
+          const repairParts = _plainLanguageRepairParts(data.repairs);
+          msg += ' ' + repairParts.join(', ') + '.';
         }
         /* B-060 — surface the user's choice in the post-import toast. */
         const dupCount = data.duplicatesSkipped || 0;
