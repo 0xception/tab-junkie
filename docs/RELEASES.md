@@ -4,6 +4,54 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.16.0 — Polish Burndown + UAT Essentials + Feature Parity Roadmap (2026-04-20)
+
+**Tagged on `release/v2` — pending v2 merge to main. Tag: `v1.16.0`.**
+
+Sprint 21 started as the first-class UAT burndown sprint (per Sprint 20 retro HIGH rule) and pivoted mid-sprint to a feature-parity roadmap. Shipped: one UAT-surfaced UX gap (new-group button), four polish items closing 4 lingering R4 LOW findings from Sprints 18–19, and a 7-sprint roadmap targeting comprehensive UAT in S27 + v2→main TBD in S28 (pending product-owner review of S27 results).
+
+### What's new (user-visible)
+
+- **New-group button in the sidepanel header** (B-081). A folder-with-plus icon next to the bookmark-plus button opens the group create dialog directly. Previously, additional groups were only reachable via the Group Picker modal's empty-state CTA, which hid once you had any groups.
+- **Import-success toast breakdown** (B-080). Previously: "2 repairs." Now: "2 repairs: 1 group loop fixed, 1 item with no group moved to Ungrouped" — the same plain-language labels the preview dialog uses.
+
+### Internal / defensive
+
+- **Filter input 256-char cap** (B-079) — bounds pathological long-query pastes. DoS-only security hardening; UX unchanged.
+- **`breakCycles` adversarial-input hardening** (B-078) — `MAX_CYCLE_WALK_DEPTH = 1000` caps the cycle walk on deep adversarial chains. 1500-node cycle test completes in < 100 ms (budget: 10 s).
+
+### Process
+
+- **R1 AC template gains "DoR Gate 7 check" subsection** (B-077) — every AC block states destructive-action confirmation status (retained / waived / N/A) up front. Prevents edge-case ACs from being the only place retention status is documented. Closes Sprint 20 retro MEDIUM.
+
+### UAT
+
+- **B-042 essentials-only pass**: 6/6 essential cases PASS (happy path, keyboard, Chromium round-trip, orphan rescue, XSS probe, Unicode round-trip). 8 non-essential cases SKIP — all covered either by the automated suite or deferred to the S27 comprehensive UAT sweep.
+
+### Feature parity roadmap
+
+- `docs/FEATURE_PARITY_ROADMAP.md` — 7-sprint plan through S27 comprehensive UAT + S28 TBD v2→main merge decision. Product-owner-approved scope: drag-and-drop trilogy, quick-search + group-jump popups, standalone window + new tab page, keyboard shortcuts + popup "Open side panel" button (new B-082), and the 3 XS preference items. Explicitly deferred: B-037 (themes, P2) + B-041 (sync tab order, P2).
+
+### Quality
+
+- **Tests**: 971 → **979 passing** (+8 Sprint 21 polish tests in `tests/sprint-21-polish.test.js`; +3 B-081 markup tests landed mid-sprint).
+- **Build**: `./build.sh` clean (605 K zip, 66 files).
+- **R4 findings**: 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW across all 5 items. Second consecutive zero-findings sprint.
+- **Storage schema**: unchanged. **Permissions**: unchanged.
+
+### Deferred / known limitations
+
+- **Comprehensive UAT sweep**: 9 plans + per-feature smoke plans from S22–S26 — all deferred to S27. B-042 is the only plan with an essentials-PASS record this sprint.
+- **GitHub Release publication**: skipped per product-owner direction (tag + zip exist for manual publish later).
+- **Sprint 20 retro HIGH rule superseded for Sprint 21 only.** S27 is the new first-class UAT sprint.
+
+### Rollback
+
+- All 5 Sprint 21 items are pure-revert-safe (no schema / message / manifest / permission drift).
+- Sprint 21 tag `v1.16.0` can be undone without touching on-disk user data.
+
+---
+
 ## v1.15.0 — Sub-group Nesting + Polish Burndown + Retro Action Items (2026-04-20)
 
 **Tagged on `release/v2` — pending v2 merge to main. Tag: `v1.15.0`.**

@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-20 · **Version:** 2.4 · **Total Items:** 81 · **Sprint 21 active — UAT burndown + polish**
+**Updated:** 2026-04-20 · **Version:** 2.5 · **Total Items:** 82 · **Sprint 21 closed — v1.16.0 (product-owner pivot to feature parity)**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████████████░░░░░  74% (60/81)  [4 in progress · UAT burndown track]
+Overall Progress    ████████████████░░░░  79% (65/82)  [0 in progress · B-082 queued for S26]
 ```
 
 ### Legend
@@ -104,14 +104,16 @@ Overall Progress    ███████████████░░░░░
 ✅ B-069 — Add C-8 SW-context feasibility + C-9 empty-state design to R2 Correctness Checklist · 🟠 · XS
 ✅ B-070 — Sprint 18 follow-on polish bundle (prefs-only backup, alias removal, repair-summary rewrite, JSON dialog heading) · 🟡 · S
 
-## Sprint 21 — UAT burndown (first-class) + process + safety-net polish
+## Sprint 21 — Product-owner pivot: UAT essentials + polish close + feature-parity roadmap
 
-> 0/4 done · 4 in progress · UAT burndown track PRIMARY (target ≥ 4 of 9 plans PASS)
+> 6/6 done · 0 in progress · B-042 UAT essentials PASS (6/6 essential cases) · 8 plans deferred to S27 comprehensive sweep
 
-🔄 B-077 — Add "DoR Gate 7 check" subsection to R1 AC template · 🟡 · XS [Wave 0]
-🔄 B-078 — `breakCycles` adversarial-input hardening · 🟡 · XS [Wave 1]
-🔄 B-079 — Query-length cap on filter input · 🟡 · XS [Wave 1]
-🔄 B-080 — Repair-summary toast plain-language parity · ⚪ · XS [Wave 1]
+✅ B-081 — New-group button in sidepanel header · 🟡 · XS [mid-sprint — merged 05a4049 / PR #25]
+✅ B-077 — Add "DoR Gate 7 check" subsection to R1 AC template · 🟡 · XS [Wave 0 — merged fa1a8df / PR #26]
+✅ B-078 — `breakCycles` adversarial-input hardening · 🟡 · XS [Wave 1 — merged fa1a8df / PR #26]
+✅ B-079 — Query-length cap on filter input · 🟡 · XS [Wave 1 — merged fa1a8df / PR #26]
+✅ B-080 — Repair-summary toast plain-language parity · ⚪ · XS [Wave 1 — merged fa1a8df / PR #26]
+⬜ B-082 — "Open side panel" button in toolbar popup · 🟠 · XS [filed mid-sprint per FEATURE_PARITY_ROADMAP; scheduled S26]
 
 ---
 
@@ -133,7 +135,7 @@ Overall Progress    ███████████████░░░░░
 | Priority | Count | % |
 |----------|-------|---|
 | 🔴 P0 Critical | 14 | 17% |
-| 🟠 P1 High | 33 | 41% |
+| 🟠 P1 High | 34 | 41% |
 | 🟡 P2 Medium | 16 | 20% |
 | ⚪ P3 Nice-to-have | 6 | 7% |
 
@@ -141,7 +143,7 @@ Overall Progress    ███████████████░░░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 60 | 74% |
-| 🔄 In Progress | 4 | 5% |
-| ⬜ To Do | 15 | 19% |
+| ✅ Done | 65 | 79% |
+| 🔄 In Progress | 0 | 0% |
+| ⬜ To Do | 15 | 18% |
 | 🧊 Icebox | 2 | 2% |

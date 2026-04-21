@@ -4,6 +4,21 @@ All notable changes to Tab Junkie are documented in this file.
 
 ## [Unreleased]
 
+## [1.16.0] — 2026-04-20
+
+### Added
+- **New group button in the sidepanel header** — a folder-with-plus icon next to the bookmark-plus button opens the group create dialog directly. Previously you could only create additional groups through the Group Picker modal's empty-state CTA, which hid once you had at least one group. Now the `+` group button is always visible.
+
+### Changed
+- **Import success toast** now shows the plain-language repair breakdown in-line (matching the preview dialog). Previously you saw a count ("2 repairs") without knowing which repairs happened; now you get "2 repairs: 1 group loop fixed, 1 item with no group moved to Ungrouped" right in the toast.
+- **Filter input** has a 256-character length cap so a pathological long-query paste can't force unbounded comparisons against the search index. Default UX unchanged — just a ceiling for defense.
+
+### Internal
+- **JSON import `breakCycles` hardening**: adversarial backups with very deep parentId chains (≥ 1000 levels) now terminate in bounded time — the cycle walk caps at 1000 and falls through to the orphan-repair pass. Fabricated-ancestor references (pointing at ids not in the input) were already short-circuited; now also covered by a dedicated test.
+
+### Process
+- **R1 AC authoring template** gains a mandatory "DoR Gate 7 check" subsection — every AC block states up front whether destructive-action confirmation is retained, waived, or N/A, with rationale. Prevents edge-case ACs from being the only place retention status is documented (Sprint 20 B-007 AC15 near-miss). See `CLAUDE.md § Round 1: Definition`.
+
 ## [1.15.0] — 2026-04-20
 
 ### Added
