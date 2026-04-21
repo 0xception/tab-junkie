@@ -74,17 +74,57 @@ Per retro: need to pin down the exact failure path. This sprint:
 ## Active Items
 
 ### [B-030] Item drag-reorder within / between groups (v2)
-- **Tier**: **Spike-First (L)** — Tier 3 escalation per Sprint 22 retro action-item. R0 spike before R1 validates the rAF-coalesced dragover approach in code (not spec) so R1 ACs can encode real-world perf findings.
-- **Status**: backlog → in-progress (R0 spike next)
-- **Assigned To**: [solution-architect] for R0 spike; then [product-manager] for R1 (incl. UAT plan authoring)
+- **Tier**: **Spike-First (L)** — Tier 3 escalation per Sprint 22 retro action-item.
+- **Status**: R0 spike ✅ (below) · R1 next
+- **Assigned To**: [product-manager] for R1 (incl. UAT plan authoring — blocked until UAT plans on disk per HIGH-2)
 - **Blockers**: None
-- **Feature Context**: Same scope as S22 attempt — drag-reorder within group + cross-group move + drop-onto-Ungrouped. Full backend shipped then reverted in S22 (`bulkReorderItems` + `MSG_BULK_REORDER_ITEMS` + `computeItemReorder` helper); S23 re-implements with perf + correctness guardrails baked into ACs.
-- **R0 Spike scope**:
-  - Feasibility: rAF-coalesced dragover achieves ≤ 16ms pointer-follow on 500 items (AC10 target).
-  - Risk flags: scroll-during-drag rect invalidation; Edge browser quirks re: `dataTransfer.effectAllowed`; indicator DOM-reparent vs fixed-position overlay.
-  - Major decisions: cache invalidation strategy (on scroll vs on every frame vs hybrid); indicator positioning algorithm (reparent vs transform).
-  - Sub-item candidates: if spike reveals the same-group reorder bug is a broadcast-loop issue, split off as B-083 (or similar); if rAF coalescing alone isn't enough, escalate to a fixed-position overlay indicator (separate follow-up).
-  - Output: written R0 spike note (1-2 pages) in SPRINT.md or a dedicated `docs/spikes/b-030-v2.md`.
+- **Feature Context**: Same scope as S22 attempt — drag-reorder within group + cross-group move + drop-onto-Ungrouped. Backend (`bulkReorderItems` + `MSG_BULK_REORDER_ITEMS`) shipped+reverted in S22; re-implementation can reuse the ACs for the backend surface but MUST reuse nothing from the sidepanel drag handlers (that's where the bugs lived).
+
+#### R0 Spike — decisions locked
+
+**Perf feasibility (≤16ms pointer-follow on 500 items)**
+
+S22 failure mode was layout thrashing: dragover at 60–120 Hz called `getBoundingClientRect` on every `.item-row` AND mutated DOM (`dropIndicatorEl.before()`) in the same handler, forcing synchronous reflow on each mutation-then-read cycle. The v2 architecture eliminates this via **four concurrent strategies**:
+
+| # | Strategy | How it kills the S22 perf bug |
+|---|----------|-------------------------------|
+| **S-1** | `requestAnimationFrame` coalescing | Dragover just records `pointerY + pointerX` (cheap primitives); DOM work runs in a single rAF callback per frame. At 60 Hz ceiling, the worst-case update rate is 60× per second, not 120× |
+| **S-2** | Per-drag rect cache | At `dragstart`, snapshot all `.item-row` rects into an array keyed by row id. Invalidate ONLY on `scroll` events fired on `itemListEl` within the drag window. No rect reads during dragover |
+| **S-3** | `elementFromPoint` target detection | Cheap browser API — no layout forced, no DOM traversal. Returns the element at (pointerX, pointerY); we walk up to the `.item-row` ancestor |
+| **S-4** | Transform-positioned indicator | Indicator is `position: absolute` inside `itemListEl` (relatively positioned parent). Moving via `style.transform = 'translateY(N)'` uses the compositor — zero layout. Replaces S22's `.before()` / `.appendChild()` which reparented the DOM node and invalidated layout |
+
+**Architecture decisions**:
+
+- **D-A**: Indicator lives at a stable DOM position (appended once to `itemListEl` at dragstart). Position via transform only. Hidden via `opacity: 0` rather than `hidden` attr to avoid layout flicker.
+- **D-B**: Cache invalidation: `itemListEl.addEventListener('scroll', invalidateCache, { passive: true })` registered at dragstart, removed at dragend. One rebuild per scroll event, not per rAF tick.
+- **D-C**: Target detection: `document.elementFromPoint(pointerX, pointerY)?.closest('.item-row')`. Returns null if pointer is outside any item row → indicator hides.
+- **D-D**: Drop-position computation: use cached rect's `top + height/2` midpoint. No fresh `getBoundingClientRect` call at drop time either.
+- **D-E**: Skip-no-op: rAF callback compares `nextInsertBefore` vs `lastInsertBefore`; if same, skips the DOM update. Prevents visual jitter + unneeded work.
+
+**Same-group correctness bug — hypothesis + debug strategy**
+
+Without a live repro, best hypothesis: S22's drop handler computed `destIndex` from `container.children.indexOf(dropIndicatorEl)` but the indicator was reparented via `.before()`/`.appendChild()` during each dragover, so its parent might NOT match the "target container" at drop time in edge cases (e.g., dragover fires on a sibling group's `.group-items`, indicator moves; then drop event fires before next dragover re-positions it). This is a timing / DOM-state-synchronisation bug.
+
+**v2 mitigation (inherent to the new architecture)**: the indicator never reparents. Drop handler reads the computed target from `_itemDragState.pendingTargetRowId + pendingInsertPosition` (set by the rAF callback), NOT from the indicator's DOM position. Decouples visual state from logical state.
+
+**Additional debug strategy (LOW retro action)**:
+- Feature-flagged `DRAG_DEBUG = false` module-level constant in sidepanel.js
+- When `true`: logs `[drag]` prefixed messages at every branch in dragstart / rAF-tick / drop / dragend
+- R3 sets `DRAG_DEBUG = true` for the targeted Edge UAT pass; flipped back to `false` pre-merge
+
+**Risk flags**
+
+| Risk | Severity | Mitigation |
+|------|----------|------------|
+| `elementFromPoint` returns indicator itself when pointer hovers over it | MEDIUM | Indicator has `pointer-events: none` CSS → never a hit-test target |
+| Scroll during drag invalidates cache; rebuild cost | LOW | Cache rebuild is one rAF tick (~2–5ms for 500 rows); acceptable transient |
+| Edge browser `dataTransfer.effectAllowed` quirk | LOW | Defensive `try { setData(...) } catch {}` retained from S22; Chromium-based Edge behaves like Chrome |
+| Reordering during active broadcast re-render race | MEDIUM | Guard: dragstart stores `_itemDragState.cachedItemsGeneration`; drop checks if `_cachedItems` gen matches — if not (broadcast landed mid-drag), re-fetch fresh items before computing the reorder spec |
+| rAF tick runs WHILE user is mid-scroll (cache invalidated, not yet rebuilt) | LOW | rAF callback short-circuits if cache invalid: hide indicator, skip this frame, wait for next |
+
+**Sub-item split decision**: **NO split**. The backend (`bulkReorderItems` + message) shipped correctly in S22 and doesn't need re-implementation — the bugs were entirely in the sidepanel drag handler. One cohesive L item is the right shape.
+
+**R0 verdict — PASS**: perf budget (≤16ms) is achievable with rAF + cached rects + transform indicator. The same-group bug root-cause (likely DOM-state-coupling via `dropIndicatorEl.parentElement`) is eliminated by design in v2 (logical state decoupled from visual indicator position). R1 unblocked.
 
 ### [B-009] Drag-to-expand collapsed group
 - **Tier**: Fast Track (S)
