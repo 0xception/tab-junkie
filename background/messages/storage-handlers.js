@@ -42,6 +42,7 @@ import {
   MSG_BULK_CREATE_ITEMS,
   MSG_BULK_DELETE_ITEMS,
   MSG_BULK_UPDATE_ITEMS,
+  MSG_BULK_REORDER_ITEMS,
   MSG_EXPORT_COLLECTION,
   MSG_IMPORT_COLLECTION,
 } from '../../shared/messages.js';
@@ -67,6 +68,7 @@ import {
   bulkCreateItems,
   bulkDeleteItems,
   bulkUpdateItems,
+  bulkReorderItems,
   createGroup,
   updateGroup,
   deleteGroup,
@@ -106,6 +108,7 @@ const MUTATION_BROADCASTS = {
   [MSG_BULK_CREATE_ITEMS]: SCOPE.ITEMS,
   [MSG_BULK_DELETE_ITEMS]: SCOPE.ITEMS,
   [MSG_BULK_UPDATE_ITEMS]: SCOPE.ITEMS,
+  [MSG_BULK_REORDER_ITEMS]: SCOPE.ITEMS,
   [MSG_PROMOTE_TAB]: SCOPE.ITEMS,
   [MSG_DEMOTE_ITEM]: SCOPE.ITEMS,
   [MSG_NAVIGATE_TO_ITEM]: SCOPE.ITEMS, // Included because navigate bumps lastAccessedAt via updateItem — a real storage mutation.
@@ -123,7 +126,7 @@ const MUTATION_BROADCASTS = {
  */
 const WRITE_MESSAGE_TYPES = new Set([
   MSG_CREATE_ITEM, MSG_UPDATE_ITEM, MSG_DELETE_ITEM,
-  MSG_BULK_CREATE_ITEMS, MSG_BULK_DELETE_ITEMS, MSG_BULK_UPDATE_ITEMS,
+  MSG_BULK_CREATE_ITEMS, MSG_BULK_DELETE_ITEMS, MSG_BULK_UPDATE_ITEMS, MSG_BULK_REORDER_ITEMS,
   MSG_CREATE_GROUP, MSG_UPDATE_GROUP, MSG_DELETE_GROUP,
   MSG_SET_PREFERENCES, MSG_PROMOTE_TAB, MSG_DEMOTE_ITEM,
   /* B-044 / B-045 — import is a destructive REPLACE. Safe-mode must block it
@@ -187,6 +190,8 @@ async function dispatch(type, payload) {
       return bulkDeleteItems(p.ids);
     case MSG_BULK_UPDATE_ITEMS:
       return bulkUpdateItems(p.ids, p.patch);
+    case MSG_BULK_REORDER_ITEMS:
+      return bulkReorderItems(p.updates);
     case MSG_GET_ITEM:
       return getItem(p.id);
     case MSG_CREATE_GROUP:

@@ -48,6 +48,14 @@ export const MSG_CLOSE_TABS = 'tj/closeTabs';
 export const MSG_BULK_DELETE_ITEMS = 'tj/bulkDeleteItems';
 /** Bulk-update saved items' groupId by id array + patch. Partial-success semantics. */
 export const MSG_BULK_UPDATE_ITEMS = 'tj/bulkUpdateItems';
+/**
+ * B-030 — bulk-reorder items. Accepts per-item `{id, sortOrder, groupId?}`
+ * updates (unlike MSG_BULK_UPDATE_ITEMS which is uniform-patch). Applied in a
+ * single writeTransaction; the handler then normalises affected bucket
+ * sortOrders to consecutive integers. Partial-success semantics — unknown ids
+ * surface in `notFound`.
+ */
+export const MSG_BULK_REORDER_ITEMS = 'tj/bulkReorderItems';
 
 // ---- Data export (B-042 / B-043) ----
 /**
