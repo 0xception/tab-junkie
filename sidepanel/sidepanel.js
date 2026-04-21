@@ -16,6 +16,7 @@ import {
   MSG_CLOSE_TABS,
   MSG_BULK_DELETE_ITEMS,
   MSG_BULK_UPDATE_ITEMS,
+  MSG_BULK_REORDER_ITEMS,
   MSG_PROMOTE_TAB,
   MSG_EXPORT_COLLECTION,
   MSG_IMPORT_COLLECTION,
@@ -61,6 +62,12 @@ import {
   filterGroupParentCandidates,
   translateGroupError,
 } from '../shared/group-nesting.js';
+
+/* B-030 v2 — pure helper that computes the per-item sortOrder update spec
+   for a drag-reorder drop event. Pure, DOM-free, chrome-free (B-065 precedent).
+   v2 re-implementation imports the same helper as S22 — backend code
+   didn't need to change (bugs were entirely in sidepanel drag handlers). */
+import { computeItemReorder } from '../shared/sort-order.js';
 
 /* B-052: pre-lowercased in-memory search index. §34 (docs/design/34) is the
    authoritative spec. The module is pure (no DOM); sidepanel owns the DOM-
@@ -186,6 +193,10 @@ let _selectedGroupColor = null;
 let _filterQuery = '';
 let _filterTimer = null;
 let _cachedItems = [];
+/* B-030 v2 — monotonic generation counter bumped on every `_cachedItems`
+   assignment. Dragstart captures the current value; drop compares against
+   live value to detect mid-drag broadcast races (AC24). */
+let _cachedItemsGen = 0;
 let _cachedGroups = [];
 let _cachedLiveStates = {};
 let _cachedDriftRecords = {};
@@ -255,9 +266,53 @@ let _dragSrcGroupId = null;
 let _dragInitiatedFromHandle = false;
 let _pendingGroupsRender = false;
 
+/* =========================================================================
+   B-030 v2 — item drag-reorder state (per R2 binding contracts)
+
+   Separate state block from B-008 group drag above. See SPRINT.md
+   Sprint 23 Active Item § "R2 Architecture Review" for the locked
+   contracts enforced below + in the corresponding event handlers.
+   ========================================================================= */
+
+/* DRAG_DEBUG — feature flag for the R3 debug pass. Set to `true` during
+   R3 Edge UAT; MUST be `false` before PR merge (R4 greps for this). */
+const DRAG_DEBUG = false;
+
+/* Non-null while an item-row drag is in flight. Shape:
+   { itemId, sourceGroupId, cachedItemsGen, pendingTargetRowId,
+     pendingInsertPosition, rafHandle, scrollListener } */
+let _itemDragState = null;
+
+/* Rect cache snapshot (AC18). Built at dragstart; scroll invalidates;
+   rAF tick rebuilds lazily. Shape: { rects: Map<itemId, DOMRectReadOnly>,
+   containerRect: DOMRectReadOnly, invalid: boolean } */
+let _dragRectCache = null;
+
+/* Primitives recorded by dragover handler. rAF tick consumes them. */
+let _pendingPointerX = 0;
+let _pendingPointerY = 0;
+
+function _dragLog(...args) {
+  if (DRAG_DEBUG) console.log('[drag]', ...args);
+}
+
 const dropIndicatorEl = document.createElement('div');
 dropIndicatorEl.className = 'drop-indicator';
 dropIndicatorEl.hidden = true;
+
+/* B-030 v2 — dedicated item-drag indicator, separate from B-008's
+   `dropIndicatorEl`. Absolute-positioned; moved via CSS transform;
+   NEVER reparented during drag (AC22). `pointer-events: none` prevents
+   elementFromPoint self-hits (AC23). */
+const itemDragIndicatorEl = document.createElement('div');
+itemDragIndicatorEl.className = 'drop-indicator drop-indicator--item';
+itemDragIndicatorEl.style.position = 'absolute';
+itemDragIndicatorEl.style.pointerEvents = 'none';
+itemDragIndicatorEl.style.opacity = '0';
+itemDragIndicatorEl.style.transition = 'none';
+itemDragIndicatorEl.style.left = '0';
+itemDragIndicatorEl.style.right = '0';
+itemDragIndicatorEl.style.transform = 'translateY(-9999px)';
 
 /* =========================================================================
    Multi-select state (B-024)
@@ -2656,6 +2711,7 @@ function _reapplySelection() {
 function renderAll(items, groups, liveStates, driftRecords, openTabs) {
   /* Cache data for filter (B-021) */
   _cachedItems = items;
+  _cachedItemsGen += 1;
   _cachedGroups = groups;
   _cachedLiveStates = liveStates || {};
   _cachedDriftRecords = driftRecords || {};
@@ -2741,6 +2797,9 @@ function renderAll(items, groups, liveStates, driftRecords, openTabs) {
 
   itemListEl.replaceChildren(fragment);
   itemListEl.appendChild(dropIndicatorEl);
+  /* B-030 v2 — mount the item-drag indicator. Lives as a stable child of
+     itemListEl; moved via CSS transform only (never reparented). */
+  itemListEl.appendChild(itemDragIndicatorEl);
   skeletonEl.hidden = true;
   emptyStateEl.hidden = true;
   errorStateEl.hidden = true;
@@ -2949,6 +3008,9 @@ function buildItemRow(item, liveStates, driftRecords) {
   row.setAttribute('role', 'listitem');
   row.setAttribute('tabindex', '0');
   row.dataset.itemId = item.id;
+  /* B-030 v2 AC1 — rows are draggable. AC12 a11y disclosure via title. */
+  row.draggable = true;
+  row.title = 'Drag to reorder (keyboard reorder not yet available)';
 
   const live = liveStates?.[item.id];
   const drifted = driftRecords?.[item.id];
@@ -4239,7 +4301,15 @@ function navigateToItem(row) {
 }
 
 /* =========================================================================
-   Group drag-to-reorder listeners (B-008)
+   Drag listeners — B-008 group-reorder + B-030 v2 item-reorder
+
+   Each event branches based on drag origin:
+   - Item drag (B-030 v2): initiated on an `.item-row`; governed by
+     _itemDragState + _dragRectCache. Follows R2 binding contracts (see
+     SPRINT.md S23 § "R2 Architecture Review"). Dragover body is
+     3 statements only (AC16/AC17 enforcement).
+   - Group drag (B-008): initiated on `.group-drag-handle`; governed by
+     _dragSrcGroupId. Unchanged from pre-S22 pattern.
    ========================================================================= */
 
 itemListEl.addEventListener('mousedown', (e) => {
@@ -4247,6 +4317,43 @@ itemListEl.addEventListener('mousedown', (e) => {
 });
 
 itemListEl.addEventListener('dragstart', (e) => {
+  /* B-030 v2 — item drag path (takes precedence when origin is an .item-row
+     AND the drag was NOT initiated from a group handle). */
+  const itemRow = e.target.closest('.item-row');
+  if (itemRow && !_dragInitiatedFromHandle) {
+    const itemId = itemRow.dataset.itemId;
+    if (!itemId) { e.preventDefault(); return; }
+
+    const sourceItem = _cachedItems.find((it) => it.id === itemId);
+    const sourceGroupId = sourceItem ? (sourceItem.groupId ?? null) : null;
+
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', itemId); } catch { /* Firefox compat; noop elsewhere */ }
+
+    _itemDragState = {
+      itemId,
+      sourceGroupId,
+      cachedItemsGen: _cachedItemsGen,
+      pendingTargetRowId: null,
+      pendingInsertPosition: null,
+      rafHandle: null,
+      scrollListener: null,
+    };
+    _buildDragRectCache();
+
+    /* Register passive scroll listener (AC18 — invalidate on scroll only). */
+    _itemDragState.scrollListener = () => {
+      if (_dragRectCache) _dragRectCache.invalid = true;
+    };
+    itemListEl.addEventListener('scroll', _itemDragState.scrollListener, { passive: true });
+
+    itemRow.classList.add('item-row--dragging');
+    itemListEl.classList.add('is-item-dragging');
+    _dragLog('dragstart', { itemId, sourceGroupId, cachedItemsGen: _cachedItemsGen });
+    return;
+  }
+
+  /* B-008 group drag path (unchanged). */
   const section = e.target.closest('[data-group-id]');
   if (!section) { e.preventDefault(); return; }
   if (!_dragInitiatedFromHandle) { e.preventDefault(); return; }
@@ -4257,6 +4364,20 @@ itemListEl.addEventListener('dragstart', (e) => {
 });
 
 itemListEl.addEventListener('dragover', (e) => {
+  /* B-030 v2 — AC16 + AC17: dragover body is 3 statements only. No rect
+     reads, no DOM mutations, no layout. rAF callback (_dragTick) does the
+     work. R4 code-reviewer greps this handler for getBoundingClientRect
+     or classList writes — any hit is a REJECT. */
+  if (_itemDragState) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    _pendingPointerX = e.clientX;
+    _pendingPointerY = e.clientY;
+    _scheduleDragTick();
+    return;
+  }
+
+  /* B-008 group drag path (unchanged). */
   if (!_dragSrcGroupId) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
@@ -4280,12 +4401,76 @@ itemListEl.addEventListener('dragover', (e) => {
 });
 
 itemListEl.addEventListener('dragleave', (e) => {
+  /* For item drag, indicator visibility is managed by rAF tick via
+     opacity — NOT toggled here (dragleave is noisy and would flicker). */
+  if (_itemDragState) return;
+  /* B-008 group drag cleanup (unchanged). */
   if (!e.relatedTarget || !itemListEl.contains(e.relatedTarget)) {
     dropIndicatorEl.hidden = true;
   }
 });
 
-itemListEl.addEventListener('drop', (e) => {
+itemListEl.addEventListener('drop', async (e) => {
+  /* B-030 v2 — item drop path (with AC24 broadcast-race guard). */
+  if (_itemDragState) {
+    e.preventDefault();
+    const state = _itemDragState;
+    _itemDragState = null; // claim first so dragend can't double-handle
+    _cleanupItemDragDom();
+
+    if (!state.pendingTargetRowId) {
+      _dragLog('drop — no pending target; cancel');
+      return;
+    }
+
+    /* AC24 — broadcast race guard. If _cachedItems advanced during drag,
+       await fresh snapshot before computing the reorder spec. */
+    if (state.cachedItemsGen !== _cachedItemsGen) {
+      _dragLog('drop — broadcast race detected; refreshing items before reorder');
+      try {
+        const itemsResp = await sendMessage(MSG_LIST_ITEMS);
+        _cachedItems = itemsResp.items;
+        _cachedItemsGen += 1;
+      } catch (err) {
+        console.warn('[tab-junkie:b030] refresh on broadcast race failed', err);
+        showToast('Couldn\u2019t save new order \u2014 try again');
+        return;
+      }
+    }
+
+    /* Resolve destination group + index from the pending target. */
+    const target = _cachedItems.find((it) => it.id === state.pendingTargetRowId);
+    const destGroupId = target ? (target.groupId ?? null) : state.sourceGroupId;
+    const destSiblings = _cachedItems
+      .filter((it) => (it.groupId ?? null) === destGroupId && it.id !== state.itemId)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    let destIndex = destSiblings.findIndex((it) => it.id === state.pendingTargetRowId);
+    if (destIndex < 0) destIndex = destSiblings.length;
+    if (state.pendingInsertPosition === 'after') destIndex += 1;
+
+    const updates = computeItemReorder(_cachedItems, state.itemId, destGroupId, destIndex);
+    _dragLog('drop', { itemId: state.itemId, destGroupId, destIndex, updates });
+
+    if (updates.length === 0) return; // same-position no-op
+
+    try {
+      await sendMessage(MSG_BULK_REORDER_ITEMS, { updates });
+    } catch (err) {
+      console.warn('[tab-junkie:b030] bulkReorderItems failed', err);
+      showToast('Couldn\u2019t save new order \u2014 reverting');
+      Promise.all([sendMessage(MSG_LIST_ITEMS), sendMessage(MSG_LIST_GROUPS)])
+        .then(([itemsResp, groups]) => {
+          _setWindowOrdinalMap(itemsResp.windowMap || {});
+          renderAll(itemsResp.items, groups, itemsResp.liveStates,
+            itemsResp.driftRecords, itemsResp.openTabs);
+          _applyWindowMapToUI();
+        })
+        .catch(() => {});
+    }
+    return;
+  }
+
+  /* B-008 group drop path (unchanged). */
   e.preventDefault();
   if (!_dragSrcGroupId) return;
   dropIndicatorEl.hidden = true;
@@ -4321,6 +4506,15 @@ itemListEl.addEventListener('drop', (e) => {
 });
 
 itemListEl.addEventListener('dragend', () => {
+  /* B-030 v2 — cancel path (Escape or invalid drop). If drop handler
+     already consumed the state, this is a no-op. */
+  if (_itemDragState) {
+    _dragLog('dragend — cancelled');
+    _itemDragState = null;
+    _cleanupItemDragDom();
+  }
+
+  /* B-008 group drag cleanup (unchanged). */
   dropIndicatorEl.hidden = true;
   itemListEl.classList.remove('is-dragging');
   itemListEl.querySelector('.dragging-src')?.classList.remove('dragging-src');
@@ -4338,6 +4532,116 @@ itemListEl.addEventListener('dragend', () => {
       .catch(() => {});
   }
 });
+
+/* =========================================================================
+   B-030 v2 — item drag helpers (R2 binding contracts)
+   ========================================================================= */
+
+/* _buildDragRectCache — AC18. Single pass over .item-row elements at
+   dragstart. O(N) rect reads done once; subsequent rAF ticks consume
+   the cache without calling getBoundingClientRect. Invalidated on
+   itemListEl scroll events; rebuilt lazily in the next rAF tick. */
+function _buildDragRectCache() {
+  const rects = new Map();
+  const rows = itemListEl.querySelectorAll('.item-row');
+  for (const row of rows) {
+    const id = row.dataset.itemId;
+    if (id) rects.set(id, row.getBoundingClientRect());
+  }
+  _dragRectCache = {
+    rects,
+    containerRect: itemListEl.getBoundingClientRect(),
+    invalid: false,
+  };
+}
+
+/* _scheduleDragTick — R2 contract #3. Dedup via rafHandle so at most one
+   rAF is pending per frame. Dragover calls this on every event; rAF
+   provides the coalescing. */
+function _scheduleDragTick() {
+  if (!_itemDragState || _itemDragState.rafHandle != null) return;
+  _itemDragState.rafHandle = requestAnimationFrame(_dragTick);
+}
+
+function _dragTick() {
+  if (!_itemDragState) return;
+  _itemDragState.rafHandle = null;
+
+  /* Rebuild cache if scroll invalidated it (AC18 lazy rebuild). */
+  if (!_dragRectCache || _dragRectCache.invalid) _buildDragRectCache();
+
+  const target = _computeDropTarget(_pendingPointerX, _pendingPointerY);
+
+  if (!target) {
+    /* No valid drop target under pointer — hide indicator, clear pending. */
+    itemDragIndicatorEl.style.opacity = '0';
+    itemDragIndicatorEl.style.transform = 'translateY(-9999px)';
+    _itemDragState.pendingTargetRowId = null;
+    _itemDragState.pendingInsertPosition = null;
+    return;
+  }
+
+  /* Skip-no-op (AC17 skip): if target unchanged since last tick, do
+     nothing. Prevents visual jitter + avoids unnecessary CSS writes. */
+  if (target.rowId === _itemDragState.pendingTargetRowId
+    && target.insertPosition === _itemDragState.pendingInsertPosition) {
+    return;
+  }
+
+  _itemDragState.pendingTargetRowId = target.rowId;
+  _itemDragState.pendingInsertPosition = target.insertPosition;
+
+  /* SINGLE DOM write per frame: indicator transform + opacity. */
+  const rect = _dragRectCache.rects.get(target.rowId);
+  const containerRect = _dragRectCache.containerRect;
+  /* Account for itemListEl scrollTop so absolute position is container-local. */
+  const scrollTop = itemListEl.scrollTop;
+  const y = (target.insertPosition === 'after' ? rect.bottom : rect.top)
+    - containerRect.top + scrollTop;
+  itemDragIndicatorEl.style.transform = `translateY(${y}px)`;
+  itemDragIndicatorEl.style.opacity = '1';
+  _dragLog('tick', { rowId: target.rowId, pos: target.insertPosition, y });
+}
+
+/* _computeDropTarget — R2 contract. Given pointer coords, returns the
+   nearest .item-row + insert position ('before'|'after'), or null.
+   Uses elementFromPoint (cheap — no layout). Indicator has
+   pointer-events: none (AC23) so it's never a hit target. */
+function _computeDropTarget(x, y) {
+  if (!_itemDragState) return null;
+  const hit = document.elementFromPoint(x, y);
+  if (!hit) return null;
+  const row = hit.closest('.item-row');
+  if (!row) return null;
+  const id = row.dataset.itemId;
+  if (!id || id === _itemDragState.itemId) return null; // can't drop onto self
+
+  /* Decide before/after via cached rect midpoint. */
+  const rect = _dragRectCache.rects.get(id);
+  if (!rect) return null;
+  const mid = rect.top + rect.height / 2;
+  return { rowId: id, insertPosition: y < mid ? 'before' : 'after' };
+}
+
+/* _cleanupItemDragDom — clear indicator, dragging class, scroll listener,
+   pending rAF. Called from drop (after consuming state) + dragend (cancel). */
+function _cleanupItemDragDom() {
+  itemDragIndicatorEl.style.opacity = '0';
+  itemDragIndicatorEl.style.transform = 'translateY(-9999px)';
+  itemListEl.classList.remove('is-item-dragging');
+  itemListEl.querySelectorAll('.item-row--dragging').forEach((row) => {
+    row.classList.remove('item-row--dragging');
+  });
+  if (_itemDragState) {
+    if (_itemDragState.rafHandle != null) {
+      cancelAnimationFrame(_itemDragState.rafHandle);
+    }
+    if (_itemDragState.scrollListener) {
+      itemListEl.removeEventListener('scroll', _itemDragState.scrollListener);
+    }
+  }
+  _dragRectCache = null;
+}
 
 /* =========================================================================
    Broadcast listener (B4 — sender validation)
@@ -4423,6 +4727,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
              thrash. Re-apply the filter so a sticky query's row-visibility
              stays consistent with the refreshed liveStates. */
           _cachedItems = itemsResp.items;
+          _cachedItemsGen += 1;
           _cachedGroups = groups;
           _cachedLiveStates = itemsResp.liveStates || {};
           _cachedDriftRecords = itemsResp.driftRecords || {};
@@ -4435,6 +4740,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
           /* Update caches so `buildItemRow` reads the freshest data as it
              constructs the replacement rows. */
           _cachedItems = itemsResp.items;
+          _cachedItemsGen += 1;
           _cachedGroups = groups;
           _cachedLiveStates = itemsResp.liveStates || {};
           _cachedDriftRecords = itemsResp.driftRecords || {};

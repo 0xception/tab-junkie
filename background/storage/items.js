@@ -545,6 +545,105 @@ export async function bulkUpdateItems(ids, patch) {
 }
 
 /**
+ * B-030 — bulk-reorder items with per-item `sortOrder` (and optional
+ * `groupId`) updates in a single writeTransaction. Unlike `bulkUpdateItems`
+ * (uniform-patch, groupId-only), each update is independent.
+ *
+ * Every group touched by the reorder is normalised post-update so sortOrder
+ * values are consecutive integers (0, 1, 2, …). The caller may provide
+ * spaced-out sortOrder values (e.g., 0, 1000, 2000) — normalisation
+ * compresses them. Partial-success semantics: unknown ids surface in
+ * `notFound`; known ids are applied.
+ *
+ * @param {Array<{id: string, sortOrder: number, groupId?: string|null}>} updates
+ * @returns {Promise<{updated: string[], notFound: string[]}>}
+ */
+export async function bulkReorderItems(updates) {
+  if (!Array.isArray(updates) || updates.length === 0) {
+    throw new StorageError(ERR_VALIDATION, 'bulkReorderItems: updates must be a non-empty array');
+  }
+  if (updates.length > MAX_BULK_INPUTS) {
+    throw new StorageError(ERR_VALIDATION, `bulkReorderItems: updates array exceeds maximum of ${MAX_BULK_INPUTS}`);
+  }
+  for (const u of updates) {
+    if (!u || typeof u !== 'object' || typeof u.id !== 'string') {
+      throw new StorageError(ERR_VALIDATION, 'bulkReorderItems: every update must have a string id');
+    }
+    if (typeof u.sortOrder !== 'number' || !Number.isFinite(u.sortOrder)) {
+      throw new StorageError(ERR_VALIDATION, 'bulkReorderItems: every update must have a finite sortOrder');
+    }
+    if ('groupId' in u && u.groupId !== null && typeof u.groupId !== 'string') {
+      throw new StorageError(ERR_VALIDATION, 'bulkReorderItems: groupId must be string or null when present');
+    }
+  }
+
+  const updateById = new Map(updates.map((u) => [u.id, u]));
+  const updated = [];
+  const notFound = [];
+  const now = Date.now();
+
+  let groupsSnapshot = [];
+  await writeTransaction([
+    {
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        groupsSnapshot = groups;
+        return groups;
+      },
+    },
+    {
+      partition: PARTITION_ITEMS,
+      mutator: (items) => {
+        /* Validate any proposed groupId exists. */
+        for (const u of updates) {
+          if ('groupId' in u) assertGroupExists(u.groupId, groupsSnapshot);
+        }
+
+        const existingIds = new Set(items.map((it) => it.id));
+        const affectedGroups = new Set();
+
+        /* Track source groupIds for cross-group moves so they get normalised too. */
+        const itemById = new Map(items.map((it) => [it.id, it]));
+        for (const u of updates) {
+          if (!existingIds.has(u.id)) {
+            notFound.push(u.id);
+            continue;
+          }
+          updated.push(u.id);
+          const src = itemById.get(u.id);
+          if (src) affectedGroups.add(src.groupId);
+          if ('groupId' in u) affectedGroups.add(u.groupId ?? null);
+        }
+
+        /* Apply per-item updates. */
+        let out = items.map((it) => {
+          const u = updateById.get(it.id);
+          if (!u) return it;
+          const nextGroupId = 'groupId' in u ? (u.groupId ?? null) : it.groupId;
+          return {
+            ...it,
+            sortOrder: u.sortOrder,
+            groupId: nextGroupId,
+            id: it.id,
+            createdAt: it.createdAt,
+            updatedAt: now,
+          };
+        });
+
+        /* Normalise every affected bucket to consecutive integers. */
+        for (const gid of affectedGroups) {
+          out = normaliseGroupSortOrders(gid, out);
+        }
+
+        return out;
+      },
+    },
+  ]);
+
+  return { updated, notFound };
+}
+
+/**
  * @param {{groupId?: string|null}} [filter]
  */
 export async function listItems(filter) {
