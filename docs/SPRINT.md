@@ -28,17 +28,78 @@ First sprint under the feature-parity roadmap. First Full-tier L item (B-030) si
 
 ### [B-030] Item drag-reorder within / between groups
 - **Tier**: Full (L) — first Full-tier L since Sprint 17
-- **Status**: backlog → in-progress (R1 next)
-- **Assigned To**: [product-manager] for R1 AC refinement; current BACKLOG ACs are concept-level (v1.0 pre-R1-discipline era)
+- **Status**: R1 ✅ (15 PASS/FAIL ACs + smoke UAT plan referenced) · R2 ✅ (architecture review below) · R3 next
+- **Assigned To**: [frontend-engineer] for R3 build
 - **Blockers**: None
-- **Feature Context**: The drag infrastructure foundation. Enables drag-reorder within a group and drag-move between groups; rewrites affected items' sortOrder values in a single `writeTransaction` (atomic); normalises sortOrder post-drop (no gaps or duplicates). Every other drag feature (B-025 multi-item, B-031 group drag, B-032 auto-scroll, B-009 drag-to-expand, B-033 drag-to-demote) sits on this.
-- **Handoff Notes**:
-  - **C-8 (SW-context)**: all drag logic runs in sidepanel; R2 to confirm no SW-context API issues.
-  - **C-9 (empty-state)**: enumerate drop states — drop on empty group, drop at group-section start, drop at list end, drop on ungrouped, drop on current group (no-op), drag cancel via Escape, invalid drop target (hover out).
-  - **C-1 (storage schema)**: item `sortOrder` already exists (B-001a); no schema change. Batch updates in a single `writeTransaction`.
-  - **Performance**: drag response < 16 ms (60 fps pointer follow); post-drop storage write < 50 ms for typical reorder (5-20 items touched).
-  - **A11y**: native DnD isn't keyboard-operable; match B-008 AC12's deferral disclosure pattern.
-- **Smoke UAT plan**: `docs/UAT_B-030.md` — 8-case smoke plan authored in R1.
+- **Smoke UAT plan**: `docs/UAT_B-030.md` — 8-case smoke plan (TBD during R3).
+
+#### R2 Architecture Review — PASS
+
+**Correctness Checklist (C-1..C-9)**:
+
+| # | Check | Verdict | Notes |
+|---|-------|---------|-------|
+| C-1 | Storage schema versioned | ✅ N/A — `sortOrder` + `groupId` fields exist on Item records since B-001a §32.5.2; no migration |
+| C-2 | Message contracts typed | ⚠️ **NEW** message `MSG_BULK_REORDER_ITEMS` required (see D-1 below) |
+| C-3 | SW cold-start safe | ✅ All drag logic runs in sidepanel DOM; no SW-memory state |
+| C-4 | ID stability | ✅ Items keep ids through drag; only `sortOrder` + optional `groupId` change |
+| C-5 | Manifest file refs | ✅ No change |
+| C-6 | Permission minimization | ✅ Zero new permissions (drag is DOM-level) |
+| C-7 | Allow-list direction | ✅ N/A — no new sanitizer/validator surface |
+| C-8 | SW-context feasibility | ✅ All drag APIs (`dragstart`, `dragover`, `drop`, `dragend`) are sidepanel-side; no SW browser-API calls |
+| C-9 | Empty-state design | ✅ AC13 enumerates 7 states (empty group drop / start / end / between / Open Tabs invalid / self-drop no-op / group-header drop) |
+
+**Key design decisions** (R3 will follow):
+
+**D-1 — Storage write path**: `bulkUpdateItems` exists (`background/storage/items.js:467`) but is locked to **uniform-patch, groupId-only** semantics (AC enforced at line 485). B-030 needs **per-item `sortOrder` values** — the existing function can't express this. Decision: introduce a new storage function + message:
+- **NEW storage fn**: `bulkReorderItems(updates: Array<{id, sortOrder, groupId?}>)` in `background/storage/items.js`. Single `writeTransaction`; per-item `sortOrder` write; optional `groupId` change for cross-group moves. Follows the `bulkCreateItems` / `bulkDeleteItems` precedent from B-005 / B-020.
+- **NEW message**: `MSG_BULK_REORDER_ITEMS` in `shared/messages.js`. Handler in `background/messages/storage-handlers.js` dispatches to `bulkReorderItems`.
+- **Do NOT extend** `bulkUpdateItems` signature — keeping "uniform patch" vs "per-id patch" as separate functions preserves existing caller safety (B-024 bulk action bar, B-028 selection context menu both use the uniform form).
+
+**D-2 — Sort-order normalisation helper**: per Sprint 21 retro action #3 + B-065 precedent. Extract to `shared/sort-order.js`:
+- **`normalizeItemSortOrder(items, affectedGroupIds)`** — takes a collection snapshot + set of groupIds touched by the reorder, returns `Array<{id, sortOrder}>` with consecutive integers (0, 1, 2, ...) within each affected group. Stable sort; breaks ties by pre-existing sortOrder then id.
+- The helper is DOM-free + chrome.*-free; sidepanel consumes it for pre-dispatch computation; R3 tests exercise it directly.
+- B-008's in-sidepanel group-reorder renumbering is NOT extracted in this sprint (out of scope); the new helper is item-scoped.
+
+**D-3 — DOM-side drag mechanics**:
+- **Reuse** the existing `dropIndicatorEl` (`sidepanel/sidepanel.js:258` — imperatively created, used by B-008 group-reorder). Same visual element; different parent scope during item drag (inside a `.group-items` container vs between `.group-section` blocks). The indicator gets a `.drop-indicator--item` modifier class during item-drag for future styling differentiation if needed.
+- **Event delegation** on `#item-list` (existing pattern from B-024 multi-select click handling). `dragstart` / `dragover` / `dragleave` / `drop` / `dragend` all hang off the list element; no per-row listeners (memory-safe at 1000 items).
+- **Drag state**: module-level `_itemDragState = { itemId, sourceGroupId, sourceIndex, pointerY, dropTarget }`. Cleared on every `dragend` (success or cancel).
+- **Insertion indicator positioning**: `dragover` is high-frequency (~60-120 Hz). Positioner coalesces DOM writes via `requestAnimationFrame`; bounding-rect reads cached per-drag (refreshed on `dragstart` + on the first `dragover` after any scroll event). Target ≤ 16 ms pointer-follow latency per AC10.
+
+**D-4 — Drop commit flow**:
+1. On `drop`, compute the new position: nearest row-index within the hovered `.group-items` container (or 0 if the container is empty).
+2. Build the reorder spec: for each item in the affected groups (source + destination if different), compute post-drop `sortOrder` via `normalizeItemSortOrder`.
+3. Dispatch `MSG_BULK_REORDER_ITEMS { updates }` via `sendMessage`. Single round-trip; single `writeTransaction` on the SW side.
+4. On success, broadcast scope-targeted `MSG_STATE_CHANGED { scope: SCOPE.ITEMS }` (existing pattern).
+5. The broadcast triggers a sidepanel re-render (or targeted DOM patch via the B-052 search-index diffAndPatch path if the change set is small).
+
+**D-5 — Cancel semantics** (per AC8):
+- Escape during drag → `dragend` fires with `dataTransfer.dropEffect === 'none'`; state-restore path: hide indicator, clear `_itemDragState`, NO dispatch. DOM didn't change pre-drop (the indicator is a SEPARATE element, not a DOM reparent) so no visual revert needed.
+- Release outside valid target → same cancel path as Escape.
+- **Partial-commit safety**: the `writeTransaction` atomically commits or rolls back. There is no "partial state". If the commit fails (ERR_QUOTA_EXCEEDED, etc.), the caller toasts the error and no storage change lands.
+
+**D-6 — Cross-ownership with B-033**: the Open Tabs section is a valid drop target for **demote** (B-033 scope), NOT for reorder. B-030's drop handler runs `target.closest('.group-items')` to identify item-reorder drops; Open Tabs container (if it gains a `[data-drop-target="openTabs"]` marker during R3) short-circuits to the B-033 path. AC7 encodes this. R3 order: B-030 ships the drop-target classification; B-033 R3 wires its demote handler on top, relying on B-030's classification.
+
+**D-7 — A11y** (per AC12): native HTML5 DnD is not keyboard-operable (browser limitation). Each `.item-row` gains a `title="Drag to reorder (keyboard reorder not yet available)"` attribute. Matches B-008 AC12's disclosure pattern. A keyboard-reorder alternative is OUT OF SCOPE — file a follow-up item only if prioritised later.
+
+**D-8 — Perf budget** (per AC10 + AC11):
+- **Pointer-follow P95 ≤ 16 ms** on 500-item collection: measured via `performance.now()` spans around `dragover`. Budget assumes rAF-coalesced indicator writes + cached rects.
+- **Post-drop storage write P95 ≤ 50 ms** on 500-item collection with 5-20 items touched: one `writeTransaction` round-trip; `chrome.storage.local.set` with ~20 items' patches is well under this budget per B-001a AC9.
+
+**Dependencies / integration surface**:
+- `shared/messages.js` — add `MSG_BULK_REORDER_ITEMS` export
+- `background/storage/items.js` — add `bulkReorderItems` export
+- `background/storage/index.js` — re-export `bulkReorderItems`
+- `background/messages/storage-handlers.js` — register `MSG_BULK_REORDER_ITEMS` handler + `SCOPE.ITEMS`
+- `shared/sort-order.js` — NEW file, pure helpers
+- `sidepanel/sidepanel.js` — drag event wiring + state; consume `normalizeItemSortOrder`; dispatch `MSG_BULK_REORDER_ITEMS`
+- `sidepanel/sidepanel.css` — `.drop-indicator--item` modifier (if differentiation needed)
+- `tests/b030-item-drag-reorder.test.js` — ~7 tests per AC15
+- `tests/sort-order.test.js` — NEW pure-helper tests
+- `docs/design/36-b-030-item-drag-reorder.md` — R6 close chapter
+
+**R2 verdict**: **PASS**. Zero new permissions; zero storage schema drift; one new purpose-built bulk-reorder function + message; extracted helper module per B-065 precedent; all C-1..C-9 checks satisfied. R3 is unblocked.
 
 ### [B-009] Drag-to-expand collapsed group
 - **Tier**: Fast Track (S)
