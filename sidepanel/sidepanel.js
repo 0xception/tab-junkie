@@ -292,6 +292,33 @@ let _dragRectCache = null;
 let _pendingPointerX = 0;
 let _pendingPointerY = 0;
 
+/* =========================================================================
+   B-009 — drag-to-expand collapsed group state
+
+   During an active item drag (_itemDragState set), hovering the pointer
+   over a COLLAPSED group header for DRAG_EXPAND_HOLD_MS elapsed ms
+   triggers that group to expand. Timer is managed in _dragTick; cleared
+   on dragleave-of-header or dragend.
+   ========================================================================= */
+
+const DRAG_EXPAND_HOLD_MS = 600;
+/* {groupId, timerHandle} or null — active hover-hold target. */
+let _b009HoverState = null;
+
+/* =========================================================================
+   B-033 — drag-to-Open-Tabs demote state
+
+   When a saved+live item is dragged over the Open Tabs section, a drop-
+   target highlight appears; on drop the sidepanel dispatches
+   MSG_DEMOTE_ITEM (B-017's existing message). Dragged item must be
+   saved+live (live indicator present) — saved-only drags are rejected
+   per AC3.
+   ========================================================================= */
+
+/* 'openTabs' | null — set by _computeDropTarget when pointer is over the
+   Open Tabs section AND dragged item is saved+live. */
+let _b033DropTarget = null;
+
 function _dragLog(...args) {
   if (DRAG_DEBUG) console.log('[drag]', ...args);
 }
@@ -4422,6 +4449,22 @@ itemListEl.addEventListener('drop', async (e) => {
     _cleanupItemDragDom();
     _itemDragState = null;
 
+    /* B-033 — drop onto Open Tabs → demote path. Dispatch MSG_DEMOTE_ITEM
+       (existing B-017 message). Saved-only items were already rejected at
+       target-compute time (AC3); only saved+live reach here. */
+    if (state.pendingDropType === 'openTabs') {
+      _dragLog('drop — openTabs demote', { itemId: state.itemId });
+      sendMessage(MSG_DEMOTE_ITEM, { id: state.itemId })
+        .then(() => {
+          showToast('Bookmark removed — tab stays open');
+        })
+        .catch((err) => {
+          console.warn('[tab-junkie:b033] demote failed', err);
+          showToast('Couldn\u2019t remove bookmark — try again');
+        });
+      return;
+    }
+
     if (!state.pendingTargetRowId) {
       _dragLog('drop — no pending target; cancel');
       return;
@@ -4589,14 +4632,60 @@ function _dragTick() {
 
   const target = _computeDropTarget(_pendingPointerX, _pendingPointerY);
 
+  /* B-009 — hover-hold timer management. Independent of drop target
+     (a collapsed group can be hovered while targeting another drop
+     position; the timer just auto-expands the group so the user can
+     then drop into it). */
+  const hoveredGroup = _hoveredCollapsedGroup(_pendingPointerX, _pendingPointerY);
+  if (hoveredGroup && (!_b009HoverState || _b009HoverState.groupId !== hoveredGroup)) {
+    _clearB009Hover();
+    _b009HoverState = {
+      groupId: hoveredGroup,
+      timerHandle: setTimeout(() => {
+        /* Only fire if still hovering same group + drag still in flight. */
+        if (_itemDragState && _b009HoverState && _b009HoverState.groupId === hoveredGroup) {
+          _dragLog('b009 — expanding collapsed group', hoveredGroup);
+          sendMessage(MSG_UPDATE_GROUP, { id: hoveredGroup, patch: { collapsed: false } })
+            .catch(() => {/* best-effort; drag continues regardless */});
+          _clearB009Hover();
+        }
+      }, DRAG_EXPAND_HOLD_MS),
+    };
+  } else if (!hoveredGroup && _b009HoverState) {
+    /* Pointer left the collapsed-header — cancel timer per AC5. */
+    _clearB009Hover();
+  }
+
+  /* B-033 — Open Tabs demote target. Distinct drop type; indicator is
+     hidden (the section-level highlight class is the affordance). */
+  if (target && target.type === 'openTabs') {
+    _itemDragState.pendingDropType = 'openTabs';
+    _itemDragState.pendingTargetRowId = null;
+    _itemDragState.pendingInsertPosition = null;
+    /* Section highlight — applied via class for simple, non-conflicting UX. */
+    const openTabsEl = document.getElementById('open-tabs-section');
+    if (openTabsEl) openTabsEl.classList.add('open-tabs-section--drop-target');
+    itemDragIndicatorEl.style.opacity = '0';
+    itemDragIndicatorEl.style.transform = 'translateY(-9999px)';
+    return;
+  }
+
+  /* Exiting openTabs target — remove highlight. */
+  const openTabsEl = document.getElementById('open-tabs-section');
+  if (openTabsEl) openTabsEl.classList.remove('open-tabs-section--drop-target');
+
   if (!target) {
     /* No valid drop target under pointer — hide indicator, clear pending. */
     itemDragIndicatorEl.style.opacity = '0';
     itemDragIndicatorEl.style.transform = 'translateY(-9999px)';
+    _itemDragState.pendingDropType = null;
     _itemDragState.pendingTargetRowId = null;
     _itemDragState.pendingInsertPosition = null;
     return;
   }
+
+  /* target.type === 'item' — B-030 reorder path. */
+  _itemDragState.pendingDropType = 'item';
 
   /* Skip-no-op (AC17 skip): if target unchanged since last tick, do
      nothing. Prevents visual jitter + avoids unnecessary CSS writes. */
@@ -4620,28 +4709,70 @@ function _dragTick() {
   _dragLog('tick', { rowId: target.rowId, pos: target.insertPosition, y });
 }
 
-/* _computeDropTarget — R2 contract. Given pointer coords, returns the
-   nearest .item-row + insert position ('before'|'after'), or null.
+/* _computeDropTarget — R2 contract + B-033 Open Tabs demote target.
+   Returns one of:
+     {type:'item', rowId, insertPosition}      — normal item reorder (B-030)
+     {type:'openTabs'}                         — B-033 demote (saved+live only)
+     null                                      — no valid drop
    Uses elementFromPoint (cheap — no layout). Indicator has
    pointer-events: none (AC23) so it's never a hit target. */
 function _computeDropTarget(x, y) {
   if (!_itemDragState) return null;
   const hit = document.elementFromPoint(x, y);
   if (!hit) return null;
+
+  /* B-033 — Open Tabs demote target. Only accept if dragged item is
+     saved+live (has a matching live tab). Saved-only drags rejected
+     per AC3: handler returns null → indicator hides, no drop. */
+  if (hit.closest('.open-tabs-section')) {
+    const liveState = _cachedLiveStates[_itemDragState.itemId];
+    if (liveState && liveState.live) return { type: 'openTabs' };
+    return null;
+  }
+
+  /* B-030 — normal item-reorder target. */
   const row = hit.closest('.item-row');
   if (!row) return null;
   const id = row.dataset.itemId;
   if (!id || id === _itemDragState.itemId) return null; // can't drop onto self
 
-  /* Decide before/after via cached rect midpoint. */
   const rect = _dragRectCache.rects.get(id);
   if (!rect) return null;
   const mid = rect.top + rect.height / 2;
-  return { rowId: id, insertPosition: y < mid ? 'before' : 'after' };
+  return { type: 'item', rowId: id, insertPosition: y < mid ? 'before' : 'after' };
+}
+
+/* B-009 — return groupId of a collapsed group whose header is at (x,y),
+   or null. Used by _dragTick to manage the hover-hold timer. */
+function _hoveredCollapsedGroup(x, y) {
+  const hit = document.elementFromPoint(x, y);
+  if (!hit) return null;
+  const header = hit.closest('.group-header');
+  if (!header) return null;
+  /* Skip Open Tabs header — "Open Tabs" doesn't collapse in the same way. */
+  if (header.closest('.open-tabs-section')) return null;
+  const section = header.closest('.group-section');
+  if (!section || !section.dataset || !section.dataset.groupId) return null;
+  const groupId = section.dataset.groupId;
+  /* Only interested in COLLAPSED groups. */
+  const group = _cachedGroups.find((g) => g.id === groupId);
+  if (!group || !group.collapsed) return null;
+  return groupId;
+}
+
+/* B-009 — clear hover-hold timer + state. Called from _dragTick when the
+   user moves off the header, and from _cleanupItemDragDom on dragend. */
+function _clearB009Hover() {
+  if (_b009HoverState && _b009HoverState.timerHandle != null) {
+    clearTimeout(_b009HoverState.timerHandle);
+  }
+  _b009HoverState = null;
 }
 
 /* _cleanupItemDragDom — clear indicator, dragging class, scroll listener,
-   pending rAF. Called from drop (after consuming state) + dragend (cancel). */
+   pending rAF. Called from drop (after consuming state) + dragend (cancel).
+   Also clears B-009 hover-hold timer + B-033 Open Tabs drop-target
+   highlight so those cross-ownership helpers don't leak past a drag. */
 function _cleanupItemDragDom() {
   itemDragIndicatorEl.style.opacity = '0';
   itemDragIndicatorEl.style.transform = 'translateY(-9999px)';
@@ -4658,6 +4789,11 @@ function _cleanupItemDragDom() {
     }
   }
   _dragRectCache = null;
+  /* B-009 cleanup. */
+  _clearB009Hover();
+  /* B-033 cleanup. */
+  const openTabsEl = document.getElementById('open-tabs-section');
+  if (openTabsEl) openTabsEl.classList.remove('open-tabs-section--drop-target');
 }
 
 /* =========================================================================
