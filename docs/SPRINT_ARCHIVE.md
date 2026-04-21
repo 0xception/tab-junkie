@@ -923,3 +923,70 @@ None during sprint. All findings surfaced in R4 review (1 HIGH + 6 MEDIUM + 9 LO
 1. [scrum-master] UAT burndown becomes a first-class sprint item, not a side track. No forward feature until at least 4 of 9 plans are PASS. [HIGH]
 2. [product-manager] Add "DoR Gate 7 check" subsection to R1 AC template. [MEDIUM]
 3. [scrum-master] 15-min pre-sprint AC health check for every M/L item. [MEDIUM]
+
+---
+
+## Sprint 21 — Polish Close + UAT Essentials + Feature-Parity Pivot (2026-04-20)
+
+**Theme:** Originally scoped as the first-class UAT burndown sprint (Sprint 20 retro HIGH rule). Mid-sprint, after B-042 essentials-only pass completed 6/6 PASS, product-owner pivoted to feature-parity mode: defer comprehensive UAT to a dedicated S27 sweep, ship the remaining polish queue + a roadmap + one UAT-surfaced UX gap.
+**Release:** v1.16.0 · Commit `42297fc` on `release/v2` (tag `v1.16.0` pushed; GitHub Release publication skipped per product-owner policy)
+**Tests:** 971 → 979 (+8 sprint-21-polish + 3 b-081 markup)
+**Docs structure:** New `docs/FEATURE_PARITY_ROADMAP.md` (7-sprint plan through S27 UAT + S28 TBD). CLAUDE.md R1 gains a DoR Gate 7 subsection. No new design chapter this sprint.
+
+### Completed Items
+
+#### [B-081] New-group button in sidepanel header — ✅ DONE (UAT-surfaced, mid-sprint)
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-20 · **PR**: #25 → `05a4049`
+- **Surfaced by**: Sprint 21 UAT setup walkthrough — post-B-029, once ≥ 1 group exists the only group-create path was unreachable from the UI.
+- **Files**: `sidepanel/sidepanel.html` (new `#add-group-btn` with folder+plus SVG), `sidepanel/sidepanel.js` (ref + delegation to existing `openGroupCreateDialog`), `tests/b081-add-group-button.test.js` (+3 markup tests).
+- **Validates in-session UAT pattern** — 20-minute product-owner walkthrough surfaced a real UX gap that Sprint 1 + Sprint 11 missed.
+
+#### [B-077] DoR Gate 7 check subsection in R1 AC template — ✅ DONE (Wave 0)
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-20 · **PR**: #26 → `fa1a8df`
+- **Files**: `CLAUDE.md` (new R1 subsection requiring "**Destructive-action confirmation (DoR item 7)**: retained | waived | N/A — rationale" up front in every AC block).
+- **Sprint 20 retro MEDIUM closed** — prevents B-007 AC15-style reactive placement.
+
+#### [B-078] `breakCycles` adversarial-input hardening — ✅ DONE (Wave 1)
+- **Tier**: Fast Track (XS defensive) · **Closed**: 2026-04-20 · **PR**: #26 → `fa1a8df`
+- **Files**: `background/import/json-validator.js` (+`MAX_CYCLE_WALK_DEPTH = 1000` + depth counter in cycle walk → cap hit breaks cycle at current cursor via the existing cycle-break path).
+- **Sprint 18 R4 LOW closed.** 1500-node adversarial cycle test terminates in < 100 ms (budget: 10 s).
+
+#### [B-079] Query-length cap on filter input — ✅ DONE (Wave 1)
+- **Tier**: Fast Track (XS security) · **Closed**: 2026-04-20 · **PR**: #26 → `fa1a8df`
+- **Files**: `sidepanel/sidepanel.html` (+`maxlength="256"` on `#filter-input`).
+- **Sprint 19 R4 security LOW closed** — DoS-only vector, cheap mitigation.
+
+#### [B-080] Import-toast plain-language repair breakdown — ✅ DONE (Wave 1)
+- **Tier**: Fast Track (XS UX) · **Closed**: 2026-04-20 · **PR**: #26 → `fa1a8df`
+- **Files**: `sidepanel/sidepanel.js` (extracted `_plainLanguageRepairParts` shared helper; toast path expanded; preview-dialog body refactored to call the helper).
+- **Sprint 19 R4 QA LOW closed.** Toast now shows per-type breakdown inline (matches preview dialog verbiage).
+
+### UAT Results
+
+- **B-042 Export HTML (essentials-only pass)**: 6/6 essential cases PASS (UAT-1/2/3/6/7/8); 8 non-essential cases SKIP (UAT-4 Firefox not installed; UAT-5 destructive; UAT-9..14 automated-covered or niche scenarios deferred to S27). Plan drift logged: UAT-1/UAT-2 references a non-existent "overflow menu" — actual path is direct `#export-html-btn` button.
+
+### Backlog additions
+- **B-082** (XS, P1, `backlog`): "Open side panel" button in toolbar popup. Scheduled for S26 per FEATURE_PARITY_ROADMAP. Scope: button in `popup/popup.html` wired to `chrome.sidePanel.open()` — complements B-046's `_execute_action` keyboard-shortcut registration.
+
+### Feature-parity roadmap authored
+- `docs/FEATURE_PARITY_ROADMAP.md` — 7-sprint plan: S22 (drag foundation) → S23 (item drag core) → S24 (quick search popup) → S25 (group jump + standalone) → S26 (shortcuts + prefs + new tab page) → S27 (comprehensive UAT sweep) → S28 TBD (v2→main merge decision, deferred pending S27 review).
+
+### Velocity
+- Planned: 4 XS polish + UAT burndown target (≥ 4/9 plans PASS)
+- Delivered: 5 items shipped + 1 UAT plan essentials PASS + roadmap + B-082 filed
+- Scope-change mid-sprint: UAT target dropped to "essentials-only on B-042" per product-owner feature-parity pivot
+- Carried over: 8 UAT plans (B-042 non-essentials + 8 others) → S27 comprehensive sweep
+
+### Retrospective (action items to Sprint 22+)
+- **HIGH**: [scrum-master] S27 plan-correction pre-pass: before walking any UAT plan, grep plan references vs current markup; file any drift as correction commits before user walks the cases.
+- **MEDIUM**: Every S22–S26 feature ships with a 5–10 case smoke UAT plan authored during R1.
+- **LOW**: Release flow — bundle version bump into feature PR for single-PR sprints; reserve stash dance for multi-PR sprints.
+
+### R4 Findings Summary (Sprint 21)
+- **B-077 / B-078 / B-079 / B-080 / B-081**: 0 findings each.
+- **Total**: 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW. Second consecutive zero-findings sprint (after Sprint 20).
+
+**Action Items for Sprint 22:**
+1. [scrum-master] Author S22 sprint plan per FEATURE_PARITY_ROADMAP — drag foundation theme: B-025 + B-031 + B-032. Each with smoke UAT plan in R1.
+2. [product-manager] First sprint under new R1 template — exercise DoR Gate 7 check subsection on every B-025/B-031/B-032 AC block.
+3. [frontend-engineer] Review B-007's `filterGroupParentCandidates` helper for reuse in B-031 drag-nesting path (same depth-1 + cycle + children-of exclusions).
