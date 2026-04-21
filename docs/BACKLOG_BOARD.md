@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-20 · **Version:** 2.5 · **Total Items:** 82 · **Sprint 21 closed — v1.16.0 (product-owner pivot to feature parity)**
+**Updated:** 2026-04-20 · **Version:** 2.6 · **Total Items:** 82 · **Sprint 22 active — drag foundation (B-030 + helpers)**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ████████████████░░░░  79% (65/82)  [0 in progress · B-082 queued for S26]
+Overall Progress    ███████████████░░░░░  79% (65/82)  [3 in progress · S22]
 ```
 
 ### Legend
@@ -41,7 +41,7 @@ Overall Progress    ████████████████░░░░
 ✅ B-006 — Create / edit / delete groups with color palette · 🔴 · M
 ✅ B-007 — Sub-group nesting (depth = 1) · 🟠 · M [Sprint 20 Wave 2 — merged 0993189 / PR #24]
 ✅ B-008 — Group reorder & collapse / expand persistence · 🟠 · M
-⬜ B-009 — Drag-to-expand collapsed group · 🟡 · S
+🔄 B-009 — Drag-to-expand collapsed group · 🟡 · S [S22 Wave 1 — after B-030 lands]
 ✅ B-010 — Live tab reflection & active-tab highlight · 🔴 · L
 ✅ B-011 — Drift detection & persistence · 🔴 · L
 ✅ B-012 — Audible tab indicator · 🟠 · XS
@@ -62,10 +62,10 @@ Overall Progress    ████████████████░░░░
 ✅ B-027 — Group header context menu · 🟠 · S
 ✅ B-028 — Selection context menu · 🟠 · S
 ✅ B-029 — Group picker modal · 🟠 · M
-⬜ B-030 — Item drag-reorder within / between groups · 🟠 · L
+🔄 B-030 — Item drag-reorder within / between groups · 🟠 · L [S22 Wave 0 — drag foundation]
 ⬜ B-031 — Group drag-reorder & nesting via drag · 🟠 · M
 ⬜ B-032 — Auto-scroll during drag · 🟡 · S
-⬜ B-033 — Drag saved+live item to Open Tabs → demote · 🟡 · S
+🔄 B-033 — Drag saved+live item to Open Tabs → demote · 🟡 · S [S22 Wave 1 — after B-030 lands]
 🧊 B-034 — Window filter row (2+ windows) · 🟡 · S [absorbed into B-014]
 ⬜ B-035 — Standalone window display mode · 🟡 · M
 ⬜ B-036 — New tab page replacement (optional) · ⚪ · L
@@ -144,6 +144,6 @@ Overall Progress    ████████████████░░░░
 | Status | Count | % |
 |--------|-------|---|
 | ✅ Done | 65 | 79% |
-| 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 15 | 18% |
+| 🔄 In Progress | 3 | 4% |
+| ⬜ To Do | 12 | 15% |
 | 🧊 Icebox | 2 | 2% |

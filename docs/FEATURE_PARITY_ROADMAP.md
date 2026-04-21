@@ -12,14 +12,16 @@ All items below must be **shipped and smoke-tested** before the comprehensive UA
 
 ### Drag-and-drop (P1 + P2 helpers)
 
+**S22 ↔ S23 swap (2026-04-20, scrum-master Gate 6 correction)**: Original roadmap scheduled B-025 + B-031 + B-032 for S22, but each depends on **B-030** (item drag-reorder — the drag infrastructure foundation). Gate 6 deps-resolved check caught this at S22 kickoff. Swap: B-030 + helpers that sit ON the drag surface → S22; multi-item + group drag → S23 (deps resolved).
+
 | ID | Item | Priority | Effort | Sprint |
 |----|------|----------|--------|--------|
-| B-025 | Multi-item drag as single unit | 🟠 P1 | M | S22 |
-| B-031 | Group drag-reorder & nesting via drag | 🟠 P1 | M | S22 |
-| B-032 | Auto-scroll during drag | 🟡 P2 | S | S22 |
-| B-030 | Item drag-reorder within / between groups | 🟠 P1 | L | S23 |
-| B-009 | Drag-to-expand collapsed group | 🟡 P2 | S | S23 |
-| B-033 | Drag saved+live item to Open Tabs → demote | 🟡 P2 | S | S23 |
+| B-030 | Item drag-reorder within / between groups | 🟠 P1 | L | **S22 (foundation)** |
+| B-009 | Drag-to-expand collapsed group | 🟡 P2 | S | **S22** |
+| B-033 | Drag saved+live item to Open Tabs → demote | 🟡 P2 | S | **S22** |
+| B-025 | Multi-item drag as single unit | 🟠 P1 | M | **S23 (drag stack)** |
+| B-031 | Group drag-reorder & nesting via drag | 🟠 P1 | M | **S23** |
+| B-032 | Auto-scroll during drag | 🟡 P2 | S | **S23** |
 
 ### Popups (P1)
 
@@ -68,41 +70,41 @@ All items below must be **shipped and smoke-tested** before the comprehensive UA
 
 **Release**: **v1.16.0**
 
-### Sprint 22 — Drag foundation (2M + 1S)
+### Sprint 22 — Drag foundation (1L + 2S)
 
-**Theme**: Group-level drag behaviours. Multi-item selection drag + group drag-reorder-and-nest (extends B-007). Auto-scroll helper.
+**Theme**: The drag infrastructure foundation — item-level drag-reorder within + between groups, plus two helpers that can only exist once the infrastructure is in place (drag-to-expand while dragging + drag-to-Open-Tabs demote).
 
 **Shipping**:
-- **B-025 M** Multi-item drag as single unit
-- **B-031 M** Group drag-reorder & nesting via drag (unblocked by Sprint 20 B-007 + `filterGroupParentCandidates` helper)
-- **B-032 S** Auto-scroll during drag
+- **B-030 L** Item drag-reorder within / between groups (biggest drag item — the foundation every other drag feature depends on; 5 days of focused work)
+- **B-009 S** Drag-to-expand collapsed group (hover-hold → expand during drag)
+- **B-033 S** Drag saved+live item to Open Tabs → demote
 
 **Smoke UAT per item** (~5–10 cases each):
-- Happy path · keyboard · drag cancel · empty state · depth-1 rejection via drag (B-031)
+- Happy path · keyboard · drag cancel · empty state · error paths
 
 **Release**: **v1.17.0**
 
 **Parallelization rules applied**:
-- P-1: zero L/XL items ✅
-- P-3: two M in parallel (B-025 + B-031) — threshold hit, no more M
-- P-2: S items (B-032) pair with either M
+- P-1: one L (B-030) — max, no other L/XL ✅
+- P-2: S items (B-009 + B-033) pair with L ✅
 
-### Sprint 23 — Item drag core (1L + 2S)
+### Sprint 23 — Drag stack (2M + 1S)
 
-**Theme**: The big one — item-level drag-reorder within + between groups. Drag helpers that sit on top of the drag infrastructure.
+**Theme**: Drag features that sit ON the B-030 foundation: multi-item selection drag + group-level drag-reorder-and-nest (extends B-007 + reuses `filterGroupParentCandidates`) + auto-scroll helper.
 
 **Shipping**:
-- **B-030 L** Item drag-reorder within / between groups (biggest drag item — 5 days of focused work)
-- **B-009 S** Drag-to-expand collapsed group (hover-hold → expand during drag)
-- **B-033 S** Drag saved+live item to Open Tabs → demote
+- **B-025 M** Multi-item drag as single unit (depends on B-030 drag infrastructure)
+- **B-031 M** Group drag-reorder & nesting via drag (depends on B-030 + B-007 + `filterGroupParentCandidates` helper from Sprint 20)
+- **B-032 S** Auto-scroll during drag (depends on B-030)
 
 **Smoke UAT per item**: same shape as S22.
 
 **Release**: **v1.18.0**
 
 **Parallelization**:
-- P-1: one L (B-030) — max, no other L/XL
-- S items (B-009 + B-033) pair with L
+- P-1: zero L/XL ✅
+- P-3: two M in parallel (B-025 + B-031) — threshold hit, no more M ✅
+- P-2: S (B-032) pairs with either M ✅
 
 ### Sprint 24 — Quick search popup (1L)
 
