@@ -54,3 +54,4 @@
 - [§33 — B-044 + B-045 — Collection Import (R2 Design)](design/33-b-044-b-045-import.md)
 - [§34 — B-052 — Fuzzy Search Index Caching + Perf Targets (R2 Design)](design/34-b-052-fuzzy-search-caching.md)
 - [§35 — B-007 — Sub-group Nesting (R6 Close)](design/35-b-007-sub-group-nesting.md)
+- [§36 — B-030 v2 — Item Drag-Reorder within/between Groups (R6 Close)](design/36-b-030-item-drag-reorder-v2.md)

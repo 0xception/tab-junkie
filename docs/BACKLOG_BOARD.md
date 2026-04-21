@@ -62,7 +62,7 @@ Overall Progress    ███████████████░░░░░
 ✅ B-027 — Group header context menu · 🟠 · S
 ✅ B-028 — Selection context menu · 🟠 · S
 ✅ B-029 — Group picker modal · 🟠 · M
-🔄 B-030 — Item drag-reorder within / between groups · 🟠 · L [S23 Wave 0 — Spike-First L v2 (perf + correctness guardrails)]
+✅ B-030 — Item drag-reorder within / between groups · 🟠 · L [S23 Wave 0 — merged 791d50e / PR #28; pre-merge UAT 9/9 PASS]
 ⬜ B-031 — Group drag-reorder & nesting via drag · 🟠 · M
 ⬜ B-032 — Auto-scroll during drag · 🟡 · S
 🔄 B-033 — Drag saved+live item to Open Tabs → demote · 🟡 · S [S23 Wave 1 — after B-030 v2 lands]
