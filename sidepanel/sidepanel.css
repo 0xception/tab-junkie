@@ -433,6 +433,16 @@ html, body {
   position: relative; /* enables absolute positioning of .drop-indicator--item */
 }
 
+/* B-033 — Open Tabs section as drop-target highlight. Applied when a
+   saved+live item is dragged over the section. Subtle background tint
+   so the user sees the section is a valid drop zone without it becoming
+   visually dominant. */
+.open-tabs-section--drop-target {
+  background-color: var(--bg-hover, rgba(0, 0, 0, 0.04));
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
 #item-list.is-dragging {
   user-select: none;
 }
