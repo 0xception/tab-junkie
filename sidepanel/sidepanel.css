@@ -417,6 +417,22 @@ html, body {
   pointer-events: none;
 }
 
+/* B-030 v2 — item-drag indicator. Absolute-positioned variant used by
+   B-030 only (B-008 keeps the default `.drop-indicator` with static
+   positioning + reparent pattern). Inline styles on the element itself
+   enforce position/transform/opacity; this CSS rule sets the visual
+   treatment only. */
+.drop-indicator--item {
+  height: 2px;
+  margin: 0 8px;
+  left: 0;
+  right: 0;
+}
+
+#item-list {
+  position: relative; /* enables absolute positioning of .drop-indicator--item */
+}
+
 #item-list.is-dragging {
   user-select: none;
 }

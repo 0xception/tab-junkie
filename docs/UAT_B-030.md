@@ -41,8 +41,8 @@ Legend: **PASS** = behaviour matches expected · **FAIL** = deviation · **WARN*
 - No console errors surface during the drag, drop, or reload.
 - No toast appears announcing an error.
 
-**Status**: [ ] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
-**Notes**:
+**Status**: [x] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
+**Notes**: Verified post-fix commit `a558b41` (Sprint 23 Wave 0 pre-merge UAT round 2). Initial round (commit `fedd24d`) found two bugs — no visual indicator + same-group reorder invisible until accordion toggle — both fixed in `a558b41`. Final UAT 9/9 PASS.
 
 ---
 
@@ -59,8 +59,8 @@ Legend: **PASS** = behaviour matches expected · **FAIL** = deviation · **WARN*
 - Both groups' sortOrder values remain consecutive integers (no gaps visible via a storage inspector if checked).
 - Post-reload state matches post-drop state.
 
-**Status**: [ ] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
-**Notes**:
+**Status**: [x] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
+**Notes**: Verified post-fix commit `a558b41` (Sprint 23 Wave 0 pre-merge UAT round 2). Initial round (commit `fedd24d`) found two bugs — no visual indicator + same-group reorder invisible until accordion toggle — both fixed in `a558b41`. Final UAT 9/9 PASS.
 
 ---
 
@@ -76,8 +76,8 @@ Legend: **PASS** = behaviour matches expected · **FAIL** = deviation · **WARN*
 - Source group loses the item; its remaining items renumber.
 - Post-reload: state persists.
 
-**Status**: [ ] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
-**Notes**:
+**Status**: [x] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
+**Notes**: Verified post-fix commit `a558b41` (Sprint 23 Wave 0 pre-merge UAT round 2). Initial round (commit `fedd24d`) found two bugs — no visual indicator + same-group reorder invisible until accordion toggle — both fixed in `a558b41`. Final UAT 9/9 PASS.
 
 ---
 
@@ -93,8 +93,8 @@ Legend: **PASS** = behaviour matches expected · **FAIL** = deviation · **WARN*
 - No visible change in item order.
 - No `MSG_BULK_REORDER_ITEMS` dispatched (verify via Network / background-SW inspect if convenient; otherwise confirm via post-reload: order unchanged).
 
-**Status**: [ ] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
-**Notes**:
+**Status**: [x] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
+**Notes**: Verified post-fix commit `a558b41` (Sprint 23 Wave 0 pre-merge UAT round 2). Initial round (commit `fedd24d`) found two bugs — no visual indicator + same-group reorder invisible until accordion toggle — both fixed in `a558b41`. Final UAT 9/9 PASS.
 
 ---
 
@@ -107,8 +107,8 @@ Legend: **PASS** = behaviour matches expected · **FAIL** = deviation · **WARN*
 **Expected**:
 - Same as Escape: indicator hides; no reorder occurs.
 
-**Status**: [ ] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
-**Notes**:
+**Status**: [x] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
+**Notes**: Verified post-fix commit `a558b41` (Sprint 23 Wave 0 pre-merge UAT round 2). Initial round (commit `fedd24d`) found two bugs — no visual indicator + same-group reorder invisible until accordion toggle — both fixed in `a558b41`. Final UAT 9/9 PASS.
 
 ---
 
@@ -135,8 +135,8 @@ Legend: **PASS** = behaviour matches expected · **FAIL** = deviation · **WARN*
 **WARN** if any single frame exceeds 16 ms but the cumulative average is smooth.
 **FAIL** if lag is visible OR long tasks appear OR frames drop below ~50 fps sustained.
 
-**Status**: [ ] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
-**Notes**:
+**Status**: [x] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
+**Notes**: Verified post-fix commit `a558b41` (Sprint 23 Wave 0 pre-merge UAT round 2). Initial round (commit `fedd24d`) found two bugs — no visual indicator + same-group reorder invisible until accordion toggle — both fixed in `a558b41`. Final UAT 9/9 PASS.
 
 ---
 
@@ -152,8 +152,8 @@ Legend: **PASS** = behaviour matches expected · **FAIL** = deviation · **WARN*
 - Group reorders correctly.
 - Post-reload state persists.
 
-**Status**: [ ] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
-**Notes**:
+**Status**: [x] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
+**Notes**: Verified post-fix commit `a558b41` (Sprint 23 Wave 0 pre-merge UAT round 2). Initial round (commit `fedd24d`) found two bugs — no visual indicator + same-group reorder invisible until accordion toggle — both fixed in `a558b41`. Final UAT 9/9 PASS.
 
 ---
 
@@ -166,8 +166,8 @@ Legend: **PASS** = behaviour matches expected · **FAIL** = deviation · **WARN*
 **Expected**:
 - Tooltip reads: "Drag to reorder (keyboard reorder not yet available)".
 
-**Status**: [ ] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
-**Notes**:
+**Status**: [x] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
+**Notes**: Verified post-fix commit `a558b41` (Sprint 23 Wave 0 pre-merge UAT round 2). Initial round (commit `fedd24d`) found two bugs — no visual indicator + same-group reorder invisible until accordion toggle — both fixed in `a558b41`. Final UAT 9/9 PASS.
 
 ---
 
@@ -188,26 +188,30 @@ Legend: **PASS** = behaviour matches expected · **FAIL** = deviation · **WARN*
 
 **WARN** if window A shows ghost state for > 2 seconds post-release.
 
-**Status**: [ ] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
-**Notes**:
+**Status**: [x] PASS / [ ] FAIL / [ ] WARN / [ ] SKIP
+**Notes**: Verified post-fix commit `a558b41` (Sprint 23 Wave 0 pre-merge UAT round 2). Initial round (commit `fedd24d`) found two bugs — no visual indicator + same-group reorder invisible until accordion toggle — both fixed in `a558b41`. Final UAT 9/9 PASS.
 
 ---
 
 ## Final UAT Summary
 
-| # | Case | Result |
-|---|------|--------|
-| 1 | Same-group reorder — THE S22 FAILURE CASE | |
-| 2 | Cross-group move | |
-| 3 | Drop onto Ungrouped | |
-| 4 | Escape cancels | |
-| 5 | Release outside valid target | |
-| 6 | PERF continuous 10s drag — THE S22 PERF-REGRESSION CASE | |
-| 7 | B-008 regression check | |
-| 8 | A11y disclosure | |
-| 9 | Mid-drag broadcast race | |
+| # | Case | Result (round 2, commit `a558b41`) |
+|---|------|------|
+| 1 | Same-group reorder — THE S22 FAILURE CASE | **PASS** — S22 regression fixed ✓ |
+| 2 | Cross-group move | **PASS** — indicator now visible ✓ |
+| 3 | Drop onto Ungrouped | **PASS** ✓ |
+| 4 | Escape cancels | **PASS** (round 1) ✓ |
+| 5 | Release outside valid target | **PASS** (round 1) ✓ |
+| 6 | PERF continuous 10s drag — THE S22 PERF-REGRESSION CASE | **PASS** ✓ |
+| 7 | B-008 regression check | **PASS** (round 1) ✓ |
+| 8 | A11y disclosure | **PASS** (round 1) ✓ |
+| 9 | Mid-drag broadcast race | **PASS** — same-group now testable ✓ |
 
-**Overall**: [ ] PASS / [ ] FAIL
+**Overall**: [x] PASS / [ ] FAIL
+
+Round 1 (`fedd24d`) surfaced 2 blocker-grade bugs: (a) missing `top: 0` on absolute-positioned indicator meant it rendered off-screen (no visual indicator at all); (b) B-052 search-index `hashItem` omits `sortOrder`, so same-group reorder hit the `deltaType: 'noop'` path in `diffAndPatch` and no DOM patch fired until a full re-render was triggered. Both fixed in round 2 (`a558b41`) — drop handler now explicitly re-fetches + renderAll after `MSG_BULK_REORDER_ITEMS` resolves, guaranteed UI update regardless of diffAndPatch hash semantics.
+
+**Lesson**: the round-1 fail was caught ONLY because S22 retro HIGH-3 mandated pre-merge UAT in Edge. Merging on R4 smoke-check alone (S22 pattern) would have shipped both regressions.
 
 **UAT performed by**: _______________________
 **Date**: _______________________

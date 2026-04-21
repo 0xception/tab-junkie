@@ -14,6 +14,7 @@ export {
   bulkCreateItems,
   bulkDeleteItems,
   bulkUpdateItems,
+  bulkReorderItems,
 } from './items.js';
 
 export {
