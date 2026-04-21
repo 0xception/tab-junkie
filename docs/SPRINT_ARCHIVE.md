@@ -1041,3 +1041,62 @@ All sprints S22 → S28 renumber by +1:
 - S27: Shortcuts + prefs + new tab (B-046/B-082/B-038/B-039/B-040/B-036) — was S26
 - S28: Comprehensive UAT sweep — was S27
 - S29: TBD v2→main — was S28
+
+---
+
+## Sprint 23 — Drag Foundation v2 + Helpers (2026-04-21)
+
+**Theme:** Second attempt at the drag foundation after the Sprint 22 revert. Every S22 retro action item applied explicitly at kickoff. Pre-merge UAT in Edge caught 2 blocker-grade bugs that R4 smoke-check would have missed — the exact failure class that killed S22. Fixed pre-merge; 9/9 PASS round 2; merged clean.
+**Release:** v1.17.0 · Commit `eae6123` on `release/v2` (tag `v1.17.0` pushed; GitHub Release publication skipped per product-owner policy)
+**Tests:** 979 → **1001** (+22 — 14 sort-order + 8 backend)
+**Docs structure:** New §36 chapter `docs/design/36-b-030-item-drag-reorder-v2.md`. SOLUTION_DESIGN index TOC extended.
+
+### Completed Items
+
+#### [B-030] Item drag-reorder within / between groups (v2) — ✅ DONE
+- **Tier**: Spike-First (L) — Tier 3 escalation per S22 retro · **Closed**: 2026-04-21 · **PR**: #28 → `791d50e`
+- **Pipeline**: R0 spike ✅ · R1 ✅ · R2 ✅ · R3 ✅ · **PRE-MERGE UAT Round 1 FAIL (2 bugs)** → fixes → **Round 2 9/9 PASS** · Merge ✅ · R6 ✅
+- **Files**: `shared/messages.js` (+MSG_BULK_REORDER_ITEMS), `shared/sort-order.js` (NEW — computeItemReorder), `background/storage/items.js` (+bulkReorderItems), `background/storage/index.js`, `background/messages/storage-handlers.js`, `sidepanel/sidepanel.js` (+~260 for v2 drag handlers + helpers + state), `sidepanel/sidepanel.css` (+~20), `tests/sort-order.test.js` (NEW — 14 tests), `tests/b030-item-drag-reorder.test.js` (NEW — 8 backend tests), `docs/UAT_B-030.md` (NEW — 9-case plan with perf probes)
+- **R6 chapter**: `docs/design/36-b-030-item-drag-reorder-v2.md`
+- **Round 1 bugs**: indicator invisible (missing `top: 0` on absolute element) + same-group reorder no-render (B-052 hashItem omits sortOrder → diffAndPatch returned noop)
+- **Round 2 fixes**: D-1 added `top: 0` inline, D-2 explicit `renderAll` after MSG_BULK_REORDER_ITEMS, D-3 cleanup order swap, D-4 `z-index: 10` on indicator
+- **Retro discipline validated**: pre-merge UAT was the load-bearing gate
+
+#### [B-009] Drag-to-expand collapsed group — ✅ DONE
+- **Tier**: Fast Track (S) · **Closed**: 2026-04-21 · **PR**: #29 → `df4a024`
+- **Files**: `sidepanel/sidepanel.js` (+`_hoveredCollapsedGroup` + `_b009HoverState` + hover-hold timer in `_dragTick`)
+- **Scope**: 600ms hover-hold on collapsed group header during drag → dispatches existing `MSG_UPDATE_GROUP { collapsed: false }`. Persists across reload.
+
+#### [B-033] Drag saved+live item to Open Tabs → demote — ✅ DONE
+- **Tier**: Fast Track (S) · **Closed**: 2026-04-21 · **PR**: #29 → `df4a024`
+- **Files**: `sidepanel/sidepanel.js` (+Open Tabs branch in `_computeDropTarget` with live-state guard, drop handler branches on `pendingDropType === 'openTabs'`), `sidepanel/sidepanel.css` (+`.open-tabs-section--drop-target` highlight)
+- **Scope**: saved+live item dragged to Open Tabs section → `MSG_DEMOTE_ITEM` (existing B-017 message). Saved-only rejected at target-compute time; live tab preserved.
+
+### UAT Results
+
+- **B-030**: pre-merge UAT 9/9 PASS (round 2). Round 1 caught 2 blocker bugs which would have been a repeat of S22's failure class.
+- **B-009, B-033**: Fast Track S items — pre-merge UAT product-owner-optional per HIGH-3; deferred to S28 comprehensive sweep per FEATURE_PARITY_ROADMAP.
+
+### Velocity
+- Planned: 3 items (1L + 2S)
+- Delivered: 3 items — 100% scope
+- Revert count: 0 (vs S22's 1)
+- Test growth: 979 → 1001 (+22)
+- Release: v1.17.0 (the release S22 was meant to be)
+
+### Retrospective (action items → Sprint 24)
+- **HIGH**: S24 = drag stack (B-025 M + B-031 M + B-032 S). P-3 max 2M + P-2 S pair with M. Reuse `_dragRectCache` + `_scheduleDragTick` + `_computeDropTarget` from B-030 v2.
+- **MEDIUM**: R2 for S24 items MUST enumerate required CSS properties explicitly (not just strategies) — per D-1 lesson.
+- **MEDIUM**: B-031 drag-nest path should reuse B-007's `filterGroupParentCandidates` helper (same depth-1 + cycle + children-of exclusions) per S22 retro LOW action.
+- **LOW**: B-052 `hashItem` sortOrder follow-up — explicit `renderAll` is the current compensation; adding sortOrder to the hash would be a cleaner long-term fix. Documented in §36.8.
+
+### R4 Findings Summary
+- **B-030 / B-009 / B-033**: 0 findings each at R4 smoke-check layer
+- **Total R4**: 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW
+- **UAT layer** (B-030): 2 blocker bugs caught pre-merge + fixed
+- **Key lesson**: R4 smoke-check cleanliness ≠ zero bugs. Pre-merge UAT for L-tier runtime-sensitive features is load-bearing, not optional.
+
+**Action Items for Sprint 24:**
+1. [scrum-master] Author S24 SPRINT.md per roadmap — drag stack theme (B-025 + B-031 + B-032). [HIGH]
+2. [solution-architect] R2 enumerates CSS requirements explicitly (D-1 lesson). [MEDIUM]
+3. [frontend-engineer] B-031 reuses B-007's filterGroupParentCandidates. [MEDIUM]
