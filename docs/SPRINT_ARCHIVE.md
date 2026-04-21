@@ -990,3 +990,54 @@ None during sprint. All findings surfaced in R4 review (1 HIGH + 6 MEDIUM + 9 LO
 1. [scrum-master] Author S22 sprint plan per FEATURE_PARITY_ROADMAP — drag foundation theme: B-025 + B-031 + B-032. Each with smoke UAT plan in R1.
 2. [product-manager] First sprint under new R1 template — exercise DoR Gate 7 check subsection on every B-025/B-031/B-032 AC block.
 3. [frontend-engineer] Review B-007's `filterGroupParentCandidates` helper for reuse in B-031 drag-nesting path (same depth-1 + cycle + children-of exclusions).
+
+---
+
+## Sprint 22 — CLOSED without release (drag foundation reverted) (2026-04-21)
+
+**Theme:** Drag foundation per FEATURE_PARITY_ROADMAP. Shipped B-030 (Full tier L) through R1 + R2 + R3 + R5 + R6 in Wave 0 (PR #27, commit `bfe0559`); product-owner UAT smoke test the following day found two blocker-grade issues → revert executed as `git revert bfe0559`.
+**Release:** NONE — v1.16.0 remains the current production tag. Drag work slipped one sprint; S23 will re-architect B-030 + ship the drag foundation v2 with B-009 + B-033.
+**Tests:** 979 → 997 (during B-030 shipment) → 979 (post-revert). Net zero.
+**Docs structure:** §36 design chapter authored + removed by revert. `docs/FEATURE_PARITY_ROADMAP.md` updated with the one-sprint slip (S23+ all shift down one).
+
+### What happened
+
+- **2026-04-20**: Sprint 22 kickoff → R1 ACs for B-030 / B-009 / B-033 → B-030 R2 architecture review (PASS, 8 correctness checks, 5 design decisions) → B-030 R3 build + R5 tests (+18) + R6 design chapter → PR #27 merged as `bfe0559`.
+- **2026-04-21**: Product-owner UAT smoke test in Edge found:
+  - **Correctness (2/8 FAIL)**: UAT-1 "within-group reorder" — indicator positioned correctly but drop produced no actual reorder; UAT-6 "continuous perf" — cumulative drag-over lag that compounded the longer the drag continued.
+  - **Regression (1/8 WARN)**: UAT-7 B-008 group-drag lag — introduced by B-030's handler additions.
+- Revert executed same session. B-030 / B-009 / B-033 returned to `backlog` (now scheduled for S23).
+
+### Root cause analysis
+
+1. **Perf regression (B-008 + B-030 both affected)**: R2 §36.3.4 specified "rAF-coalesced indicator writes + bounding-rect reads cached per-drag". R3 build ignored this and recomputed rects + moved DOM on every dragover event (60–120 Hz). Each `getBoundingClientRect` forced synchronous layout; compounding over 10+ seconds of drag. The specification was aspirational — not encoded as an R3 acceptance criterion, so R3 implementation silently dropped it.
+2. **Same-group reorder silent failure**: not definitively root-caused (would require Edge-side debug instrumentation). Likely either (a) `destIndex` computation off-by-one when source and destination are the same group, OR (b) the broadcast → sidepanel re-render path losing the updated state somewhere between `bulkReorderItems` commit and `renderAll`. Automated backend tests and pure-helper tests all passed on their respective surfaces; the bug lives in the sidepanel ↔ storage wiring that only manifests in a real browser.
+3. **R4 smoke-check didn't catch either**: R4 was a self-attested inline review (matches B-069/B-074 pattern for docs-only changes). For L items with runtime-sensitive behaviour (drag, perf), that pattern is insufficient. UAT must run before the PR merges, not after.
+
+### Sprint retrospective — action items for S23 and forward
+
+- **HIGH [scrum-master]**: S23 scope = B-030 re-architected + B-009 + B-033. Consider Tier 3 Spike-First escalation for B-030 given the revert; treat the perf decisions as ACs, not notes.
+- **HIGH [product-manager]**: Author `docs/UAT_B-030.md` in R1 (not deferred to R3 or S27). Include perf-specific probes: "continuous 10-second drag → measure cumulative lag" and "getBoundingClientRect call-count budget during dragover".
+- **HIGH [solution-architect]**: R2 perf decisions MUST be encoded as R3 ACs or explicit code guardrails (e.g., "dragover handler MUST NOT call getBoundingClientRect outside a requestAnimationFrame callback"). Note: consider an ESLint rule for the no-synchronous-layout-in-dragover pattern.
+- **MEDIUM [frontend-engineer]**: R3 debug strategy for same-group reorder — add feature-flagged console.log in drop handler branches; walk Edge UAT; confirm execution path; remove logs pre-merge.
+- **MEDIUM [test-engineer]**: Add primitive fake-DOM drag simulation to `tests/b030-item-drag-reorder.test.js` covering the full sidepanel drag path (dragstart → dragover → drop → dispatch). Exercise same-group drag-to-end, same-group drag-to-start, cross-group, drop-onto-Ungrouped.
+- **LOW**: For every S23+ feature, pre-authored UAT plan drives the walkthrough (not ad-hoc checks generated at smoke-test time).
+
+### R4 Findings Summary
+- **B-030** (at time of PR #27 merge): 0 findings at R4. UAT post-merge surfaced 2 blocker-grade issues (correctness + perf). **Lesson: R4 smoke-check is NOT a substitute for in-browser UAT for runtime-sensitive features.**
+
+### Velocity
+- Planned: 3 items (B-030 L + B-009 S + B-033 S)
+- Shipped: **0**
+- Merged-then-reverted: 1 item (B-030)
+- Carried over: all 3 items to S23
+
+### Roadmap impact
+All sprints S22 → S28 renumber by +1:
+- S23: Drag foundation v2 (was S22 attempt)
+- S24: Drag stack (B-025/B-031/B-032) — was S23
+- S25: Quick search popup B-022 — was S24
+- S26: Group jump + standalone (B-023/B-035) — was S25
+- S27: Shortcuts + prefs + new tab (B-046/B-082/B-038/B-039/B-040/B-036) — was S26
+- S28: Comprehensive UAT sweep — was S27
+- S29: TBD v2→main — was S28

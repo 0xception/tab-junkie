@@ -12,40 +12,42 @@ All items below must be **shipped and smoke-tested** before the comprehensive UA
 
 ### Drag-and-drop (P1 + P2 helpers)
 
-**S22 ↔ S23 swap (2026-04-20, scrum-master Gate 6 correction)**: Original roadmap scheduled B-025 + B-031 + B-032 for S22, but each depends on **B-030** (item drag-reorder — the drag infrastructure foundation). Gate 6 deps-resolved check caught this at S22 kickoff. Swap: B-030 + helpers that sit ON the drag surface → S22; multi-item + group drag → S23 (deps resolved).
+**S22 ↔ S23 swap (2026-04-20, Gate 6 correction)**: B-030 dep foundation ordering.
 
-| ID | Item | Priority | Effort | Sprint |
-|----|------|----------|--------|--------|
-| B-030 | Item drag-reorder within / between groups | 🟠 P1 | L | **S22 (foundation)** |
-| B-009 | Drag-to-expand collapsed group | 🟡 P2 | S | **S22** |
-| B-033 | Drag saved+live item to Open Tabs → demote | 🟡 P2 | S | **S22** |
-| B-025 | Multi-item drag as single unit | 🟠 P1 | M | **S23 (drag stack)** |
-| B-031 | Group drag-reorder & nesting via drag | 🟠 P1 | M | **S23** |
-| B-032 | Auto-scroll during drag | 🟡 P2 | S | **S23** |
+**S22 B-030 revert (2026-04-21, UAT-surfaced perf + correctness regression)**: B-030 shipped in S22 Wave 0 (PR #27, commit `bfe0559`), then reverted the next day after UAT smoke test found (a) same-group reorder silently dropped drops and (b) cumulative drag-over lag that also regressed B-008. All S22 drag work slipped by **one sprint**. B-030 returns to `backlog` for S23 re-architecting with perf as a first-class concern (rAF coalescing + cached rects encoded as R3 guardrails, not R2 notes). S23+ shift down one.
+
+| ID | Item | Priority | Effort | Sprint (updated) |
+|----|------|----------|--------|-------------------|
+| B-030 | Item drag-reorder within / between groups | 🟠 P1 | L | **S23 (foundation v2 — re-architected)** |
+| B-009 | Drag-to-expand collapsed group | 🟡 P2 | S | **S23** |
+| B-033 | Drag saved+live item to Open Tabs → demote | 🟡 P2 | S | **S23** |
+| B-025 | Multi-item drag as single unit | 🟠 P1 | M | **S24 (drag stack)** |
+| B-031 | Group drag-reorder & nesting via drag | 🟠 P1 | M | **S24** |
+| B-032 | Auto-scroll during drag | 🟡 P2 | S | **S24** |
 
 ### Popups (P1)
 
-| ID | Item | Priority | Effort | Sprint |
-|----|------|----------|--------|--------|
-| B-022 | Quick search popup with keyboard navigation | 🟠 P1 | L | S24 |
-| B-023 | Group jump popup | 🟠 P1 | L | S25 |
+| ID | Item | Priority | Effort | Sprint (updated) |
+|----|------|----------|--------|-------------------|
+| B-022 | Quick search popup with keyboard navigation | 🟠 P1 | L | **S25** (was S24) |
+| B-023 | Group jump popup | 🟠 P1 | L | **S26** (was S25) |
 
 ### New page / tab views
 
-| ID | Item | Priority | Effort | Sprint |
-|----|------|----------|--------|--------|
-| B-035 | Standalone window display mode | 🟡 P2 | M | S25 |
-| B-036 | New tab page replacement | ⚪ P3 | L | S26 (included per product-owner) |
-| B-038 | View mode preference (side panel vs. standalone) | ⚪ P3 | XS | S26 |
-| B-039 | New tab page toggle preference | ⚪ P3 | XS | S26 |
-| B-040 | Sub-group auto-collapse preference | ⚪ P3 | XS | S26 |
+| ID | Item | Priority | Effort | Sprint (updated) |
+|----|------|----------|--------|-------------------|
+| B-035 | Standalone window display mode | 🟡 P2 | M | **S26** (was S25) |
+| B-036 | New tab page replacement | ⚪ P3 | L | **S27** (was S26) |
+| B-038 | View mode preference (side panel vs. standalone) | ⚪ P3 | XS | **S27** (was S26) |
+| B-039 | New tab page toggle preference | ⚪ P3 | XS | **S27** (was S26) |
+| B-040 | Sub-group auto-collapse preference | ⚪ P3 | XS | **S27** (was S26) |
 
 ### Shortcuts + popup entry point
 
-| ID | Item | Priority | Effort | Sprint |
-|----|------|----------|--------|--------|
-| B-046 | Global keyboard shortcuts (registers `_execute_action` + page-open commands in `manifest.json`) | 🟠 P1 | S | S26 — unblocked by B-022 + B-035 landing first |
-| B-082 | "Open side panel" button in toolbar popup | 🟠 P1 | XS | S26 — primary scope (b): button click path; shortcut path (c) covered by B-046 |
+| ID | Item | Priority | Effort | Sprint (updated) |
+|----|------|----------|--------|-------------------|
+| B-046 | Global keyboard shortcuts | 🟠 P1 | S | **S27** (was S26) — unblocked by B-022 + B-035 landing first |
+| B-082 | "Open side panel" button in toolbar popup | 🟠 P1 | XS | **S27** (was S26) — primary scope (b); shortcut path (c) covered by B-046 |
 
 ### Explicitly deferred (post-feature-parity, not in scope)
 
@@ -70,25 +72,28 @@ All items below must be **shipped and smoke-tested** before the comprehensive UA
 
 **Release**: **v1.16.0**
 
-### Sprint 22 — Drag foundation (1L + 2S)
+### Sprint 22 — CLOSED without release (drag foundation reverted)
 
-**Theme**: The drag infrastructure foundation — item-level drag-reorder within + between groups, plus two helpers that can only exist once the infrastructure is in place (drag-to-expand while dragging + drag-to-Open-Tabs demote).
+B-030 shipped then reverted mid-sprint (UAT-surfaced perf + correctness). See `docs/SPRINT_ARCHIVE.md` Sprint 22 entry for the retrospective + action items. Zero features released; v1.16.0 remains the live production tag.
+
+### Sprint 23 — Drag foundation v2 (1L + 2S)
+
+**Theme**: Drag foundation re-architected after the Sprint 22 revert. Perf specs from R2 become R3 code guardrails this time (rAF-coalesced dragover handler, cached bounding rects per drag). Per-feature smoke UAT authored in R1, not deferred. Same scope as S22 attempt.
 
 **Shipping**:
-- **B-030 L** Item drag-reorder within / between groups (biggest drag item — the foundation every other drag feature depends on; 5 days of focused work)
-- **B-009 S** Drag-to-expand collapsed group (hover-hold → expand during drag)
+- **B-030 L** Item drag-reorder within / between groups (re-architected; dedicated Edge debug pass at R3 for same-group reorder correctness)
+- **B-009 S** Drag-to-expand collapsed group
 - **B-033 S** Drag saved+live item to Open Tabs → demote
 
-**Smoke UAT per item** (~5–10 cases each):
-- Happy path · keyboard · drag cancel · empty state · error paths
+**Smoke UAT per item** (~5–10 cases each) — authored in R1, includes perf probes (continuous drag duration, getBoundingClientRect call count).
 
-**Release**: **v1.17.0**
+**Release**: **v1.17.0** (first release after S22 zero-release close).
 
 **Parallelization rules applied**:
 - P-1: one L (B-030) — max, no other L/XL ✅
 - P-2: S items (B-009 + B-033) pair with L ✅
 
-### Sprint 23 — Drag stack (2M + 1S)
+### Sprint 24 — Drag stack (2M + 1S)
 
 **Theme**: Drag features that sit ON the B-030 foundation: multi-item selection drag + group-level drag-reorder-and-nest (extends B-007 + reuses `filterGroupParentCandidates`) + auto-scroll helper.
 
@@ -105,6 +110,10 @@ All items below must be **shipped and smoke-tested** before the comprehensive UA
 - P-1: zero L/XL ✅
 - P-3: two M in parallel (B-025 + B-031) — threshold hit, no more M ✅
 - P-2: S (B-032) pairs with either M ✅
+
+### Sprint 25+ — renumbered per S22 revert
+
+S24 (quick search popup), S25 (group jump + standalone), S26 (shortcuts + prefs + new tab page), S27 (comprehensive UAT sweep), S28 (TBD v2→main) all shift **one sprint later** than the original roadmap. Sprint contents unchanged; sprint numbers + release versions update to reflect the S22 revert. See individual sprint tables above for the new sprint assignments per item.
 
 ### Sprint 24 — Quick search popup (1L)
 

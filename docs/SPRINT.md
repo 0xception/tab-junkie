@@ -1,173 +1,112 @@
 # Current Sprint
 
-*Sprint 22 — Drag foundation: B-030 item drag-reorder + B-009 drag-to-expand + B-033 drag-to-Open-Tabs demote. Kicked off 2026-04-20 per FEATURE_PARITY_ROADMAP.*
-
-First sprint under the feature-parity roadmap. First Full-tier L item (B-030) since Sprint 17's B-042/B-043. Every feature ships with a 5–10 case smoke UAT plan authored during R1 (Sprint 21 retro MEDIUM action item).
+*Sprint 22 — Drag foundation attempt; B-030 reverted mid-sprint due to perf regression + correctness bug. Closed 2026-04-21 without release. Drag work slips one sprint — re-architected re-implementation scheduled for S23.*
 
 ---
 
-## Sprint Readiness (Gate 6)
+## Sprint Readiness (Gate 6) — original scope
 
-- ✅ Scope approved: B-030 L + B-009 S + B-033 S (drag foundation theme per FEATURE_PARITY_ROADMAP.md, adjusted from original roadmap — see Scope Change Log)
-- ✅ Total effort: 1L + 2S — matches P-1 (one L) + P-2 (S pairs with anything)
-- ✅ **Deps-resolved check** (Sprint 20 B-071):
-  - **B-030** (Item drag-reorder): deps B-001 ✅ (done), B-008 ✅ (done) — both resolved
-  - **B-009** (Drag-to-expand collapsed): deps B-008 ✅, B-030 ⬜ (in this sprint) — resolved per Gate 6 "done OR in-sprint" rule
-  - **B-033** (Drag to Open Tabs → demote): deps B-017 ✅, B-030 ⬜ (in-sprint), B-055 ✅ — all resolved
-- ✅ Sprint 21 closed 2026-04-20; v1.16.0 tag on `release/v2`; archive commit `84b2259`
+Kicked off 2026-04-20 per FEATURE_PARITY_ROADMAP with B-030 (L) + B-009 (S) + B-033 (S) — drag foundation theme.
 
 ---
 
 ## Scope Change Log
 
-**2026-04-20 — S22 ↔ S23 swap at kickoff.** Original FEATURE_PARITY_ROADMAP scheduled B-025 + B-031 + B-032 for S22, but each of those three depends on **B-030** (the drag infrastructure foundation), which was scheduled for S23. Gate 6 deps-resolved check caught the ordering mismatch. **Swap applied**: drag foundation (B-030 + helpers) lands in S22 so S23 can ship the drag stack (B-025 + B-031 + B-032) with all deps resolved. Roadmap doc updated; no velocity impact.
+**2026-04-20 — S22 ↔ S23 swap at kickoff** (original entry preserved). Applied before build started; no impact on retrospective.
+
+**2026-04-21 — B-030 reverted mid-sprint (MAJOR scope change)**. After R1 + R2 + R3 + R5 + R6 shipped (PR #27, commit `bfe0559`), product-owner UAT smoke test in Edge surfaced two blocker-grade issues:
+1. **Correctness**: same-group reorder indicator positioned correctly but drop produced no actual reorder. Cross-group move worked, drop-onto-Ungrouped worked; only same-group silently failed.
+2. **Performance**: cumulative drag-over lag that compounded the longer the drag continued, affecting both the new item drag AND the pre-existing B-008 group drag (regression).
+
+Root-cause analysis in retrospective below. Decision: revert B-030 (`git revert bfe0559` → commit `<this-commit>`) rather than patch forward, because:
+- The perf issue stemmed from skipping the R2-specified rAF coalescing + cached-rect optimisation — that's an architectural gap, not a surface bug.
+- The same-group correctness bug needs Edge-side debug instrumentation that wasn't feasible in-session.
+- B-009 + B-033 were both blocked on B-030 — shipping them on a known-broken foundation would compound the regression.
+- Clean revert preserves the roadmap accounting honestly (one-sprint slip, not a quiet patch-over).
+
+**Consequences**: Sprint 22 closes with **zero features shipped** (no v1.17.0 release). B-009 + B-033 revert to `backlog` with their R1 ACs preserved. FEATURE_PARITY_ROADMAP.md updated — drag foundation theme moves to S23; drag stack (B-025 + B-031 + B-032) moves to S24; downstream sprints shift by one.
 
 ---
 
 ## Active Items
 
-### [B-030] Item drag-reorder within / between groups
-- **Tier**: Full (L) — first Full-tier L since Sprint 17
-- **Status**: R1 ✅ (15 PASS/FAIL ACs + smoke UAT plan referenced) · R2 ✅ (architecture review below) · R3 next
-- **Assigned To**: [frontend-engineer] for R3 build
-- **Blockers**: None
-- **Smoke UAT plan**: `docs/UAT_B-030.md` — 8-case smoke plan (TBD during R3).
-
-#### R2 Architecture Review — PASS
-
-**Correctness Checklist (C-1..C-9)**:
-
-| # | Check | Verdict | Notes |
-|---|-------|---------|-------|
-| C-1 | Storage schema versioned | ✅ N/A — `sortOrder` + `groupId` fields exist on Item records since B-001a §32.5.2; no migration |
-| C-2 | Message contracts typed | ⚠️ **NEW** message `MSG_BULK_REORDER_ITEMS` required (see D-1 below) |
-| C-3 | SW cold-start safe | ✅ All drag logic runs in sidepanel DOM; no SW-memory state |
-| C-4 | ID stability | ✅ Items keep ids through drag; only `sortOrder` + optional `groupId` change |
-| C-5 | Manifest file refs | ✅ No change |
-| C-6 | Permission minimization | ✅ Zero new permissions (drag is DOM-level) |
-| C-7 | Allow-list direction | ✅ N/A — no new sanitizer/validator surface |
-| C-8 | SW-context feasibility | ✅ All drag APIs (`dragstart`, `dragover`, `drop`, `dragend`) are sidepanel-side; no SW browser-API calls |
-| C-9 | Empty-state design | ✅ AC13 enumerates 7 states (empty group drop / start / end / between / Open Tabs invalid / self-drop no-op / group-header drop) |
-
-**Key design decisions** (R3 will follow):
-
-**D-1 — Storage write path**: `bulkUpdateItems` exists (`background/storage/items.js:467`) but is locked to **uniform-patch, groupId-only** semantics (AC enforced at line 485). B-030 needs **per-item `sortOrder` values** — the existing function can't express this. Decision: introduce a new storage function + message:
-- **NEW storage fn**: `bulkReorderItems(updates: Array<{id, sortOrder, groupId?}>)` in `background/storage/items.js`. Single `writeTransaction`; per-item `sortOrder` write; optional `groupId` change for cross-group moves. Follows the `bulkCreateItems` / `bulkDeleteItems` precedent from B-005 / B-020.
-- **NEW message**: `MSG_BULK_REORDER_ITEMS` in `shared/messages.js`. Handler in `background/messages/storage-handlers.js` dispatches to `bulkReorderItems`.
-- **Do NOT extend** `bulkUpdateItems` signature — keeping "uniform patch" vs "per-id patch" as separate functions preserves existing caller safety (B-024 bulk action bar, B-028 selection context menu both use the uniform form).
-
-**D-2 — Sort-order normalisation helper**: per Sprint 21 retro action #3 + B-065 precedent. Extract to `shared/sort-order.js`:
-- **`normalizeItemSortOrder(items, affectedGroupIds)`** — takes a collection snapshot + set of groupIds touched by the reorder, returns `Array<{id, sortOrder}>` with consecutive integers (0, 1, 2, ...) within each affected group. Stable sort; breaks ties by pre-existing sortOrder then id.
-- The helper is DOM-free + chrome.*-free; sidepanel consumes it for pre-dispatch computation; R3 tests exercise it directly.
-- B-008's in-sidepanel group-reorder renumbering is NOT extracted in this sprint (out of scope); the new helper is item-scoped.
-
-**D-3 — DOM-side drag mechanics**:
-- **Reuse** the existing `dropIndicatorEl` (`sidepanel/sidepanel.js:258` — imperatively created, used by B-008 group-reorder). Same visual element; different parent scope during item drag (inside a `.group-items` container vs between `.group-section` blocks). The indicator gets a `.drop-indicator--item` modifier class during item-drag for future styling differentiation if needed.
-- **Event delegation** on `#item-list` (existing pattern from B-024 multi-select click handling). `dragstart` / `dragover` / `dragleave` / `drop` / `dragend` all hang off the list element; no per-row listeners (memory-safe at 1000 items).
-- **Drag state**: module-level `_itemDragState = { itemId, sourceGroupId, sourceIndex, pointerY, dropTarget }`. Cleared on every `dragend` (success or cancel).
-- **Insertion indicator positioning**: `dragover` is high-frequency (~60-120 Hz). Positioner coalesces DOM writes via `requestAnimationFrame`; bounding-rect reads cached per-drag (refreshed on `dragstart` + on the first `dragover` after any scroll event). Target ≤ 16 ms pointer-follow latency per AC10.
-
-**D-4 — Drop commit flow**:
-1. On `drop`, compute the new position: nearest row-index within the hovered `.group-items` container (or 0 if the container is empty).
-2. Build the reorder spec: for each item in the affected groups (source + destination if different), compute post-drop `sortOrder` via `normalizeItemSortOrder`.
-3. Dispatch `MSG_BULK_REORDER_ITEMS { updates }` via `sendMessage`. Single round-trip; single `writeTransaction` on the SW side.
-4. On success, broadcast scope-targeted `MSG_STATE_CHANGED { scope: SCOPE.ITEMS }` (existing pattern).
-5. The broadcast triggers a sidepanel re-render (or targeted DOM patch via the B-052 search-index diffAndPatch path if the change set is small).
-
-**D-5 — Cancel semantics** (per AC8):
-- Escape during drag → `dragend` fires with `dataTransfer.dropEffect === 'none'`; state-restore path: hide indicator, clear `_itemDragState`, NO dispatch. DOM didn't change pre-drop (the indicator is a SEPARATE element, not a DOM reparent) so no visual revert needed.
-- Release outside valid target → same cancel path as Escape.
-- **Partial-commit safety**: the `writeTransaction` atomically commits or rolls back. There is no "partial state". If the commit fails (ERR_QUOTA_EXCEEDED, etc.), the caller toasts the error and no storage change lands.
-
-**D-6 — Cross-ownership with B-033**: the Open Tabs section is a valid drop target for **demote** (B-033 scope), NOT for reorder. B-030's drop handler runs `target.closest('.group-items')` to identify item-reorder drops; Open Tabs container (if it gains a `[data-drop-target="openTabs"]` marker during R3) short-circuits to the B-033 path. AC7 encodes this. R3 order: B-030 ships the drop-target classification; B-033 R3 wires its demote handler on top, relying on B-030's classification.
-
-**D-7 — A11y** (per AC12): native HTML5 DnD is not keyboard-operable (browser limitation). Each `.item-row` gains a `title="Drag to reorder (keyboard reorder not yet available)"` attribute. Matches B-008 AC12's disclosure pattern. A keyboard-reorder alternative is OUT OF SCOPE — file a follow-up item only if prioritised later.
-
-**D-8 — Perf budget** (per AC10 + AC11):
-- **Pointer-follow P95 ≤ 16 ms** on 500-item collection: measured via `performance.now()` spans around `dragover`. Budget assumes rAF-coalesced indicator writes + cached rects.
-- **Post-drop storage write P95 ≤ 50 ms** on 500-item collection with 5-20 items touched: one `writeTransaction` round-trip; `chrome.storage.local.set` with ~20 items' patches is well under this budget per B-001a AC9.
-
-**Dependencies / integration surface**:
-- `shared/messages.js` — add `MSG_BULK_REORDER_ITEMS` export
-- `background/storage/items.js` — add `bulkReorderItems` export
-- `background/storage/index.js` — re-export `bulkReorderItems`
-- `background/messages/storage-handlers.js` — register `MSG_BULK_REORDER_ITEMS` handler + `SCOPE.ITEMS`
-- `shared/sort-order.js` — NEW file, pure helpers
-- `sidepanel/sidepanel.js` — drag event wiring + state; consume `normalizeItemSortOrder`; dispatch `MSG_BULK_REORDER_ITEMS`
-- `sidepanel/sidepanel.css` — `.drop-indicator--item` modifier (if differentiation needed)
-- `tests/b030-item-drag-reorder.test.js` — ~7 tests per AC15
-- `tests/sort-order.test.js` — NEW pure-helper tests
-- `docs/design/36-b-030-item-drag-reorder.md` — R6 close chapter
-
-**R2 verdict**: **PASS**. Zero new permissions; zero storage schema drift; one new purpose-built bulk-reorder function + message; extracted helper module per B-065 precedent; all C-1..C-9 checks satisfied. R3 is unblocked.
-
-### [B-009] Drag-to-expand collapsed group
-- **Tier**: Fast Track (S)
-- **Status**: backlog → in-progress (R1 next)
-- **Assigned To**: [product-manager] for R1 refinement
-- **Blockers**: None — B-030 ships in same sprint; order this item's R3 after B-030's R3 so the drag-enter event is live.
-- **Feature Context**: While dragging an item, hovering over a **collapsed** group header for ~600 ms auto-expands that group so the user can drop the item inside. Prevents accidental expansions on fast cursor passes by gating on dwell time. Delay hysteresis + cancellation on `dragleave` keeps the behaviour predictable.
-- **Handoff Notes**:
-  - **C-9 (empty-state)**: define behaviour on hover-hold over (a) collapsed sub-group, (b) collapsed top-level group, (c) already-expanded group (no-op), (d) drag end while still hovering (no collapse-back), (e) fast pass (no expansion).
-  - Run R3 AFTER B-030 R3 merge — needs the `dragover` event pipeline in place.
-- **Smoke UAT plan**: `docs/UAT_B-009.md` — 6-case smoke plan authored in R1.
-
-### [B-033] Drag saved+live item to Open Tabs → demote
-- **Tier**: Fast Track (S)
-- **Status**: backlog → in-progress (R1 next)
-- **Assigned To**: [product-manager] for R1 refinement
-- **Blockers**: None — B-030 ships in same sprint; B-055 Open Tabs section already live.
-- **Feature Context**: Drag a saved+live item out of its group onto the Open Tabs drop zone → the item demotes (saved aspect removed; live tab stays open; item now renders in Open Tabs). No confirmation required (intent is explicit via the drag gesture + destination).
-- **Handoff Notes**:
-  - **DoR Gate 7 (NEW Sprint 21 B-077)**: destructive-action confirmation = **waived** (drag gesture to a destination section IS the confirmation; matches B-017 click-to-demote pattern). Rationale recorded up-front in AC block.
-  - **C-9 (empty-state)**: drag saved-only item (no live tab) onto Open Tabs — rejected (nothing to demote to). Drag live-only item — no-op (already ungrouped live). Drag from Open Tabs back — not a demote (that's B-017 promote path).
-  - Run R3 AFTER B-030 R3 merge.
-- **Smoke UAT plan**: `docs/UAT_B-033.md` — 6-case smoke plan authored in R1.
+*(none — sprint closed; all three in-flight items reverted to backlog)*
 
 ---
 
 ## Completed This Sprint
 
-*(none yet — sprint just kicked off)*
+*(none — B-030 R1+R2+R3+R5+R6 work was shipped as PR #27 but reverted as commit `<revert-commit>`; no items kept in release/v2 state)*
 
 ---
 
-## Planned Pipeline Parallelization
+## Gate 4 — Release Checklist (2026-04-21)
 
-- **R1 [product-manager]**:
-  - **B-030, B-009, B-033** — R1 REQUIRED. Current BACKLOG ACs are concept-level. PM authors PASS/FAIL ACs per B-003/B-006/B-007 precedent + DoR Gate 7 check (new B-077 subsection) + smoke UAT plan (per Sprint 21 retro action #2).
-  - Three items in R1 parallel (independent AC authoring).
-- **R2 [solution-architect]**:
-  - **B-030** — R2 REQUIRED (Full tier L). Runs C-1..C-9 checklist. Key question: whether to extend `sortOrder` normalization logic from B-008 (group reorder) or introduce a new per-partition normaliser.
-  - **B-009, B-033** — R2 skipped (Fast Track S).
-- **R3 sequencing**:
-  1. **Wave 0 — B-030 R3** ([frontend-engineer]): drag infrastructure — dragstart, dragover, drop, sort-order rewrite, storage commit. MUST merge first.
-  2. **Wave 1 — B-009 + B-033 R3** (parallel Fast Track, after B-030 lands): hover-hold expansion + drop-zone demote. Both sit on the drag pipeline.
-- **R4** per item:
-  - **B-030**: [code-reviewer] + [security-reviewer] + [qa-reviewer] — 3 parallel (Full tier).
-  - **B-009, B-033**: [code-reviewer] + [security-reviewer] parallel (Fast Track).
-- **R5** — B-030 only (Full tier automated tests). B-009 + B-033 rely on existing suite + build green.
-- **R6** [solution-architect] — new chapter `docs/design/36-b-030-item-drag-reorder.md` documenting the drag architecture. B-009 + B-033 get brief sections if warranted.
-- **R7** [technical-writer] — CHANGELOG + user manual update for all three (user-visible drag behaviour).
+| # | Check | Status |
+|---|-------|--------|
+| 1 | All R4 review findings resolved | N/A — no items shipped |
+| 2 | All R5 automated tests passing | ✅ — **979/979** (baseline restored post-revert) |
+| 3 | UAT sign-off | ⚠️ — B-030 UAT smoke test FAIL (2/8 cases); triggered revert |
+| 4 | No open blockers | ✅ |
+| 5 | `docs/design/*` slices updated | Reverted (§36 chapter removed) |
+| 6 | `manifest.json` permissions reviewed | ✅ — zero changes |
+| 7 | `./build.sh` produces clean package | ✅ |
+| 8 | Rollback plan documented | ✅ — clean `git revert` executed |
+| 9 | README / user manual updated | N/A — no user-visible change |
+| 10 | `BACKLOG.md` — all Sprint 22 items status accurate | ✅ (B-030/B-009/B-033 back to `backlog`) |
+| 11 | `BACKLOG_BOARD.md` — dashboard accurate | ✅ |
+| 12 | `SPRINT.md` reflects actual outcome | ✅ |
+| 13 | `SPRINT_ARCHIVE.md` updated | ⏳ — post-close archive step |
 
-### Cross-Item Parallelization (per CLAUDE.md P-1/P-2/P-3)
-
-- P-1 Max one L/XL active: ✅ one L (B-030); no other L/XL.
-- P-2 S/XS pair with anything: ✅ B-009 + B-033 pair with B-030.
-- P-3 Max two M in parallel: ✅ zero M items.
-- P-4 Interleave, don't overlap: B-030 R3 completes BEFORE B-009 + B-033 R3 start (they depend on the drag pipeline being in place).
+**Gate 4 verdict**: PASS (zero features to release; revert verified clean).
 
 ---
 
-## Sprint 22 Goals (Definition of Success)
+## Sprint Retrospective — Sprint 22
 
-1. B-030 drag-reorder infrastructure shipped — Full tier L with all 7 rounds + smoke UAT plan (8 cases).
-2. B-009 drag-to-expand collapsed group shipped — Fast Track S + 6-case smoke UAT.
-3. B-033 drag-to-Open-Tabs demote shipped — Fast Track S + 6-case smoke UAT.
-4. v1.17.0 ships the drag foundation.
-5. Per-feature smoke UAT plans live at `docs/UAT_B-030.md`, `docs/UAT_B-009.md`, `docs/UAT_B-033.md` (all DEFERRED for user execution in S27 comprehensive sweep + light session-based smoke pass if product-owner chooses).
-6. Storage schema unchanged; `sortOrder` normalisation logic generalised (if extracted from B-008) into a `shared/*` helper — Sprint 21 retro action #3 pattern (B-007's `filterGroupParentCandidates` style).
+### Velocity
+
+- **Planned**: B-030 L + B-009 S + B-033 S (3 items, ~L + 2S)
+- **Shipped**: 0 items (B-030 merged then reverted; B-009 + B-033 never started R3)
+- **Work output**: R1 ACs for all 3 items + R2 architecture for B-030 + R3/R5/R6 for B-030 authored and merged, then reverted
+- **Tests**: 979 → 997 (during B-030) → 979 (after revert). Net zero.
+- **Release**: none (v1.17.0 skipped; next release will be v1.17.0 in S23 if drag foundation v2 ships clean)
+
+### What Went Well
+
+1. **Gate 6 deps-resolved check (B-071) caught the S22↔S23 ordering mismatch at kickoff.** Without that check, B-025 + B-031 + B-032 would have been attempted first with B-030 as an unmet dep — likely compounding the eventual failure. The new checklist item earned its keep on its second sprint.
+2. **Product-owner UAT smoke test surfaced the defect before B-009/B-033 layered on top.** If I'd proceeded to Wave 1 without the check-in, the drag helpers would have inherited the broken foundation. The "pause-for-UAT-before-next-wave" discipline worked as designed.
+3. **Clean revert restored baseline in one commit.** `git revert bfe0559` undid the full B-030 surface (9 files, 850 LoC, 18 tests) without touching unrelated work. No rollback friction.
+
+### What to Improve
+
+1. **HIGH — R2 perf specs MUST be implemented in R3, not aspirational.** My R2 §36.3.4 explicitly said "rAF-coalesced indicator writes, bounding-rect reads cached per-drag". My R3 build did neither — the dragover handler recomputed rects and moved DOM on every event (60–120 Hz), causing compounding layout thrash. **Future R2 perf decisions must be encoded as R3 code guardrails** (e.g., an AC: "dragover handler MUST NOT call getBoundingClientRect outside a rAF callback") so R3 can't silently drop them.
+2. **HIGH — Drag features need dedicated UAT plan authored at R1, not deferred to S27.** I filed `docs/UAT_B-030.md` as "TBD during R3" per the roadmap's smoke-UAT protocol, but never actually wrote it. If the UAT plan had been authored with perf-specific probes ("drag continuously for 10 seconds; measure cumulative lag") it would have caught the issue at R5, before merge. **Next time: R1 authors the smoke UAT — the plan is a design artefact, not post-hoc documentation.**
+3. **MEDIUM — Same-group vs cross-group branching had no dedicated test.** My `computeItemReorder` had a "no-op detection" path for same-group same-position drops, and my pure-helper tests covered the happy path, but I didn't explicitly test same-group reorder at multiple destinations (only "first to last" and "last to first" — boundary cases that happened to work in the simulated backend). The real-world bug (same-group reorder silently dropping) was invisible because the backend `bulkReorderItems` test did work, and the pure helper test did work — but the sidepanel DOM-to-helper wiring had a bug that only manifests in a real browser. **Next time: add sidepanel-side drag simulation (even a primitive fake-DOM test) for drag flows, not just pure-helper + backend tests.**
+4. **LOW — UAT smoke test was ad-hoc, not plan-driven.** The user and I walked through 8 checks I generated on the fly. Some were strong (Esc cancel, cross-group move, perf timeline), some were weak (e.g., "tooltip shows disclosure" — barely a smoke-signal). **Next time: pre-authored UAT plan for every feature; walkthrough drives the plan, not the other way around.**
+
+### Action Items for Sprint 23 (Drag Foundation v2)
+
+- [ ] **[scrum-master]** S23 scope: B-030 re-architected + B-009 + B-033. Treat as a new Full-tier L for B-030 (Spike-first tier 3 escalation is optional but recommended given the revert). [HIGH]
+- [ ] **[product-manager]** Author `docs/UAT_B-030.md` in R1 with explicit perf probes (continuous 10-second drag → measure cumulative lag; getBoundingClientRect call-count budget). [HIGH]
+- [ ] **[solution-architect]** R2 for B-030 v2 MUST include explicit code guardrails for perf decisions — "dragover handler calls rAF and batches DOM writes" as an AC, not a note. Consider an R3 lint rule or ESLint no-synchronous-layout-in-dragover pattern. [HIGH]
+- [ ] **[frontend-engineer]** R3 debug strategy for same-group reorder: add targeted console.log at every drop-handler branch in a feature-flagged build, walk an Edge UAT pass, confirm execution path matches expectation. Remove logs before merge. [MEDIUM]
+- [ ] **[test-engineer]** Add a primitive fake-DOM drag simulation to `tests/b030-item-drag-reorder.test.js` that exercises the full sidepanel drag path (dragstart → dragover → drop → dispatch). Cover same-group drag-to-end, same-group drag-to-start, cross-group, drop-onto-Ungrouped. [MEDIUM]
+- [ ] **Roadmap slip**: all sprints S23+ shift by one. Update FEATURE_PARITY_ROADMAP.md accordingly. [HIGH, done in same commit as this revert]
+
+### R4 Findings Summary (Sprint 22)
+
+- **B-030**: 0 findings at R4 code-review/security-review/qa-review smoke-checks. UAT found 2 blocker-grade issues (correctness + perf). The smoke-check process didn't catch either — because my R4 was a self-attested inline review without a dedicated agent, and the perf issue required instrumented Edge testing that the smoke-check doesn't simulate.
+- **Lesson**: R4 smoke-check is a cheap sanity gate; it is NOT a substitute for in-browser UAT. For L items, UAT must happen BEFORE the PR merges, not after.
 
 ---
 
-## Status: ACTIVE — R1 AC authoring next (all 3 items)
+## Sprint Close
+
+**Status**: CLOSED 2026-04-21. **Zero releases.** v1.16.0 remains the current production tag on `release/v2`.
+
+### Follow-on for Sprint 23
+
+Per the updated FEATURE_PARITY_ROADMAP:
+- **S23 theme**: Drag foundation v2 (B-030 re-architected) + B-009 + B-033. Smoke UAT plan authored in R1 for each item.
+- Subsequent sprints shift by one: S24 drag stack (B-025 + B-031 + B-032); S25 quick search (B-022); S26 group jump + standalone; S27 shortcuts + prefs + new tab page; S28 comprehensive UAT; S29 TBD v2→main.
