@@ -307,11 +307,13 @@ dropIndicatorEl.hidden = true;
 const itemDragIndicatorEl = document.createElement('div');
 itemDragIndicatorEl.className = 'drop-indicator drop-indicator--item';
 itemDragIndicatorEl.style.position = 'absolute';
+itemDragIndicatorEl.style.top = '0'; /* UAT fix — without this, absolute defaults to `auto` (flow position) and translateY offsets from the element's default position (end of itemListEl, since it's appended last), making the indicator invisible. */
 itemDragIndicatorEl.style.pointerEvents = 'none';
 itemDragIndicatorEl.style.opacity = '0';
 itemDragIndicatorEl.style.transition = 'none';
 itemDragIndicatorEl.style.left = '0';
 itemDragIndicatorEl.style.right = '0';
+itemDragIndicatorEl.style.zIndex = '10'; /* ensure indicator renders above item rows */
 itemDragIndicatorEl.style.transform = 'translateY(-9999px)';
 
 /* =========================================================================
@@ -4415,8 +4417,10 @@ itemListEl.addEventListener('drop', async (e) => {
   if (_itemDragState) {
     e.preventDefault();
     const state = _itemDragState;
-    _itemDragState = null; // claim first so dragend can't double-handle
+    /* UAT-fix (cleanup order): run cleanup BEFORE nulling state so rAF cancel
+       + scroll-listener removal are applied. Then null. */
     _cleanupItemDragDom();
+    _itemDragState = null;
 
     if (!state.pendingTargetRowId) {
       _dragLog('drop — no pending target; cancel');
@@ -4455,6 +4459,19 @@ itemListEl.addEventListener('drop', async (e) => {
 
     try {
       await sendMessage(MSG_BULK_REORDER_ITEMS, { updates });
+      /* UAT-fix (same-group render): the B-052 search index's hashItem
+         does NOT include sortOrder, so a reorder-only change returns
+         `deltaType: 'noop'` from diffAndPatch → no DOM patch → UI stays
+         stale until something else triggers a full render. Explicitly
+         re-fetch + renderAll here to guarantee the UI reflects the drop. */
+      const [itemsResp, groups] = await Promise.all([
+        sendMessage(MSG_LIST_ITEMS),
+        sendMessage(MSG_LIST_GROUPS),
+      ]);
+      _setWindowOrdinalMap(itemsResp.windowMap || {});
+      renderAll(itemsResp.items, groups, itemsResp.liveStates,
+        itemsResp.driftRecords, itemsResp.openTabs);
+      _applyWindowMapToUI();
     } catch (err) {
       console.warn('[tab-junkie:b030] bulkReorderItems failed', err);
       showToast('Couldn\u2019t save new order \u2014 reverting');
