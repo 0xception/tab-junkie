@@ -126,6 +126,145 @@ Without a live repro, best hypothesis: S22's drop handler computed `destIndex` f
 
 **R0 verdict — PASS**: perf budget (≤16ms) is achievable with rAF + cached rects + transform indicator. The same-group bug root-cause (likely DOM-state-coupling via `dropIndicatorEl.parentElement`) is eliminated by design in v2 (logical state decoupled from visual indicator position). R1 unblocked.
 
+#### R2 Architecture Review — PASS — R3 binding contracts
+
+**Correctness Checklist (C-1..C-9)** — re-run against v2 with the new ACs:
+
+| # | Check | Verdict (v2) |
+|---|-------|--------------|
+| C-1 | Storage schema versioned | ✅ N/A — unchanged from S22 R2; `sortOrder` + `groupId` ship since B-001a |
+| C-2 | Message contracts typed | ✅ N/A — `MSG_BULK_REORDER_ITEMS` shipped in S22, reverted, and can be re-shipped byte-identical; backend `bulkReorderItems` tests passed in S22 so the storage surface is known-good |
+| C-3 | SW cold-start safe | ✅ — all drag state in sidepanel module |
+| C-4 | ID stability | ✅ — items keep ids; sortOrder / groupId only |
+| C-5 | Manifest file refs | ✅ — no change |
+| C-6 | Permission minimization | ✅ — zero new permissions |
+| C-7 | Allow-list direction | N/A — no new sanitizer |
+| C-8 | SW-context feasibility | ✅ — all drag APIs sidepanel-side |
+| C-9 | Empty-state design | ✅ — ACs 13 + 16-24 enumerate all states + perf/correctness edge cases |
+
+**Architecture shape — 3 sidepanel helpers + 1 CSS decision**
+
+The sidepanel drag logic MUST split into three cohesive functions + constants, each with a bounded responsibility. This replaces S22's monolithic inline drag-handler block.
+
+| Module | Location | Responsibility | Inputs | Outputs |
+|--------|----------|----------------|--------|---------|
+| **`_dragRectCache`** | `sidepanel/sidepanel.js` (module-level state) | At dragstart, snapshot all `.item-row` client-rects into `Map<itemId, DOMRectReadOnly>`. Invalidate on scroll; rebuild lazily on next rAF tick. | dragstart event / scroll event | `Map` keyed by `itemId`; `invalid: boolean` flag |
+| **`_scheduleDragTick()`** | `sidepanel/sidepanel.js` | rAF-coalesce indicator position updates. Dragover sets `_pendingPointerY + _pendingPointerX`; `_scheduleDragTick` ensures at most one `requestAnimationFrame` is pending. | `pointerY`, `pointerX` (module-level state) | Side effect: indicator CSS transform + `_itemDragState.pendingTargetRowId` + `pendingInsertPosition` |
+| **`_computeDropTarget(pointerX, pointerY)`** | `sidepanel/sidepanel.js` | Pure-ish helper: given pointer coords + the rect cache + DOM, returns `{targetRowId, insertPosition: 'before'|'after', targetGroupId}` or `null`. Uses `document.elementFromPoint` for cheap target detection. | pointer coords | Target descriptor or null |
+| **Indicator element** | `sidepanel/sidepanel.js` + `sidepanel/sidepanel.css` | Existing `dropIndicatorEl` (created at `sidepanel.js:258`) repurposed. CSS: `position: absolute`, `pointer-events: none`, default `opacity: 0`. Moved via `style.transform = 'translateY(Npx)'`. Never reparented during item drag (remains a single child of `itemListEl`). | `translateY` value from `_scheduleDragTick` | Visual indicator |
+
+**R3 binding contracts** — these are the "must implement" interfaces R4 will enforce:
+
+```
+// Module-level state (sidepanel.js)
+let _itemDragState = null; // {itemId, sourceGroupId, cachedItemsGen, pendingTargetRowId, pendingInsertPosition, rafHandle}
+let _dragRectCache = null; // {rects: Map<itemId, DOMRectReadOnly>, invalid: boolean}
+let _pendingPointerY = null, _pendingPointerX = null;
+const DRAG_DEBUG = false;  // feature-flagged console.log; TRUE during R3 debug pass, flipped false pre-merge
+
+// Contract #1: dragstart handler
+// - Sets _itemDragState with cachedItemsGen = current _cachedItemsGen
+// - Builds _dragRectCache via SINGLE pass over .item-row elements (ONE getBoundingClientRect call per row, once)
+// - Attaches passive scroll listener on itemListEl that sets _dragRectCache.invalid = true
+// - Sets indicator's CSS transform to hide it off-screen AND opacity 0
+
+// Contract #2: dragover handler (PERF-CRITICAL — AC16, AC17)
+// - MUST NOT call getBoundingClientRect
+// - MUST NOT perform DOM mutations (no classList writes, no style assignments other than via rAF)
+// - MUST NOT compute layout
+// - Body limited to: e.preventDefault(); e.dataTransfer.dropEffect='move';
+//   _pendingPointerY = e.clientY; _pendingPointerX = e.clientX;
+//   _scheduleDragTick();
+// - Any additional logic is a REJECT at R4
+
+// Contract #3: _scheduleDragTick
+// - If rafHandle already set, return early (dedupe)
+// - Otherwise, rafHandle = requestAnimationFrame(_dragTick)
+// - _dragTick:
+//   1. Clear rafHandle
+//   2. If cache invalid: rebuild via one pass (acceptable layout cost, batched)
+//   3. Call _computeDropTarget(pointerX, pointerY) → target descriptor
+//   4. If target === last-committed target: skip (AC: skip-no-op)
+//   5. Write indicator CSS transform + opacity (SINGLE rAF-scoped DOM write)
+//   6. Update _itemDragState.pendingTargetRowId + pendingInsertPosition
+
+// Contract #4: drop handler (CORRECTNESS-CRITICAL — AC24 broadcast-race guard)
+// - e.preventDefault()
+// - If _itemDragState.pendingTargetRowId is null → cancel (no dispatch)
+// - If _itemDragState.cachedItemsGen !== _cachedItemsGen → await sendMessage(MSG_LIST_ITEMS) first, update _cachedItems, then proceed
+// - Resolve destGroupId from pendingTargetRowId (look up cached item's groupId, or __ungrouped__ marker)
+// - Compute destIndex from pendingTargetRowId + pendingInsertPosition
+// - updates = computeItemReorder(_cachedItems, draggedId, destGroupId, destIndex)
+// - If updates.length === 0 → no-op (same-position drop); no dispatch
+// - sendMessage(MSG_BULK_REORDER_ITEMS, {updates}) with error-path toast
+// - Clear _itemDragState, indicator off-screen, remove scroll listener
+
+// Contract #5: dragend / escape
+// - Cancel rafHandle if pending
+// - Clear indicator (transform off-screen, opacity 0)
+// - Remove scroll listener
+// - Clear _itemDragState
+
+// Contract #6: CSS — `sidepanel/sidepanel.css`
+// - itemListEl gains `position: relative` (so indicator's absolute positioning works)
+// - .drop-indicator: `position: absolute; pointer-events: none; opacity: 0; transition: none;` — no transitions mid-drag
+// - Item-drag-active modifier class `.is-item-dragging` on itemListEl to set indicator opacity: 1 only when needed
+```
+
+**Cache invalidation strategy (D-B refinement)**
+
+- Scroll listener registered ONCE at dragstart with `{ passive: true }`
+- Listener body: `_dragRectCache.invalid = true` (no rebuild inline — lazy rebuild in next rAF tick)
+- Rebuild cost: O(N) rect reads once — acceptable because (a) batched inside rAF tick with no intervening mutations, and (b) scroll events typically fire at ≤ 10 Hz, not per-frame
+- AC19 budget accounts for this: base 500 (initial snapshot) + optional scroll-triggered rebuilds capped at 5
+
+**Target-detection strategy (D-C)**
+
+`document.elementFromPoint(x, y)` returns the element at coordinates (x, y). The indicator has `pointer-events: none` so it's transparent to hit-testing (AC23 guard). Walk up via `.closest('.item-row')` to find the row. Walk up to `.group-section` for the group. If row not found: check for `.group-items` container (empty group) or `Open Tabs` section (B-033 territory — B-030 treats as invalid drop).
+
+**Indicator positioning math (D-D)**
+
+Given a `targetRow` + `insertPosition`:
+- `targetRect = _dragRectCache.rects.get(targetRow.dataset.itemId)`
+- `containerRect = itemListEl.getBoundingClientRect()` (ONE call at dragstart, cached in `_containerRect`)
+- If `insertPosition === 'before'`: `translateY = targetRect.top - containerRect.top`
+- Else (`'after'`): `translateY = targetRect.bottom - containerRect.top`
+
+All coords in container-local space. Indicator's absolute positioning consumes the value directly.
+
+**Test strategy (v2)**
+
+| Layer | Coverage | Assertion |
+|-------|----------|-----------|
+| `tests/sort-order.test.js` | `computeItemReorder` pure helper | 10 existing cases (from S22 helper, to be re-authored in R3) + AC21 three-destination same-group cases |
+| `tests/b030-item-drag-reorder.test.js` — backend layer | `bulkReorderItems` + MSG handler | 8 existing cases (from S22, re-authored) — AC4/AC5/AC6/atomic-tx/validation/unknown-id/unknown-group/non-finite |
+| `tests/b030-item-drag-reorder.test.js` — fake-DOM layer (NEW per AC20) | Full sidepanel drag path | 4 cases: same-group drag-to-end, same-group drag-to-start, cross-group, drop-onto-Ungrouped. Asserts correct `MSG_BULK_REORDER_ITEMS` dispatch spec. |
+| `tests/b030-item-drag-reorder.test.js` — perf assertion (NEW per AC19) | `getBoundingClientRect` call count | 3-second simulated drag on 500 rows; assert ≤ 510 calls total |
+| **In-browser UAT** (NEW per HIGH-3) | 9 cases per `docs/UAT_B-030.md` | Required ≥ 6/9 PASS + UAT-1 + UAT-6 PASS before PR merge |
+
+**Rollback plan**
+
+Sprint 22 taught that reverts work cleanly. Rollback procedure if UAT fails post-merge:
+1. `git revert <merge-sha>` on `release/v2` — undoes all code, test, doc changes atomically.
+2. Preserved artefacts after revert: BACKLOG.md ACs stay, UAT plans stay, this R2 block stays, design-chapter (R6) is removed by revert.
+3. B-030 returns to `backlog` status; Sprint re-plans per the Sprint 22 revert precedent.
+
+**R3 pre-flight checklist** — [frontend-engineer] confirms before starting the build:
+
+- [ ] I've read all 24 ACs in BACKLOG.md for B-030.
+- [ ] I've read `docs/UAT_B-030.md` — UAT-1 + UAT-6 are the merge-gate cases.
+- [ ] I will NOT call `getBoundingClientRect` outside a rAF callback (AC16 — R4 greps for this).
+- [ ] I will NOT perform DOM mutations in the `dragover` handler body (AC17).
+- [ ] I will register the scroll listener as `{ passive: true }` at dragstart; remove at dragend.
+- [ ] I will use `document.elementFromPoint` for target detection, not `event.target.closest`.
+- [ ] The indicator will be `position: absolute` inside a `position: relative` parent, moved via `style.transform`.
+- [ ] Indicator will have `pointer-events: none` in CSS.
+- [ ] I will set `DRAG_DEBUG = false` before PR (may flip to `true` during development for Edge debug pass).
+- [ ] The `computeItemReorder` pure helper + `bulkReorderItems` backend + `MSG_BULK_REORDER_ITEMS` are re-authored byte-identical to the S22 backend (known-good code).
+- [ ] Fake-DOM drag simulation tests exercise all four required cases (AC20) + perf call-count assertion (AC19).
+
+**R2 verdict — PASS**. Architecture locked. All 24 ACs are unambiguous. R3 has binding contracts, not suggestions. R1 UAT plans gate the merge. Rollback path is proven.
+
 ### [B-009] Drag-to-expand collapsed group
 - **Tier**: Fast Track (S)
 - **Status**: backlog → in-progress (R1 after B-030 R0 spike)
