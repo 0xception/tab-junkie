@@ -319,6 +319,20 @@ A sprint item is "ready for build" ONLY when ALL of these are true:
 - [product-manager]: Write/refine user story + acceptance criteria + priority + effort + dependencies.
 - Integrate any user-facing copy decisions into the story.
 
+**DoR Gate 7 check — destructive-action confirmation status (mandatory subsection in every R1 AC block)**
+
+Every R1 AC block MUST include — up front, not buried in an edge-case AC — an explicit statement of whether destructive-action confirmation is retained, waived, or not applicable for the item being authored:
+
+```
+**Destructive-action confirmation (DoR item 7)**: retained | waived | N/A — rationale
+```
+
+- `retained` — the flow includes (or keeps) a confirmation dialog before any destructive write. State which flow.
+- `waived` — confirmation is explicitly omitted. State why the item is safe to bypass confirmation (e.g., undo is trivial, the path is reversible, the user already confirmed upstream).
+- `N/A` — the item does not involve destructive actions (read-only UI, non-destructive dialog opens, metadata-only reads, etc.). State the reasoning.
+
+This subsection prevents literal AC readings from silently waiving confirmation dialogs (B-070 Sprint 19 near-miss) and prevents edge-case ACs from being the only place where retention status is documented (B-007 Sprint 20 AC15 reactive placement).
+
 ### Round 2: Architecture
 - [solution-architect]: Evaluate feature against the existing architecture — read the chapter(s) relevant to the item under `docs/design/NN-*.md` (full chapter list is in the root index `docs/SOLUTION_DESIGN.md`). Do NOT read the root index as a substitute for the chapter content.
 - Produce: storage schema changes, message contracts, event flow, component structure, drift-detection impact.

@@ -335,6 +335,16 @@ function buildLastWinsMap(records, originalIds) {
  * @param {Array<Object>} groups  — may be mutated in place
  * @returns {number}  cycles broken
  */
+/**
+ * B-078 depth cap — upper bound on the ancestor-chain walk inside `breakCycles`.
+ * Legit Tab Junkie groups are depth-1 (storage gate). Even accounting for
+ * backups predating the depth gate, 1000 is orders of magnitude beyond
+ * anything realistic while bounding adversarial-input work to O(1000) per
+ * start. Exceeding the cap breaks the cycle at the current cursor via the
+ * same mutation path used for genuine cycle detection (parentId → null).
+ */
+const MAX_CYCLE_WALK_DEPTH = 1000;
+
 function breakCycles(groups) {
   /** @type {Map<string, Object>} */
   const byId = new Map();
@@ -342,10 +352,20 @@ function breakCycles(groups) {
   let broken = 0;
   for (const start of groups) {
     /* For each group, walk up parentId. If we revisit a node in this walk,
-       there's a cycle. Break the junior edge. */
+       there's a cycle. Break the junior edge.
+       B-078 AC1 — depth-cap the walk to defend against adversarial-input chains
+       that evade the visited-set heuristic. */
     let visited = new Set();
     let cursor = start;
+    let depth = 0;
     while (cursor && cursor.parentId) {
+      if (depth++ >= MAX_CYCLE_WALK_DEPTH) {
+        /* B-078 AC1 — cap hit. Treat as a cycle: break the junior edge at
+           the current cursor (mutate parentId → null, count as broken). */
+        cursor.parentId = null;
+        broken += 1;
+        break;
+      }
       if (visited.has(cursor.id)) break; // safety net
       visited.add(cursor.id);
       const parent = byId.get(cursor.parentId);
