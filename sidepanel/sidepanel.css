@@ -443,50 +443,77 @@ html, body {
   outline-offset: -2px;
 }
 
-/* B-031 — group drag-reorder indicator. Absolute-positioned line rendered
-   above group headers during a valid REORDER_ABOVE / REORDER_BELOW drop.
-   Parallel to B-030's `.drop-indicator--item` — same compositor-only
-   transform + opacity pattern, distinct class so item- and group-drag
-   indicators coexist without visual interference.
+/* B-031 / B-084 — group drag-reorder indicator. Absolute-positioned line
+   rendered above group headers during a valid REORDER_ABOVE /
+   REORDER_BELOW drop. Parallel to B-030's `.drop-indicator--item` — same
+   compositor-only transform + opacity pattern, distinct class so item-
+   and group-drag indicators coexist without visual interference.
 
    `top: 0` is REQUIRED — without it, absolute positioning defaults to
    `auto` (the element's flow position, i.e. end of #item-list because it
    is appended last), and translateY offsets render off-screen. Same
-   REJECT-on-absence lesson as B-030 D-1. */
+   REJECT-on-absence lesson as B-030 D-1.
+
+   B-084 AC1 polish: bumped `height` 2px → 3px + added soft accent
+   `box-shadow` glow so the REORDER mode reads as a distinct *line*
+   shape vs NEST's *outlined-box* shape during fast pointer motion.
+
+   Full property enumeration (per §38.3 D-3 discipline):
+   position · top · left · right · height · background-color ·
+   border-radius · margin · pointer-events · z-index · opacity ·
+   transform · box-shadow · transition. */
 .group-reorder-indicator {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 2px;
+  height: 3px;
   background-color: var(--accent);
-  border-radius: 1px;
+  border-radius: 2px;
   margin: 0 8px;
   pointer-events: none;
   z-index: 10;
   opacity: 0;
   transform: translateY(-9999px);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 50%, transparent);
   transition: opacity 80ms ease;
 }
 
-/* B-031 — NEST target highlight. Applied to `.group-header` when the
-   pointer is in the middle 50% of a valid nest target (top-level group
-   that isn't self, isn't already nested, and has no existing children).
-   Solid outline + tinted wash; distinct from rejection via color
-   (blue vs red) AND dash pattern (solid vs dashed) — two orthogonal
-   accessibility channels. */
+/* B-084 fallback: `color-mix()` not supported (Chromium ≤110) — drop the
+   accent glow so the line still paints without an illegal box-shadow. */
+@supports not (box-shadow: 0 0 6px color-mix(in srgb, red 50%, transparent)) {
+  .group-reorder-indicator {
+    box-shadow: none;
+  }
+}
+
+/* B-031 / B-084 — NEST target highlight. Applied to `.group-header` when
+   the pointer is in the middle 50% of a valid nest target (top-level
+   group that isn't self, isn't already nested, and has no existing
+   children). Solid outline + tinted wash; distinct from rejection via
+   color (blue vs red) AND dash pattern (solid vs dashed) — two
+   orthogonal accessibility channels.
+
+   B-084 AC1 polish: increased background tint alpha 12% → 20% for
+   stronger at-a-glance contrast against surrounding headers, and added
+   an `inset` box-shadow ring so the NEST mode reads as an *outlined
+   box* shape vs REORDER's *line* shape (shape-based differentiation,
+   not color-alone — AC4). */
 .group-header.group-header--nest-target {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
-  background-color: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
+  background-color: color-mix(in srgb, var(--accent) 20%, var(--bg-secondary));
   border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--accent);
   transition: outline-color 80ms ease, background-color 80ms ease;
 }
 
 /* B-031 — NEST rejection indicator. Applied to `.group-header` when the
    pointer is in the middle 50% of an INVALID nest target (self, sub-group
    source, depth-cap violation). Signals "this won't work" without
-   performing the drop. */
+   performing the drop. Unchanged by B-084 — dashed red is already
+   clearly distinct from both REORDER (solid blue line) and NEST
+   (solid blue outlined box). */
 .group-header.group-header--nest-reject {
   outline: 2px dashed var(--danger);
   outline-offset: -2px;
@@ -497,10 +524,12 @@ html, body {
 
 /* B-031 — fallback for browsers that lack color-mix() (Chromium ≤110).
    Drops the tinted wash and uses --bg-hover instead. Outline + dash
-   pattern still differentiate accept vs reject. */
+   pattern still differentiate accept vs reject. B-084 inset box-shadow
+   is also stripped here — the solid outline carries the shape channel. */
 @supports not (background-color: color-mix(in srgb, red 10%, white)) {
   .group-header.group-header--nest-target {
     background-color: var(--bg-hover);
+    box-shadow: none;
   }
   .group-header.group-header--nest-reject {
     background-color: var(--bg-hover);

@@ -332,6 +332,7 @@ const AUTO_SCROLL_MAX_SPEED = 20;
        cachedGroupsGen: number,
        pendingTargetGroupId: string|null,
        pendingMode: 'REORDER_ABOVE'|'REORDER_BELOW'|'NEST'|'REJECT'|null,
+       pendingProposedMode: 'REORDER_ABOVE'|'REORDER_BELOW'|'NEST'|null,
        rafHandle: number|null,
        scrollListener: Function|null,
      }
@@ -4573,6 +4574,11 @@ itemListEl.addEventListener('dragstart', (e) => {
       cachedGroupsGen: _cachedGroupsGen,
       pendingTargetGroupId: null,
       pendingMode: null,
+      /* B-084 AC2 — last geometric (pre-validity) mode for the
+         hysteresis deadzone in `_applyGroupDragHysteresis`. Tracked
+         separately from `pendingMode` so a REJECT (validity-derived)
+         doesn't poison the NEST↔REORDER boundary math. */
+      pendingProposedMode: null,
       rafHandle: null,
       scrollListener: null,
     };
@@ -5412,10 +5418,14 @@ function _groupDragTick() {
 
   if (!target) {
     /* No valid target under pointer — hide indicator + clear any
-       previously-applied class on the pending target. */
+       previously-applied class on the pending target. Also clear
+       `pendingProposedMode` (B-084) so the next hover over a header
+       starts fresh without inheriting hysteresis state from a prior
+       header's geometry. */
     _hideGroupDragVisuals();
     _groupDragState.pendingTargetGroupId = null;
     _groupDragState.pendingMode = null;
+    _groupDragState.pendingProposedMode = null;
     return;
   }
 
@@ -5479,6 +5489,58 @@ function _groupDragTick() {
   groupReorderIndicatorEl.style.opacity = '1';
 }
 
+/* B-084 AC2 — hysteresis band for the REORDER↔NEST mode boundaries.
+
+   Inputs:
+     rawMode       — 'REORDER_ABOVE' | 'REORDER_BELOW' | 'NEST' from the
+                     plain 25% / 75% ratio check.
+     prevMode      — the previous tick's geometric mode (post-hysteresis),
+                     or null on first tick.
+     relY          — pointer Y relative to header top, in CSS pixels.
+     headerHeight  — header height in CSS pixels.
+
+   Returns the stabilised mode. When the pointer is within
+   DEADZONE_PX of a boundary it would cross, the prior mode wins.
+   Outside the deadzone, the raw ratio-driven mode applies. This
+   prevents single-pixel jitter during fast motion from strobing the
+   indicator between REORDER line and NEST box. At header heights
+   below 8 px the deadzone is clamped to ¼ of the header so we never
+   stall the transition entirely. Pixel-based deadzone slightly
+   relaxes the zoom-robustness of §38.3 D-6 but at 2 px the effect is
+   sub-frame at any practical zoom. */
+function _applyGroupDragHysteresis(rawMode, prevMode, relY, headerHeight) {
+  if (!prevMode || prevMode === rawMode) return rawMode;
+  /* REJECT is validity-derived, not geometric — never feed it into this
+     helper. Guarded by `pendingProposedMode` being set from post-hysteresis
+     output only, but belt-and-suspenders. */
+  if (prevMode === 'REJECT') return rawMode;
+
+  const DEADZONE_PX = Math.min(2, headerHeight * 0.25);
+  const topBoundaryPx = headerHeight * 0.25;
+  const bottomBoundaryPx = headerHeight * 0.75;
+
+  /* Leaving NEST toward a REORDER mode — stay in NEST if still within the
+     deadzone of the boundary being crossed. */
+  if (prevMode === 'NEST') {
+    if (rawMode === 'REORDER_ABOVE' && (topBoundaryPx - relY) < DEADZONE_PX) return 'NEST';
+    if (rawMode === 'REORDER_BELOW' && (relY - bottomBoundaryPx) < DEADZONE_PX) return 'NEST';
+    return rawMode;
+  }
+
+  /* Leaving REORDER toward NEST — stay in REORDER if still within the
+     deadzone of the same boundary. */
+  if (prevMode === 'REORDER_ABOVE' && rawMode === 'NEST') {
+    if ((relY - topBoundaryPx) < DEADZONE_PX) return 'REORDER_ABOVE';
+  }
+  if (prevMode === 'REORDER_BELOW' && rawMode === 'NEST') {
+    if ((bottomBoundaryPx - relY) < DEADZONE_PX) return 'REORDER_BELOW';
+  }
+  /* Crossing the full header (e.g. REORDER_ABOVE → REORDER_BELOW directly
+     without the pointer ever stopping in NEST) is rare but let it
+     through unmodified — hysteresis only matters near boundaries. */
+  return rawMode;
+}
+
 /* Returns {targetGroupId, mode} for the pointer position, or null when
    the pointer is not over any group header. `mode` is one of
    'REORDER_ABOVE' | 'REORDER_BELOW' | 'NEST' | 'REJECT'.
@@ -5505,13 +5567,37 @@ function _computeGroupDropTarget(x, y) {
 
   /* Ratio-based zone detection: top 25% REORDER_ABOVE, middle 50% NEST,
      bottom 25% REORDER_BELOW (§38.3 D-6). Ratio is robust to browser zoom
-     (pixel thresholds would change under zoom). */
-  const ratio = (y - rect.top) / rect.height;
-  const clampedRatio = Math.max(0, Math.min(ratio, 1));
-  let proposedMode;
-  if (clampedRatio < 0.25) proposedMode = 'REORDER_ABOVE';
-  else if (clampedRatio > 0.75) proposedMode = 'REORDER_BELOW';
-  else proposedMode = 'NEST';
+     (pixel thresholds would change under zoom).
+
+     B-084 AC2 — a ±2 px hysteresis band at each boundary prevents the
+     indicator from strobing when the pointer jitters across 25% / 75%
+     during fast motion. Implemented as a thin wrapper around the raw
+     ratio→mode mapping (kept inline below) that keeps the previous
+     geometric mode if the pointer is within the deadzone of the
+     boundary it would be crossing. */
+  const relY = y - rect.top;
+  const rawMode =
+      relY < rect.height * 0.25 ? 'REORDER_ABOVE'
+    : relY > rect.height * 0.75 ? 'REORDER_BELOW'
+    : 'NEST';
+  /* Hysteresis only bleeds within a single header — crossing to a new
+     header starts fresh (different geometry, different rect). Treat
+     `prevMode` as null when the pointer has moved to a different
+     target than last tick's pending target. */
+  const prevGeoMode = targetGroupId === _groupDragState.pendingTargetGroupId
+    ? _groupDragState.pendingProposedMode
+    : null;
+  const proposedMode = _applyGroupDragHysteresis(
+    rawMode,
+    prevGeoMode,
+    relY,
+    rect.height,
+  );
+  /* Record the post-hysteresis geometric mode for the next tick's
+     comparison. Stored separately from `pendingMode` so REJECT (which
+     comes from validity checks below, not from geometry) never
+     poisons this value. */
+  _groupDragState.pendingProposedMode = proposedMode;
 
   /* `__ungrouped__` pseudo-group handling (B-031 H-4):
      - NEST zone: return REJECT so the rejection class paints on the header

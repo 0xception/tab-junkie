@@ -4,6 +4,14 @@ All notable changes to Tab Junkie are documented in this file.
 
 ## [Unreleased]
 
+## [1.19.0] — 2026-04-22
+
+### Fixed
+- **Multiple sub-groups under one parent** — you can now nest several sub-groups under the same parent group (e.g., "Work" containing "Meetings", "Projects", "Admin"). Previously, once a group had any sub-group, adding more sibling sub-groups was silently blocked in both the group-edit dialog and the drag-to-nest flow. The one-level nesting depth cap is unchanged.
+
+### Changed
+- **Drag drop-zone visuals refined** — the reorder line (drop between groups) and nest highlight (drop inside a group) are now easier to distinguish: the reorder line is thicker with a soft accent glow, the nest highlight has stronger contrast with an inner outline. A small ±2 px hysteresis band at the zone boundaries reduces flicker when moving the pointer quickly across the 25/75% thresholds.
+
 ## [1.18.0] — 2026-04-22
 
 ### Added
