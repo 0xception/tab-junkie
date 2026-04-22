@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-21 · **Version:** 2.9 · **Total Items:** 82 · **Sprint 23 closed — v1.17.0 (drag foundation v2 + helpers)**
+**Updated:** 2026-04-22 · **Version:** 2.12 · **Total Items:** 84 · **Sprint 24 closed — v1.18.0 (drag stack: multi-item + group nest + auto-scroll); B-083 + B-084 filed as S25 follow-ups**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    █████████████████░░░  83% (68/82)  [0 in progress · S24 next]
+Overall Progress    █████████████████░░░  85% (71/84)  [0 in progress · S25 next — B-083 + B-084 priority]
 ```
 
 ### Legend
@@ -57,14 +57,14 @@ Overall Progress    █████████████████░░░
 ⬜ B-022 — Quick search popup with keyboard navigation · 🟠 · L
 ⬜ B-023 — Group jump popup · 🟠 · L
 ✅ B-024 — Multi-select + bulk action bar · 🟠 · M
-⬜ B-025 — Multi-item drag as single unit · 🟠 · M
+✅ B-025 — Multi-item drag as single unit · 🟠 · M [S24 — v1.18.0]
 ✅ B-026 — Item context menu · 🟠 · S
 ✅ B-027 — Group header context menu · 🟠 · S
 ✅ B-028 — Selection context menu · 🟠 · S
 ✅ B-029 — Group picker modal · 🟠 · M
 ✅ B-030 — Item drag-reorder within / between groups · 🟠 · L [S23 Wave 0 — merged 791d50e / PR #28; pre-merge UAT 9/9 PASS]
-⬜ B-031 — Group drag-reorder & nesting via drag · 🟠 · M
-⬜ B-032 — Auto-scroll during drag · 🟡 · S
+✅ B-031 — Group drag-reorder & nesting via drag · 🟠 · M [S24 — v1.18.0]
+✅ B-032 — Auto-scroll during drag · 🟡 · S [S24 — v1.18.0]
 ✅ B-033 — Drag saved+live item to Open Tabs → demote · 🟡 · S [S23 Wave 1 — merged df4a024 / PR #29]
 🧊 B-034 — Window filter row (2+ windows) · 🟡 · S [absorbed into B-014]
 ⬜ B-035 — Standalone window display mode · 🟡 · M
@@ -114,6 +114,8 @@ Overall Progress    █████████████████░░░
 ✅ B-079 — Query-length cap on filter input · 🟡 · XS [Wave 1 — merged fa1a8df / PR #26]
 ✅ B-080 — Repair-summary toast plain-language parity · ⚪ · XS [Wave 1 — merged fa1a8df / PR #26]
 ⬜ B-082 — "Open side panel" button in toolbar popup · 🟠 · XS [filed mid-sprint per FEATURE_PARITY_ROADMAP; scheduled S26]
+⬜ B-083 — Allow multiple sibling sub-groups under one parent (filter helper fix) · 🟠 · S [filed S24 post-UAT; affects B-007 dialog + B-031 drag-nest; scheduled S25]
+⬜ B-084 — Refine drag drop-zone visual differentiation (reorder vs nest) · 🟡 · S [filed S24 post-UAT; scheduled S25 or later]
 
 ---
 
@@ -143,7 +145,7 @@ Overall Progress    █████████████████░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 68 | 83% |
+| ✅ Done | 71 | 85% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 12 | 15% |
+| ⬜ To Do | 11 | 13% |
 | 🧊 Icebox | 2 | 2% |

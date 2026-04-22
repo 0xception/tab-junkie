@@ -155,3 +155,41 @@ If a group exists but contains no items, an inline message — "No items in this
 When an operation fails (for example, a save fails due to a storage issue), a notification appears in the bottom-left corner of the panel. It dismisses itself after 4 seconds, or you can close it manually by clicking the dismiss button.
 
 Error messages describe what went wrong in plain language. No technical codes are shown to end users.
+
+---
+
+## Drag and drop
+
+### Reordering bookmarks
+
+Drag any bookmark row up or down to change its position within its group, or drop it into a different group to move it there. A horizontal insertion indicator shows exactly where the item will land. Release to commit, or press **Escape** to cancel without making any changes.
+
+Drop a bookmark onto the **Ungrouped** section to remove it from its group.
+
+### Dragging multiple items at once
+
+You can drag a selection of bookmarks as a single unit:
+
+1. Select the items you want to move using Ctrl/Cmd+Click, Shift+Click, or Ctrl/Cmd+A.
+2. Click and hold any item in the selection and start dragging.
+3. A drag ghost appears with a count badge showing how many items are moving.
+4. Drop the group onto the target position. All items land there in their original relative order.
+
+This works across groups and into the Ungrouped section. If you have no selection active, dragging picks up only the single item under your pointer.
+
+### Reordering and nesting groups
+
+You can drag a group header to reorder groups or nest one group inside another.
+
+| Drop zone | Effect |
+|-----------|--------|
+| Outer quarter of a group header (top or bottom) | Reorder — the dragged group lands above or below the target |
+| Middle half of a group header | Nest — the dragged group becomes a sub-group of the target |
+
+A visual indicator shows which zone is active as you hover. Invalid drop targets — such as dropping a group onto itself, creating a circular reference, or trying to nest deeper than one level — are highlighted in red and the drop is rejected.
+
+**Nesting limit:** Tab Junkie supports one level of nesting. A group that already has sub-groups cannot be nested inside another group.
+
+### Auto-scroll during drag
+
+When you drag near the top or bottom edge of the bookmark list, the list scrolls automatically in that direction. Scroll speed increases the closer your pointer is to the edge and stops as soon as you move away from the scroll zone or release the drag.

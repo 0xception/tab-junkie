@@ -12,3 +12,4 @@
 - [Sprint 15 — R4 Findings](findings/sprint-15.md)
 - [Sprint 16 — R4 Findings](findings/sprint-16.md)
 - [Sprint 17 — R4 Findings](findings/sprint-17.md)
+- [Sprint 24 — R4 Findings (Deduplicated)](findings/sprint-24.md)

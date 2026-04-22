@@ -128,6 +128,27 @@ Preserved on revert: BACKLOG.md ACs, UAT plan with PASS record, this chapter, ro
 - **Drag preview customisation**: v2 uses the browser's default drag ghost (the dragged row). A custom preview (e.g., semi-transparent clone with item count) is possible via `e.dataTransfer.setDragImage()`. Deferred to B-025 multi-item drag in S24 where the count is meaningful.
 - **Touch / mobile support**: out of scope per CLAUDE.md desktop-first rule. Native HTML5 DnD doesn't fire `drag*` events on touch; a separate Pointer Events API implementation would be a future item if mobile becomes a target.
 
+## 36.11 Empty-group drop path (cross-sprint fix — Sprint 24)
+
+The original B-030 v2 design did not explicitly handle the case of dropping onto a group whose `.group-items` container has zero `.item-row` descendants. The shipped R3 `_computeDropTarget` bailed with `null` whenever `hit.closest('.item-row')` missed — which is always true for an empty group — so dropping a saved item onto an empty destination silently no-op'd.
+
+The bug was latent in the v1.17.0 merge (single-item path was never UAT'd against an empty destination because all test collections had at least one seed item per group). It surfaced during B-025 multi-item UAT-3 in Sprint 24, where testing against a freshly-created empty group failed. Investigation confirmed the bug existed on BOTH the B-030 single-item and B-025 multi-item paths.
+
+**Fix — shared `{type:'emptyGroup'}` branch** (single patch in Sprint 24, covers both drag paths):
+
+- `_computeDropTarget` now attempts `hit.closest('.group-items')` when the `.item-row` lookup misses.
+- If the container has zero `.item-row` descendants (the `.open-tabs-section` live region is structurally excluded so it doesn't contaminate the count), returns `{type: 'emptyGroup', destGroupId}` with `destIndex = 0`.
+- The drop handler routes through `computeItemReorder` (B-030) or `computeMultiItemReorder` (B-025) with `destIndex = 0`; no new branch per path.
+- Indicator renders at the top edge of the `.group-items` container via the existing translateY path (offset 0).
+
+Tests for both drag paths added in `tests/b025-multi-item-drag.test.js`. The fix is documented in parallel in §37.10 D-3 (the B-025 R6 Close chapter).
+
+**Lesson**: R2 §9 Empty-state design check (C-9) flagged "zero-items" as an empty state that must be enumerated, but the enumeration for B-030 focused on "zero items in the whole collection" rather than "zero items in a single destination group during a drag". The C-9 check wording was tightened in the Sprint 24 R2 template to require per-drop-target empty-state enumeration going forward.
+
+## 36.12 B-032 auto-scroll (Sprint 24, Fast Track — pointer only)
+
+B-032 (auto-scroll during drag when pointer is near the top/bottom edge of the scroll container) is Fast Track (XS/S) and therefore does not carry a dedicated R6 Close chapter per CLAUDE.md tier rules. The feature rides entirely on top of the B-030 drag pipeline documented in this chapter: the auto-scroll listener is registered on `itemListEl` inside `_itemDragState`'s scroll-listener slot and tears down on dragend with the existing cleanup path. Group-drag (B-031) does not currently auto-scroll — a sprint-25 candidate F-6 already exists in §38.9.
+
 ## 36.9 Files changed
 
 ```

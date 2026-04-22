@@ -55,3 +55,5 @@
 - [§34 — B-052 — Fuzzy Search Index Caching + Perf Targets (R2 Design)](design/34-b-052-fuzzy-search-caching.md)
 - [§35 — B-007 — Sub-group Nesting (R6 Close)](design/35-b-007-sub-group-nesting.md)
 - [§36 — B-030 v2 — Item Drag-Reorder within/between Groups (R6 Close)](design/36-b-030-item-drag-reorder-v2.md)
+- [§37 — B-025 — Multi-Item Drag as Single Unit (R6 Close)](design/37-b-025-multi-item-drag.md)
+- [§38 — B-031 — Group Drag-Reorder + Nesting via Drag (R6 Close)](design/38-b-031-group-drag-reorder-nest.md)

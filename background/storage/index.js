@@ -23,6 +23,7 @@ export {
   updateGroup,
   deleteGroup,
   listGroups,
+  bulkReorderGroups,
 } from './groups.js';
 
 export {
