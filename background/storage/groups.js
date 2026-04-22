@@ -19,6 +19,7 @@ import {
   MAX_COLOR,
   readPartition,
 } from './partitions.js';
+import { MAX_BULK_INPUTS } from './shapes.js';
 import { GROUP_COLORS } from '../../shared/constants.js';
 import { writeTransaction } from './write-transaction.js';
 import { ulid } from './ids.js';
@@ -267,4 +268,140 @@ export async function deleteGroup(id) {
 
 export async function listGroups() {
   return readPartition(PARTITION_GROUPS);
+}
+
+/**
+ * B-031 — bulk-reorder groups with per-group `sortOrder` (and optional
+ * `parentId`) updates in a single writeTransaction. Mirrors
+ * `bulkReorderItems` in shape.
+ *
+ * Every depth bucket touched by the reorder is normalised post-update so
+ * sortOrder values are consecutive integers scaled by the caller's gap
+ * (the sidepanel emits `idx * 1000`; normalisation compresses to
+ * `0, 1, 2, …`). Partial-success semantics: unknown ids surface in
+ * `notFound`; known ids are applied.
+ *
+ * Depth + cycle invariants are enforced at the storage layer — the UI
+ * pre-filter (filterGroupParentCandidates) is a fast-path, not the
+ * authority. Any `parentId` change is validated with `assertDepthAndCycle`
+ * and the existing "cannot nest a group that already has children" rule
+ * from `updateGroup`; violations throw `ERR_DEPTH_EXCEEDED` /
+ * `ERR_CIRCULAR_REF` and abort the whole transaction (atomic).
+ *
+ * @param {Array<{id: string, sortOrder: number, parentId?: string|null}>} updates
+ * @returns {Promise<{updated: string[], notFound: string[]}>}
+ */
+export async function bulkReorderGroups(updates) {
+  if (!Array.isArray(updates) || updates.length === 0) {
+    throw new StorageError(ERR_VALIDATION, 'bulkReorderGroups: updates must be a non-empty array');
+  }
+  if (updates.length > MAX_BULK_INPUTS) {
+    throw new StorageError(ERR_VALIDATION, `bulkReorderGroups: updates array exceeds maximum of ${MAX_BULK_INPUTS}`);
+  }
+  for (const u of updates) {
+    if (!u || typeof u !== 'object' || typeof u.id !== 'string') {
+      throw new StorageError(ERR_VALIDATION, 'bulkReorderGroups: every update must have a string id');
+    }
+    if (typeof u.sortOrder !== 'number' || !Number.isFinite(u.sortOrder)) {
+      throw new StorageError(ERR_VALIDATION, 'bulkReorderGroups: every update must have a finite sortOrder');
+    }
+    if ('parentId' in u && u.parentId !== null && typeof u.parentId !== 'string') {
+      throw new StorageError(ERR_VALIDATION, 'bulkReorderGroups: parentId must be string or null when present');
+    }
+  }
+
+  const updateById = new Map(updates.map((u) => [u.id, u]));
+  const updated = [];
+  const notFound = [];
+  const now = Date.now();
+
+  await writeTransaction([
+    {
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        const existingIds = new Set(groups.map((g) => g.id));
+        /* Partition into applied / notFound. Validation (depth+cycle) runs
+           AFTER partitioning so unknown ids surface cleanly without a depth
+           check consulting a missing record. */
+        for (const u of updates) {
+          if (existingIds.has(u.id)) {
+            updated.push(u.id);
+          } else {
+            notFound.push(u.id);
+          }
+        }
+
+        /* Validate parentId changes against the pre-mutation snapshot.
+           Ordering: assertDepthAndCycle first (catches missing parent,
+           depth-2, cycles); then the "cannot nest a group that has
+           children" rule — mirrors `updateGroup`. */
+        for (const u of updates) {
+          if (!existingIds.has(u.id)) continue;
+          if (!('parentId' in u)) continue;
+          const newParent = u.parentId ?? null;
+          assertDepthAndCycle(groups, u.id, newParent);
+          if (newParent !== null) {
+            const hasChildren = groups.some((g) => g.parentId === u.id);
+            if (hasChildren) {
+              throw new StorageError(ERR_DEPTH_EXCEEDED, 'Cannot nest a group that already has children');
+            }
+          }
+        }
+
+        /* Collect affected buckets for post-apply normalisation: every
+           update's new parentId bucket, plus the dragged group's PREVIOUS
+           parentId bucket when the update crosses buckets. */
+        const affectedBuckets = new Set();
+        const preById = new Map(groups.map((g) => [g.id, g]));
+        for (const u of updates) {
+          if (!existingIds.has(u.id)) continue;
+          const pre = preById.get(u.id);
+          const preParent = pre?.parentId ?? null;
+          const nextParent = 'parentId' in u ? (u.parentId ?? null) : preParent;
+          affectedBuckets.add(nextParent);
+          if (preParent !== nextParent) affectedBuckets.add(preParent);
+        }
+
+        /* Apply per-group patches. */
+        let out = groups.map((g) => {
+          const u = updateById.get(g.id);
+          if (!u) return g;
+          const nextParent = 'parentId' in u ? (u.parentId ?? null) : g.parentId;
+          return {
+            ...g,
+            sortOrder: u.sortOrder,
+            parentId: nextParent,
+            id: g.id,
+            createdAt: g.createdAt,
+            updatedAt: now,
+          };
+        });
+
+        /* Normalise every affected bucket to consecutive integers.
+           Mirrors `normaliseGroupSortOrders` in items.js but keyed on
+           parentId (not groupId) — the bucketing difference. */
+        for (const bucketParentId of affectedBuckets) {
+          const bucketEntries = [];
+          for (let i = 0; i < out.length; i++) {
+            if ((out[i].parentId ?? null) === bucketParentId) {
+              bucketEntries.push({ idx: i, group: out[i] });
+            }
+          }
+          bucketEntries.sort((a, b) => (a.group.sortOrder ?? 0) - (b.group.sortOrder ?? 0));
+          const next = out.slice();
+          for (let k = 0; k < bucketEntries.length; k++) {
+            const { idx, group } = bucketEntries[k];
+            if (group.sortOrder !== k) {
+              next[idx] = { ...group, sortOrder: k, updatedAt: now };
+            }
+          }
+          out = next;
+        }
+
+        return out;
+      },
+    },
+  ]);
+
+  return { updated, notFound };
 }

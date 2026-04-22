@@ -43,6 +43,7 @@ import {
   MSG_BULK_DELETE_ITEMS,
   MSG_BULK_UPDATE_ITEMS,
   MSG_BULK_REORDER_ITEMS,
+  MSG_BULK_REORDER_GROUPS,
   MSG_EXPORT_COLLECTION,
   MSG_IMPORT_COLLECTION,
 } from '../../shared/messages.js';
@@ -74,6 +75,7 @@ import {
   deleteGroup,
   listGroups,
   getGroup,
+  bulkReorderGroups,
   getPreferences,
   setPreferences,
   StorageError,
@@ -104,6 +106,7 @@ const MUTATION_BROADCASTS = {
   [MSG_CREATE_GROUP]: SCOPE.GROUPS,
   [MSG_UPDATE_GROUP]: SCOPE.GROUPS,
   [MSG_DELETE_GROUP]: SCOPE.GROUPS,
+  [MSG_BULK_REORDER_GROUPS]: SCOPE.GROUPS,
   [MSG_SET_PREFERENCES]: SCOPE.PREFERENCES,
   [MSG_BULK_CREATE_ITEMS]: SCOPE.ITEMS,
   [MSG_BULK_DELETE_ITEMS]: SCOPE.ITEMS,
@@ -127,7 +130,7 @@ const MUTATION_BROADCASTS = {
 const WRITE_MESSAGE_TYPES = new Set([
   MSG_CREATE_ITEM, MSG_UPDATE_ITEM, MSG_DELETE_ITEM,
   MSG_BULK_CREATE_ITEMS, MSG_BULK_DELETE_ITEMS, MSG_BULK_UPDATE_ITEMS, MSG_BULK_REORDER_ITEMS,
-  MSG_CREATE_GROUP, MSG_UPDATE_GROUP, MSG_DELETE_GROUP,
+  MSG_CREATE_GROUP, MSG_UPDATE_GROUP, MSG_DELETE_GROUP, MSG_BULK_REORDER_GROUPS,
   MSG_SET_PREFERENCES, MSG_PROMOTE_TAB, MSG_DEMOTE_ITEM,
   /* B-044 / B-045 — import is a destructive REPLACE. Safe-mode must block it
      with ERR_SAFE_MODE (B-044 AC12). The preview round-trip is also gated —
@@ -205,6 +208,8 @@ async function dispatch(type, payload) {
       return listGroups();
     case MSG_GET_GROUP:
       return getGroup(p.id);
+    case MSG_BULK_REORDER_GROUPS:
+      return bulkReorderGroups(p.updates);
     case MSG_GET_PREFERENCES:
       return getPreferences();
     case MSG_SET_PREFERENCES:

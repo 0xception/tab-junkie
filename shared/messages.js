@@ -54,8 +54,46 @@ export const MSG_BULK_UPDATE_ITEMS = 'tj/bulkUpdateItems';
  * single writeTransaction; the handler then normalises affected bucket
  * sortOrders to consecutive integers. Partial-success semantics — unknown ids
  * surface in `notFound`.
+ *
+ * B-025 — same message type carries multi-item drag payloads (N per-item
+ * updates computed by `computeMultiItemReorder`). Handler is unchanged: each
+ * update is applied independently inside the same writeTransaction and every
+ * touched bucket is normalised. `MAX_BULK_INPUTS = 500` caps total payload.
+ *
+ * @typedef {Object} BulkReorderItemsRequest
+ * @property {Array<BulkReorderUpdate>} updates
+ *   Per-item reorder spec. 1 <= updates.length <= MAX_BULK_INPUTS.
+ *   Supports both single-item (B-030) and multi-item (B-025) drops.
+ *
+ * @typedef {Object} BulkReorderUpdate
+ * @property {string}       id
+ * @property {number}       sortOrder
+ * @property {string|null} [groupId]   Present only for cross-group moves.
+ *
+ * @typedef {Object} BulkReorderItemsResponse
+ * @property {string[]} updated
+ * @property {string[]} notFound
  */
 export const MSG_BULK_REORDER_ITEMS = 'tj/bulkReorderItems';
+
+/**
+ * B-031 — bulk-reorder groups. Accepts per-group updates in a single
+ * writeTransaction; handler normalises sortOrder within each affected
+ * depth bucket (top-level siblings, or children of a parentId) to
+ * consecutive integers. Partial-success semantics.
+ *
+ * Parallels MSG_BULK_REORDER_ITEMS. `parentId` is present only on updates
+ * that change parentage (NEST drop); omitting it preserves the current value.
+ *
+ * @typedef {Object} GroupReorderUpdate
+ * @property {string} id
+ * @property {number} sortOrder
+ * @property {string|null} [parentId]   present only when changing parentage
+ *
+ * Request: { updates: GroupReorderUpdate[] }
+ * Response: { updated: string[], notFound: string[] }
+ */
+export const MSG_BULK_REORDER_GROUPS = 'tj/bulkReorderGroups';
 
 // ---- Data export (B-042 / B-043) ----
 /**

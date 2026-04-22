@@ -4,6 +4,17 @@ All notable changes to Tab Junkie are documented in this file.
 
 ## [Unreleased]
 
+## [1.18.0] — 2026-04-22
+
+### Added
+- **Multi-item drag** — select several bookmarks with Ctrl/Cmd+Click or Shift+Click, then drag them all at once. A count badge on the ghost shows how many items are in flight. They land at the drop position in their original relative order, whether you drop within the same group, into a different group, or into the Ungrouped section.
+- **Group drag-reorder and nesting** — drag a group header to reorder top-level groups or nest one group inside another (one level deep). Drop onto the outer quarter of a target header to reorder; drop onto the middle half to nest. Visual rejection feedback appears for invalid targets — circular nesting, a second level of nesting, or dropping a group onto itself.
+- **Auto-scroll during drag** — move the pointer within 60 px of the top or bottom edge of the bookmark list while dragging and the list scrolls automatically in that direction. Scroll speed ramps up the closer your pointer is to the edge and stops when you move away.
+
+### Fixed
+- **Drop into empty groups** — dragging a bookmark (single or multi-select) into a group that contains no items now places the item there correctly. Previously the drop was silently ignored.
+- **Multi-drag ghost in Edge** — the drag ghost for multi-item drags now renders visibly in Edge. An off-screen positioning issue was causing the ghost snapshot to appear blank on some layouts.
+
 ## [1.17.0] — 2026-04-21
 
 ### Added

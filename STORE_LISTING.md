@@ -14,7 +14,8 @@ KEY FEATURES
 • Smart tab tracking — Green dots show which bookmarks are open; active tab is highlighted
 • Floating tabs — Tabs spawned from bookmarks stay with their group automatically
 • Multi-window mode — Multiple instances stay synchronized across browser windows; window badges (W1, W2, …) mark tabs from other windows, and a filter row lets you narrow the panel to a single window at a time
-• Drag-and-drop — Reorder bookmarks, move between groups, nest sub-groups
+• Drag-and-drop — Reorder bookmarks, move between groups, drag a group header to reorder or nest groups; auto-scroll kicks in when you hover near the top or bottom edge of the list
+• Multi-item drag — select bookmarks with Ctrl/Cmd+Click or Shift+Click, then drag them all at once; a count badge shows how many items are moving
 • Multi-select — Shift+click, Ctrl+click, Ctrl+A for bulk move, close, or remove
 • Right-click menu — Context menu on any bookmark for quick edit, move, close tab, and delete actions; right-click a multi-selection to act on all selected items at once; right-click a group header to open all, close all tabs, select all/open/bookmarked, move items out of the group, edit, or delete the group. Menus close automatically when you click outside the side panel
 • Group picker — Move items between groups with a keyboard-friendly picker that shows every group with its color, saved-item count, and open-tab count, plus a filter box to find a group by name instantly

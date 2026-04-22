@@ -17,6 +17,7 @@ import {
   MSG_BULK_DELETE_ITEMS,
   MSG_BULK_UPDATE_ITEMS,
   MSG_BULK_REORDER_ITEMS,
+  MSG_BULK_REORDER_GROUPS,
   MSG_PROMOTE_TAB,
   MSG_EXPORT_COLLECTION,
   MSG_IMPORT_COLLECTION,
@@ -67,7 +68,7 @@ import {
    for a drag-reorder drop event. Pure, DOM-free, chrome-free (B-065 precedent).
    v2 re-implementation imports the same helper as S22 — backend code
    didn't need to change (bugs were entirely in sidepanel drag handlers). */
-import { computeItemReorder } from '../shared/sort-order.js';
+import { computeItemReorder, computeMultiItemReorder, computeGroupReorder } from '../shared/sort-order.js';
 
 /* B-052: pre-lowercased in-memory search index. §34 (docs/design/34) is the
    authoritative spec. The module is pure (no DOM); sidepanel owns the DOM-
@@ -198,6 +199,11 @@ let _cachedItems = [];
    live value to detect mid-drag broadcast races (AC24). */
 let _cachedItemsGen = 0;
 let _cachedGroups = [];
+/* B-031 — monotonic generation counter bumped on every `_cachedGroups`
+   assignment. Parallel to `_cachedItemsGen`. Group-drag captures the
+   current value at dragstart; drop compares against the live value to
+   detect mid-drag group-scope broadcasts (broadcast-race guard). */
+let _cachedGroupsGen = 0;
 let _cachedLiveStates = {};
 let _cachedDriftRecords = {};
 let _itemById = new Map();
@@ -280,7 +286,17 @@ const DRAG_DEBUG = false;
 
 /* Non-null while an item-row drag is in flight. Shape:
    { itemId, sourceGroupId, cachedItemsGen, pendingTargetRowId,
-     pendingInsertPosition, rafHandle, scrollListener } */
+     pendingInsertPosition, pendingDestGroupId, rafHandle, scrollListener,
+     payloadItemIds, payloadSet, isMulti }
+
+   B-025 fields:
+     - payloadItemIds: string[]  The ids being dragged as a unit. For a
+         B-030 single-item drag, this is a 1-element array containing
+         `itemId` — downstream code iterates uniformly.
+     - payloadSet: Set<string>  `new Set(payloadItemIds)` — O(1) membership
+         check for `_computeDropTarget` self-exclusion.
+     - isMulti: boolean  True iff payloadItemIds.length >= 2 (a custom
+         ghost is rendered via setDragImage). False for single-item drags. */
 let _itemDragState = null;
 
 /* Rect cache snapshot (AC18). Built at dragstart; scroll invalidates;
@@ -291,6 +307,45 @@ let _dragRectCache = null;
 /* Primitives recorded by dragover handler. rAF tick consumes them. */
 let _pendingPointerX = 0;
 let _pendingPointerY = 0;
+
+/* B-032 — auto-scroll during item drag. Constants per R1 ACs.
+   EDGE_ZONE_PX: proximity (px) to top/bottom of itemListEl that activates
+     auto-scroll (AC1).
+   MAX_SCROLL_SPEED: max px/frame at the very edge; linear ramp toward 0
+     at the zone boundary (AC3, AC4). */
+const AUTO_SCROLL_EDGE_ZONE_PX = 60;
+const AUTO_SCROLL_MAX_SPEED = 20;
+
+/* =========================================================================
+   B-031 — group drag-reorder + nest state
+
+   Mode-exclusive with `_itemDragState` above: at most ONE of the two is
+   non-null at any time. Dragstart routes to a SINGLE path based on drag
+   origin (item-row vs group-section) + `_dragInitiatedFromHandle`.
+
+   Shape:
+     {
+       draggedGroupId, draggedGroup,
+       isSubGroupDrag: boolean,
+       validNestTargetIds: Set<string>,
+       validReorderTargetIds: Set<string>,
+       cachedGroupsGen: number,
+       pendingTargetGroupId: string|null,
+       pendingMode: 'REORDER_ABOVE'|'REORDER_BELOW'|'NEST'|'REJECT'|null,
+       rafHandle: number|null,
+       scrollListener: Function|null,
+     }
+   ========================================================================= */
+let _groupDragState = null;
+
+/* Rect cache for group headers. Built at dragstart; scroll invalidates;
+   rAF tick rebuilds lazily. Mirrors `_dragRectCache`. */
+let _groupDragRectCache = null;
+
+/* Pointer primitives for group drag — separate from _pendingPointerX/Y so
+   simultaneous state assignments across paths can't stomp each other. */
+let _pendingGroupPointerX = 0;
+let _pendingGroupPointerY = 0;
 
 /* =========================================================================
    B-009 — drag-to-expand collapsed group state
@@ -342,6 +397,15 @@ itemDragIndicatorEl.style.left = '0';
 itemDragIndicatorEl.style.right = '0';
 itemDragIndicatorEl.style.zIndex = '10'; /* ensure indicator renders above item rows */
 itemDragIndicatorEl.style.transform = 'translateY(-9999px)';
+
+/* B-031 — dedicated group-drag REORDER indicator. Separate from B-008's
+   `dropIndicatorEl` (which uses the `.before()` reparent pattern that
+   fights B-030/B-031's absolute-positioned transform pattern) and
+   separate from B-030's `itemDragIndicatorEl`. Absolute-positioned;
+   moved via CSS transform; NEVER reparented during drag.
+   `pointer-events: none` prevents elementFromPoint self-hits. */
+const groupReorderIndicatorEl = document.createElement('div');
+groupReorderIndicatorEl.className = 'group-reorder-indicator';
 
 /* =========================================================================
    Multi-select state (B-024)
@@ -2742,6 +2806,7 @@ function renderAll(items, groups, liveStates, driftRecords, openTabs) {
   _cachedItems = items;
   _cachedItemsGen += 1;
   _cachedGroups = groups;
+  _cachedGroupsGen += 1;
   _cachedLiveStates = liveStates || {};
   _cachedDriftRecords = driftRecords || {};
   _setCachedOpenTabs(openTabs);
@@ -2829,6 +2894,9 @@ function renderAll(items, groups, liveStates, driftRecords, openTabs) {
   /* B-030 v2 — mount the item-drag indicator. Lives as a stable child of
      itemListEl; moved via CSS transform only (never reparented). */
   itemListEl.appendChild(itemDragIndicatorEl);
+  /* B-031 — mount the group-drag REORDER indicator. Same stable-child
+     pattern as the item indicator; moved via transform only. */
+  itemListEl.appendChild(groupReorderIndicatorEl);
   skeletonEl.hidden = true;
   emptyStateEl.hidden = true;
   errorStateEl.hidden = true;
@@ -2885,7 +2953,7 @@ function buildGroupSection(group, byGroup, liveStates, driftRecords, isChild) {
     handle.className = 'group-drag-handle';
     handle.tabIndex = 0;
     handle.setAttribute('aria-label', 'Reorder group');
-    handle.setAttribute('title', 'Drag to reorder (keyboard reorder not yet available)');
+    handle.setAttribute('title', 'Drag to reorder or nest (keyboard reorder not yet available)');
     handle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="5" cy="4" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="5" cy="12" r="1.5"/><circle cx="11" cy="4" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="11" cy="12" r="1.5"/></svg>';
     header.prepend(handle);
 
@@ -4356,8 +4424,48 @@ itemListEl.addEventListener('dragstart', (e) => {
     const sourceItem = _cachedItems.find((it) => it.id === itemId);
     const sourceGroupId = sourceItem ? (sourceItem.groupId ?? null) : null;
 
+    /* B-025 — resolve the drag payload (D-4 + D-5).
+       If the initiator is NOT in the active selection, run the AC2 solo-drag
+       fallback: clear selection + drag initiator alone. Otherwise filter
+       selection to `item:*` keys matching the initiator's source group (D-4
+       silent single-source-group restriction; D-5 live-only `tab:*` keys are
+       skipped by the `item:` prefix check). */
+    const initiatorKey = 'item:' + itemId;
+    let payloadItemIds;
+    let isMulti;
+    if (!_selection.has(initiatorKey)) {
+      if (_selection.size > 0) {
+        _selection.clear();
+        _updateBulkBar();
+      }
+      payloadItemIds = [itemId];
+      isMulti = false;
+    } else {
+      const candidates = [];
+      for (const key of _selection) {
+        if (!key.startsWith('item:')) continue;
+        const id = key.slice(5);
+        const it = _cachedItems.find((x) => x.id === id);
+        if (!it) continue;
+        if ((it.groupId ?? null) !== sourceGroupId) continue;
+        candidates.push(id);
+      }
+      payloadItemIds = candidates.length > 0 ? candidates : [itemId];
+      isMulti = payloadItemIds.length >= 2;
+    }
+
+    /* §37.9 F-7 — caller-sort by current sortOrder so drop preserves the
+       selection's visual order regardless of Set iteration order. */
+    if (isMulti) {
+      payloadItemIds.sort((a, b) => {
+        const ia = _cachedItems.find((x) => x.id === a);
+        const ib = _cachedItems.find((x) => x.id === b);
+        return (ia?.sortOrder ?? 0) - (ib?.sortOrder ?? 0);
+      });
+    }
+
     e.dataTransfer.effectAllowed = 'move';
-    try { e.dataTransfer.setData('text/plain', itemId); } catch { /* Firefox compat; noop elsewhere */ }
+    try { e.dataTransfer.setData('text/plain', payloadItemIds.join(',')); } catch { /* Firefox compat; noop elsewhere */ }
 
     _itemDragState = {
       itemId,
@@ -4365,8 +4473,16 @@ itemListEl.addEventListener('dragstart', (e) => {
       cachedItemsGen: _cachedItemsGen,
       pendingTargetRowId: null,
       pendingInsertPosition: null,
+      /* B-025 UAT-3 fix — carries the groupId when the drop target is an
+         empty group (target.type === 'emptyGroup'). Null for item-row drops
+         (the row id already carries group identity via _cachedItems lookup)
+         and for the Open Tabs demote path. */
+      pendingDestGroupId: null,
       rafHandle: null,
       scrollListener: null,
+      payloadItemIds,
+      payloadSet: new Set(payloadItemIds),
+      isMulti,
     };
     _buildDragRectCache();
 
@@ -4376,13 +4492,51 @@ itemListEl.addEventListener('dragstart', (e) => {
     };
     itemListEl.addEventListener('scroll', _itemDragState.scrollListener, { passive: true });
 
-    itemRow.classList.add('item-row--dragging');
+    _setMultiDragRowClasses(payloadItemIds);
     itemListEl.classList.add('is-item-dragging');
-    _dragLog('dragstart', { itemId, sourceGroupId, cachedItemsGen: _cachedItemsGen });
+
+    /* B-025 — custom drag ghost with count badge (N >= 2 only). */
+    if (isMulti) {
+      const initiatorTitle = sourceItem && typeof sourceItem.title === 'string' && sourceItem.title.length > 0
+        ? sourceItem.title
+        : '(untitled)';
+      const ghostEl = _buildMultiDragGhost(payloadItemIds.length, initiatorTitle);
+      try {
+        /* B-025 UAT-8 fix (M-3) — force a synchronous layout reflow before
+           calling setDragImage. `_buildMultiDragGhost` appended the element
+           moments ago; without the reflow, `offsetWidth`/`getBoundingClientRect`
+           may still return 0 and `setDragImage(el, 0, 16)` snapshots a
+           zero-width preview (Edge renders this as a broken-image icon).
+           Reading `offsetWidth` after append forces the engine to flush
+           layout. */
+        void ghostEl.offsetHeight;
+        const measured = ghostEl.offsetWidth
+          || ghostEl.getBoundingClientRect().width
+          || 80;
+        const halfWidth = Math.round(measured / 2);
+        e.dataTransfer.setDragImage(ghostEl, halfWidth, 16);
+      } catch { /* setDragImage unsupported — fall back to default */ }
+      /* §37.9 F-6 — microtask detach is timing-critical: the browser
+         snapshots during the current task, so removing synchronously would
+         race. `queueMicrotask` (not `Promise.resolve().then`) schedules the
+         detach at the end of the current microtask checkpoint. */
+      queueMicrotask(() => ghostEl.remove());
+    }
+
+    _dragLog('dragstart', {
+      itemId,
+      sourceGroupId,
+      cachedItemsGen: _cachedItemsGen,
+      isMulti,
+      payloadCount: payloadItemIds.length,
+    });
     return;
   }
 
-  /* B-008 group drag path (unchanged). */
+  /* B-031 group drag path (extends B-008 with mode-aware NEST + REORDER).
+     Gated on `_dragInitiatedFromHandle` — the mousedown handler sets this
+     when the pointer starts on `.group-drag-handle`, disambiguating handle
+     drag from header click. */
   const section = e.target.closest('[data-group-id]');
   if (!section) { e.preventDefault(); return; }
   if (!_dragInitiatedFromHandle) { e.preventDefault(); return; }
@@ -4390,6 +4544,47 @@ itemListEl.addEventListener('dragstart', (e) => {
   e.dataTransfer.effectAllowed = 'move';
   section.classList.add('dragging-src');
   itemListEl.classList.add('is-dragging');
+
+  /* B-031 — initialise mode-aware drag state. Prebuild the valid-target
+     Sets ONCE at dragstart so the rAF tick does O(1) lookups rather than
+     re-running filterGroupParentCandidates on every frame. Rebuild triggers
+     are: dragstart only — `_pendingGroupsRender` defers group-scope
+     broadcast re-renders until dragend, so `_cachedGroups` doesn't mutate
+     mid-drag; the broadcast-race guard in the drop handler catches the
+     edge case where state advanced but drop proceeded. */
+  const draggedGroup = _cachedGroups.find((g) => g.id === _dragSrcGroupId);
+  if (draggedGroup) {
+    const candidates = filterGroupParentCandidates(_cachedGroups, draggedGroup);
+    const validNestTargetIds = new Set(candidates.map((g) => g.id));
+    const sourceParentId = draggedGroup.parentId ?? null;
+    /* Valid REORDER targets = siblings in the same bucket (parentId match).
+       Prebuilt Set for O(1) tick lookup. */
+    const validReorderTargetIds = new Set(
+      _cachedGroups
+        .filter((g) => (g.parentId ?? null) === sourceParentId && g.id !== draggedGroup.id)
+        .map((g) => g.id),
+    );
+    _groupDragState = {
+      draggedGroupId: draggedGroup.id,
+      draggedGroup,
+      isSubGroupDrag: sourceParentId !== null,
+      validNestTargetIds,
+      validReorderTargetIds,
+      cachedGroupsGen: _cachedGroupsGen,
+      pendingTargetGroupId: null,
+      pendingMode: null,
+      rafHandle: null,
+      scrollListener: null,
+    };
+    _buildGroupDragRectCache();
+
+    /* Passive scroll listener — invalidate cache on scroll; rAF tick
+       rebuilds lazily. Mirror of the item-drag pattern. */
+    _groupDragState.scrollListener = () => {
+      if (_groupDragRectCache) _groupDragRectCache.invalid = true;
+    };
+    itemListEl.addEventListener('scroll', _groupDragState.scrollListener, { passive: true });
+  }
 });
 
 itemListEl.addEventListener('dragover', (e) => {
@@ -4406,26 +4601,26 @@ itemListEl.addEventListener('dragover', (e) => {
     return;
   }
 
-  /* B-008 group drag path (unchanged). */
-  if (!_dragSrcGroupId) return;
-  e.preventDefault();
-  e.dataTransfer.dropEffect = 'move';
-
-  const sections = [...itemListEl.querySelectorAll('[data-group-id]')];
-  let insertBefore = null;
-  for (const sec of sections) {
-    const rect = sec.getBoundingClientRect();
-    const mid = rect.top + rect.height / 2;
-    if (e.clientY < mid) { insertBefore = sec; break; }
+  /* B-031 group drag path — mirrors B-030 v2 3-statement pattern.
+     No rect reads, no DOM mutations, no layout in this handler. All
+     hit-testing + DOM writes happen in `_groupDragTick`. R4
+     code-reviewer greps for getBoundingClientRect / classList mutation
+     inside this branch — any hit is a REJECT. */
+  if (_groupDragState) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    _pendingGroupPointerX = e.clientX;
+    _pendingGroupPointerY = e.clientY;
+    _scheduleGroupDragTick();
+    return;
   }
 
-  dropIndicatorEl.hidden = false;
-  if (insertBefore) {
-    insertBefore.before(dropIndicatorEl);
-  } else {
-    const ungrouped = itemListEl.querySelector('.group-section:not([data-group-id])');
-    if (ungrouped) ungrouped.before(dropIndicatorEl);
-    else itemListEl.appendChild(dropIndicatorEl);
+  /* Fallback for drags that set `_dragSrcGroupId` but somehow skipped the
+     state init (e.g. dragged group not in cache at dragstart) — behave as
+     a passive dragover so the browser's default drop handling applies. */
+  if (_dragSrcGroupId) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
   }
 });
 
@@ -4433,7 +4628,11 @@ itemListEl.addEventListener('dragleave', (e) => {
   /* For item drag, indicator visibility is managed by rAF tick via
      opacity — NOT toggled here (dragleave is noisy and would flicker). */
   if (_itemDragState) return;
-  /* B-008 group drag cleanup (unchanged). */
+  /* B-031 — same rAF-gated opacity approach for group drag. Classes +
+     indicator are managed by `_groupDragTick`; dragleave would flicker. */
+  if (_groupDragState) return;
+  /* Legacy B-008 drop indicator cleanup (used only by the fallback path
+     above). */
   if (!e.relatedTarget || !itemListEl.contains(e.relatedTarget)) {
     dropIndicatorEl.hidden = true;
   }
@@ -4465,6 +4664,65 @@ itemListEl.addEventListener('drop', async (e) => {
       return;
     }
 
+    /* B-025 UAT-3 fix — empty-group drop branch. Handled BEFORE the
+       `pendingTargetRowId` early-bail because empty-group drops do not
+       carry a target row id (there is no row to insert relative to —
+       destIndex is always 0 within the target group). Applies to both
+       single-item and multi-item paths per AC13e (empty-dest empty-state). */
+    if (state.pendingDropType === 'emptyGroup') {
+      if (!state.pendingDestGroupId) {
+        _dragLog('drop — emptyGroup target missing destGroupId; cancel');
+        return;
+      }
+
+      /* AC24 — broadcast race guard: refresh items if our snapshot is stale
+         before computing the reorder. Same pattern as the item-row branch. */
+      if (state.cachedItemsGen !== _cachedItemsGen) {
+        _dragLog('drop (emptyGroup) — broadcast race detected; refreshing items');
+        try {
+          const itemsResp = await sendMessage(MSG_LIST_ITEMS);
+          _cachedItems = itemsResp.items;
+          _cachedItemsGen += 1;
+        } catch (err) {
+          console.warn('[tab-junkie:b030] refresh on broadcast race failed', err);
+          showToast('Couldn\u2019t save new order \u2014 try again');
+          return;
+        }
+      }
+
+      /* Re-validate the target group is actually empty post-refresh. If
+         another window created items in it during the drag, abort and let
+         the user retry (safer than inserting at an index that is no longer
+         "first position"). */
+      const destGroupId = state.pendingDestGroupId;
+      const destSiblings = _cachedItems
+        .filter((it) => (it.groupId ?? null) === destGroupId && !state.payloadSet.has(it.id))
+        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+      /* destIndex = destSiblings.length puts the payload at the end. For a
+         truly-empty group that's 0; for a racey case where the group is no
+         longer empty, appending preserves user intent ("I dropped here")
+         without overwriting existing items. */
+      const destIndex = destSiblings.length;
+
+      let updates;
+      if (state.isMulti) {
+        const sortedIds = [...state.payloadItemIds].sort((a, b) => {
+          const ia = _cachedItems.find((x) => x.id === a);
+          const ib = _cachedItems.find((x) => x.id === b);
+          return (ia?.sortOrder ?? 0) - (ib?.sortOrder ?? 0);
+        });
+        updates = computeMultiItemReorder(_cachedItems, sortedIds, destGroupId, destIndex);
+        _dragLog('drop (multi, emptyGroup)', { count: sortedIds.length, destGroupId, destIndex, updates });
+      } else {
+        updates = computeItemReorder(_cachedItems, state.itemId, destGroupId, destIndex);
+        _dragLog('drop (emptyGroup)', { itemId: state.itemId, destGroupId, destIndex, updates });
+      }
+
+      if (updates.length === 0) return;
+      await _commitReorderAndRender(updates, { isMulti: state.isMulti });
+      return;
+    }
+
     if (!state.pendingTargetRowId) {
       _dragLog('drop — no pending target; cancel');
       return;
@@ -4485,28 +4743,122 @@ itemListEl.addEventListener('drop', async (e) => {
       }
     }
 
-    /* Resolve destination group + index from the pending target. */
+    /* Resolve destination group + index from the pending target. Exclude
+       the ENTIRE payload (B-025) — for a single-item drag this collapses to
+       the prior B-030 behaviour (payloadSet has exactly one id). */
     const target = _cachedItems.find((it) => it.id === state.pendingTargetRowId);
     const destGroupId = target ? (target.groupId ?? null) : state.sourceGroupId;
     const destSiblings = _cachedItems
-      .filter((it) => (it.groupId ?? null) === destGroupId && it.id !== state.itemId)
+      .filter((it) => (it.groupId ?? null) === destGroupId && !state.payloadSet.has(it.id))
       .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
     let destIndex = destSiblings.findIndex((it) => it.id === state.pendingTargetRowId);
     if (destIndex < 0) destIndex = destSiblings.length;
     if (state.pendingInsertPosition === 'after') destIndex += 1;
 
-    const updates = computeItemReorder(_cachedItems, state.itemId, destGroupId, destIndex);
-    _dragLog('drop', { itemId: state.itemId, destGroupId, destIndex, updates });
+    let updates;
+    if (state.isMulti) {
+      /* B-025 — re-sort payload by CURRENT sortOrder against the freshly
+         refreshed `_cachedItems` (after the broadcast-race guard above).
+         Upstream dragstart already sorted, but re-sorting here is cheap
+         insurance against the rare case where the broadcast race refetch
+         renumbered sortOrders. */
+      const sortedIds = [...state.payloadItemIds].sort((a, b) => {
+        const ia = _cachedItems.find((x) => x.id === a);
+        const ib = _cachedItems.find((x) => x.id === b);
+        return (ia?.sortOrder ?? 0) - (ib?.sortOrder ?? 0);
+      });
+      updates = computeMultiItemReorder(_cachedItems, sortedIds, destGroupId, destIndex);
+      _dragLog('drop (multi)', { count: sortedIds.length, destGroupId, destIndex, updates });
+    } else {
+      updates = computeItemReorder(_cachedItems, state.itemId, destGroupId, destIndex);
+      _dragLog('drop', { itemId: state.itemId, destGroupId, destIndex, updates });
+    }
 
     if (updates.length === 0) return; // same-position no-op
 
+    await _commitReorderAndRender(updates, { isMulti: state.isMulti });
+    return;
+  }
+
+  /* B-031 group drop path (replaces the B-008 per-group updateGroup
+     fan-out with a single MSG_BULK_REORDER_GROUPS transaction). */
+  e.preventDefault();
+  if (_groupDragState) {
+    const state = _groupDragState;
+    /* UAT-fix (cleanup order lesson from B-030): run cleanup BEFORE nulling
+       state so rAF cancel + scroll-listener removal are applied. */
+    _cleanupGroupDragDom();
+    _groupDragState = null;
+
+    /* Validate pending mode — REJECT / null → abort silently (indicator
+     already cleared by cleanup). */
+    if (!state.pendingMode || state.pendingMode === 'REJECT' || !state.pendingTargetGroupId) {
+      return;
+    }
+
+    /* Broadcast-race guard. If `_cachedGroups` advanced during drag,
+       refetch + re-validate target is still in the nest/reorder set
+       before committing. Abort with toast on invalid-after-refresh. */
+    if (state.cachedGroupsGen !== _cachedGroupsGen) {
+      try {
+        const freshGroups = await sendMessage(MSG_LIST_GROUPS);
+        _cachedGroups = freshGroups;
+        _cachedGroupsGen += 1;
+        const freshDragged = freshGroups.find((g) => g.id === state.draggedGroupId);
+        if (!freshDragged) {
+          showToast('Couldn\u2019t save group order \u2014 try again');
+          return;
+        }
+        if (state.pendingMode === 'NEST') {
+          const freshNestCandidates = new Set(
+            filterGroupParentCandidates(freshGroups, freshDragged).map((g) => g.id),
+          );
+          if (!freshNestCandidates.has(state.pendingTargetGroupId)) {
+            showToast('Couldn\u2019t save group order \u2014 try again');
+            return;
+          }
+        } else {
+          const freshSourceParent = freshDragged.parentId ?? null;
+          const targetStillSibling = freshGroups.some(
+            (g) => g.id === state.pendingTargetGroupId
+              && (g.parentId ?? null) === freshSourceParent,
+          );
+          if (!targetStillSibling) {
+            showToast('Couldn\u2019t save group order \u2014 try again');
+            return;
+          }
+        }
+      } catch {
+        showToast('Couldn\u2019t save group order \u2014 try again');
+        return;
+      }
+    }
+
+    const updates = computeGroupReorder(
+      _cachedGroups,
+      state.draggedGroupId,
+      state.pendingMode,
+      state.pendingTargetGroupId,
+    );
+    if (updates.length === 0) return;
+
+    /* D-4: NEST onto a collapsed target — expand optimistically so the
+       user can see the drop took effect, then dispatch the fire-and-forget
+       collapsed=false patch AFTER the bulk reorder resolves. */
+    let nestTargetWasCollapsed = false;
+    if (state.pendingMode === 'NEST') {
+      const nestTarget = _cachedGroups.find((g) => g.id === state.pendingTargetGroupId);
+      if (nestTarget && nestTarget.collapsed) {
+        nestTargetWasCollapsed = true;
+        collapsedGroups.delete(state.pendingTargetGroupId);
+      }
+    }
+
     try {
-      await sendMessage(MSG_BULK_REORDER_ITEMS, { updates });
-      /* UAT-fix (same-group render): the B-052 search index's hashItem
-         does NOT include sortOrder, so a reorder-only change returns
-         `deltaType: 'noop'` from diffAndPatch → no DOM patch → UI stays
-         stale until something else triggers a full render. Explicitly
-         re-fetch + renderAll here to guarantee the UI reflects the drop. */
+      await sendMessage(MSG_BULK_REORDER_GROUPS, { updates });
+      /* Explicit re-fetch + renderAll (mirrors B-030 D-2). The `groups`
+         broadcast is deferred via `_pendingGroupsRender` while
+         `_dragSrcGroupId` is set, so we can't rely on it alone. */
       const [itemsResp, groups] = await Promise.all([
         sendMessage(MSG_LIST_ITEMS),
         sendMessage(MSG_LIST_GROUPS),
@@ -4515,9 +4867,24 @@ itemListEl.addEventListener('drop', async (e) => {
       renderAll(itemsResp.items, groups, itemsResp.liveStates,
         itemsResp.driftRecords, itemsResp.openTabs);
       _applyWindowMapToUI();
+
+      /* D-4: fire-and-forget collapsed=false patch on the NEST target.
+         Non-atomic with the reorder (worst case: target expands without
+         the reorder taking effect — cosmetic, no data corruption). */
+      if (nestTargetWasCollapsed) {
+        sendMessage(MSG_UPDATE_GROUP, {
+          id: state.pendingTargetGroupId,
+          patch: { collapsed: false },
+        }).catch(() => {/* best-effort; UI already reflects expanded state */});
+      }
     } catch (err) {
-      console.warn('[tab-junkie:b030] bulkReorderItems failed', err);
-      showToast('Couldn\u2019t save new order \u2014 reverting');
+      const code = err?.error?.code || err?.code;
+      const toastMsg = translateGroupError(code) || 'Couldn\u2019t save group order \u2014 reverting';
+      showToast(toastMsg);
+      /* Restore optimistic UI state before re-fetching. */
+      if (nestTargetWasCollapsed) {
+        collapsedGroups.add(state.pendingTargetGroupId);
+      }
       Promise.all([sendMessage(MSG_LIST_ITEMS), sendMessage(MSG_LIST_GROUPS)])
         .then(([itemsResp, groups]) => {
           _setWindowOrdinalMap(itemsResp.windowMap || {});
@@ -4530,51 +4897,34 @@ itemListEl.addEventListener('drop', async (e) => {
     return;
   }
 
-  /* B-008 group drop path (unchanged). */
-  e.preventDefault();
-  if (!_dragSrcGroupId) return;
+  /* Legacy fallback: a group drag somehow reached drop without
+     _groupDragState — no-op (the browser keeps the default behaviour). */
   dropIndicatorEl.hidden = true;
-
-  const srcSection = itemListEl.querySelector(`[data-group-id="${CSS.escape(_dragSrcGroupId)}"]`);
-  if (!srcSection) return;
-
-  itemListEl.insertBefore(srcSection, dropIndicatorEl);
-
-  const realSections = [...itemListEl.querySelectorAll('[data-group-id]:not(.group-section--child)')];
-  const updates = [];
-  realSections.forEach((sec, idx) => {
-    const newOrder = idx * 1000;
-    const oldOrder = Number(sec.dataset.sortOrder ?? 0);
-    if (newOrder !== oldOrder) {
-      sec.dataset.sortOrder = newOrder;
-      updates.push(sendMessage(MSG_UPDATE_GROUP, { id: sec.dataset.groupId, patch: { sortOrder: newOrder } }));
-    }
-  });
-  if (updates.length > 0) {
-    Promise.all(updates).catch(() => {
-      showToast('Couldn\u2019t save group order \u2014 reverting');
-      Promise.all([sendMessage(MSG_LIST_ITEMS), sendMessage(MSG_LIST_GROUPS)])
-        .then(([itemsResp, groups]) => {
-          /* B-014 */
-          _setWindowOrdinalMap(itemsResp.windowMap || {});
-          renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
-          _applyWindowMapToUI();
-        })
-        .catch(() => {});
-    });
-  }
 });
 
 itemListEl.addEventListener('dragend', () => {
   /* B-030 v2 — cancel path (Escape or invalid drop). If drop handler
-     already consumed the state, this is a no-op. */
+     already consumed the state, this is a no-op.
+     B-025 — cleanup-before-null so `_cleanupItemDragDom` can read
+     `payloadItemIds` for explicit multi-drag row-class removal. Matches the
+     drop-handler ordering + the B-031 cleanup-before-null precedent. */
   if (_itemDragState) {
     _dragLog('dragend — cancelled');
-    _itemDragState = null;
     _cleanupItemDragDom();
+    _itemDragState = null;
   }
 
-  /* B-008 group drag cleanup (unchanged). */
+  /* B-031 — group-drag cancel path. Cleanup-before-null pattern: run
+     _cleanupGroupDragDom() FIRST so its `if (_groupDragState)` guard
+     still passes and the rAF cancel + scroll-listener removal actually
+     fire. Then null the state. Matches the drop handler at L4646-4647
+     and the B-030 UAT-fix lesson. */
+  if (_groupDragState) {
+    _cleanupGroupDragDom();
+    _groupDragState = null;
+  }
+
+  /* B-008 group drag cleanup. */
   dropIndicatorEl.hidden = true;
   itemListEl.classList.remove('is-dragging');
   itemListEl.querySelector('.dragging-src')?.classList.remove('dragging-src');
@@ -4623,9 +4973,65 @@ function _scheduleDragTick() {
   _itemDragState.rafHandle = requestAnimationFrame(_dragTick);
 }
 
+/* B-032 — auto-scroll edge detection + scrollTop adjustment.
+   Runs once per `_dragTick`. Gated on `_itemDragState !== null` by caller
+   (AC11 — no activation outside item drag; B-031 group drag is NOT handled
+   here per B-032 out-of-scope). Returns true when auto-scroll was applied
+   so the caller can re-schedule the tick (AC5 continuous-while-held).
+
+   Strategy (AC7 + AC8 + AC10):
+   - Uses `_pendingPointerY` and cached containerRect — no new rect reads.
+   - `element.scrollTop += delta` triggers a native scroll event; B-030's
+     passive scroll listener marks `_dragRectCache.invalid = true`; next
+     tick lazily rebuilds. No new CSS; no second rAF (caller owns rAF).
+   - Boundary clamp (AC6): no negative scrollTop; no scroll past
+     `scrollHeight - clientHeight`. */
+function _maybeAutoScroll() {
+  if (!_itemDragState || !_dragRectCache) return false;
+  const containerRect = _dragRectCache.containerRect;
+  const distanceFromTop = _pendingPointerY - containerRect.top;
+  const distanceFromBottom = containerRect.bottom - _pendingPointerY;
+
+  let delta = 0;
+  if (distanceFromTop >= 0 && distanceFromTop < AUTO_SCROLL_EDGE_ZONE_PX) {
+    /* AC3 — linear ramp: fastest at the edge (distance = 0), zero at the
+       zone boundary (distance = EDGE_ZONE_PX). */
+    const speed = Math.round(
+      AUTO_SCROLL_MAX_SPEED * (1 - distanceFromTop / AUTO_SCROLL_EDGE_ZONE_PX),
+    );
+    delta = -speed;
+  } else if (distanceFromBottom >= 0 && distanceFromBottom < AUTO_SCROLL_EDGE_ZONE_PX) {
+    const speed = Math.round(
+      AUTO_SCROLL_MAX_SPEED * (1 - distanceFromBottom / AUTO_SCROLL_EDGE_ZONE_PX),
+    );
+    delta = speed;
+  }
+
+  if (delta === 0) return false;
+
+  /* AC6 — boundary clamp. Don't scroll past 0 (top) or maxScroll (bottom).
+     When clamped to a stable extreme, nothing changes and we return false
+     so the tick doesn't self-reschedule into a no-op loop. */
+  const maxScroll = itemListEl.scrollHeight - itemListEl.clientHeight;
+  const prev = itemListEl.scrollTop;
+  const next = Math.max(0, Math.min(maxScroll, prev + delta));
+  if (next === prev) return false;
+  itemListEl.scrollTop = next;
+  return true;
+}
+
 function _dragTick() {
   if (!_itemDragState) return;
   _itemDragState.rafHandle = null;
+
+  /* B-032 — auto-scroll edge zones (item drag only; AC11). Apply BEFORE
+     cache rebuild so the rebuild (if it happens) sees post-scroll rects.
+     When auto-scroll ran, schedule the next frame so the scroll continues
+     while the pointer sits still in the edge zone (no dragover events
+     fire between mouse-stationary frames). The existing dedup in
+     `_scheduleDragTick` guarantees this is a no-op if a dragover-driven
+     schedule already landed this frame (AC8 — single rAF loop). */
+  if (_maybeAutoScroll()) _scheduleDragTick();
 
   /* Rebuild cache if scroll invalidated it (AC18 lazy rebuild). */
   if (!_dragRectCache || _dragRectCache.invalid) _buildDragRectCache();
@@ -4662,6 +5068,7 @@ function _dragTick() {
     _itemDragState.pendingDropType = 'openTabs';
     _itemDragState.pendingTargetRowId = null;
     _itemDragState.pendingInsertPosition = null;
+    _itemDragState.pendingDestGroupId = null;
     /* Section highlight — applied via class for simple, non-conflicting UX. */
     const openTabsEl = document.getElementById('open-tabs-section');
     if (openTabsEl) openTabsEl.classList.add('open-tabs-section--drop-target');
@@ -4674,6 +5081,37 @@ function _dragTick() {
   const openTabsEl = document.getElementById('open-tabs-section');
   if (openTabsEl) openTabsEl.classList.remove('open-tabs-section--drop-target');
 
+  /* B-025 UAT-3 fix — empty-group drop target. Position indicator at the
+     top edge of the empty group's `.group-items` container so the user gets
+     an explicit "will drop here" affordance above the empty-state label.
+     `pendingTargetRowId` is null for this path; `pendingDestGroupId`
+     carries the target identity through to drop. destIndex is always 0
+     (the group has no siblings after payload exclusion). */
+  if (target && target.type === 'emptyGroup') {
+    _itemDragState.pendingDropType = 'emptyGroup';
+    _itemDragState.pendingTargetRowId = null;
+    _itemDragState.pendingInsertPosition = null;
+    _itemDragState.pendingDestGroupId = target.destGroupId;
+
+    /* Fresh rect read for the empty container — not in _dragRectCache (that
+       cache only tracks `.item-row`). This is a rare path (only fires when
+       the pointer hovers an empty group), so the extra layout read is
+       cheap; no rAF amplification concern. */
+    const groupItemsEl = itemListEl.querySelector(
+      `#group-items-${CSS.escape(target.destGroupId)}`,
+    );
+    if (groupItemsEl) {
+      const rect = groupItemsEl.getBoundingClientRect();
+      const containerRect = _dragRectCache.containerRect;
+      const scrollTop = itemListEl.scrollTop;
+      const y = rect.top - containerRect.top + scrollTop;
+      itemDragIndicatorEl.style.transform = `translateY(${y}px)`;
+      itemDragIndicatorEl.style.opacity = '1';
+    }
+    _dragLog('tick (emptyGroup)', { destGroupId: target.destGroupId });
+    return;
+  }
+
   if (!target) {
     /* No valid drop target under pointer — hide indicator, clear pending. */
     itemDragIndicatorEl.style.opacity = '0';
@@ -4681,11 +5119,13 @@ function _dragTick() {
     _itemDragState.pendingDropType = null;
     _itemDragState.pendingTargetRowId = null;
     _itemDragState.pendingInsertPosition = null;
+    _itemDragState.pendingDestGroupId = null;
     return;
   }
 
   /* target.type === 'item' — B-030 reorder path. */
   _itemDragState.pendingDropType = 'item';
+  _itemDragState.pendingDestGroupId = null;
 
   /* Skip-no-op (AC17 skip): if target unchanged since last tick, do
      nothing. Prevents visual jitter + avoids unnecessary CSS writes. */
@@ -4713,6 +5153,9 @@ function _dragTick() {
    Returns one of:
      {type:'item', rowId, insertPosition}      — normal item reorder (B-030)
      {type:'openTabs'}                         — B-033 demote (saved+live only)
+     {type:'emptyGroup', destGroupId}          — B-025 UAT-3 fix: drop into
+                                                 a group that has zero
+                                                 item-rows (AC13e empty-dest)
      null                                      — no valid drop
    Uses elementFromPoint (cheap — no layout). Indicator has
    pointer-events: none (AC23) so it's never a hit target. */
@@ -4725,6 +5168,10 @@ function _computeDropTarget(x, y) {
      saved+live (has a matching live tab). Saved-only drags rejected
      per AC3: handler returns null → indicator hides, no drop. */
   if (hit.closest('.open-tabs-section')) {
+    /* B-025 AC9 (fix B-025-H3) — multi-drag onto Open Tabs is a no-op:
+       return null so no indicator renders and drop handler receives no
+       valid target. Prevents silent partial demote of just the initiator. */
+    if (_itemDragState.isMulti) return null;
     const liveState = _cachedLiveStates[_itemDragState.itemId];
     if (liveState && liveState.live) return { type: 'openTabs' };
     return null;
@@ -4732,14 +5179,40 @@ function _computeDropTarget(x, y) {
 
   /* B-030 — normal item-reorder target. */
   const row = hit.closest('.item-row');
-  if (!row) return null;
-  const id = row.dataset.itemId;
-  if (!id || id === _itemDragState.itemId) return null; // can't drop onto self
+  if (row) {
+    const id = row.dataset.itemId;
+    /* B-025 — self-exclusion covers every payload member (not just initiator)
+       so multi-drag pointer hover over a sibling in the payload is rejected. */
+    if (!id || (_itemDragState.payloadSet && _itemDragState.payloadSet.has(id))) return null;
 
-  const rect = _dragRectCache.rects.get(id);
-  if (!rect) return null;
-  const mid = rect.top + rect.height / 2;
-  return { type: 'item', rowId: id, insertPosition: y < mid ? 'before' : 'after' };
+    const rect = _dragRectCache.rects.get(id);
+    if (!rect) return null;
+    const mid = rect.top + rect.height / 2;
+    return { type: 'item', rowId: id, insertPosition: y < mid ? 'before' : 'after' };
+  }
+
+  /* B-025 UAT-3 fix — empty-group drop target (AC13e). When the pointer
+     doesn't land on any `.item-row`, check whether the hit is inside a
+     `.group-items` container whose group has ZERO item-rows (it only
+     contains the `.group-items-empty` affordance built at line 3005+).
+     Dropping into an empty group is otherwise impossible via B-030's
+     hit-test — the pre-fix code returned null here and the drop silently
+     no-op'd. Applies to BOTH single-item (B-030) and multi-item (B-025)
+     drags: the bug was long-standing on the single-item path too. */
+  const groupItemsEl = hit.closest('.group-items');
+  if (groupItemsEl && groupItemsEl.querySelector('.item-row') === null) {
+    const section = groupItemsEl.closest('.group-section[data-group-id]');
+    if (section && section.dataset && section.dataset.groupId) {
+      /* Filter out matches inside Open Tabs — defensive. Open Tabs uses its
+         own section class; a `.group-items` ancestor should never sit inside
+         `.open-tabs-section`, but if the DOM evolves, an explicit guard keeps
+         AC9 (multi-drag onto Open Tabs → null) intact. */
+      if (section.closest('.open-tabs-section')) return null;
+      return { type: 'emptyGroup', destGroupId: section.dataset.groupId };
+    }
+  }
+
+  return null;
 }
 
 /* B-009 — return groupId of a collapsed group whose header is at (x,y),
@@ -4769,14 +5242,105 @@ function _clearB009Hover() {
   _b009HoverState = null;
 }
 
+/* B-025 — apply `item-row--dragging` to every payload member at dragstart.
+   Single-item drags are a 1-element array; multi-drag covers all selected
+   items in the same source group. */
+function _setMultiDragRowClasses(ids) {
+  if (!Array.isArray(ids)) return;
+  for (const id of ids) {
+    const row = itemListEl.querySelector(`.item-row[data-item-id="${CSS.escape(id)}"]`);
+    if (row) row.classList.add('item-row--dragging');
+  }
+}
+
+/* B-025 — remove `item-row--dragging` from every payload member. Mirror of
+   `_setMultiDragRowClasses`. Paired with the blanket querySelectorAll sweep
+   in `_cleanupItemDragDom` so we clean up even if a row was detached from
+   the DOM mid-drag (belt-and-braces). */
+function _clearMultiDragRowClasses(ids) {
+  if (!Array.isArray(ids)) return;
+  for (const id of ids) {
+    const row = itemListEl.querySelector(`.item-row[data-item-id="${CSS.escape(id)}"]`);
+    if (row) row.classList.remove('item-row--dragging');
+  }
+}
+
+/* B-025 — off-screen custom drag ghost constructed at dragstart. Appended to
+   `document.body` for the browser to snapshot via `setDragImage`; detached
+   one microtask later (§37.9 F-6). Content written via `textContent` only —
+   bookmark titles are untrusted. */
+function _buildMultiDragGhost(count, title) {
+  const el = document.createElement('div');
+  el.className = 'multi-drag-ghost';
+  const titleSpan = document.createElement('span');
+  titleSpan.textContent = title;
+  el.appendChild(titleSpan);
+  const badge = document.createElement('span');
+  badge.className = 'multi-drag-ghost__badge';
+  badge.textContent = count + ' items';
+  el.appendChild(badge);
+  document.body.appendChild(el);
+  return el;
+}
+
+/* B-025 — shared commit-and-render tail (§37.3 D-2). Both the single-item
+   (B-030) and multi-item (B-025) drop branches funnel here after computing
+   their `updates` array. Mirrors the pre-existing B-030 post-drop refetch +
+   renderAll pattern — explicit renderAll because hashItem does not include
+   `sortOrder`, so a reorder-only change would otherwise produce no DOM
+   patch (B-052 follow-up; see §36 and §37.3 D-2). */
+async function _commitReorderAndRender(updates, opts = {}) {
+  const { isMulti = false } = opts;
+  try {
+    await sendMessage(MSG_BULK_REORDER_ITEMS, { updates });
+    const [itemsResp, groups] = await Promise.all([
+      sendMessage(MSG_LIST_ITEMS),
+      sendMessage(MSG_LIST_GROUPS),
+    ]);
+    _setWindowOrdinalMap(itemsResp.windowMap || {});
+    renderAll(itemsResp.items, groups, itemsResp.liveStates,
+      itemsResp.driftRecords, itemsResp.openTabs);
+    _applyWindowMapToUI();
+    /* B-025 M-1 fix — clear selection after successful multi-drop (UAT-8).
+       Only on multi-drops: single-item drags do not touch _selection, so
+       forcing a clear on single-item drops would be surprising. Intentionally
+       outside the catch block — on failure we revert to the pre-drop state
+       and leave selection intact so the user can retry. */
+    if (isMulti) {
+      _selection.clear();
+      _updateBulkBar();
+    }
+  } catch (err) {
+    console.warn('[tab-junkie:item-drag] bulkReorderItems failed', err);
+    showToast('Couldn\u2019t save new order \u2014 reverting');
+    Promise.all([sendMessage(MSG_LIST_ITEMS), sendMessage(MSG_LIST_GROUPS)])
+      .then(([itemsResp, groups]) => {
+        _setWindowOrdinalMap(itemsResp.windowMap || {});
+        renderAll(itemsResp.items, groups, itemsResp.liveStates,
+          itemsResp.driftRecords, itemsResp.openTabs);
+        _applyWindowMapToUI();
+      })
+      .catch(() => {});
+  }
+}
+
 /* _cleanupItemDragDom — clear indicator, dragging class, scroll listener,
    pending rAF. Called from drop (after consuming state) + dragend (cancel).
    Also clears B-009 hover-hold timer + B-033 Open Tabs drop-target
-   highlight so those cross-ownership helpers don't leak past a drag. */
+   highlight so those cross-ownership helpers don't leak past a drag.
+
+   B-025 — iterate `state.payloadItemIds` so every dragged row (not just
+   the initiator) gets its `item-row--dragging` class removed. The blanket
+   querySelectorAll sweep below handles DOM-attached rows; the explicit
+   iteration catches the rare case where a row was removed mid-drag (the
+   class would otherwise linger on re-added rows via DOM reuse). */
 function _cleanupItemDragDom() {
   itemDragIndicatorEl.style.opacity = '0';
   itemDragIndicatorEl.style.transform = 'translateY(-9999px)';
   itemListEl.classList.remove('is-item-dragging');
+  if (_itemDragState && Array.isArray(_itemDragState.payloadItemIds)) {
+    _clearMultiDragRowClasses(_itemDragState.payloadItemIds);
+  }
   itemListEl.querySelectorAll('.item-row--dragging').forEach((row) => {
     row.classList.remove('item-row--dragging');
   });
@@ -4794,6 +5358,220 @@ function _cleanupItemDragDom() {
   /* B-033 cleanup. */
   const openTabsEl = document.getElementById('open-tabs-section');
   if (openTabsEl) openTabsEl.classList.remove('open-tabs-section--drop-target');
+}
+
+/* =========================================================================
+   B-031 — group drag helpers
+
+   Mirror of the B-030 item-drag helpers — same rAF-coalesced tick, same
+   rect cache pattern, same invalidate-on-scroll approach. Only the
+   hit-test (`.group-header` vs `.item-row`) and the indicator logic
+   (REORDER line vs NEST highlight vs rejection) differ.
+   ========================================================================= */
+
+/* Snapshot every `.group-section > .group-header` rect in a single pass,
+   plus each `.group-section` bottom edge (keyed by groupId) for the
+   REORDER_BELOW indicator. Rebuilt on scroll invalidation via the lazy
+   check in `_groupDragTick`. Keeping both in one cache avoids a live
+   `getBoundingClientRect` in the rAF hot-path (B-031 H-3 fix). */
+function _buildGroupDragRectCache() {
+  const rects = new Map();
+  const sectionBottoms = new Map();
+  const headers = itemListEl.querySelectorAll('.group-section > .group-header[data-group-id]');
+  for (const header of headers) {
+    const id = header.dataset.groupId;
+    if (!id) continue;
+    rects.set(id, header.getBoundingClientRect());
+    const section = header.parentElement;
+    if (section && section.classList.contains('group-section')) {
+      sectionBottoms.set(id, section.getBoundingClientRect().bottom);
+    }
+  }
+  _groupDragRectCache = {
+    rects,
+    sectionBottoms,
+    containerRect: itemListEl.getBoundingClientRect(),
+    invalid: false,
+  };
+}
+
+/* Dedup via rafHandle so at most one rAF is pending per frame —
+   dragover fires at browser cadence; rAF provides coalescing. */
+function _scheduleGroupDragTick() {
+  if (!_groupDragState || _groupDragState.rafHandle != null) return;
+  _groupDragState.rafHandle = requestAnimationFrame(_groupDragTick);
+}
+
+function _groupDragTick() {
+  if (!_groupDragState) return;
+  _groupDragState.rafHandle = null;
+
+  if (!_groupDragRectCache || _groupDragRectCache.invalid) _buildGroupDragRectCache();
+
+  const target = _computeGroupDropTarget(_pendingGroupPointerX, _pendingGroupPointerY);
+
+  if (!target) {
+    /* No valid target under pointer — hide indicator + clear any
+       previously-applied class on the pending target. */
+    _hideGroupDragVisuals();
+    _groupDragState.pendingTargetGroupId = null;
+    _groupDragState.pendingMode = null;
+    return;
+  }
+
+  /* Skip-no-op: if target + mode unchanged since last tick, nothing to do. */
+  if (target.targetGroupId === _groupDragState.pendingTargetGroupId
+    && target.mode === _groupDragState.pendingMode) {
+    return;
+  }
+
+  /* Clear prior visuals before applying new ones — mutual exclusivity:
+     at most ONE of {REORDER line, NEST highlight, REJECT highlight}
+     active at any time. */
+  _hideGroupDragVisuals();
+
+  _groupDragState.pendingTargetGroupId = target.targetGroupId;
+  _groupDragState.pendingMode = target.mode;
+
+  if (target.mode === 'REJECT') {
+    /* Apply the rejection indicator class to the target header. Keeps the
+       "this won't work" feedback visible without performing the drop. */
+    const header = itemListEl.querySelector(
+      `.group-section > .group-header[data-group-id="${CSS.escape(target.targetGroupId)}"]`,
+    );
+    if (header) header.classList.add('group-header--nest-reject');
+    return;
+  }
+
+  if (target.mode === 'NEST') {
+    const header = itemListEl.querySelector(
+      `.group-section > .group-header[data-group-id="${CSS.escape(target.targetGroupId)}"]`,
+    );
+    if (header) header.classList.add('group-header--nest-target');
+    return;
+  }
+
+  /* REORDER_ABOVE / REORDER_BELOW — move the indicator to the target's
+     top or bottom edge, accounting for container scroll. Single DOM
+     write (transform + opacity) per frame. */
+  const rect = _groupDragRectCache.rects.get(target.targetGroupId);
+  if (!rect) return;
+  const containerRect = _groupDragRectCache.containerRect;
+  const scrollTop = itemListEl.scrollTop;
+  /* For REORDER_BELOW on a header, we want the line at the bottom of the
+     full .group-section (so it sits between siblings, not between the
+     header and its own items). For REORDER_ABOVE, the top of the header
+     is correct. */
+  let y;
+  if (target.mode === 'REORDER_ABOVE') {
+    y = rect.top - containerRect.top + scrollTop;
+  } else {
+    /* REORDER_BELOW — anchor at the full section bottom, not header bottom,
+       so the indicator sits clearly between sections. Uses the cached
+       section-bottom value (built alongside the header rects in
+       _buildGroupDragRectCache); falls back to the header rect bottom if
+       missing for any reason. */
+    const cachedBottom = _groupDragRectCache.sectionBottoms.get(target.targetGroupId);
+    const sectionBottom = cachedBottom != null ? cachedBottom : rect.bottom;
+    y = sectionBottom - containerRect.top + scrollTop;
+  }
+  groupReorderIndicatorEl.style.transform = `translateY(${y}px)`;
+  groupReorderIndicatorEl.style.opacity = '1';
+}
+
+/* Returns {targetGroupId, mode} for the pointer position, or null when
+   the pointer is not over any group header. `mode` is one of
+   'REORDER_ABOVE' | 'REORDER_BELOW' | 'NEST' | 'REJECT'.
+
+   `elementFromPoint` is cheap (no layout). The indicator has
+   `pointer-events: none` so it's never a hit target. */
+function _computeGroupDropTarget(x, y) {
+  if (!_groupDragState) return null;
+  const hit = document.elementFromPoint(x, y);
+  if (!hit) return null;
+  /* Must be a real group's header — Open Tabs header is not a valid
+     group-drag target. */
+  const header = hit.closest('.group-section > .group-header[data-group-id]');
+  if (!header) return null;
+  if (header.closest('.open-tabs-section')) return null;
+
+  const targetGroupId = header.dataset.groupId;
+  if (!targetGroupId) return null;
+  /* Drop on self → no valid target. */
+  if (targetGroupId === _groupDragState.draggedGroupId) return null;
+
+  const rect = _groupDragRectCache.rects.get(targetGroupId);
+  if (!rect) return null;
+
+  /* Ratio-based zone detection: top 25% REORDER_ABOVE, middle 50% NEST,
+     bottom 25% REORDER_BELOW (§38.3 D-6). Ratio is robust to browser zoom
+     (pixel thresholds would change under zoom). */
+  const ratio = (y - rect.top) / rect.height;
+  const clampedRatio = Math.max(0, Math.min(ratio, 1));
+  let proposedMode;
+  if (clampedRatio < 0.25) proposedMode = 'REORDER_ABOVE';
+  else if (clampedRatio > 0.75) proposedMode = 'REORDER_BELOW';
+  else proposedMode = 'NEST';
+
+  /* `__ungrouped__` pseudo-group handling (B-031 H-4):
+     - NEST zone: return REJECT so the rejection class paints on the header
+       (UAT-10 feedback — user tried to nest INTO Ungrouped).
+     - REORDER zones: return null so adjacent real-group headers on either
+       side can take over the REORDER hit-test naturally (AC15d). */
+  if (targetGroupId === '__ungrouped__') {
+    if (proposedMode === 'NEST') return { targetGroupId, mode: 'REJECT' };
+    return null;
+  }
+
+  /* Validate against the prebuilt Sets (O(1) each). A proposed REORDER
+     against a non-sibling, or a proposed NEST on a sub-group drag (or
+     onto a non-candidate) surfaces as REJECT rather than being silently
+     swapped — the user sees the rejection cue and can adjust. */
+  if (proposedMode === 'NEST') {
+    if (_groupDragState.isSubGroupDrag) return { targetGroupId, mode: 'REJECT' };
+    if (!_groupDragState.validNestTargetIds.has(targetGroupId)) {
+      return { targetGroupId, mode: 'REJECT' };
+    }
+    return { targetGroupId, mode: 'NEST' };
+  }
+
+  /* REORDER_ABOVE / REORDER_BELOW. */
+  if (!_groupDragState.validReorderTargetIds.has(targetGroupId)) {
+    /* Target is not a sibling — can't REORDER into a different bucket via
+       drag (no promote-by-drag at this layer). */
+    return null;
+  }
+  return { targetGroupId, mode: proposedMode };
+}
+
+/* Clear any active group-drag visuals — REORDER indicator + both header
+   classes. Called from the tick when target changes, and from cleanup. */
+function _hideGroupDragVisuals() {
+  groupReorderIndicatorEl.style.opacity = '0';
+  groupReorderIndicatorEl.style.transform = 'translateY(-9999px)';
+  itemListEl.querySelectorAll('.group-header--nest-target').forEach((el) => {
+    el.classList.remove('group-header--nest-target');
+  });
+  itemListEl.querySelectorAll('.group-header--nest-reject').forEach((el) => {
+    el.classList.remove('group-header--nest-reject');
+  });
+}
+
+/* Full cleanup: visuals + rAF + scroll listener + rect cache. Called from
+   drop (after consuming state) + dragend (cancel). Does NOT clear
+   `_dragSrcGroupId` — that's the B-008 `_pendingGroupsRender` gate and is
+   cleared by the generic dragend tail below. */
+function _cleanupGroupDragDom() {
+  _hideGroupDragVisuals();
+  if (_groupDragState) {
+    if (_groupDragState.rafHandle != null) {
+      cancelAnimationFrame(_groupDragState.rafHandle);
+    }
+    if (_groupDragState.scrollListener) {
+      itemListEl.removeEventListener('scroll', _groupDragState.scrollListener);
+    }
+  }
+  _groupDragRectCache = null;
 }
 
 /* =========================================================================
@@ -4882,6 +5660,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
           _cachedItems = itemsResp.items;
           _cachedItemsGen += 1;
           _cachedGroups = groups;
+          _cachedGroupsGen += 1;
           _cachedLiveStates = itemsResp.liveStates || {};
           _cachedDriftRecords = itemsResp.driftRecords || {};
           _setCachedOpenTabs(itemsResp.openTabs);
@@ -4895,6 +5674,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
           _cachedItems = itemsResp.items;
           _cachedItemsGen += 1;
           _cachedGroups = groups;
+          _cachedGroupsGen += 1;
           _cachedLiveStates = itemsResp.liveStates || {};
           _cachedDriftRecords = itemsResp.driftRecords || {};
           _setCachedOpenTabs(itemsResp.openTabs);
