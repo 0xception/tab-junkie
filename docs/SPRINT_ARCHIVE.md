@@ -1100,3 +1100,72 @@ All sprints S22 → S28 renumber by +1:
 1. [scrum-master] Author S24 SPRINT.md per roadmap — drag stack theme (B-025 + B-031 + B-032). [HIGH]
 2. [solution-architect] R2 enumerates CSS requirements explicitly (D-1 lesson). [MEDIUM]
 3. [frontend-engineer] B-031 reuses B-007's filterGroupParentCandidates. [MEDIUM]
+
+---
+
+## Sprint 24 — Drag stack (2026-04-22)
+
+**Theme:** Multi-item drag + group drag-reorder-with-nesting + auto-scroll on top of B-030 v2 drag foundation.
+**Release:** v1.18.0
+**Merge commit:** `d44d896` (PR #30)
+
+### Completed Items
+
+#### [B-025] Multi-Item Drag as Single Unit — ✅ DONE
+- **Tier**: Full (M) · **Closed**: 2026-04-22
+- **Pipeline**: R1 ✅ · R2 ✅ (§37 design chapter) · R3 ✅ · R4 ✅ (3 HIGH fixed) · R5 ✅ (+29 tests) · UAT 9/9 PASS (after 2 fix cycles) · R6 ✅ (§37.10 As Built)
+- **Files changed** (7): `shared/messages.js`, `shared/sort-order.js`, `sidepanel/sidepanel.{js,css}`, `tests/sort-order.test.js`, `tests/b025-multi-item-drag.test.js` (new)
+- **Key decisions**: D-1 extend existing `MSG_BULK_REORDER_ITEMS` (no new type). D-2 explicit `renderAll` post-commit (not hashItem extension). D-3 custom drag ghost via `setDragImage` with count badge. D-4 silent payload restriction to single source group. D-5 live-only keys skipped from payload.
+- **UAT fixes shipped in-sprint**: UAT-3 empty-group drop (shared fix with B-030 latent bug) · UAT-8 ghost positioning (`position: fixed` + forced reflow + 80px fallback)
+
+#### [B-031] Group Drag-Reorder + Nesting via Drag — ✅ DONE
+- **Tier**: Full (M) · **Closed**: 2026-04-22
+- **Pipeline**: R1 ✅ · R2 ✅ (§38 design chapter) · R3 ✅ · R4 ✅ (4 HIGH + 1 MEDIUM fixed) · R5 ✅ (+39 tests) · UAT 11/11 PASS (first pass) · R6 ✅ (§38.10 As Built)
+- **Files changed** (7): `shared/messages.js` (+MSG_BULK_REORDER_GROUPS), `shared/sort-order.js` (+`computeGroupReorder`), `background/storage/groups.js` (+`bulkReorderGroups`), `background/storage/{index.js,messages/storage-handlers.js}`, `sidepanel/sidepanel.{js,css}`, `tests/b031-group-drag.test.js` (new)
+- **Key decisions**: D-1 new `MSG_BULK_REORDER_GROUPS` type + single-tx `bulkReorderGroups`. D-2 `filterGroupParentCandidates` reused as prebuilt Set (S22 LOW retro action finally resolved). D-3 four CSS classes, every property enumerated; browser default drag ghost. D-4 accept-and-expand post-drop for collapsed NEST target. D-5 sub-group REORDER within siblings supported; NEST blanket-rejected for sub-group sources. D-6 25/50/25 ratio-based zones confirmed.
+
+#### [B-032] Auto-Scroll During Drag — ✅ DONE
+- **Tier**: Fast Track (S) · **Closed**: 2026-04-22
+- **Pipeline**: R1 ✅ · R2 skipped (Fast Track) · R3 ✅ · R4 ✅ (0 CRITICAL/HIGH, clean) · R5 ✅ (+17 tests) · UAT deferred to S28 per Fast Track tier rule
+- **Files changed** (1): `sidepanel/sidepanel.js` (~60 lines — `AUTO_SCROLL_EDGE_ZONE_PX`/`MAX_SCROLL_SPEED` constants + `_maybeAutoScroll` helper + `_dragTick` integration)
+- **Implementation**: 60 px edge zones, `Math.round(MAX_SCROLL_SPEED × (1 - (distanceFromEdge / EDGE_ZONE_PX)))` linear ramp, gated on `_itemDragState !== null`, coordinated with existing `_scheduleDragTick` (single rAF loop per frame)
+
+### Cross-sprint bonus fix — empty-group drop
+
+B-025 UAT-3 surfaced a latent B-030 bug: `_computeDropTarget` required a `.item-row` ancestor, which doesn't exist in empty groups → silent no-op on BOTH single-item (B-030) and multi-item (B-025) drop paths. Fix: shared `{type:'emptyGroup', destGroupId}` branch with `destIndex = 0`. §36.11 amendment documents cross-sprint scope.
+
+### UAT Results
+
+- **B-025**: 9/9 PASS (pre-merge, Edge — round 2 after UAT-3 empty-group + UAT-8 ghost fixes in round 1)
+- **B-031**: 11/11 PASS (pre-merge, Edge — first pass)
+- **B-032**: Fast Track — existing suite green; full UAT deferred to S28 per tier rule
+
+### Velocity
+- Planned: 3 items (2M + 1S)
+- Delivered: 3 items — 100% scope
+- Test growth: 1001 → 1074 (+73)
+- UAT rounds: B-031 = 1 · B-025 = 2 · B-032 = 0 (deferred)
+- Follow-ups filed: B-083 (P1/S multi-sibling sub-group allow), B-084 (P2/S drop-zone visual refinement)
+- Release: v1.18.0
+
+### Retrospective (action items → Sprint 25)
+
+- **HIGH**: Add C-10 "off-screen rect feasibility" probe to R2 Correctness Checklist in CLAUDE.md — B-025 UAT-8 demonstrated that CSS property enumeration alone doesn't catch `getBoundingClientRect`-before-layout-flush gotchas with `setDragImage` / snapshot APIs.
+- **HIGH**: B-083 scheduled for S25 — `filterGroupParentCandidates` over-restrictive filter inherited from B-007 blocks multiple sibling sub-groups under one parent. Fix is a one-line delete but needs re-UAT for both B-007 dialog and B-031 drag-nest paths.
+- **MEDIUM**: B-084 scheduled for S25 — drop-zone visual differentiation (REORDER vs NEST clarity).
+- **LOW**: UAT plan drift pre-pass before S28 comprehensive UAT — still carry-forward from S21.
+
+### R4 Findings Summary
+
+- **B-025**: 0 CRITICAL / 3 HIGH (all fixed) / 4 MEDIUM (1 fixed M-1 selection clear, 3 deferred) / 7 LOW
+- **B-031**: 0 CRITICAL / 4 HIGH (all fixed) / 6 MEDIUM (1 fixed M-1 title copy, 5 deferred) / 7 LOW
+- **B-032**: 0 CRITICAL / 0 HIGH / 2 MEDIUM (deferred) / 2 LOW
+- **UAT layer**: 2 blockers caught pre-merge on B-025 (UAT-3 + UAT-8) — both resolved in-sprint. Validates S23 retro HIGH-3 for the third consecutive sprint (S22→S23→S24).
+- **Key lesson**: R4 + R5 clean ≠ UAT pass. For L/M runtime-sensitive items, pre-merge UAT in-browser remains load-bearing.
+- **Full dedup**: `docs/findings/sprint-24.md`
+
+**Action Items for Sprint 25:**
+1. [solution-architect] Add C-10 to R2 Correctness Checklist. [HIGH]
+2. B-083 fix prioritised — multi-sibling sub-group allow. [HIGH]
+3. B-084 scheduled — drop-zone visual differentiation. [MEDIUM]
+4. [scrum-master] S28 comprehensive UAT must include deferred B-032 auto-scroll cases. [MEDIUM]
