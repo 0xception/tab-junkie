@@ -1169,3 +1169,66 @@ B-025 UAT-3 surfaced a latent B-030 bug: `_computeDropTarget` required a `.item-
 2. B-083 fix prioritised — multi-sibling sub-group allow. [HIGH]
 3. B-084 scheduled — drop-zone visual differentiation. [MEDIUM]
 4. [scrum-master] S28 comprehensive UAT must include deferred B-032 auto-scroll cases. [MEDIUM]
+
+---
+
+## Sprint 25 — Drag polish + R2 checklist (2026-04-22)
+
+**Theme:** Close Sprint 24 retro action items — B-083 filter fix + B-084 drop-zone visual refinement + B-085 C-10 R2 Correctness Checklist addition.
+**Release:** v1.19.0
+**Merge commit:** `71feb49` (PR #31)
+
+### Completed Items
+
+#### [B-083] Allow multiple sibling sub-groups under one parent — ✅ DONE
+- **Tier**: Fast Track (S) · **Closed**: 2026-04-22
+- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (0 HIGH, 2 LOW deferred) · Re-UAT ✅ PASS (both B-007 dialog and B-031 drag-nest paths)
+- **Files changed** (3): `shared/group-nesting.js` (filter deletion + docstring update), `tests/b007-sub-group-nesting.test.js` (4 existing updated + 5 new B-083 sanity tests), `tests/b031-group-drag.test.js` (T-10 pair rewritten + 1 new B-083 regression test)
+- **Key change**: one-line deletion of `.filter((g) => !idsWithChildren.has(g.id))` in `filterGroupParentCandidates`. Depth-1 cap preserved by the pre-existing `parentId == null` filter. Security-reviewer verified backend `assertDepthAndCycle` + `bulkReorderGroups:343-348` remain the fail-closed authority for depth-2 + cycle rejection.
+
+#### [B-084] Refine drag drop-zone visual differentiation — ✅ DONE
+- **Tier**: Fast Track (S) · **Closed**: 2026-04-22
+- **Pipeline**: R1 ✅ · R3 ✅ (Option A+C shipped) · R4 ✅ (0 HIGH, 2 MEDIUM + 2 LOW deferred) · Visual UAT ✅ PASS
+- **Files changed** (2): `sidepanel/sidepanel.css` (+39 / −13 — height 2→3 px + soft glow on reorder line; bg tint 12%→20% + inset outline on nest highlight; `@supports` fallbacks updated), `sidepanel/sidepanel.js` (+82 / −8 — `_applyGroupDragHysteresis` pure helper + `pendingProposedMode` state + ±2 px boundary deadzone)
+- **User note**: future UI design pass tracked as B-086 (deferred to post-feature-parity)
+
+#### [B-085] Add C-10 "Off-screen rect feasibility" to R2 Correctness Checklist — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-22
+- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (0 findings) · no UAT (doc edit)
+- **Files changed** (1): `CLAUDE.md` (+1 line — C-10 row inserted in R2 Correctness Checklist table)
+- **Outcome**: future R2 designs using `setDragImage` / snapshot APIs with off-screen elements now have an explicit checklist gate. Cites Sprint 24 B-025 UAT-8 as the blocking precedent.
+
+### UAT Results
+
+- **B-083**: re-UAT in Edge — both paths PASS (B-007 dialog parent-picker + B-031 drag-nest onto parent-with-children)
+- **B-084**: visual UAT in Edge — PASS (reorder line beefier with glow; nest highlight stronger contrast; hysteresis reduces boundary flicker)
+- **B-085**: N/A (documentation edit)
+
+### Velocity
+- Planned: 3 items (2 S + 1 XS)
+- Delivered: 3 items — 100% scope
+- Test growth: 1074 → 1080 (+6) — B-083 regression suite
+- Fix cycles: 0 (no UAT failures)
+- Follow-ups filed: B-086 (P3/M deferred UI design pass)
+- Release: v1.19.0
+
+### Retrospective (action items → Sprint 26)
+
+- **HIGH**: S26 scope — resume feature-parity roadmap. B-022 L quick-search popup is the top of the roadmap; was scheduled for S25 but deferred to accommodate S24 retro items. Now the next priority.
+- **LOW**: Hygiene items carried from S25 — B-083 L-2 dead `outIds` variable + B-084 M-2 side-effect in `_compute*` function + L-2 `DEADZONE_PX` module-level constant. Absorb as drive-by during unrelated S26+ work or bundle into a hygiene-pass item if the debt accumulates.
+- **DEFERRED**: B-086 scheduled post-feature-parity (likely S29+ or after v2 stabilises).
+
+### R4 Findings Summary
+
+- **B-083**: 0 CRITICAL / 0 HIGH / 0 MEDIUM / 2 LOW (test-only hygiene)
+- **B-084**: 0 CRITICAL / 0 HIGH / 2 MEDIUM / 2 LOW (all hygiene; no correctness concerns)
+- **B-085**: 0 findings (clean CLAUDE.md edit)
+- **Total**: 0 CRITICAL / 0 HIGH / 2 MEDIUM / 4 LOW — cleanest R4 since S21's polish close
+- **Security posture**: backend fail-closed authority for depth/cycle preserved; no new attack surface; no new message types or permissions
+- **Full dedup**: `docs/findings/sprint-25.md`
+
+**Key lesson**: Fast Track sprints that absorb prior retro items + clear small backlog debt produce very low finding counts. Good pattern for sprints immediately after large L/M feature ships.
+
+**Action Items for Sprint 26:**
+1. [scrum-master] S26 scope — resume feature-parity roadmap with B-022 L (quick search popup). [HIGH]
+2. Hygiene carry-forward items absorbed opportunistically or bundled. [LOW]
