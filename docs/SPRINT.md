@@ -1,48 +1,124 @@
 # Current Sprint
 
-*Sprint 24 — Drag stack (B-025 multi-item drag + B-031 group drag-reorder+nesting + B-032 auto-scroll). Closed 2026-04-22 with v1.18.0.*
+*Sprint 25 — Drag-stack polish + R2 checklist (B-083 + B-084 + B-085). Kickoff 2026-04-22.*
 
-All three items shipped. Pre-merge UAT caught two B-025 UAT failures (UAT-3 empty-group drop, UAT-8 ghost visibility) — both fixed in-sprint, UAT re-run PASS. UAT-3 fix surfaced a **latent B-030 bug** (empty-group drop was silently no-op on single-item path too) — resolved for both paths via shared fix.
-
----
-
-## Sprint Readiness (Gate 6) — verified at kickoff ✅
-
-All deps resolved ✅. Baseline 1001/1001 → final **1074/1074** (+73 tests across the three items + fix-cycle regressions).
+Polish sprint following Sprint 24's drag stack ship. Two UX/bug-fix follow-ups (B-083 filter helper, B-084 drop-zone visual refinement) + one process improvement (B-085 C-10 R2 Correctness Checklist addition per S24 retro HIGH action).
 
 ---
 
-## Retro Action-Item Application — all resolved
+## Sprint Readiness (Gate 6) — verified at kickoff
 
-Per Sprint 23 retrospective:
+- ✅ Scope: B-083 S + B-084 S + B-085 XS (all Fast Track tier)
+- ✅ Deps-resolved check: **B-083** deps B-007 ✅, B-031 ✅ · **B-084** deps B-031 ✅ · **B-085** no deps (doc-only)
+- ✅ Baseline: **1074/1074** tests green on `release/v2` (v1.18.0 shipped)
+- ✅ No tier auto-upgrades triggered: none of the three items introduces new storage schema, new message types, new permissions, or drift/matching changes
+- ✅ Per Fast Track tier rule, the pipeline is: **R1 (Definition) → R3 (Build) → R4 (code-reviewer + security-reviewer) → existing tests green → done**. R2, R5 (formal tests), R6 (design chapter), R7 (user docs) skipped. [qa-reviewer] skipped.
 
-| # | Action | Applied |
-|---|--------|---------|
-| MEDIUM-1 | R2 CSS property enumeration | ✅ B-025 §37.3 D-3 + B-031 §38.3 D-3; R4 verified; UAT-8 surfaced a missing detail (`-9999px` off-screen breaks rect) → §37.10 As Built documents the `position: fixed` + reflow fix |
-| MEDIUM-2 | B-052 hashItem render-path | ✅ B-025 R2 chose explicit `renderAll` (not hashItem extension) |
-| Per-item UAT plans (HIGH-2) | ✅ UAT_B-025.md (9), UAT_B-031.md (11), UAT_B-032.md (6) |
-| Pre-merge UAT for L/M items (HIGH-3) | ✅ B-031 11/11 PASS first pass · B-025 9/9 PASS after 2 fix cycles · B-032 deferred per Fast Track |
-| B-031 filterGroupParentCandidates reuse (S22 LOW) | ✅ single source of truth; R4 verified no parallel filter logic |
+---
+
+## Retro Action-Item Application (applied at kickoff)
+
+Per Sprint 24 retrospective:
+
+| # | Action | Applied to S25 |
+|---|--------|----------------|
+| HIGH (C-10 checklist) | Add C-10 off-screen rect feasibility probe to R2 Correctness Checklist | ✅ **B-085** — covers this item directly |
+| HIGH (B-083) | Fix `filterGroupParentCandidates` multi-sibling block | ✅ **B-083** — in-sprint |
+| MEDIUM (B-084) | Drag drop-zone visual refinement | ✅ **B-084** — in-sprint |
+| MEDIUM (S28 inclusion) | S28 comprehensive UAT must include deferred B-032 auto-scroll | 🧊 carry to S28 |
+
+---
+
+## Active Items
+
+### [B-085] Add C-10 "Off-screen rect feasibility" to R2 Correctness Checklist
+- **Tier**: Fast Track (XS) — CLAUDE.md documentation edit only
+- **Status**: R1 ✅ · R3 ✅ · R4 ✅ (clean — 0 findings) · ready to close
+- **Assigned To**: [solution-architect] (owns the R2 Correctness Checklist per CLAUDE.md)
+- **Blockers**: none
+- **Feature Context**:
+  - Adds a new `C-10` row to the R2 Correctness Checklist table in `CLAUDE.md` §Round 2
+  - Purpose: future R2 designs that use `setDragImage` or similar browser snapshot APIs with off-screen elements must validate rect feasibility before UAT surfaces the failure
+  - Precedent text cites the S24 B-025 UAT-8 failure mode (`-9999px` → zero-dim rect → broken ghost)
+- **R3 Handoff Notes**:
+  - Single file edit: `CLAUDE.md` §Round 2 table
+  - No runtime code changes — baseline `npm test` must stay 1074/1074
+  - `./build.sh` clean (CLAUDE.md is included in the zip)
+
+### [B-083] Allow multiple sibling sub-groups under one parent
+- **Tier**: Fast Track (S) — shared helper fix + targeted re-UAT
+- **Status**: R1 ✅ · R3 ✅ (+6 tests — 1074 → 1080) · R4 ✅ (0 HIGH · 2 LOW deferred) · **pending user-driven re-UAT**
+- **Assigned To**: [frontend-engineer]
+- **Blockers**: none
+- **Feature Context**:
+  - `shared/group-nesting.js:47` has an over-restrictive `.filter((g) => !idsWithChildren.has(g.id))` line that excludes any parent-with-children from the valid-target set
+  - Intended to prevent depth-2, but that constraint is already enforced by the `g.parentId == null` filter above it
+  - Affects BOTH the B-007 group-edit dialog AND the B-031 drag-nest path (single source of truth)
+- **R3 Handoff Notes**:
+  - One-line deletion in `shared/group-nesting.js`
+  - Update existing B-007 tests (`tests/b007-sub-group-nesting.test.js`) that may assert the old restrictive behavior
+  - Add regression tests (AC3 B-007 dialog path + AC4 B-031 drag-nest path)
+  - **Requires targeted re-UAT in Edge** (per user mandate): (a) B-007 dialog — Work with child Personal → edit Projects → parent picker should list Work as a valid parent option; (b) B-031 drag — drag Projects onto Work header (middle 50%) → should NEST, not reject
+  - This is Fast Track tier but with a UAT checkpoint because the fix changes user-visible behavior in two shipped features
+
+### [B-084] Refine drag drop-zone visual differentiation (REORDER vs NEST)
+- **Tier**: Fast Track (S) — CSS + optional sidepanel drag logic tweak
+- **Status**: R1 ✅ · R3 ✅ (Option A+C shipped — CSS polish + ±2 px hysteresis) · R4 ✅ (0 HIGH · 2 MEDIUM + 2 LOW deferred) · **pending user-driven visual UAT**
+- **Assigned To**: [frontend-engineer]
+- **Blockers**: none
+- **Feature Context**:
+  - B-031 ships with 25/50/25 zone detection — outer 25% = REORDER (horizontal line), middle 50% = NEST (target header highlight)
+  - User feedback: "we may also need to come back and adjust the drag and drop visual drop zone and indicator for when we are dropping between groups vs inside of the group"
+  - The visual distinction at zone boundaries can be ambiguous during fast pointer motion
+- **R3 Handoff Notes**:
+  - CSS-first fix likely (stronger differentiation via color/shape/label) — preferred approach per AC1 options
+  - Optional: small hysteresis band at zone boundaries to reduce flicker (AC2)
+  - Must preserve all B-031 UAT cases (11/11 PASS) — no behavior regression
+  - Accessibility: don't rely on color alone (use shape/pattern) per AC4
+
+---
+
+## Pipeline Plan (waves)
+
+Fast Track items run in parallel — no R3 sequencing required since each item touches a different file:
+- **B-085** → `CLAUDE.md` only
+- **B-083** → `shared/group-nesting.js` + `tests/b007-sub-group-nesting.test.js` (and maybe a new `tests/b083-*.test.js`)
+- **B-084** → `sidepanel/sidepanel.css` + possibly `sidepanel/sidepanel.js`
+
+| Wave | Round | B-085 | B-083 | B-084 |
+|------|-------|-------|-------|-------|
+| Wave 0 ✅ | R1 Definition | ✅ at filing | ✅ at filing | ✅ at filing |
+| Wave 1 ⏳ | R3 Build | [solution-architect] ⏳ | [frontend-engineer] ⏳ | [frontend-engineer] ⏳ |
+| Wave 2 | R4 Review | code-reviewer ∥ security-reviewer | code-reviewer ∥ security-reviewer | code-reviewer ∥ security-reviewer |
+| Wave 3 | Re-UAT / Visual UAT | N/A (doc only) | user-driven in Edge | user-driven in Edge (optional) |
+| Wave 4 | Close | Gate 4 + retro + release | | |
+
+---
+
+## Blockers
+
+_None._
 
 ---
 
 ## Completed This Sprint
 
-### [B-025] Multi-item drag as single unit — DONE
-- **Tier**: Full (M) · **Status**: Shipped v1.18.0
-- **Pipeline**: R1 ✅ · R2 ✅ · R3 ✅ · R4 ✅ (3 HIGH fixed) · R5 ✅ (+29 tests) · UAT 9/9 PASS (after UAT-3 + UAT-8 fix cycle) · R6 ✅ (§37.10 As Built)
-- **Files**: `shared/messages.js` (JSDoc ext), `shared/sort-order.js` (+`computeMultiItemReorder`), `sidepanel/sidepanel.{js,css}`, `tests/sort-order.test.js` (+14), `tests/b025-multi-item-drag.test.js` (new, +15+5)
-- **UAT fixes** (post-UAT-FAIL): ghost positioning (`position: fixed` + reflow), empty-group drop path (`{type:'emptyGroup', destGroupId}` branch — benefits B-030 too)
+### [B-083] Allow multiple sibling sub-groups under one parent — DONE
+- **Closed**: 2026-04-22 · Fast Track (S) · Re-UAT PASS (B-007 dialog path + B-031 drag-nest path)
+- **Files**: `shared/group-nesting.js` (filter deletion + docstring update), `tests/b007-sub-group-nesting.test.js` (4 existing tests updated + 5 new B-083 sanity tests), `tests/b031-group-drag.test.js` (T-10 pair rewritten + 1 new B-083 regression test)
+- **Tests**: 1074 → 1080 (+6)
+- **Security verdict**: backend `assertDepthAndCycle` + `bulkReorderGroups:343-348` remain fail-closed for depth-2 + cycle rejection; B-083 removes UI pre-filter but storage layer still authoritative.
 
-### [B-031] Group drag-reorder + nesting via drag — DONE
-- **Tier**: Full (M) · **Status**: Shipped v1.18.0
-- **Pipeline**: R1 ✅ · R2 ✅ · R3 ✅ · R4 ✅ (4 HIGH + M-1 fixed) · R5 ✅ (+39 tests) · UAT 11/11 PASS · R6 ✅ (§38.10 As Built)
-- **Files**: `shared/messages.js` (+MSG_BULK_REORDER_GROUPS), `shared/sort-order.js` (+`computeGroupReorder`), `background/storage/groups.js` (+`bulkReorderGroups`), `background/storage/{index.js,messages/storage-handlers.js}`, `sidepanel/sidepanel.{js,css}`, `tests/b031-group-drag.test.js` (new)
+### [B-084] Refine drag drop-zone visual differentiation — DONE
+- **Closed**: 2026-04-22 · Fast Track (S) · Visual UAT PASS (reorder line visually beefier with glow; nest highlight contrast stronger; hysteresis reduces boundary flicker)
+- **Option shipped**: A+C — CSS polish (height 2→3 px + soft glow on reorder line; bg tint 12%→20% + inset outline on nest highlight) + ±2 px hysteresis band at 25%/75% boundaries via new pure helper `_applyGroupDragHysteresis`
+- **Files**: `sidepanel/sidepanel.css` (+39 / −13), `sidepanel/sidepanel.js` (+82 / −8)
+- **User note**: future UI design pass candidate tracked as B-086 (deferred to post-feature-parity)
 
-### [B-032] Auto-scroll during drag — DONE
-- **Tier**: Fast Track (S) · **Status**: Shipped v1.18.0
-- **Pipeline**: R1 ✅ · R2 skipped · R3 ✅ · R4 ✅ (0 CRITICAL/HIGH) · R5 ✅ (+17 tests) · UAT deferred to S28 per Fast Track tier rule
-- **Files**: `sidepanel/sidepanel.js` (~60 lines — `_maybeAutoScroll` helper + integration), `tests/b032-auto-scroll.test.js` (new)
+### [B-085] Add C-10 "Off-screen rect feasibility" to R2 Correctness Checklist — DONE
+- **Closed**: 2026-04-22 · Fast Track (XS) · No UAT (documentation edit)
+- **Files**: `CLAUDE.md` (+1 line — C-10 row inserted in R2 Correctness Checklist table, lines ~343-351 preserved)
+- **Outcome**: future R2 designs using `setDragImage` / snapshot APIs with off-screen elements now have an explicit checklist gate requiring rect-feasibility validation before UAT surfaces the failure
 
 ---
 
@@ -50,17 +126,17 @@ Per Sprint 23 retrospective:
 
 | # | Check | Status |
 |---|-------|--------|
-| 1 | All R4 review findings resolved | ✅ — 0 CRITICAL / 7 HIGH (3 B-025 + 4 B-031) all fixed pre-R5 · MEDIUMs triaged |
-| 2 | All R5 automated tests passing | ✅ — **1074/1074** green on `release/v2` (1001 baseline + 73 new) |
-| 3 | UAT sign-off recorded | ✅ — B-031 11/11 · B-025 9/9 (post-fix) · B-032 Fast Track (existing-suite-only) |
+| 1 | All R4 review findings resolved | ✅ — 0 CRITICAL / 0 HIGH across all three items; 2 MEDIUM + 6 LOW deferred to S26+ hygiene |
+| 2 | All R5 automated tests passing | ✅ — **1080/1080** green on `feature/sprint-25-drag-polish` |
+| 3 | UAT sign-off recorded | ✅ — B-083 re-UAT PASS (both paths); B-084 visual UAT PASS; B-085 N/A (doc edit) |
 | 4 | No open blockers | ✅ |
-| 5 | `docs/design/*` slices updated | ✅ — §37.10 + §38.10 As Built · §36.11 cross-sprint amendment · §36.12 B-032 Fast Track note · root index labels flipped to R6 Close |
-| 6 | `manifest.json` permissions reviewed | ✅ — zero additions |
-| 7 | `./build.sh` produces clean package | ✅ — 228 K zip, 67 files |
-| 8 | Rollback plan documented | ✅ — §37.8 (B-025) + §38.8 (B-031) + §36.11 (bonus B-030 fix) all document `git revert` is data-clean |
-| 9 | README / user manual / STORE_LISTING updated | ✅ — CHANGELOG [1.18.0] · STORE_LISTING bullets · `docs/user-manual/managing-items.md` new "Drag and drop" section |
-| 10 | `BACKLOG.md` — all Sprint 24 items `done` | ✅ (71/84) |
-| 11 | `BACKLOG_BOARD.md` — progress dashboard accurate | ✅ (85% · 0 in-progress · Sprint 24 closed) |
+| 5 | `docs/design/*` chapter updates | N/A — Fast Track tier skips R6 chapter work; S26+ hygiene may revisit §38 if B-084 hysteresis merits a design-chapter note |
+| 6 | `manifest.json` permissions reviewed | ✅ — zero additions; only `version` bumped 1.18.0 → 1.19.0 |
+| 7 | `./build.sh` produces clean package | ✅ — verified below |
+| 8 | Rollback plan documented | ✅ — all three items are surgical / data-clean: `git revert` is safe. B-083 restores the filter; B-084 reverts CSS + hysteresis; B-085 removes the row. No schema or message contract changes. |
+| 9 | README / user manual / STORE_LISTING updated | ✅ — CHANGELOG [1.19.0] authored (Fixed + Changed sections); no STORE_LISTING update needed (user-visible polish, not marketable feature); user manual unchanged (drag-and-drop section added in S24 already covers the nesting UX) |
+| 10 | `BACKLOG.md` — all Sprint 25 items `done` | ✅ — B-083, B-084, B-085 all `done` |
+| 11 | `BACKLOG_BOARD.md` — progress dashboard accurate | ✅ — 86% (74/86) · 0 in-progress · S26 next |
 | 12 | `SPRINT.md` "Completed This Sprint" reflects all 3 items | ✅ |
 | 13 | `SPRINT_ARCHIVE.md` updated | ⏳ — post-release archive step |
 
@@ -68,57 +144,43 @@ Per Sprint 23 retrospective:
 
 ---
 
-## Sprint Retrospective — Sprint 24
+## Sprint Retrospective — Sprint 25
 
 ### Velocity
 
-- Planned: 3 items (2M + 1S)
-- Delivered: 3 items — 100% of scope
-- Test growth: **1001 → 1074 (+73 tests)** across three items
-- UAT rounds: B-031 = 1 (PASS first pass) · B-025 = 2 (9/9 PASS after UAT-3 + UAT-8 fix cycle) · B-032 = 0 (Fast Track deferred)
-- Follow-ups filed: B-083 (multi-sibling sub-group allow), B-084 (drag drop-zone visual refinement)
-- Release: **v1.18.0**
+- Planned: 3 items (2 S + 1 XS) — polish sprint following S24's feature ship
+- Delivered: 3 items — 100% scope
+- Test growth: **1074 → 1080 (+6)** — B-083 regression suite; B-084 ships without new tests per §38.6 precedent + hysteresis testability concession
+- Fix cycles: 0 (no UAT failures)
+- Follow-ups filed: **B-086** — deferred UI/UX design pass post-feature-parity (user request during B-084 UAT)
+- Release: **v1.19.0**
 
 ### What Went Well
 
-1. **R2 decision resolution discipline paid off**. Both Full-tier items (B-025, B-031) had 5–6 explicit R1→R2 decision points captured in SPRINT.md handoff notes. R2 [solution-architect] resolved every one with alternatives + rationale + blast radius. R3 built against a clear spec; R4 reviewed against a measurable bar; R6 close documented deviations in As Built sections. Zero drift between spec and build beyond the three deliberate deviations (token mapping, browser-default group ghost, post-UAT ghost positioning fix).
-2. **Pre-merge UAT discipline (S23 retro HIGH-3) caught real bugs twice**. UAT-3 empty-group drop and UAT-8 ghost visibility would have shipped silently without HIGH-3's merge-gate requirement. Net 2 blockers caught pre-merge across both L/M items — exactly the failure mode retro was designed to prevent. **Validated HIGH-3 retroactively** just as S23 validated it for B-030.
-3. **Cross-sprint bug fix as bonus win**. UAT-3 surfaced a latent B-030 empty-group drop bug (single-item path had same silent no-op). Fix applied to both paths via a shared `{type:'emptyGroup'}` branch in `_computeDropTarget`. §36.11 amendment documents the cross-sprint scope. Net: one sprint shipped three features AND closed a latent v1.17.0 defect.
-4. **Parallel pipeline execution optimisation**. R3 build was sequenced (B-031 → B-032 → B-025) to avoid sidepanel merge conflicts, but R4 reviews + R5 tests + subsequent R3s ran in parallel waves. Total wall-clock for the automated pipeline was ~2 hours — the user-driven UAT + two B-025 fix cycles were the critical path.
+1. **S24 retro action items closed at speed**. All three S24 retro items (C-10 checklist, B-083 multi-sibling fix, B-084 drop-zone visual refinement) shipped in a single sprint with zero UAT fix cycles. Demonstrates that when retro items are sized to Fast Track and the scope is well-defined, closing them in the next sprint is a low-overhead path.
+2. **B-083 depth-2 security analysis was thorough**. The [security-reviewer] explicitly walked the depth-2 escape scenario through `bulkReorderGroups` + `assertDepthAndCycle` to verify the UI-filter removal didn't widen the attack surface. Result: 0 findings, clean pass. This level of rigour on a one-line fix is the right calibration for changes to shared security-load-bearing helpers.
+3. **B-084 hysteresis implemented defensively**. Pure helper `_applyGroupDragHysteresis` isolated from REJECT-mode poisoning, clamped deadzone for micro-headers, state reset on dragend + target change. No UAT fix cycles despite introducing new state machine behaviour.
+4. **Process improvement captured in CLAUDE.md (B-085)**. C-10 checklist item now prevents the exact S24 B-025 UAT-8 failure mode (off-screen positioning + browser snapshot APIs → zero-dim rect) from recurring. Precedent reference grepable (`B-025 UAT-8`) links forward from CLAUDE.md to §37.10 for future R2 authors.
 
 ### What to Improve
 
-1. **HIGH — R2 CSS enumeration needs a layout-completion probe**. B-025 §37.3 D-3 enumerated every CSS property for the ghost, but the `-9999px` off-screen positioning pattern was not validated against the `getBoundingClientRect`-before-layout-flush gotcha. Result: UAT-8 FAIL on first try. Fix shipped as `position: fixed` + forced reflow. For S25+ drag or off-screen-element work: R2 MUST include an "offscreen-element rect feasibility" probe when a design uses `setDragImage` / snapshot APIs. Add to R2 Correctness Checklist as **C-10**: "If the design uses off-screen positioning + a browser snapshot/measurement API, verify the element has a real computed rect at snapshot time (document the reflow / positioning strategy)."
-2. **MEDIUM — `filterGroupParentCandidates` over-restrictive filter slipped from B-007 to B-031**. The one-line filter at `shared/group-nesting.js:47` excludes any parent-with-children from the valid-target set, blocking multiple sibling sub-groups under one parent. This is arguably the wrong product requirement and was inherited unreviewed from B-007 (shipped in S20). B-031 UAT caught it as a usability complaint but all 11 B-031 UAT cases still PASSED because the cases tested simpler scenarios. Tracked as B-083 for S25.
-3. **LOW — Drop-zone visual clarity is a known UX polish gap**. User flagged during UAT: "we may also need to come back and adjust the drag and drop visual drop zone and indicator for when we are dropping between groups vs inside of the group." Tracked as B-084 for S25.
+1. **LOW — Several findings deferred to S26+ hygiene pass**. B-083 L-1 (orphaned test name), L-2 (dead `outIds` variable). B-084 M-2 (side-effect in `_compute*` function), L-2 (`DEADZONE_PX` not module-level constant). These are all trivial but reflect the cumulative technical debt of Fast Track sprints. Recommend S26 or S27 include a small hygiene-pass item to absorb these.
+2. **MEDIUM — B-084 shipped without new tests**. The hysteresis helper is testable but wasn't tested at R5 (consistent with §38.6 precedent that the full drag-flow fake-DOM simulation is not required). A future extraction of `_applyGroupDragHysteresis` to `shared/` would enable unit testing; not worth doing for this sprint but flag for any future changes to the hysteresis math.
+3. **LOW — User flagged UI design pass as deferred concern during UAT**. Captured as B-086 with audit-first, code-second approach. Aligned with product-owner direction that UI refresh should happen once v2 features stabilise — NOT interleaved with feature work.
 
-### Action Items for Sprint 25
+### Action Items for Sprint 26
 
-- [ ] **[solution-architect]** Add C-10 to R2 Correctness Checklist in CLAUDE.md: "Off-screen rect feasibility" probe for designs using `setDragImage` / snapshot APIs. [HIGH]
-- [ ] **B-083 prioritised** — fix `filterGroupParentCandidates` to allow multiple siblings under one parent. P1 · S. Affects both B-007 dialog and B-031 drag-nest. Needs re-UAT for both paths. [HIGH]
-- [ ] **B-084 scheduled** — drag drop-zone visual differentiation (REORDER vs NEST). P2 · S. [MEDIUM]
-- [ ] **[scrum-master]** In S28 comprehensive UAT sweep, include B-032 auto-scroll cases (deferred per Fast Track tier). [MEDIUM]
+- [ ] **[scrum-master]** S26 scope — resume feature-parity roadmap. B-022 L quick-search popup was scheduled for S25 but deferred to accommodate S24 retro items; now the top of the roadmap. [HIGH]
+- [ ] **Hygiene items carried from S25** — B-083 L-2 dead variable + B-084 M-2/L-2 refactors — absorb into a "hygiene pass" item if bundled, or handle as drive-by during unrelated S26+ work. [LOW]
+- [ ] **B-086 scheduled** as post-feature-parity (likely S29+ or after v2 stabilises). [DEFERRED]
 
-### R4 Findings Summary (Sprint 24)
+### R4 Findings Summary (Sprint 25)
 
-- **B-025**: 0 CRITICAL / 3 HIGH (all fixed) / 4 MEDIUM (1 fixed M-1 selection clear; 3 deferred) / 7 LOW
-- **B-031**: 0 CRITICAL / 4 HIGH (all fixed) / 6 MEDIUM (1 fixed M-1 title copy; 5 deferred) / 7 LOW
-- **B-032**: 0 CRITICAL / 0 HIGH / 2 MEDIUM (deferred) / 2 LOW
-- **UAT layer**: 2 blockers caught pre-merge on B-025 (UAT-3 + UAT-8) — both resolved in-sprint
-- **Full dedup**: `docs/findings/sprint-24.md`
+- **B-083**: 0 CRITICAL / 0 HIGH / 0 MEDIUM / 2 LOW (test-only hygiene)
+- **B-084**: 0 CRITICAL / 0 HIGH / 2 MEDIUM / 2 LOW (all hygiene; no correctness concerns)
+- **B-085**: 0 findings (clean CLAUDE.md edit)
+- **Total**: 0 CRITICAL / 0 HIGH / 2 MEDIUM / 4 LOW — cleanest R4 since S21's polish close
+- **Security posture**: backend fail-closed authority for depth/cycle preserved; no new attack surface; no new message types or permissions
+- **Full dedup**: `docs/findings/sprint-25.md`
 
-**Key lesson**: R4 + R5 clean does NOT mean UAT will pass. For L/M runtime-sensitive items, pre-merge UAT in-browser remains load-bearing (third sprint to validate this — S22 → S23 → S24).
-
----
-
-## Sprint Close
-
-**Status**: CLOSED 2026-04-22. v1.18.0 release pending commit + tag + archive.
-
-### Follow-on for Sprint 25
-
-S25 scope candidates (per action items):
-- **B-083** (P1 · S) — `filterGroupParentCandidates` fix (multi-sibling sub-group allow)
-- **B-084** (P2 · S) — drag drop-zone visual refinement
-- **[solution-architect]** — CLAUDE.md C-10 checklist addition
-- Plus normal backlog triage (11 remaining To-Do items + filed follow-ups)
+**Key lesson**: Fast Track sprints that resolve prior retro items + clear small backlog debt produce very low finding counts. Good pattern for sprints immediately after large L/M feature ships where the team benefits from tech-debt absorption.

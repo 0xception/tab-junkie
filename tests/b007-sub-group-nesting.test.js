@@ -30,26 +30,26 @@ test('B-007 AC1: create mode — candidates are all top-level groups with no chi
   assert.deepEqual(out.map((g) => g.id), ['g-alpha', 'g-beta', 'g-gamma']);
 });
 
-test('B-007 AC1: create mode — already-nested groups excluded (depth-1 cap)', () => {
+test('B-007 AC1: create mode — already-nested groups excluded (depth-1 cap), top-level parents (incl. those with children) retained', () => {
   const groups = [
     { id: 'g-top',    name: 'Top',   parentId: null,  sortOrder: 1 },
     { id: 'g-child',  name: 'Child', parentId: 'g-top', sortOrder: 2 },
   ];
   const out = filterGroupParentCandidates(groups, null);
-  /* g-top has a child so it's depth-2-risk; g-child is already nested. */
-  assert.deepEqual(out.map((g) => g.id), []);
+  /* B-083: g-top is still a valid parent — a second sibling would stay at
+     depth-1. g-child is excluded (already nested). */
+  assert.deepEqual(out.map((g) => g.id), ['g-top']);
 });
 
-test('B-007 AC8: groups-with-children excluded from candidates (depth-2 prevention)', () => {
+test('B-083: groups-with-children remain valid parents (multiple siblings at depth-1 allowed)', () => {
   const groups = [
     { id: 'g-top',     name: 'Top',     parentId: null,   sortOrder: 1 },
     { id: 'g-nested',  name: 'Nested',  parentId: 'g-top', sortOrder: 2 },
     { id: 'g-empty',   name: 'Empty',   parentId: null,   sortOrder: 3 },
   ];
   const out = filterGroupParentCandidates(groups, null);
-  /* g-empty is the only legitimate candidate — g-top has a child, g-nested
-     is already nested. */
-  assert.deepEqual(out.map((g) => g.id), ['g-empty']);
+  /* g-top and g-empty are both valid parents; g-nested is already nested. */
+  assert.deepEqual(out.map((g) => g.id), ['g-top', 'g-empty']);
 });
 
 test('B-007 AC2: edit mode — self excluded from candidates', () => {
@@ -64,7 +64,7 @@ test('B-007 AC2: edit mode — self excluded from candidates', () => {
     'Editing g-b must exclude g-b from the parent list.');
 });
 
-test('B-007 AC2: edit mode — groups-with-children AND self both excluded', () => {
+test('B-007 AC2 + B-083: edit mode — self excluded; groups-with-children retained as valid parents', () => {
   const groups = [
     { id: 'g-p',   name: 'Parent', parentId: null,  sortOrder: 1 },
     { id: 'g-c',   name: 'Child',  parentId: 'g-p', sortOrder: 2 },
@@ -73,18 +73,21 @@ test('B-007 AC2: edit mode — groups-with-children AND self both excluded', () 
   ];
   const editing = groups[2]; // g-ed
   const out = filterGroupParentCandidates(groups, editing);
-  /* g-p has a child so excluded; g-ed is self so excluded; g-c already
-     nested. Only g-sib remains. */
-  assert.deepEqual(out.map((g) => g.id), ['g-sib']);
+  /* g-p retained (valid parent — nesting g-ed under it stays at depth-1);
+     g-ed excluded (self); g-c excluded (already nested). g-sib retained. */
+  assert.deepEqual(out.map((g) => g.id), ['g-p', 'g-sib']);
 });
 
-test('B-007 AC11: zero top-level groups → empty candidate list (Top-level option only)', () => {
+test('B-007 AC11 + B-083: create mode, single top-level parent with one child → parent is still a valid candidate', () => {
   const groups = [
     { id: 'g-p', name: 'P', parentId: null, sortOrder: 1 },
     { id: 'g-c', name: 'C', parentId: 'g-p', sortOrder: 2 },
   ];
-  /* In create mode, g-p has a child and g-c is nested — no valid parent. */
-  assert.deepEqual(filterGroupParentCandidates(groups, null), []);
+  /* B-083: g-p is a valid parent for a NEW sibling (would become depth-1). */
+  assert.deepEqual(
+    filterGroupParentCandidates(groups, null).map((g) => g.id),
+    ['g-p'],
+  );
 });
 
 test('B-007: non-array input returns empty list (defensive)', () => {
@@ -111,6 +114,70 @@ test('B-007: sortOrder missing on some groups — treated as 0 for sort stabilit
   ];
   const out = filterGroupParentCandidates(groups, null);
   assert.deepEqual(out.map((g) => g.id), ['g-b', 'g-a', 'g-c']);
+});
+
+/* =========================================================================
+   B-083 — multiple sibling sub-groups under the same parent (depth-1).
+   The pre-filter was over-restrictive: it excluded any top-level group that
+   already had a child, blocking users from adding a second / third sibling.
+   These tests pin the new behaviour (multiple siblings allowed; storage
+   layer still enforces depth-1 + cycle as the fail-closed authority).
+   ========================================================================= */
+
+test('B-083 AC1: [Work, Personal@Work] + new Projects → [Work] is a valid parent', () => {
+  const groups = [
+    { id: 'work',     name: 'Work',     parentId: null,   sortOrder: 1 },
+    { id: 'personal', name: 'Personal', parentId: 'work', sortOrder: 2 },
+  ];
+  const out = filterGroupParentCandidates(groups, { id: 'projects', parentId: null });
+  assert.deepEqual(out.map((g) => g.id), ['work'],
+    'Work has one child (Personal); must still be a valid parent for Projects.');
+});
+
+test('B-083 AC1: [Work, Personal@Work, Hobbies] + new Projects → [Work, Hobbies] are valid parents', () => {
+  const groups = [
+    { id: 'work',     name: 'Work',     parentId: null,   sortOrder: 1 },
+    { id: 'personal', name: 'Personal', parentId: 'work', sortOrder: 2 },
+    { id: 'hobbies',  name: 'Hobbies',  parentId: null,   sortOrder: 3 },
+  ];
+  const out = filterGroupParentCandidates(groups, { id: 'projects', parentId: null });
+  assert.deepEqual(out.map((g) => g.id), ['work', 'hobbies']);
+});
+
+test('B-083 AC1: [Work, Personal@Work, Projects@Work, Sidequests] + new sibling → [Work, Sidequests] (Work with TWO children still valid)', () => {
+  const groups = [
+    { id: 'work',       name: 'Work',       parentId: null,   sortOrder: 1 },
+    { id: 'personal',   name: 'Personal',   parentId: 'work', sortOrder: 2 },
+    { id: 'projects',   name: 'Projects',   parentId: 'work', sortOrder: 3 },
+    { id: 'sidequests', name: 'Sidequests', parentId: null,   sortOrder: 4 },
+  ];
+  const out = filterGroupParentCandidates(groups, { id: 'new-sibling', parentId: null });
+  /* Work already has two children — adding a third still stays at depth-1. */
+  assert.deepEqual(out.map((g) => g.id), ['work', 'sidequests']);
+});
+
+test('B-083: editing Work (a top-level with a child) → self-excluded, remaining top-levels retained', () => {
+  const groups = [
+    { id: 'work',     name: 'Work',     parentId: null,   sortOrder: 1 },
+    { id: 'personal', name: 'Personal', parentId: 'work', sortOrder: 2 },
+  ];
+  const editing = groups[0]; // Work
+  const out = filterGroupParentCandidates(groups, editing);
+  /* Work is self-excluded; Personal is already nested. No other top-levels. */
+  assert.deepEqual(out.map((g) => g.id), []);
+});
+
+test('B-083: editing Personal (a sub-group of Work) → Work is still a valid parent', () => {
+  const groups = [
+    { id: 'work',     name: 'Work',     parentId: null,   sortOrder: 1 },
+    { id: 'personal', name: 'Personal', parentId: 'work', sortOrder: 2 },
+  ];
+  const editing = groups[1]; // Personal (sub-group of Work)
+  const out = filterGroupParentCandidates(groups, editing);
+  /* Self-exclusion only filters Personal itself; Personal is not top-level
+     anyway (parentId != null). Work remains the only valid parent — moving
+     Personal back to Work is the trivial no-op the storage layer accepts. */
+  assert.deepEqual(out.map((g) => g.id), ['work']);
 });
 
 /* =========================================================================

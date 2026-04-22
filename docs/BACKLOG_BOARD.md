@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-22 · **Version:** 2.12 · **Total Items:** 84 · **Sprint 24 closed — v1.18.0 (drag stack: multi-item + group nest + auto-scroll); B-083 + B-084 filed as S25 follow-ups**
+**Updated:** 2026-04-22 · **Version:** 2.14 · **Total Items:** 86 · **Sprint 25 closed — v1.19.0 (drag polish: multi-sibling fix + zone visual + C-10 checklist); B-086 filed as deferred UI pass**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    █████████████████░░░  85% (71/84)  [0 in progress · S25 next — B-083 + B-084 priority]
+Overall Progress    █████████████████░░░  86% (74/86)  [0 in progress · S26 next]
 ```
 
 ### Legend
@@ -114,8 +114,10 @@ Overall Progress    █████████████████░░░
 ✅ B-079 — Query-length cap on filter input · 🟡 · XS [Wave 1 — merged fa1a8df / PR #26]
 ✅ B-080 — Repair-summary toast plain-language parity · ⚪ · XS [Wave 1 — merged fa1a8df / PR #26]
 ⬜ B-082 — "Open side panel" button in toolbar popup · 🟠 · XS [filed mid-sprint per FEATURE_PARITY_ROADMAP; scheduled S26]
-⬜ B-083 — Allow multiple sibling sub-groups under one parent (filter helper fix) · 🟠 · S [filed S24 post-UAT; affects B-007 dialog + B-031 drag-nest; scheduled S25]
-⬜ B-084 — Refine drag drop-zone visual differentiation (reorder vs nest) · 🟡 · S [filed S24 post-UAT; scheduled S25 or later]
+✅ B-083 — Allow multiple sibling sub-groups under one parent (filter helper fix) · 🟠 · S [S25 — v1.19.0]
+✅ B-084 — Refine drag drop-zone visual differentiation (reorder vs nest) · 🟡 · S [S25 — v1.19.0]
+✅ B-085 — Add C-10 "Off-screen rect feasibility" to R2 Correctness Checklist · 🟠 · XS [S25 — v1.19.0]
+⬜ B-086 — Sidepanel UI/UX design pass (post-feature-freeze polish) · ⚪ · M [filed S25 post-UAT; scheduled post-feature-parity]
 
 ---
 
@@ -145,7 +147,7 @@ Overall Progress    █████████████████░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 71 | 85% |
+| ✅ Done | 74 | 86% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 11 | 13% |
+| ⬜ To Do | 10 | 12% |
 | 🧊 Icebox | 2 | 2% |

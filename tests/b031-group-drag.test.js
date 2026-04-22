@@ -243,51 +243,79 @@ test('B-031 T-8: bulkReorderGroups surfaces unknown ids in notFound; known ids s
 });
 
 /* =========================================================================
-   T-10 — filterGroupParentCandidates returns [] for a sub-group drag
-   (integration with shared/group-nesting.js — blanket NEST rejection).
+   T-10 — filterGroupParentCandidates behaviour vs. sub-group drag.
+
+   Post B-083: the filter no longer excludes top-level groups that have
+   children (multiple siblings are allowed at depth-1). The "sub-group
+   can't be re-nested" rule is enforced by the sidepanel's
+   `isSubGroupDrag` guard in `_classifyGroupDragIntent`, NOT by the pure
+   structural filter. These tests pin:
+     - structural truth: self-exclusion + sub-groups (parentId != null)
+       are the only exclusions the filter applies.
+     - the sidepanel guard is the layer that blankets sub-group NEST.
    ========================================================================= */
 
-test('B-031 T-10: filterGroupParentCandidates([parent, sub], sub) returns [] — blanket NEST rejection', () => {
-  /* Sub-group drag scenario:
-       - `parent` is top-level, has one child `sub`.
-       - Dragged sub-group is `sub`.
-     The filter excludes:
-       - `sub` itself (editing group)
-       - `parent` (has a child → depth-2 risk)
-     Result: `[]` — no candidate to NEST into, matching the sidepanel's
-     drag handler behaviour (`_classifyGroupDragIntent` returns REJECT for
-     every NEST when `isSubGroupDrag` is true). */
+test('B-031 T-10 (post B-083): filterGroupParentCandidates([parent, sub], sub) returns [parent] — structural filter only excludes self + already-nested', () => {
+  /* - `parent` is top-level with one child `sub`.
+     - Dragged sub-group is `sub`.
+     Post B-083 the filter returns `[parent]` (parent is a valid depth-1
+     target structurally). The sidepanel's `isSubGroupDrag` guard REJECTs
+     every NEST target at the drag layer when the dragged item is a
+     sub-group — that's the behavioural guarantee, not this pure filter. */
   const groups = [
     { id: 'g-parent', name: 'Parent', parentId: null,       sortOrder: 0 },
     { id: 'g-sub',    name: 'Sub',    parentId: 'g-parent', sortOrder: 0 },
   ];
   const draggedSubGroup = groups[1];
   const out = filterGroupParentCandidates(groups, draggedSubGroup);
-  assert.deepEqual(out, [], 'sub-group drag has zero NEST candidates (blanket reject)');
+  assert.deepEqual(out.map((g) => g.id), ['g-parent'],
+    'Structural filter returns parent as a valid depth-1 candidate; sidepanel guard enforces sub-group NEST reject at the drag layer.');
 });
 
-test('B-031 T-10: filterGroupParentCandidates excludes all groups-with-children when dragging a sub-group', () => {
-  /* Richer scenario: three top-level groups, one of which (`g-parent`) has
-     a sub-group. Dragging the sub-group should still yield no NEST
-     candidates via the filter — because the two childless top-level groups
-     would be valid `parentId` targets if not for the sub-group drag rule.
-     The sidepanel's `isSubGroupDrag` guard is what enforces that; the
-     filter only knows structural constraints. This test pins the structural
-     outcome when ALL non-self top-level candidates are excluded by
-     depth-2-prevention. */
+test('B-031 T-10 (post B-083): filterGroupParentCandidates retains all top-level candidates even when some already have children', () => {
+  /* Richer scenario: two top-level groups, one of which (`g-parent`) has
+     a sub-group. Post B-083 the filter surfaces both structurally valid
+     top-level candidates. The sidepanel guard (not this filter) is what
+     prevents a sub-group drag from landing on either. */
   const groups = [
     { id: 'g-parent', name: 'P',  parentId: null,       sortOrder: 0 },
     { id: 'g-sub',    name: 'S',  parentId: 'g-parent', sortOrder: 0 },
+    { id: 'g-other',  name: 'O',  parentId: null,       sortOrder: 1 },
   ];
-  /* Call with the sub-group as `editingGroup` — verify the filter never
-     surfaces the parent (it has a child, g-sub) and never surfaces the
-     sub itself (self-exclusion). */
   const out = filterGroupParentCandidates(groups, groups[1]);
-  assert.equal(out.length, 0);
-  /* Defensive: ensure neither self nor parent appears. */
+  assert.deepEqual(out.map((g) => g.id), ['g-parent', 'g-other']);
   const outIds = out.map((g) => g.id);
-  assert.equal(outIds.includes('g-sub'), false, 'self never appears');
-  assert.equal(outIds.includes('g-parent'), false, 'parent-with-children never appears');
+  assert.equal(outIds.includes('g-sub'), false, 'self still excluded');
+});
+
+/* =========================================================================
+   B-083 — regression test for multi-sibling sub-group drag target.
+   Prior behaviour: if a candidate parent already had a child, it was
+   excluded from the drag-nest valid-target set, blocking users from
+   dragging a top-level group INTO a parent that already had children.
+   New behaviour: the candidate parent is retained; depth-1 is the cap
+   and having N siblings at depth-1 is fine.
+   ========================================================================= */
+
+test('B-083 regression: dragging a childless top-level INTO a parent that already has children is a valid structural candidate', () => {
+  /* Scenario: Work already has two children (Personal, Projects). The user
+     drags `Hobbies` (a top-level, no children) onto Work to nest it. Prior
+     to B-083 this was blocked at the filter layer because Work had
+     children. Post B-083 the filter surfaces Work as a valid parent — a
+     third sibling still sits at depth-1. */
+  const groups = [
+    { id: 'work',     name: 'Work',     parentId: null,   sortOrder: 0 },
+    { id: 'personal', name: 'Personal', parentId: 'work', sortOrder: 0 },
+    { id: 'projects', name: 'Projects', parentId: 'work', sortOrder: 1 },
+    { id: 'hobbies',  name: 'Hobbies',  parentId: null,   sortOrder: 1 },
+  ];
+  const draggedGroup = groups[3]; // Hobbies (no children, top-level)
+  const out = filterGroupParentCandidates(groups, draggedGroup);
+  /* Work retained as a valid NEST target even though it already has two
+     children. Personal + Projects excluded (already nested). Hobbies
+     excluded (self). */
+  assert.deepEqual(out.map((g) => g.id), ['work'],
+    'Work must be a valid drag-nest target even with existing children (B-083 regression guard).');
 });
 
 /* =========================================================================

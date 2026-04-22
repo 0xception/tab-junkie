@@ -29,7 +29,12 @@
  * separately):
  *   - any group with `parentId != null` (already nested — depth-1 cap)
  *   - the group being edited itself (self-nest defence)
- *   - any group that already has at least one child (would become depth-2)
+ *
+ * Top-level groups that already have one or more children are still valid
+ * parents — multiple siblings under the same parent stay at depth-1 and
+ * do not violate the depth cap. The storage layer (`assertDepthAndCycle`
+ * in `background/storage/groups.js`) remains the fail-closed authority
+ * for depth-1 + cycle rejection.
  *
  * @param {GroupRecord[]} groups       All groups in `_cachedGroups`
  * @param {GroupRecord|null} editingGroup  Group being edited (null in create mode)
@@ -37,14 +42,9 @@
  */
 export function filterGroupParentCandidates(groups, editingGroup) {
   if (!Array.isArray(groups)) return [];
-  const idsWithChildren = new Set();
-  for (const g of groups) {
-    if (g && g.parentId != null) idsWithChildren.add(g.parentId);
-  }
   return groups
     .filter((g) => g && g.parentId == null)
     .filter((g) => !editingGroup || g.id !== editingGroup.id)
-    .filter((g) => !idsWithChildren.has(g.id))
     .slice()
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 }
