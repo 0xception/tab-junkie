@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-22 · **Version:** 2.14 · **Total Items:** 86 · **Sprint 25 closed — v1.19.0 (drag polish: multi-sibling fix + zone visual + C-10 checklist); B-086 filed as deferred UI pass**
+**Updated:** 2026-04-23 · **Version:** 2.16 · **Total Items:** 86 · **Sprint 26 closed — v1.20.0 (B-022 Quick Search Popup); S27 scope TBD**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    █████████████████░░░  86% (74/86)  [0 in progress · S26 next]
+Overall Progress    █████████████████░░░  87% (75/86)  [0 in progress · S27 next]
 ```
 
 ### Legend
@@ -54,7 +54,7 @@ Overall Progress    █████████████████░░░
 ✅ B-019 — Click-to-navigate with tab reuse & window focus · 🔴 · S
 ✅ B-020 — Close tab from UI (individual + bulk) · 🔴 · S
 ✅ B-021 — Inline side-panel filter with debounce & highlight · 🟠 · M
-⬜ B-022 — Quick search popup with keyboard navigation · 🟠 · L
+✅ B-022 — Quick search popup with keyboard navigation · 🟠 · L [S26 — v1.20.0]
 ⬜ B-023 — Group jump popup · 🟠 · L
 ✅ B-024 — Multi-select + bulk action bar · 🟠 · M
 ✅ B-025 — Multi-item drag as single unit · 🟠 · M [S24 — v1.18.0]
@@ -147,7 +147,7 @@ Overall Progress    █████████████████░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 74 | 86% |
+| ✅ Done | 75 | 87% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 10 | 12% |
+| ⬜ To Do | 9 | 11% |
 | 🧊 Icebox | 2 | 2% |

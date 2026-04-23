@@ -2,9 +2,31 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Tab Junkie</title>
+    <title>Tab Junkie — Quick Search</title>
+    <link rel="stylesheet" href="popup.css" />
+    <script type="module" src="popup.js"></script>
   </head>
   <body>
-    <p>Tab Junkie popup — UI not yet built. See B-022 in docs/BACKLOG.md.</p>
+    <div id="qs-root" role="dialog" aria-label="Quick Search" aria-modal="true" tabindex="-1">
+      <div id="qs-input-wrap" role="combobox" aria-expanded="false" aria-controls="qs-list" aria-haspopup="listbox">
+        <input
+          id="qs-input"
+          type="search"
+          autocomplete="off"
+          spellcheck="false"
+          maxlength="256"
+          placeholder="Search bookmarks and tabs…"
+          aria-autocomplete="list"
+          aria-controls="qs-list"
+          aria-activedescendant=""
+        />
+      </div>
+      <div id="qs-status" role="status" aria-live="polite" aria-atomic="true" class="qs-visually-hidden"></div>
+      <div id="qs-results-scroll">
+        <ul id="qs-list" role="listbox" aria-label="Results"></ul>
+        <div id="qs-skeleton" class="qs-skeleton" hidden aria-hidden="true"></div>
+      </div>
+      <div id="qs-empty" hidden aria-hidden="true"></div>
+    </div>
   </body>
 </html>

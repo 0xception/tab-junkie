@@ -171,6 +171,29 @@ export const MSG_IMPORT_COLLECTION = 'tj/importCollection';
  * On failure: { ok: false, error: { code: 'ERR_*', message: string } }.
  */
 
+// ---- Quick-search popup (B-022) ----
+/**
+ * B-022 — append an entry to the popup's persistent recency store
+ * (`tj:recency` partition). Fired by `popup/popup.js` immediately AFTER a
+ * successful navigation (`chrome.tabs.create` or `chrome.tabs.update`).
+ * Handler semantics (`background/messages/storage-handlers.js`):
+ *   1. Validate `payload.id` — non-empty string with a known prefix
+ *      (`item:<ulid>` for saved items, `url:<url>` for open-tab-only).
+ *   2. Read the current partition via the standard write path.
+ *   3. Unshift the new entry, drop any prior entry with the same id
+ *      (dedupe — most-recent wins), trim to RECENCY_CAP (50).
+ *   4. Write via `writeTransaction` (atomic, serialised).
+ *   5. Return `{ ok: true }`.
+ * No broadcast — the popup is the only reader (see §39.4.4).
+ *
+ * @typedef {Object} RecencyAddRequest
+ * @property {string} id   `item:<ulid>` | `url:<url>` — validated at the handler.
+ *
+ * @typedef {Object} RecencyAddResponse
+ * @property {true} ok
+ */
+export const MSG_RECENCY_ADD = 'tj/recencyAdd';
+
 // ---- State broadcast ----
 export const MSG_STATE_CHANGED = 'tj/stateChanged';
 

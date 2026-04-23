@@ -30,6 +30,16 @@ export const PARTITION_PREFS = 'prefs';
 export const PARTITION_META = 'meta';
 export const PARTITION_DRIFT = 'drift';
 export const PARTITION_FLOATING_GROUPS = 'floatingGroups';
+/* B-022 §39.3 D-3 — quick-search popup recency store. Persistent across
+   browser restart; cap 50 newest-first entries; additive v1 schema. */
+export const PARTITION_RECENCY = 'recency';
+
+/* B-022 §39.3 D-3 — cap on `tj:recency.entries`. New entries past the cap
+   trim the tail in a single splice at write time (handler-side). */
+export const RECENCY_CAP = 50;
+
+/* B-022 §39.3 D-3 — schemaVersion value for the `tj:recency` partition. */
+export const RECENCY_SCHEMA_VERSION = 1;
 
 export const ALL_PARTITIONS = /** @type {const} */ ([
   PARTITION_ITEMS,
@@ -38,6 +48,7 @@ export const ALL_PARTITIONS = /** @type {const} */ ([
   PARTITION_META,
   PARTITION_DRIFT,
   PARTITION_FLOATING_GROUPS,
+  PARTITION_RECENCY,
 ]);
 
 /** Namespaced storage key for a partition. */
@@ -74,6 +85,11 @@ export function defaultShape(partition) {
       return {};
     case PARTITION_FLOATING_GROUPS:
       return [];
+    case PARTITION_RECENCY:
+      /* B-022 §39.3 D-3 — v1 empty shape. `schemaVersion: 1` is a literal
+         (not sourced from RECENCY_SCHEMA_VERSION) so a future bump of the
+         constant cannot silently change the historical default. */
+      return { schemaVersion: 1, entries: [] };
     default:
       throw new StorageError(ERR_CORRUPT_DATA, `Unknown partition: ${String(partition)}`);
   }
@@ -182,6 +198,28 @@ export function assertShape(partitionOrKey, value) {
           || !isString(entry.groupId) || !isNumber(entry.windowId)
           || !isNumber(entry.tabIndex) || !isString(entry.url)
           || !isNumber(entry.savedAt)) {
+          throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition}`);
+        }
+      }
+      return;
+    case PARTITION_RECENCY:
+      /* B-022 §39.3 D-3 — v1 shape validator. Schema version MUST be a
+         finite number (future-proofing for >= 2). Entries array MUST be
+         an array of `{id: string, accessedAt: number}` records. Over-cap
+         arrays are structurally valid (trimmed on write, rendered ≤20). */
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition}`);
+      }
+      if (!isNumber(value.schemaVersion)) {
+        throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition} — schemaVersion`);
+      }
+      if (!Array.isArray(value.entries)) {
+        throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition} — entries`);
+      }
+      for (const entry of value.entries) {
+        if (!entry || typeof entry !== 'object'
+          || !isString(entry.id) || entry.id.length === 0
+          || !isNumber(entry.accessedAt)) {
           throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition}`);
         }
       }

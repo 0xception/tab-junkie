@@ -46,6 +46,7 @@ import {
   MSG_BULK_REORDER_GROUPS,
   MSG_EXPORT_COLLECTION,
   MSG_IMPORT_COLLECTION,
+  MSG_RECENCY_ADD,
 } from '../../shared/messages.js';
 
 import {
@@ -58,7 +59,8 @@ import { buildFilenameWithDate } from '../export/shared.js';
 import { buildHtmlExport, countNonEmptyGroupsForHtml } from '../export/html-export.js';
 import { buildJsonExport } from '../export/json-export.js';
 import { importCollection } from '../import/index.js';
-import { partitionKey, PARTITION_PREFS } from '../storage/partitions.js';
+import { partitionKey, PARTITION_PREFS, PARTITION_RECENCY, RECENCY_CAP } from '../storage/partitions.js';
+import { writeTransaction } from '../storage/write-transaction.js';
 
 import {
   createItem,
@@ -137,6 +139,11 @@ const WRITE_MESSAGE_TYPES = new Set([
      preview-then-commit is two messages, and we reject both under safe mode
      to avoid surfacing import UI that can't complete. */
   MSG_IMPORT_COLLECTION,
+  /* B-022 §39.3 D-3 — recency append is a persistent storage write.
+     Safe-mode blocks it; the popup handles the ERR_SAFE_MODE response
+     silently (recency is a best-effort UX feature, never user-visible
+     failure). */
+  MSG_RECENCY_ADD,
 ]);
 
 function isWriteType(message) {
@@ -532,6 +539,45 @@ async function dispatch(type, payload) {
         itemCount: exportItems.length,
         groupCount,
       };
+    }
+    case MSG_RECENCY_ADD: {
+      /* B-022 §39.3 D-3 — append a popup recency entry.
+       * Validate payload, then unshift/dedupe/trim in a single
+       * writeTransaction. No broadcast (popup is sole reader; §39.4.4).
+       * Prefix allow-list (C-7): only `item:` and `url:` are accepted —
+       * denies adversarial or accidental inputs with a permissive scheme
+       * set, per §39.2 D-3 ID stability contract. */
+      if (!p || typeof p !== 'object') {
+        throw new StorageError(ERR_VALIDATION, 'recencyAdd: payload required');
+      }
+      if (typeof p.id !== 'string' || p.id.length === 0) {
+        throw new StorageError(ERR_VALIDATION, 'recencyAdd: id must be a non-empty string');
+      }
+      if (!(p.id.startsWith('item:') || p.id.startsWith('url:'))) {
+        throw new StorageError(ERR_VALIDATION, 'recencyAdd: id must be prefixed item: or url:');
+      }
+      /* Defensive upper bound — protects the partition from oversized
+         URL entries that would bloat storage past the quota guard. Item
+         ids are bounded by ULID length; URL ids are bounded by the same
+         MAX_URL that validates stored Item.url values. */
+      if (p.id.length > 4200) {
+        throw new StorageError(ERR_VALIDATION, 'recencyAdd: id exceeds maximum length');
+      }
+      const accessedAt = Date.now();
+      await writeTransaction([{
+        partition: PARTITION_RECENCY,
+        mutator: (current) => {
+          const existing = Array.isArray(current.entries) ? current.entries : [];
+          /* Dedupe: drop any prior entry with the same id, then unshift the
+             fresh one at the head (newest-first). */
+          const filtered = existing.filter((e) => e && e.id !== p.id);
+          const next = [{ id: p.id, accessedAt }, ...filtered];
+          /* Cap — single splice on write per §39.3 D-3. */
+          if (next.length > RECENCY_CAP) next.length = RECENCY_CAP;
+          return { schemaVersion: 1, entries: next };
+        },
+      }]);
+      return { ok: true };
     }
     default:
       throw new StorageError(ERR_VALIDATION, `Unknown message type: ${String(type)}`);
