@@ -69,6 +69,15 @@ export const KNOWN_VERSION = 1;
 /** @type {MigrationStep[]} */
 const MIGRATION_STEPS = [];
 
+/* B-022 §39.3 D-3 — `tj:recency` partition, introduced in Sprint 26.
+ * No MigrationStep is required because the partition is additive:
+ * `initializePartitions()` iterates `ALL_PARTITIONS` and seeds any missing
+ * key with `defaultShape()` (which yields `{ schemaVersion: 1, entries: [] }`
+ * for `PARTITION_RECENCY`). Existing profiles upgrading from v1.19.0 pick
+ * up the empty shape on first SW cold start; no data is touched; no
+ * schemaVersion bump is needed. Rollback (§39.8) = delete the key.
+ */
+
 // F2: Static assertion — verify the migration registry forms a contiguous
 // fromVersion → toVersion chain at module load time. If a step is ever added
 // that breaks the chain, this throws immediately and loudly.

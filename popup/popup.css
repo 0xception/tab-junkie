@@ -1,0 +1,446 @@
+/* =========================================================================
+   Tab Junkie — Quick Search Popup Styles (B-022)
+   Authoritative spec: docs/design/39-b-022-quick-search-popup.md §39.5
+   Every positioned property enumerated in §39.5 is materialised here.
+   Light + dark tokens mirror sidepanel.css with identical contrast ratios
+   (WCAG AA confirmed in §39.5.3).
+   ========================================================================= */
+
+/* --- Theme custom properties ------------------------------------------- */
+
+:root {
+  /* Light-theme defaults. Dark overrides live under prefers-color-scheme. */
+  --color-fg: #1a1a1a;
+  --color-fg-muted: #6b7280;
+  --color-bg: #ffffff;
+  --color-bg-header: #f9fafb;
+  --color-row-selected: #eff6ff;
+  --color-accent: #2563eb;
+  --color-border: #e5e7eb;
+  --color-avatar-bg: #e5e7eb;
+  --mark-bg: #fef08a;
+  --shadow-popup: 0 4px 18px rgba(0, 0, 0, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-fg: #f4f4f4;
+    --color-fg-muted: #9ca3af;
+    --color-bg: #1e1e1e;
+    --color-bg-header: #171717;
+    --color-row-selected: #1e3a5f;
+    --color-accent: #60a5fa;
+    --color-border: #262626;
+    --color-avatar-bg: #3f3f46;
+    --mark-bg: #713f12;
+    --shadow-popup: 0 4px 18px rgba(0, 0, 0, 0.40);
+  }
+}
+
+/* --- Base reset -------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  /* MV3 extension popups size to <body> dimensions. Without an explicit
+     width the browser collapses to minimum content width (UAT-4 defect).
+     Setting 480px here anchors the popup; #qs-root fills it. */
+  width: 480px;
+  min-width: 480px;
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+body {
+  color: var(--color-fg);
+  background-color: var(--color-bg);
+}
+
+/* SR-only helper — identical semantics to sidepanel's .visually-hidden. */
+.qs-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* =========================================================================
+   §39.5.1 Popup container
+   ========================================================================= */
+
+#qs-root {
+  /* position: relative so #qs-empty (absolute sibling) centres against the
+     full popup viewport, not the scrollable results container. UAT-4 defect
+     fix — empty-state was clipped inside overflow:auto scroll container. */
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 560px;
+  overflow: hidden;
+  z-index: auto;
+  border-radius: 8px;
+  box-shadow: var(--shadow-popup);
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+  color: var(--color-fg);
+  background-color: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+}
+
+#qs-root:focus {
+  outline: none;
+}
+
+/* --- Input row --------------------------------------------------------- */
+
+#qs-input-wrap {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-bg);
+  flex: 0 0 auto;
+}
+
+#qs-input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--color-fg);
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  outline: none;
+}
+
+#qs-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-row-selected);
+}
+
+/* --- Scroll region ---------------------------------------------------- */
+
+#qs-results-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 60px;
+}
+
+/* --- Listbox ----------------------------------------------------------- */
+
+#qs-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+/* =========================================================================
+   §39.5.4 Section headers
+   ========================================================================= */
+
+.qs-section-header {
+  position: sticky;
+  top: 0;
+  width: 100%;
+  overflow: visible;
+  z-index: 2;
+  pointer-events: none;
+  color: var(--color-fg-muted);
+  background-color: var(--color-bg-header);
+  padding: 6px 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.qs-section-count {
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+/* =========================================================================
+   §39.5.2 Result row
+   ========================================================================= */
+
+li[role="option"] {
+  position: relative;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  overflow: hidden;
+  z-index: 0;
+  border-radius: 6px;
+  box-shadow: none;
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+  color: var(--color-fg);
+  background-color: transparent;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  margin: 1px 6px;
+}
+
+/* =========================================================================
+   §39.5.3 Selection highlight
+   ========================================================================= */
+
+li[role="option"][aria-selected="true"] {
+  position: relative;
+  z-index: 1;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 2px var(--color-accent);
+  background-color: var(--color-row-selected);
+}
+
+/* --- Row content layout ------------------------------------------------ */
+
+.qs-row-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.qs-row-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qs-row-url {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qs-row-meta {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qs-row-meta .qs-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background-color: var(--color-bg-header);
+  color: var(--color-fg-muted);
+  margin-right: 6px;
+}
+
+.qs-row-meta .qs-badge-active {
+  color: var(--color-accent);
+}
+
+/* =========================================================================
+   §39.5.7 Favicon holder
+   ========================================================================= */
+
+.qs-favicon {
+  position: relative;
+  width: 16px;
+  max-width: 16px;
+  height: 16px;
+  max-height: 16px;
+  /* B-022 R4 H-3: overlay dot extends 2px past the edge, so the container
+     cannot clip its children. The inner <img> has its own fixed 16x16 box. */
+  overflow: visible;
+  z-index: 0;
+  border-radius: 3px;
+  box-shadow: none;
+  transform: none;
+  opacity: 1;
+  pointer-events: none;
+  color: var(--color-fg-muted);
+  background-color: var(--color-avatar-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.qs-favicon img {
+  width: 16px;
+  height: 16px;
+  display: block;
+  border-radius: 3px;
+}
+
+/* =========================================================================
+   §39.5.7.1 Saved-vs-live icon differential (B-022 R4 H-3)
+
+   Per §39.3 D-6, saved rows and open-tab rows must be visually distinct by
+   more than section placement. A small dot overlays the bottom-right corner
+   of the favicon:
+     - Saved rows  → accent-colored dot (visual metaphor: "saved/bookmarked")
+     - Open-tab rows → green dot  (visual metaphor: "live tab")
+   The knockout border (var(--color-bg)) keeps the dot legible against any
+   favicon color. `pointer-events: none` so overlay never intercepts clicks.
+   ========================================================================= */
+
+.qs-favicon-overlay {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-bg);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.qs-overlay-bookmark {
+  background-color: var(--color-accent);
+}
+
+.qs-overlay-livedot {
+  background-color: var(--color-success, #10b981);
+}
+
+@media (prefers-color-scheme: dark) {
+  /* Boost the green for dark-mode contrast (AA vs dark bg). */
+  .qs-overlay-livedot {
+    background-color: var(--color-success, #34d399);
+  }
+}
+
+/* =========================================================================
+   §39.5.6 <mark> highlight
+   ========================================================================= */
+
+mark {
+  position: static;
+  overflow: visible;
+  z-index: auto;
+  border-radius: 2px;
+  box-shadow: none;
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+  color: inherit;
+  background-color: var(--mark-bg);
+  padding: 0 1px;
+}
+
+/* =========================================================================
+   §39.5.5 Empty-state container
+   ========================================================================= */
+
+#qs-empty {
+  /* Now a direct child of #qs-root (relative); centred inside the popup
+     viewport, not clipped by #qs-results-scroll overflow. UAT-4 defect fix. */
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 100%;
+  overflow: hidden;
+  z-index: 1;
+  transform: none;
+  opacity: 1;
+  pointer-events: none;
+  color: var(--color-fg-muted);
+  background-color: transparent;
+  padding: 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+#qs-empty[hidden] {
+  display: none;
+}
+
+.qs-empty-icon {
+  font-size: 24px;
+  opacity: 0.6;
+}
+
+.qs-empty-message {
+  font-size: 13px;
+  color: var(--color-fg-muted);
+}
+
+/* =========================================================================
+   §39.5.8 Loading skeleton overlay
+   ========================================================================= */
+
+.qs-skeleton {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  z-index: 3;
+  transform: none;
+  opacity: 1;
+  pointer-events: none;
+  color: transparent;
+  background-color: var(--color-bg);
+  transition: opacity 160ms ease-out;
+}
+
+.qs-skeleton[hidden] {
+  display: none;
+}
+
+/* --- prefers-reduced-motion -------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .qs-skeleton {
+    transition: none;
+  }
+  #qs-input:focus {
+    box-shadow: none;
+  }
+}

@@ -59,5 +59,7 @@ export {
   PARTITION_META,
   PARTITION_DRIFT,
   PARTITION_FLOATING_GROUPS,
+  PARTITION_RECENCY,
+  RECENCY_CAP,
 } from './partitions.js';
 export { KNOWN_VERSION, getSystemStatus } from './migration.js';

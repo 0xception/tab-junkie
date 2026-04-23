@@ -4,6 +4,11 @@ All notable changes to Tab Junkie are documented in this file.
 
 ## [Unreleased]
 
+## [1.20.0] — 2026-04-23
+
+### Added
+- **Quick-search popup** — press **Alt+J** from any tab to open a lightweight search popup. Type to fuzzy-match across all your saved bookmarks and open tabs, grouped into two sections with favicon, title, URL, and group breadcrumb. Arrow keys navigate, Enter opens or focuses the item, Escape dismisses. With an empty query, the popup shows your most recently opened items (up to 20). The shortcut is customizable via `edge://extensions/shortcuts` (or `chrome://extensions/shortcuts`).
+
 ## [1.19.0] — 2026-04-22
 
 ### Fixed

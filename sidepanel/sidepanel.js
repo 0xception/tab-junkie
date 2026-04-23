@@ -43,6 +43,11 @@ import { safeNormalizeForMatch, isUnsavableScheme } from '../shared/url.js';
    tests so production and test exercise the same source of truth. */
 import { buildItemRowAriaLabel } from '../shared/aria-label.js';
 
+/* B-022: match-highlight renderer promoted from this file to a shared module
+   so both the sidepanel filter (B-021) and the quick-search popup consume
+   the same XSS-safe DocumentFragment builder. Zero behaviour change. */
+import { buildHighlightedText } from '../shared/highlight.js';
+
 /* B-065: pure-logic half of the group picker — row-builder + query
    normalization. The DOM-mutation half (`_renderGroupPickerRows`,
    filter row.hidden toggles, highlight, keyboard nav) stays in this
@@ -76,21 +81,9 @@ import { computeItemReorder, computeMultiItemReorder, computeGroupReorder } from
    installs the index. */
 import { buildIndex, diffAndPatch, search as searchIndex } from './search-index.js';
 
-/**
- * Returns true only for favicon URLs that are safe to assign to img.src.
- * Rejects javascript:, data:text/, and any unknown schemes.
- * @param {string} url
- * @returns {boolean}
- */
-function isSafeFaviconUrl(url) {
-  if (!url || typeof url !== 'string') return false;
-  const lower = url.toLowerCase();
-  return (
-    lower.startsWith('https://') ||
-    lower.startsWith('http://') ||
-    lower.startsWith('data:image/')
-  );
-}
+/* B-022 R4 L-2: isSafeFaviconUrl promoted to shared/favicon.js so popup +
+   sidepanel share the same scheme allowlist. Byte-for-byte equivalent. */
+import { isSafeFaviconUrl } from '../shared/favicon.js';
 
 /* =========================================================================
    DOM references
@@ -1359,38 +1352,9 @@ bookmarkFormEl.addEventListener('submit', _handleFormSubmit);
    Filter helpers (B-021)
    ========================================================================= */
 
-/**
- * Returns a DocumentFragment with matched substrings wrapped in <mark> elements.
- * All text content set via createTextNode — no innerHTML used.
- * @param {string} text
- * @param {string} query
- * @returns {DocumentFragment}
- */
-function buildHighlightedText(text, query) {
-  const frag = document.createDocumentFragment();
-  if (!query) {
-    frag.appendChild(document.createTextNode(text));
-    return frag;
-  }
-  const lower = text.toLowerCase();
-  const lowerQuery = query.toLowerCase();
-  let cursor = 0;
-  while (cursor < text.length) {
-    const idx = lower.indexOf(lowerQuery, cursor);
-    if (idx === -1) {
-      frag.appendChild(document.createTextNode(text.slice(cursor)));
-      break;
-    }
-    if (idx > cursor) {
-      frag.appendChild(document.createTextNode(text.slice(cursor, idx)));
-    }
-    const mark = document.createElement('mark');
-    mark.textContent = text.slice(idx, idx + lowerQuery.length);
-    frag.appendChild(mark);
-    cursor = idx + lowerQuery.length;
-  }
-  return frag;
-}
+/* B-022: `buildHighlightedText` now lives in `shared/highlight.js` and is
+   imported at the top of this file. The sidepanel and the quick-search
+   popup share a single DocumentFragment builder — zero behaviour change. */
 
 function applyFilter() {
   const query = _filterQuery.trim().toLowerCase();
