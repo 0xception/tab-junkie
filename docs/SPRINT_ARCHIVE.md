@@ -1232,3 +1232,65 @@ B-025 UAT-3 surfaced a latent B-030 bug: `_computeDropTarget` required a `.item-
 **Action Items for Sprint 26:**
 1. [scrum-master] S26 scope — resume feature-parity roadmap with B-022 L (quick search popup). [HIGH]
 2. Hygiene carry-forward items absorbed opportunistically or bundled. [LOW]
+
+---
+
+## Sprint 26 — B-022 Quick Search Popup (2026-04-23)
+
+**Theme:** First Full L feature since S23 drag foundation — Alt+J popup for fuzzy-searching bookmarks + open tabs with keyboard navigation + recency.
+**Release:** v1.20.0
+**Merge commit:** `75dd377` (PR #32)
+
+### Completed Items
+
+#### [B-022] Quick Search Popup — ✅ DONE
+- **Tier**: Full (L) · **Closed**: 2026-04-23
+- **Pipeline**: R1 ✅ · R2 ✅ (§39 design chapter) · R3 ✅ · R4 ✅ (3 HIGH + 2 MEDIUM fixed) · R5 ✅ (+39 tests) · UAT 12/12 PASS (after 3 fix cycles on UAT-4) · R6 ✅ (§39.10 As Built documents 6 deviations) · R7 ✅
+- **Files changed** (25: 11 new + 14 modified):
+  - NEW: `popup/popup.{js,css}`, `shared/{favicon,highlight}.js`, `docs/design/39-b-022-quick-search-popup.md`, `docs/findings/sprint-26.md`, `docs/UAT_B-022.md`, `docs/user-manual/quick-search-popup.md`, `tests/b022-quick-search.test.js`
+  - MOD: `manifest.json`, `CHANGELOG.md`, `popup/popup.html` (stub → real), `shared/messages.js` (+MSG_RECENCY_ADD), `background/storage/{shapes,partitions,index,migration}.js`, `background/messages/storage-handlers.js`, `sidepanel/sidepanel.js`, `tests/storage-init.test.js`, all sprint/backlog docs
+- **Key architectural decisions** (§39.3):
+  - D-1 `default_popup` lifecycle (not programmatic `openPopup`)
+  - D-2 shortcut via existing `_execute_action` / Alt+J (no manifest change)
+  - D-3 new `tj:recency` partition (schema v1, cap 50, additive via `initializePartitions`)
+  - D-4 keyboard model with focus trap + arrow interception
+  - D-5 score formula (exact > prefix > substring + recency boost)
+  - D-6 dedupe: two rows (one per section) for saved+live same URL
+- **As Built deviations** (§39.10, 3 R3 + 3 UAT):
+  - R3: migration simplified (no MIGRATION_STEPS), breadcrumb placeholder text, result-cap proportional split
+  - UAT: body-width MV3 popup anchor (html,body), empty-state reparented out of scroll container, popup-lifecycle message race (recency fires BEFORE navigate)
+- **R4 fixes pre-R5**: H-1 google.com favicon removed · H-2 Tab focus trap · H-3 bookmark/live-dot icon overlay · M-1 maxlength 256 · M-2 live-region routing
+
+### UAT Results
+
+- **12/12 PASS** in Edge after 3 UAT-4 fix cycles (width → empty-state → recency race)
+- Popup-lifecycle race (D-UAT-3) was invisible to automated tests (chrome-mock doesn't simulate focus-shift tear-down). UAT-only signal class.
+
+### Velocity
+- Planned: 1 item (Full L)
+- Delivered: 1 item — 100% scope
+- Test growth: 1080 → 1119 (+39)
+- UAT rounds: 3 fix cycles on UAT-4 before all 12 cases cleared
+- Release: v1.20.0
+- Follow-ups filed: B-087 proposed for S27 (CLAUDE.md C-11 addition)
+
+### Retrospective (action items → Sprint 27)
+
+- **HIGH**: Add **C-11 Popup-lifecycle message ordering** to R2 Correctness Checklist in CLAUDE.md — write messages MUST be queued BEFORE focus-shifting API calls in popup surfaces. UAT-4 D-UAT-3 is the blocking precedent. File as B-087 (pattern: B-085 C-10 addition).
+- **MEDIUM**: R4 triage rubric — "deviates from spec skeleton" + "touches user-visible positioning" = HIGH by default. Under-triaged L-1 in S26 caused UAT-2 fix cycle.
+- **MEDIUM**: Chrome-mock gap for popup lifecycle races — investigate a `__test__.simulateActivateShuttersPopup()` helper for S27+ test infrastructure.
+- **LOW**: B-083/B-084 S25 hygiene debt — absorb during any S27+ sidepanel drive-by work.
+
+### R4 Findings Summary
+
+- **B-022**: 0 CRITICAL / 3 HIGH (all fixed) / 4 MEDIUM (2 fixed, 2 deferred) / 6 LOW (2 fixed via side-effect, 4 deferred)
+- **Total**: 0 CRITICAL / 3 HIGH / 4 MEDIUM / 6 LOW
+- **UAT layer**: 3 blockers caught pre-merge, all resolved in-sprint. HIGH-3 validated for 4th consecutive sprint (S22→S23→S24→S26).
+- **Full dedup**: `docs/findings/sprint-26.md`
+
+**Key lesson**: single-item L sprints are highest-risk — no diversity of work surfaces cross-cutting issues. Automated tests green + R4 clean still missed three runtime gotchas in the MV3 popup lifecycle. Pre-merge UAT for L tier remains load-bearing.
+
+**Action Items for Sprint 27:**
+1. [solution-architect] File B-087 — CLAUDE.md C-11 addition. [HIGH]
+2. [scrum-master] R4 triage rubric update. [MEDIUM]
+3. [test-engineer] Investigate chrome-mock popup-lifecycle race simulation. [MEDIUM]
