@@ -47,3 +47,27 @@ registerStorageHandlers(readyPromise);
 initializeLiveState(readyPromise).catch((err) => {
   console.error('[tab-junkie] live-state initialization failed', err);
 });
+
+// B-023 — chrome.commands.onCommand dispatch for Alt+K (group-jump).
+// Per §40.3 D-2: swap default_popup to the group-jump surface, programmatically
+// open it (Alt+K keypress is the user gesture required by chrome.action.openPopup),
+// then restore the default popup so subsequent toolbar clicks still open B-022.
+// Registered synchronously at module scope — no await before addListener (MV3).
+// Touches zero storage; the popup itself fetches via MSG_LIST_ITEMS/MSG_LIST_GROUPS
+// which are readyPromise-gated in the handlers.
+//
+// B-023-H2 fix: sync listener + promise chain (no `async`/`await`). The R2 spec
+// §40.3 D-2 skeleton mandates the three-call sync-chain pattern so the SW is
+// not left with `default_popup` pointed at group-jump if teardown happens mid-await.
+// `.finally()` guarantees the restore runs whether openPopup resolves or rejects.
+chrome.commands.onCommand.addListener((command) => {
+  if (command !== 'group-jump') return;
+  chrome.action.setPopup({ popup: 'popup/group-jump-popup.html' });
+  chrome.action.openPopup()
+    .catch((err) => {
+      console.warn('[tab-junkie] group-jump openPopup failed', err);
+    })
+    .finally(() => {
+      chrome.action.setPopup({ popup: 'popup/popup.html' });
+    });
+});

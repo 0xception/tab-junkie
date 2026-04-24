@@ -58,3 +58,4 @@
 - [§37 — B-025 — Multi-Item Drag as Single Unit (R6 Close)](design/37-b-025-multi-item-drag.md)
 - [§38 — B-031 — Group Drag-Reorder + Nesting via Drag (R6 Close)](design/38-b-031-group-drag-reorder-nest.md)
 - [§39 — B-022 — Quick Search Popup (R2 Design)](design/39-b-022-quick-search-popup.md)
+- [§40 — B-023 — Group Jump Popup (R2 Design)](design/40-b-023-group-jump-popup.md)

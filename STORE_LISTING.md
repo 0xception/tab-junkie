@@ -26,7 +26,7 @@ KEY FEATURES
 • Quick search (Alt+J) — Fuzzy search across all bookmarks and tabs from a popup
 • Near-instant search and filter — the side panel filter bar stays snappy even with large bookmark collections
 • Group search and drill-in — Browse groups and view their contents inline from the popup
-• Quick jump to group (Alt+K) — Jump directly to any group from anywhere
+• Group jump popup (Alt+K) — press Alt+K to open a lightweight popup, fuzzy-match any group by name (sub-groups show their parent breadcrumb), then drill in with Enter to browse that group's bookmarks and sub-groups — all without leaving your current tab from anywhere
 • New tab page — Optional replacement with bookmark grid and web search
 • Chrome tab group sync — Mirror your Tab Junkie groups as Chrome tab groups with matching colors
 • Export to HTML or JSON — one-click **Export HTML** downloads a standard Netscape bookmark file that imports cleanly into Chrome, Firefox, Safari, and Edge; one-click **Export JSON** downloads a schema-versioned, round-trip-safe backup of every group, item, and preference

@@ -4,6 +4,11 @@ All notable changes to Tab Junkie are documented in this file.
 
 ## [Unreleased]
 
+## [1.21.0] — 2026-04-23
+
+### Added
+- **Group jump popup** — press **Alt+K** from any tab to open a lightweight group-jump popup. Type to fuzzy-match group names; sub-groups show their parent breadcrumb. Arrow keys navigate, Enter drills into a group to see its bookmarks and sub-groups, Back button (or Left-arrow at the input) returns to the group list. Each row shows `(N bookmarks · M open)` counts at a glance. Keyboard-first throughout; Escape dismisses. The shortcut is customizable via `edge://extensions/shortcuts` (or `chrome://extensions/shortcuts`).
+
 ## [1.20.0] — 2026-04-23
 
 ### Added
