@@ -1368,3 +1368,94 @@ B-025 UAT-3 surfaced a latent B-030 bug: `_computeDropTarget` required a `.item-
 2. [solution-architect] R2 reuse-surface tables adopt MUST language. [MEDIUM]
 3. [test-engineer] SW-logged event trace for UAT observability. [MEDIUM]
 4. Hygiene debt — absorb drive-by OR file B-088. Product-owner decides. [LOW]
+
+---
+
+## Sprint 28 — B-035 Standalone Window + B-046 Shortcuts + B-082 Popup Button (2026-04-23)
+
+**Theme:** Feature-parity roadmap close — three items: B-035 standalone window (Full M; applies C-11 from day one), B-046 global shortcuts (reduced S→XS at R1 audit), B-082 popup "Open side panel" button. UAT-4 surfaced a 9-sprint-old latent bug in B-052's `hashItem` (sortOrder blindspot) — fixed as cross-module amendment.
+**Release:** v1.22.0
+**Merge commit:** `8dae2ba` (PR #34)
+
+### Completed Items
+
+#### [B-035] Standalone Window Display Mode — ✅ DONE
+- **Tier**: Full (M) · **Closed**: 2026-04-23
+- **Pipeline**: R1 ✅ (20 ACs) · R2 ✅ (§41 design chapter ~5000 words) · R3 ✅ (~66 LOC SW) · R4 ✅ (1 HIGH + 1 MEDIUM + 2 LOW fixed) · R5 ✅ (+24 tests) · UAT 12/13 PASS + 1 SKIP + 2 UAT-4 fix cycles · R6 ✅ (§41.10 As Built, 5 deviations) · R7 ✅
+- **Files**: `background/service-worker.js` (+66 LOC listener + helper + constants), `tests/b035-standalone-window.test.js` (new), `docs/design/41-b-035-standalone-window.md` (new), `docs/user-manual/standalone-window.md` (new)
+- **R2 decisions** (§41.3):
+  - D-1 `popup` window type (not `normal`)
+  - D-2 Load `sidepanel/sidepanel.html` verbatim (zero new HTML/CSS/message types)
+  - D-3 `chrome.windows.getAll({populate:true, windowTypes:['popup']})` + URL match for existing-instance detection (cold-start safe)
+  - D-4 1200×800 centered on current real (non-popup) window; falls back to `realWins[0]`
+  - D-5 `MSG_STATE_CHANGED` subscription automatic (sidepanel JS unchanged)
+  - D-6 C-11 vacuous (no writes from standalone command path)
+  - D-7 NO new permission (`chrome.windows.*` implicit under `tabs` — B-014 precedent)
+  - D-8 B-063 `window.blur` context-menu-close listener inherits automatically
+- **As Built deviations** (§41.10, 3 R4 + 2 UAT):
+  - D-R4-1 Spec drop `|| allWins[0]` anchor fallback restored with popup-type filter (`realWins[0]`)
+  - D-R4-2 Popup-type filter on anchor candidate set (M-2 side-effect fix)
+  - D-R4-3 Key-order + citation comments (L-1, L-2)
+  - D-UAT-4a `hashItem` sortOrder inclusion (cross-module, §34.15 amendment)
+  - D-UAT-4b Broadcast handler pre-patch reorder check → renderAll bail (patch-layer can't reparent)
+
+#### [B-046] Global Keyboard Shortcuts — ✅ DONE
+- **Tier**: Fast Track (XS, reduced from S at R1 audit) · **Closed**: 2026-04-23
+- **Pipeline**: R1 ✅ (manifest audit found shortcuts pre-registered v1.18.0+) · R3 ✅ (doc-only) · R4 ✅ (0 HIGH; 2 MEDIUM doc polish inline)
+- **Files**: `docs/user-manual/keyboard-shortcuts.md` (new, 45 lines + forward-compat browser-limit callout)
+- **Outcome**: Audit-first R1 saved ~60-80% of Full-tier overhead. Pattern validated for follow-up items to shipped infrastructure.
+
+#### [B-082] Popup "Open Side Panel" Button — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-23
+- **Pipeline**: R1 ✅ · R3 ✅ (popup button + handler + CSS + chrome-mock extension) · R4 ✅ (1 HIGH Tab trap + 2 MEDIUM + 1 LOW fixed)
+- **Files**: `popup/popup.{html,js,css}` (+94 net), `tests/chrome-mock.js` (+28 sidePanel mock), `tests/b082-popup-sidepanel-btn.test.js` (new, 3 tests)
+- **R4 fixes pre-close**: H-1 Tab trap includes new button (input ↔ rows ↔ button cycle), M-1 defensive `window.close()` comment, M-2 rapid-click `_sidepanelOpening` guard, L-1 error-color theme tokens
+
+### UAT Results
+
+- **B-035**: 12/13 PASS · 1 SKIP (UAT-6 secondary monitor — single-display rig) · UAT-4 required 2 fix cycles (cross-surface reorder sync — see below)
+- **B-082**: smoke PASS (button renders, opens side panel, closes popup, Tab trap cycles correctly)
+- **B-046**: smoke PASS (Alt+J · Alt+K · Alt+Shift+J all fire with side panel closed)
+
+### Cross-module fix chain (UAT-4 — 9-sprint-old latent bug closure)
+
+`hashItem` in `sidepanel/search-index.js` shipped in B-052 (S19) WITHOUT `sortOrder`. B-030 v2 (S23) worked around it with originating-surface `renderAll` tail. B-025 (S24) deferred the fix as §37.9 F-1 "future optimization". B-035 (S28) was the FIRST new surface consuming broadcasts WITHOUT an originating compensation — UAT-4 surfaced it immediately.
+
+- **Layer 1**: `hashItem` now includes `sortOrder` — closes §37.9 F-1
+- **Layer 2**: `sidepanel/sidepanel.js` broadcast handler pre-checks for sortOrder drift → bails patch to `renderAll` (patch-consumer can't reparent DOM via `replaceWith`)
+- **Test invariant flip**: `tests/b052-fuzzy-search-perf.test.js` sortOrder-edit-noop test inverted to expect `patch` with S28 docstring
+- **Docs**: §34.15 amendment + §41.10.1 fix chain trace
+
+### Velocity
+
+- Planned: 3 items (1 Full M + 2 Fast Track XS)
+- Delivered: 3 items — 100% scope. B-046 reduced S→XS at R1 (audit-first).
+- Test growth: 1163 → 1190 (+24 B-035 + 3 B-082; 1 B-052 test inverted; net +27)
+- UAT rounds: B-035 2 cycles on UAT-4; B-082 + B-046 smoke clean
+- Release: v1.22.0
+- **6 consecutive sprints shipped without rollback or post-merge regression** (S23 → S28)
+
+### Retrospective (action items → Sprint 29)
+
+- **HIGH**: S29 scope candidate — B-038/B-039/B-040 (3× XS prefs) + B-036 (P3/L new tab page). B-036 is next L anchor and applies C-11 from day one (new-tab context is popup-adjacent).
+- **MEDIUM — R2 broadcast-receiver audit pattern**: when a new surface consumes existing broadcasts, R2 MUST audit broadcast-receiver paths in OTHER surfaces for patterns that only work because of the originating surface's compensations. Add as a CLAUDE.md note (not yet a formal C-entry — wait for second precedent).
+- **LOW**: `_patchSingleRow` same-group reorder — current S28 fix is robust but reactive (bails to renderAll). Proper fix would extend patch-consumer to `insertBefore` reposition. Perf improvement only; candidate for S29+ hygiene or B-088 bundle.
+- **LOW**: Hygiene debt — ~20 deferred items across S25-S28. Decide at S29 kickoff: file B-088 hygiene-pass (P2/S) or continue opportunistic absorption.
+
+### R4 Findings Summary
+
+- **B-035**: 0 CRITICAL / 1 HIGH (fixed) / 1 MEDIUM (fixed) / 3 LOW (2 fixed, 1 deferred); 0 security findings
+- **B-046**: 0 CRITICAL / 0 HIGH / 2 MEDIUM (fixed inline) / 2 LOW (deferred)
+- **B-082**: 0 CRITICAL / 1 HIGH (fixed) / 2 MEDIUM (fixed) / 1 LOW (fixed)
+- **Total**: 0 CRITICAL / 2 HIGH / 5 MEDIUM / 6 LOW
+- **UAT layer**: 1 blocker (UAT-4 reorder sync) — required 2-layer cross-module fix. Latent 9 sprints.
+- **Security posture**: zero new permissions · zero network calls · zero new message types · zero new partitions. XSS tight; SW listener sync + idempotent. All C-1 through C-11 PASS or N/A.
+- **Full dedup**: `docs/findings/sprint-28.md`
+
+**Key lesson**: `hashItem` sortOrder was a classic "works because of compensating workaround" bug. Not caught by unit tests (tests codified the workaround contract). Not caught by any of 4 consumer sprints because each had the originating-surface compensation. Caught by UAT-4 the moment B-035 became the first surface WITHOUT the compensation. **Pattern**: test-first culture is insufficient when tests codify the workaround instead of the invariant. R2 design review — tracing the FULL receiver path, not just the originator — is the appropriate gate for this class of latent tech debt.
+
+**Action Items for Sprint 29:**
+1. [scrum-master] S29 scope — B-036 + B-038/039/040 candidate (L anchor + 3 XS prefs). [HIGH]
+2. [solution-architect] R2 broadcast-receiver audit note in CLAUDE.md (informal pre-C-entry). [MEDIUM]
+3. Patch-consumer same-group reorder extension — hygiene candidate. [LOW]
+4. Hygiene debt — B-088 bundle decision at S29 kickoff. [LOW]
