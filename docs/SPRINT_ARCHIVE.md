@@ -1294,3 +1294,77 @@ B-025 UAT-3 surfaced a latent B-030 bug: `_computeDropTarget` required a `.item-
 1. [solution-architect] File B-087 — CLAUDE.md C-11 addition. [HIGH]
 2. [scrum-master] R4 triage rubric update. [MEDIUM]
 3. [test-engineer] Investigate chrome-mock popup-lifecycle race simulation. [MEDIUM]
+
+---
+
+## Sprint 27 — B-023 Group Jump Popup + B-087 C-11 Checklist (2026-04-23)
+
+**Theme:** Second popup-surface feature after B-022 quick-search (S26). B-087 XS codifies C-11 R2 checklist item (S26 retro HIGH action); B-023 L applies it from day one. Meta-loop validated: retro → codification → next-sprint application.
+**Release:** v1.21.0
+**Merge commit:** `01306b2` (PR #33)
+
+### Completed Items
+
+#### [B-087] C-11 Popup-lifecycle message ordering — R2 Correctness Checklist Addition — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-23
+- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (0 findings)
+- **Files**: `CLAUDE.md` (+1 line — C-11 row after C-10)
+- **Outcome**: Future popup-surface work (B-035, B-036, any popup extensions) now has an explicit checklist gate. Sprint 26 B-022 UAT-4 D-UAT-3 cited as blocking precedent.
+
+#### [B-023] Group Jump Popup — ✅ DONE
+- **Tier**: Full (L) · **Closed**: 2026-04-23
+- **Pipeline**: R1 ✅ · R2 ✅ (§40 design chapter ~5000 words) · R3 ✅ (~1400 LOC new) · R4 ✅ (5 HIGH + 2 MEDIUM fixed) · R5 ✅ (+44 tests) · UAT 13 PASS + 1 SKIP + 1 unknown · R6 ✅ · R7 ✅
+- **Files** (18: 7 new + 11 modified):
+  - NEW: `popup/group-jump-popup.{html,js,css}`, `tests/b023-group-jump-popup.test.js`, `docs/design/40-b-023-group-jump-popup.md`, `docs/findings/sprint-27.md`, `docs/UAT_B-023.md`, `docs/user-manual/group-jump-popup.md`
+  - MOD: `CLAUDE.md` (C-11), `CHANGELOG.md`, `STORE_LISTING.md`, `manifest.json`, `background/service-worker.js` (+SW listener), sprint/backlog/findings docs, `docs/SOLUTION_DESIGN.md`
+- **Key architectural decisions** (§40.3):
+  - D-1 Two separate popup surfaces (not shared B-022 with mode-toggle)
+  - D-2 SW `chrome.commands.onCommand('group-jump')` with setPopup/openPopup/setPopup dance
+  - D-3 In-popup drill-in (not send-to-sidepanel)
+  - D-4 Escape always closes; ArrowLeft-at-input-start = Back
+  - D-5 Single round-trip `Promise.all([MSG_LIST_ITEMS, MSG_LIST_GROUPS])`; reuses `shared/group-picker-core.js`
+  - D-6 N/A (separate surfaces; no mode-toggle)
+  - D-7 Zero SW writes in v1 → C-11 vacuously satisfied
+- **As Built deviations** (§40.10, 3 R4-discovered + 2 R3-adjustments):
+  - D-R4-1 `applyGroupPickerFilter` inline-vs-import (fixed: import + `.slice(GROUP_RESULT_CAP)`)
+  - D-R4-2 SW listener async/await → sync `.catch().finally()` (critical lifecycle restore fix)
+  - D-R4-3 Live-tab `{tabId, windowId}` variant dispatch (was missing — B-022 parity restored)
+  - D-R3-1 `_enterUngroupedDrillIn` added for Ungrouped pseudo-row Enter
+  - D-R3-2 Defensive `try/finally` preserved through D-R4-2 reshape
+
+### UAT Results
+
+- 13 PASS · 1 SKIP (UAT-14 C-11 vacuous per D-7 zero-write design) · 1 unknown (UAT-3 popup-to-popup transition — observability-limited, not FAIL; flagged as test-infra gap for S28 investigation)
+- Zero UAT-driven fix cycles (contrast S26 B-022 which needed 3 on UAT-4)
+
+### Velocity
+- Planned: 2 items (1 Full L + 1 Fast Track XS)
+- Delivered: 2 items — 100% scope
+- Test growth: 1119 → 1163 (+44)
+- UAT rounds: 0 post-R5 fix cycles
+- Release: v1.21.0
+
+### Retrospective (action items → Sprint 28)
+
+- **HIGH**: S28 scope — per roadmap: B-035 (P2/M standalone window; applies C-11 from day one), B-046 (P2/S global shortcuts; unblocked), B-082 (P1/XS popup open-sidepanel button). P-1 allows one M; pair all three feasible.
+- **MEDIUM**: R2 reuse-surface tables should use MUST language (not expository) — R3 H-1/H-2/H-5 were all reuse-contract deviations. Tighten templates at next CLAUDE.md editorial pass.
+- **MEDIUM**: SW-logged event trace for UAT popup-to-popup observability (D-R4-2 class issue surfaced UAT-3 observability gap).
+- **MEDIUM**: C-11 adjacent class "Popup-lifecycle continuation state" — D-R4-2 was the same root cause (popup teardown terminates async continuation) but NOT a C-11 violation (no writes involved). Consider C-12 after one more precedent; don't over-proliferate.
+- **LOW**: Hygiene debt accumulating across S25/S26/S27 (~15 deferred items). Propose B-088 hygiene-pass item for S28/S29, OR absorb as drive-by.
+
+### R4 Findings Summary
+
+- **B-087**: 0 findings
+- **B-023**: 0 CRITICAL / 5 HIGH (all fixed) / 4 MEDIUM (2 fixed inline; M-2 resolved as side-effect of H-1; M-4 perf deferred) / 7 LOW (deferred)
+- **Total**: 0 CRITICAL / 5 HIGH / 4 MEDIUM / 7 LOW
+- **UAT layer**: 0 blockers (contrast S26's 3) — S26 retro action items effectiveness visible
+- **Security posture**: B-022 patterns inherited; zero network calls, zero new permissions, zero new message types, zero new partitions; XSS tight; SW listener sync + idempotent
+- **Full dedup**: `docs/findings/sprint-27.md`
+
+**Key lesson**: The S26→S27 meta-loop worked: retro identified popup-lifecycle gap → S27 filed B-087 in kickoff → shipped early-wave → B-023 R2 referenced canonical C-11 → R4 rubric update caught async-listener HIGH that would have silently regressed B-022 default_popup. End-to-end codification cycle under one sprint.
+
+**Action Items for Sprint 28:**
+1. [scrum-master] S28 kickoff — B-035 + B-046 + B-082 candidate. [HIGH]
+2. [solution-architect] R2 reuse-surface tables adopt MUST language. [MEDIUM]
+3. [test-engineer] SW-logged event trace for UAT observability. [MEDIUM]
+4. Hygiene debt — absorb drive-by OR file B-088. Product-owner decides. [LOW]
