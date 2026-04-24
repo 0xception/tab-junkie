@@ -233,12 +233,30 @@ const windows = {
   onFocusChanged: createEventMock(),
 };
 
+/** B-082: minimal chrome.sidePanel mock for popup side-panel button tests. */
+const sidePanelState = {
+  /** If true, the next chrome.sidePanel.open() rejects. */
+  openReject: false,
+  openCalls: [],
+};
+
+const sidePanel = {
+  async open(options) {
+    sidePanelState.openCalls.push(options);
+    if (sidePanelState.openReject) {
+      sidePanelState.openReject = false;
+      throw new Error('sidePanel.open failed');
+    }
+  },
+};
+
 const chromeMock = {
   __tabJunkieTestMock: true,
   storage: { local: storageLocal, session: storageSession },
   runtime,
   tabs,
   windows,
+  sidePanel,
 };
 
 export function installChromeMock() {
@@ -268,6 +286,19 @@ export function __resetMock() {
   windows.onCreated._listeners.length = 0;
   windows.onRemoved._listeners.length = 0;
   windows.onFocusChanged._listeners.length = 0;
+  /* B-082 */
+  sidePanelState.openReject = false;
+  sidePanelState.openCalls = [];
+}
+
+/** B-082: force the next chrome.sidePanel.open() to reject. */
+export function __setSidePanelOpenReject(reject) {
+  sidePanelState.openReject = reject;
+}
+
+/** B-082: return recorded chrome.sidePanel.open() calls. */
+export function __getSidePanelOpenCalls() {
+  return [...sidePanelState.openCalls];
 }
 
 export function __setCallCount() {

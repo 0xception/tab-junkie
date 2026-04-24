@@ -5719,30 +5719,46 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
           if (_filterQuery || _activeWindowFilter !== null) applyFilter();
           patched = true;
         } else if (delta.deltaType === 'patch') {
-          /* Update caches so `buildItemRow` reads the freshest data as it
-             constructs the replacement rows. */
-          _cachedItems = itemsResp.items;
-          _cachedItemsGen += 1;
-          _cachedGroups = groups;
-          _cachedGroupsGen += 1;
-          _cachedLiveStates = itemsResp.liveStates || {};
-          _cachedDriftRecords = itemsResp.driftRecords || {};
-          _setCachedOpenTabs(itemsResp.openTabs);
-          _itemById = new Map(itemsResp.items.map((it) => [it.id, it]));
-          _searchIndex = delta.index;
+          /* S28 B-035 UAT-4: if any updated item's sortOrder changed vs
+             cache, _patchSingleRow's `existing.replaceWith(freshRow)` keeps
+             the OLD DOM position — remote surfaces show stale order. Skip
+             the patch branch and fall through to renderAll, which rebuilds
+             the DOM in fresh sortOrder order. Check BEFORE overwriting
+             caches so the prior sortOrder is still readable via _itemById. */
+          const hasReorder = delta.affected.some((change) => {
+            if (change.kind !== 'updated') return false;
+            const prev = _itemById.get(change.id);
+            const next = itemsResp.items.find((it) => it.id === change.id);
+            return prev && next && (prev.sortOrder ?? 0) !== (next.sortOrder ?? 0);
+          });
 
-          /* Apply row deltas in delta.affected order (remove → update →
-             add). Abort to full rebuild at the first delta the DOM can't
-             service (e.g. a new row for a group that isn't rendered yet). */
-          let allApplied = true;
-          for (const change of delta.affected) {
-            if (!_patchSingleRow(change)) { allApplied = false; break; }
+          if (!hasReorder) {
+            /* Update caches so `buildItemRow` reads the freshest data as it
+               constructs the replacement rows. */
+            _cachedItems = itemsResp.items;
+            _cachedItemsGen += 1;
+            _cachedGroups = groups;
+            _cachedGroupsGen += 1;
+            _cachedLiveStates = itemsResp.liveStates || {};
+            _cachedDriftRecords = itemsResp.driftRecords || {};
+            _setCachedOpenTabs(itemsResp.openTabs);
+            _itemById = new Map(itemsResp.items.map((it) => [it.id, it]));
+            _searchIndex = delta.index;
+
+            /* Apply row deltas in delta.affected order (remove → update →
+               add). Abort to full rebuild at the first delta the DOM can't
+               service (e.g. a new row for a group that isn't rendered yet). */
+            let allApplied = true;
+            for (const change of delta.affected) {
+              if (!_patchSingleRow(change)) { allApplied = false; break; }
+            }
+            if (allApplied) {
+              _applyWindowMapToUI();
+              if (_filterQuery || _activeWindowFilter !== null) applyFilter();
+              patched = true;
+            }
           }
-          if (allApplied) {
-            _applyWindowMapToUI();
-            if (_filterQuery || _activeWindowFilter !== null) applyFilter();
-            patched = true;
-          }
+          /* else: patched stays false → fall through to renderAll below */
         }
         /* 'full-rebuild' deltas fall through to `renderAll` below. */
       }

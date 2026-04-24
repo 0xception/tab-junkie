@@ -1,33 +1,34 @@
 # Current Sprint
 
-*Sprint 27 — B-023 Group Jump Popup + B-087 C-11 R2 Checklist Addition. Closed 2026-04-23 with v1.21.0.*
+*Sprint 28 — B-035 Standalone Window + B-046 Global Shortcuts + B-082 Popup "Open Side Panel" Button. Closed 2026-04-23 with v1.22.0.*
 
-Two-item sprint: B-087 XS (S26 retro HIGH action) landed early; B-023 L shipped with 5 R4 HIGH fixes in a single cycle + 13/15 UAT PASS (1 SKIP vacuous + 1 unknown observability-limited, no FAILs). Second popup-surface feature after B-022 — the new C-11 R2 checklist item was applied from day one.
+Three-item sprint. B-035 (Full M) anchored; B-046 reduced to Fast Track XS at R1 (shortcuts already registered); B-082 Fast Track XS shipped cleanly. Bonus: UAT-4 surfaced a 9-sprint-old `hashItem` blindspot from B-052 — fixed as cross-module amendment (§34.15 + §41.10).
 
 ---
 
 ## Completed This Sprint
 
-### [B-087] Add C-11 "Popup-lifecycle message ordering" to R2 Correctness Checklist — DONE
-- **Tier**: Fast Track (XS) · **Closed**: 2026-04-23
-- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (0 findings) · no UAT (doc edit)
-- **Files**: `CLAUDE.md` (+1 line — C-11 row inserted after C-10)
-- **Outcome**: future popup-surface work (B-035 standalone window, B-036 new-tab page, any popup extensions) now has an explicit checklist gate. Cites Sprint 26 B-022 UAT-4 D-UAT-3 as the blocking precedent.
+### [B-035] Standalone Window Display Mode — DONE
+- **Tier**: Full (M) · **Closed**: 2026-04-23
+- **Pipeline**: R1 ✅ (20 ACs) · R2 ✅ (§41 design chapter) · R3 ✅ (~66 LOC SW) · R4 ✅ (1 HIGH + 1 MEDIUM + 2 LOW fixed) · R5 ✅ (+24 tests) · UAT 12/13 PASS + 1 SKIP (single-display, expected) + 2 UAT-4 fix cycles · R6 ✅ (§41.10 As Built with 5 deviations + fix chain) · R7 ✅
+- **Files**: `background/service-worker.js` (+66 LOC listener+helper+constants), `tests/b035-standalone-window.test.js` (new, 24 tests)
+- **R2 decisions**: D-1 `popup` window type, D-2 load `sidepanel/sidepanel.html` directly (zero new HTML), D-3 `getAll`+URL-match existing-instance detection (cold-start safe), D-4 1200×800 centered on focused window, D-5 `MSG_STATE_CHANGED` subscription automatic, D-6 C-11 vacuous, D-7 NO new permission (`chrome.windows.*` implicit under `tabs` — B-014 precedent), D-8 B-063 `window.blur` listener inherits automatically
+- **R4 fixes pre-R5**: H-1 anchor fallback (restored `|| allWins[0]`), M-2 popup-type filter for anchor set, L-1 key order, L-2 comment citation
+- **UAT-4 fix chain** (cross-module, documented §41.10.1 + §34.15):
+  - Layer 1: `sidepanel/search-index.js` `hashItem` now includes `sortOrder` — closes S24 §37.9 F-1 long-deferred optimization
+  - Layer 2: `sidepanel/sidepanel.js` broadcast handler — pre-patch sortOrder check → bail to `renderAll` when reorder detected (patch layer can't reparent DOM nodes)
+  - Test suite: `tests/b052-fuzzy-search-perf.test.js` sortOrder-edit-noop test inverted to expect `patch` (S28 docstring documents the invariant change)
 
-### [B-023] Group Jump Popup — DONE
-- **Tier**: Full (L) · **Closed**: 2026-04-23
-- **Pipeline**: R1 ✅ · R2 ✅ (§40 design chapter, ~5000 words) · R3 ✅ (~1400 LOC new) · R4 ✅ (3 HIGH code + 2 HIGH UAT-text + 2 MEDIUM fixed) · R5 ✅ (+44 tests) · UAT 13 PASS + 1 SKIP + 1 unknown · R6 ✅ (§40.10 As Built) · R7 ✅
-- **R4 fixes shipped pre-R5**:
-  - H-1 `applyGroupPickerFilter` import (spec-mandated reuse, was inline re-implementation)
-  - H-2 SW listener async→sync `.catch().finally()` chain (lifecycle-continuation risk on default_popup restore)
-  - H-3 UAT-3 text updated for D-6 N/A resolution
-  - H-4 UAT-10 sub-case (h) added (whitespace-only query)
-  - H-5 Live-tab `{tabId, windowId}` variant dispatch (was always sending `{itemId}` — functional regression vs B-022)
-  - M-1 Back-button focus-visible outline (WCAG AA)
-  - M-3 Drill-in listbox `aria-label` reflects group context
-- **Files** (15 changed / 7 new):
-  - NEW: `popup/group-jump-popup.{html,js,css}`, `tests/b023-group-jump-popup.test.js`, `docs/design/40-b-023-group-jump-popup.md`, `docs/findings/sprint-27.md`, `docs/UAT_B-023.md`, `docs/user-manual/group-jump-popup.md`
-  - MOD: `CLAUDE.md` (B-087 C-11 row), `CHANGELOG.md` ([1.21.0]), `STORE_LISTING.md` (marketing expansion), `manifest.json` (version bump), `background/service-worker.js` (+chrome.commands listener), `docs/BACKLOG.md`, `docs/BACKLOG_BOARD.md`, `docs/SPRINT.md`, `docs/SPRINT_FINDINGS.md`, `docs/SOLUTION_DESIGN.md`
+### [B-046] Global Keyboard Shortcuts — DONE
+- **Tier**: Fast Track XS (reduced from S at R1 — shortcuts already registered v1.18.0+)
+- **Pipeline**: R1 ✅ · R3 ✅ (doc-only: `docs/user-manual/keyboard-shortcuts.md`) · R4 ✅ (0 HIGH; 2 MEDIUM doc polish applied inline)
+- **Files**: `docs/user-manual/keyboard-shortcuts.md` (new, 45 lines + forward-compat note + three-vs-four wording polish)
+
+### [B-082] Popup "Open Side Panel" Button — DONE
+- **Tier**: Fast Track XS
+- **Pipeline**: R1 ✅ · R3 ✅ (popup button + handler + CSS + chrome-mock extension) · R4 ✅ (1 HIGH Tab trap + 2 MEDIUM + 1 LOW fixed)
+- **Files**: `popup/popup.{html,js,css}` (+94 net), `tests/chrome-mock.js` (+28 sidePanel mock), `tests/b082-popup-sidepanel-btn.test.js` (new, 3 tests)
+- **R4 fixes pre-close**: H-1 Tab trap includes new button (input ↔ rows ↔ button cycle), M-1 defensive `window.close()` comment, M-2 rapid-click guard, L-1 error-color theme tokens
 
 ---
 
@@ -35,78 +36,78 @@ Two-item sprint: B-087 XS (S26 retro HIGH action) landed early; B-023 L shipped 
 
 | # | Check | Status |
 |---|-------|--------|
-| 1 | All R4 review findings resolved | ✅ — 0 CRITICAL / 5 HIGH (3 code + 2 UAT-text) all fixed · 2 MEDIUM (M-1 + M-3) applied inline · M-2 resolved as side effect of H-1 · M-4 + 7 LOW deferred to S28+ |
-| 2 | All R5 automated tests passing | ✅ — **1163/1163** green (1119 baseline + 44 new B-023 cases) |
-| 3 | UAT sign-off | ✅ — 13 PASS · 1 SKIP (UAT-14 C-11 vacuous per D-7) · 1 unknown (UAT-3 popup-to-popup transition, observability-limited; not FAIL) |
+| 1 | All R4 review findings resolved | ✅ — 0 CRITICAL · 2 HIGH (B-082-H1 Tab trap + B-035-H1 anchor fallback) fixed · 4 MEDIUM fixed · ~10 LOW deferred |
+| 2 | All R5 automated tests passing | ✅ — **1190/1190** green (1163 baseline + 24 B-035 + 3 B-082; 1 B-052 test inverted per hashItem amendment) |
+| 3 | UAT sign-off | ✅ — B-035 12/13 PASS · 1 SKIP (UAT-6 secondary monitor, single-display) · 2 UAT-4 fix cycles cleared · B-082 smoke PASS · B-046 smoke PASS |
 | 4 | No open blockers | ✅ |
-| 5 | `docs/design/*` slices updated | ✅ — §40 chapter authored at R2 + §40.10 As Built at R6 (3 R4 + 2 R3 deviations documented) · root index §40 TOC entry · §39 (B-022) untouched (verified) |
-| 6 | `manifest.json` permissions reviewed | ✅ — zero additions; only `version` 1.20.0 → 1.21.0 bump; `group-jump` command was pre-registered v1.18.0+ |
-| 7 | `./build.sh` produces clean package | ✅ — 260 K zip, 74 files |
-| 8 | Rollback plan documented | ✅ — §40.8: `git revert` is data-clean; zero new partitions, zero new message types, zero new permissions |
-| 9 | README / user manual / STORE_LISTING updated | ✅ — CHANGELOG [1.21.0] + new `docs/user-manual/group-jump-popup.md` + STORE_LISTING bullet expanded |
-| 10 | `BACKLOG.md` — B-023 + B-087 `done` | ✅ |
-| 11 | `BACKLOG_BOARD.md` — progress dashboard accurate | ✅ — 89% (77/87) · 0 in-progress · S28 next |
-| 12 | `SPRINT.md` "Completed This Sprint" reflects B-023 + B-087 | ✅ |
+| 5 | `docs/design/*` updated | ✅ — §41 chapter + §41.10 As Built (5 deviations incl. fix chain) · §34.15 S28 amendment (hashItem + sortOrder closes §37.9 F-1) · root index §41 TOC entry |
+| 6 | `manifest.json` permissions reviewed | ✅ — zero additions; only version bump 1.21.0 → 1.22.0 |
+| 7 | `./build.sh` produces clean package | ✅ — 264 K zip, 74 files |
+| 8 | Rollback plan documented | ✅ — §41.8 data-clean (zero schema changes, zero new permissions); cross-module hashItem fix revertible via git |
+| 9 | README / user manual / STORE_LISTING | ✅ — CHANGELOG [1.22.0] · new `docs/user-manual/standalone-window.md` · `quick-search-popup.md` +8 lines (Open side panel section) · `keyboard-shortcuts.md` (S28 B-046) · STORE_LISTING +2 lines |
+| 10 | `BACKLOG.md` — all S28 items `done` | ✅ (80/87) |
+| 11 | `BACKLOG_BOARD.md` — progress dashboard accurate | ✅ — 92% (80/87) · 0 in-progress · S29 next |
+| 12 | `SPRINT.md` "Completed This Sprint" | ✅ |
 | 13 | `SPRINT_ARCHIVE.md` updated | ⏳ — post-release archive step |
 
 **Gate 4 verdict**: PASS conditional on post-release archive.
 
 ---
 
-## Sprint Retrospective — Sprint 27
+## Sprint Retrospective — Sprint 28
 
 ### Velocity
 
-- Planned: 2 items (1 Full L + 1 Fast Track XS)
-- Delivered: 2 items — 100% scope
-- Test growth: **1119 → 1163 (+44)** via new `tests/b023-group-jump-popup.test.js`
-- UAT rounds: **1** fix cycle for B-023 (5 HIGH fixed pre-R5; no UAT-driven fix cycles post-R5)
-- Follow-ups filed: none net new (S25 + S26 + S27 hygiene absorbed into S28 candidate bundle)
-- Release: **v1.21.0**
+- Planned: 3 items (1 Full M + 2 Fast Track XS)
+- Delivered: 3 items — 100% scope. B-046 reduced S→XS at R1 (audit-first approach validated).
+- Test growth: **1163 → 1190 (+27 net)** — 24 B-035 + 3 B-082; 1 B-052 test inverted (net 27 new tests)
+- UAT rounds: B-035 = 2 fix cycles on UAT-4 (hashItem + patch-consumer); B-082 + B-046 smoke clean
+- Release: **v1.22.0**
+- **6 consecutive sprints shipped without rollback or post-merge regression** (S23 through S28)
 
 ### What Went Well
 
-1. **B-087 discipline — the meta-loop worked**. Sprint 26 retro identified a load-bearing gap (popup-lifecycle message ordering). S27 filed B-087 in kickoff, shipped it early-wave so B-023 R2 could reference the canonical C-11 text. The whole chain (retro → filing → sprint kickoff → early ship → downstream application) took under one sprint. Validates the "small-item codification of runtime lessons" pattern established by B-085 (C-10) and B-077 (DoR Gate 7 subsection).
-2. **R4 triage rubric update paid off on first use**. S26 retro said "deviates from spec skeleton + user-visible = HIGH by default." qa-reviewer elevated `async` listener deviation from M-1 to HIGH per this rubric and caught a real lifecycle bug. Without the rubric update, the async listener bug would likely have shipped (silent regression of B-022's default_popup).
-3. **B-022 precedent reuse was dense and correct**. `shared/highlight.js` + `shared/favicon.js` + `shared/group-picker-core.js` consumed verbatim; popup shell patterns (aria-activedescendant, focus trap, debounce 120ms, empty-state direct-child-of-root, body-width anchor) lifted from §39 As Built without adjustment. The three patterns from S26 UAT fixes (D-UAT-1/2/3) all applied from day one — no re-discovery.
-4. **Zero UAT fix cycles for B-023**. All 5 HIGHs landed at R4 (before R5 tests); R5 wrote tests against the fixed code; pre-merge UAT cleared 13/13 actionable cases first pass. Contrast with S26 B-022 which needed 3 UAT-4 fix cycles for popup-lifecycle issues. Codifying S26's lessons into rubric + checklist (B-087) directly reduced S27's UAT surface.
+1. **R1 audit-first reduced B-046 scope correctly**. PM agent's first R1 deliverable was "verify manifest state" — found shortcuts already registered. Tier auto-reduced S→XS. Saved an estimated 60-80% of the Full-tier overhead (no R2 chapter, no Full R4, no pre-merge UAT). This pattern (audit before scoping) is the right default for follow-up items to shipped infrastructure.
+2. **S27 retro rubric paid out again**. R4 reviewers elevated async-listener-like HIGHs (B-082-H1 Tab trap, B-035-H1 anchor fallback) per the "deviates from spec + user-visible = HIGH by default" rule. Both were silent-regression risks.
+3. **Meta-loop continues**. S26 → S27 shipped C-11 codification → S28 applied C-11 from day one on B-035. R4 + UAT surfaced zero popup-lifecycle issues (contrast S26's 3 UAT blockers). Discipline compounds.
+4. **B-035 reused sidepanel.html verbatim (D-2)**. Zero new HTML, zero new CSS, zero new message types — standalone window IS the sidepanel loaded in a different host. All feature parity (drag-drop, context menus, state sync) was automatic. Architectural leverage.
 
 ### What to Improve
 
-1. **MEDIUM — R3 code quality drift on reuse contracts**. R3 shipped three independent deviations from R2's reuse spec: H-1 (inline `applyGroupPickerFilter`), H-2 (async listener), H-5 (missing live-tab variant). All three were well-specified in R2 but glossed in R3. Pattern suggests R3 frontend-engineer under-reads R2 §N.2 "Reuse surface" tables when they're presented as expository rather than prescriptive. For S28+: tighten R2 reuse-surface tables to use MUST language ("MUST import", "MUST match precedent at line N") — make the contract unambiguous.
-2. **MEDIUM — UAT-3 observability limitation**. Popup-to-popup transitions (Alt+K while B-022 is focused) are hard to observe manually because MV3 popup tear-down + SW listener dispatch happen atomically. Same class of observability gap as S26 chrome-mock popup-lifecycle race. Candidate for test infrastructure investment: a SW-logged event trace that UAT tester can inspect post-action to verify the sequence occurred. S28 investigation.
-3. **MEDIUM — C-11 adjacent-pattern class surfaced**. D-R4-2 (async `setPopup` restore race) is NOT a C-11 violation (no `sendMessage` writes involved), but IS the same root-cause class: popup lifecycle can terminate async continuations mid-flight. C-11 covers writes; the restore-state issue is an adjacent-but-distinct check. Consider proposing a C-12 "Popup-lifecycle continuation state" check for future retro (after one more precedent event — don't over-proliferate checklist items for single occurrences).
-4. **LOW — hygiene debt accumulating**. S25 carry-forward (3 items) + S26 carry-forward (6 DM items) + S27 carry-forward (2 MEDIUM + 7 LOW) = ~15 opportunistic-debt items. Proposal for S28 or S29: bundle a "B-088 Popup + sidepanel hygiene pass" item (P2/S) — absorbs the drive-by debt without cluttering feature sprints. Alternative: keep absorbing as drive-bys on touched files.
+1. **HIGH — UAT-4 surfaced a 9-sprint-old latent bug (`hashItem` sortOrder blindspot)**. B-052 (S19) shipped the hash without `sortOrder`; B-030 v2 (S23) worked around it with originating-surface `renderAll` tail; B-025 (S24) deferred the sortOrder fix as §37.9 F-1 "future optimization"; B-035 (S28) is the FIRST new surface that consumes broadcasts WITHOUT an originating-surface workaround — UAT-4 was the first opportunity for the bug to be observable. **Pattern lesson**: when a new surface consumes an existing broadcast, audit the broadcast-receiver paths in OTHER surfaces for patterns that only work because of the originating surface's compensations. Propose adding this as an R2 check (candidate future C-12) once we have a second precedent. For S29: document this pattern in the CLAUDE.md §Round 2 Correctness Checklist as a note, not yet a formal C-entry.
+2. **MEDIUM — Patch-consumer layer had latent reorder gap**. `_patchSingleRow` handled rename, URL change, cross-group move (returned false) — but not same-group reorder. This was invisible until `hashItem` fix surfaced reorder as `patch` delta. The S28 fix (pre-patch sortOrder check → renderAll bail) is robust but reactive. A proper fix would extend `_patchSingleRow` to handle same-group reorder via `insertBefore` reordering. S29+ candidate for hygiene cleanup.
+3. **LOW — UAT-4 fix chain required 2 cycles (hashItem, then patch-consumer)**. User reported reorder-sync broken after the first fix. An R2 design that enumerated the full broadcast → diffAndPatch → patch-consumer → DOM path would have identified both layers up-front. S29+: for any broadcast-related change, the R2 must trace the full receiver path.
 
-### Action Items for Sprint 28
+### Action Items for Sprint 29
 
-- [ ] **[scrum-master]** S28 kickoff — per roadmap, candidates are B-035 (standalone window, P2/M) + B-046 (global shortcuts, P2/S, now fully unblocked by B-023 shipping) + B-082 (popup open-sidepanel button, P1/XS). P-1 allows one M; could pair all three. [HIGH]
-- [ ] **[solution-architect]** R2 reuse-surface tables — adopt MUST language going forward. Document retrospective note in CLAUDE.md §Round 2 mentoring section (if section exists; else file as a new sub-item for next R2 template update). [MEDIUM]
-- [ ] **[test-engineer]** Investigate SW-logged event trace for UAT popup-to-popup observability. S28+. [MEDIUM]
-- [ ] **Hygiene carry-forward**: either absorb as drive-by during S28 sidepanel/popup work, OR file B-088 as dedicated hygiene-pass item. Product-owner decision at S28 kickoff. [LOW]
+- [ ] **[scrum-master]** S29 scope — per roadmap: B-038/039/040 (XS prefs) + B-036 (P3/L new tab page, applies C-11 from day one). B-036 is the next L anchor; B-038/039/040 are 3 trivial XS items. P-1 allows B-036 alone or paired with 1-2 XS items. [HIGH]
+- [ ] **[solution-architect]** Propose new retro pattern: when a new surface consumes existing broadcasts, audit broadcast-receiver compensations in other surfaces. Add as a CLAUDE.md note (not yet a formal C-entry — wait for second precedent). [MEDIUM]
+- [ ] **Patch-consumer same-group reorder handling**: extend `_patchSingleRow` to detect sortOrder drift and `insertBefore` reposition instead of bailing to renderAll. Perf improvement; not a correctness issue. Candidate for S29+ hygiene or B-088 bundle. [LOW]
+- [ ] **S25/S26/S27/S28 hygiene carry-forward**: accumulating ~20 deferred items across 4 sprints. Decide at S29 kickoff whether to file B-088 hygiene-pass (P2/S) or continue opportunistic absorption. [LOW]
 
-### R4 Findings Summary (Sprint 27)
+### R4 Findings Summary (Sprint 28)
 
-- **B-087**: 0 findings (clean CLAUDE.md edit)
-- **B-023**: 0 CRITICAL / 5 HIGH (all fixed) / 4 MEDIUM (2 fixed inline; 2 deferred) / 7 LOW (deferred)
-- **Total**: 0 CRITICAL / 5 HIGH / 4 MEDIUM / 7 LOW
-- **UAT layer**: 0 blockers caught (contrast with S26: 3 blockers). Effectiveness of S26 retro action items visible — B-087 C-11 codification + rubric update + R4 triage elevation all contributed.
-- **Security posture**: B-022 patterns inherited; zero new network calls; zero new permissions; zero new message types or partitions; XSS surface tight (textContent + `buildHighlightedText` DocumentFragment); SW listener sync + idempotent
-- **Full dedup**: `docs/findings/sprint-27.md`
+- **B-082**: 0 CRITICAL / 1 HIGH (fixed) / 2 MEDIUM (fixed) / 1 LOW (fixed)
+- **B-046**: 0 CRITICAL / 0 HIGH / 2 MEDIUM (fixed inline) / 2 LOW (deferred)
+- **B-035**: 0 CRITICAL / 1 HIGH (fixed) / 1 MEDIUM (fixed) / 3 LOW (2 fixed, 1 deferred); 0 security findings
+- **UAT layer**: 1 blocker (UAT-4 reorder sync) — required 2-layer fix (hashItem + patch-consumer). Observable only with a second sidepanel-consuming surface (B-035). Latent 9 sprints.
+- **Security posture**: zero new permissions · zero new network calls · zero new message types · zero new partitions. XSS tight; SW listener sync + idempotent. All C-1 through C-11 PASS or N/A.
+- **Full dedup**: `docs/findings/sprint-28.md`
 
-**Key lesson**: two-item sprints (1 L + 1 XS/S) feel optimal when the XS/S closes a retro action from the prior sprint and the L applies it. This was the "meta-loop" pattern validated in S27.
+**Key lesson**: The `hashItem` sortOrder blindspot was a classic "works because of compensating workaround" bug. Not caught by unit tests (tests were written to the workaround contract). Not caught by any of 4 consumer sprints because they all had the originating-surface compensation. Caught by UAT-4 the moment B-035 introduced a surface without the compensation. Pattern: test-first culture is insufficient when tests codify the workaround instead of the invariant. R2 design review is the appropriate gate for this class of latent tech debt — but the reviewer must trace the full receiver path, not just the originator.
 
 ---
 
 ## Sprint Close
 
-**Status**: CLOSED 2026-04-23. v1.21.0 release pending commit + tag + archive.
+**Status**: CLOSED 2026-04-23. v1.22.0 release pending commit + tag + archive.
 
-### Follow-on for Sprint 28
+### Follow-on for Sprint 29
 
 Per roadmap + retro:
-- **B-035** (P2/M) — standalone window. Applies C-11 (window lifecycle similar to popup). Full tier.
-- **B-046** (P2/S) — Global keyboard shortcuts (now fully unblocked after B-023). Fast Track.
-- **B-082** (P1/XS) — popup open-sidepanel button. Fast Track.
-- Optional: **B-088** (new, P2/S) — Popup + sidepanel hygiene pass (S25 + S26 + S27 carry-forward). Product-owner decision.
-- P-1 satisfied (single M); P-2 satisfied (multiple S/XS pair).
+- **B-036** (P3/L) — new tab page replacement (optional, `chrome_url_overrides` manifest). Full tier anchor. Applies C-11 from day one (new-tab context is popup-adjacent).
+- **B-038** (P3/XS) — display mode preference (side panel vs standalone)
+- **B-039** (P3/XS) — new tab page toggle preference
+- **B-040** (P3/XS) — sub-group auto-collapse preference
+- Optional **B-088** (new, P2/S) — bundled hygiene pass (~20 items from S25-S28)
+- P-1 single L + multiple XS feasible

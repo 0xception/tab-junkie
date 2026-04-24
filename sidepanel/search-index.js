@@ -91,6 +91,14 @@ export const BULK_REBUILD_THRESHOLD = 10;
  * collision-resistant enough for a per-id compare — the null-byte separator
  * makes `("a", "b|c")` and `("a|b", "c")` distinguishable.
  *
+ * Includes `sortOrder` so same-group reorder broadcasts (B-025/B-030)
+ * surface as diff-patch changes on REMOTE surfaces (standalone window,
+ * popups). Without it, `diffAndPatch` returns `deltaType: 'noop'` for
+ * reorder-only broadcasts — originating surface works around this with
+ * an explicit `renderAll` tail, but remote surfaces inherit state via
+ * broadcast only. Surfaced by Sprint 28 B-035 UAT-4 (standalone did not
+ * reflect same-group reorders made in the sidepanel).
+ *
  * @param {IndexableItem} item
  * @returns {string}
  */
@@ -98,7 +106,8 @@ function hashItem(item) {
   const title = item.title == null ? '' : String(item.title);
   const url = item.url == null ? '' : String(item.url);
   const groupId = item.groupId == null ? '' : String(item.groupId);
-  return item.id + '\x00' + title + '\x00' + url + '\x00' + groupId;
+  const sortOrder = item.sortOrder == null ? '' : String(item.sortOrder);
+  return item.id + '\x00' + title + '\x00' + url + '\x00' + groupId + '\x00' + sortOrder;
 }
 
 /**
