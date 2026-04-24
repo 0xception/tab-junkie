@@ -1,0 +1,530 @@
+/* =========================================================================
+   Tab Junkie — Group Jump Popup Styles (B-023)
+   Authoritative spec: docs/design/40-b-023-group-jump-popup.md §40.5
+   Every positioned property enumerated in §40.5 is materialised here.
+   Light + dark tokens mirror popup.css (B-022) with identical contrast ratios
+   (WCAG AA confirmed in §40.5.5).
+
+   D-1: separate popup surface from B-022. This stylesheet is scoped to the
+   `gj-` prefix so the two surfaces never collide even if Chrome/Edge caches
+   a shared stylesheet reference.
+   ========================================================================= */
+
+/* --- Theme custom properties ------------------------------------------- */
+
+:root {
+  /* Light-theme defaults. Dark overrides live under prefers-color-scheme. */
+  --color-fg: #1a1a1a;
+  --color-fg-muted: #6b7280;
+  --color-bg: #ffffff;
+  --color-bg-header: #f9fafb;
+  --color-row-selected: #eff6ff;
+  --color-accent: #2563eb;
+  --color-border: #e5e7eb;
+  --color-avatar-bg: #e5e7eb;
+  --mark-bg: #fef08a;
+  --shadow-popup: 0 4px 18px rgba(0, 0, 0, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-fg: #f4f4f4;
+    --color-fg-muted: #9ca3af;
+    --color-bg: #1e1e1e;
+    --color-bg-header: #171717;
+    --color-row-selected: #1e3a5f;
+    --color-accent: #60a5fa;
+    --color-border: #262626;
+    --color-avatar-bg: #3f3f46;
+    --mark-bg: #713f12;
+    --shadow-popup: 0 4px 18px rgba(0, 0, 0, 0.40);
+  }
+}
+
+/* --- Base reset -------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* =========================================================================
+   §40.5.0 Body-width anchor — MANDATORY (UAT-1 lesson from §39.10 D-UAT-1)
+   MV3 popups size to the <body> rect; without this anchor, #gj-root's
+   width: 100% resolves to the minimum content width (~50 px) and Edge
+   renders the popup unusable.
+   ========================================================================= */
+
+html,
+body {
+  width: 480px;
+  min-width: 480px;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+body {
+  color: var(--color-fg);
+  background-color: var(--color-bg);
+}
+
+/* SR-only helper — identical semantics to popup.css's .qs-visually-hidden. */
+.gj-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* =========================================================================
+   §40.5.1 Popup container #gj-root
+   position: relative is load-bearing — #gj-empty is an absolute sibling at
+   the same DOM depth and centres against the popup viewport, not the scroll
+   container. Precedent: §39.10 D-UAT-2 (B-022 empty-state clipping).
+   ========================================================================= */
+
+#gj-root {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 560px;
+  overflow: hidden;
+  z-index: auto;
+  border-radius: 8px;
+  box-shadow: var(--shadow-popup);
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+  color: var(--color-fg);
+  background-color: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+}
+
+#gj-root:focus {
+  outline: none;
+}
+
+/* =========================================================================
+   §40.5.2 Breadcrumb strip #gj-breadcrumb (drill-in header)
+   The breadcrumb strip IS the drill-in header (§40.5.3 — no separate
+   element). Hidden in group-list mode via the `hidden` attribute; JS
+   toggles it on drill-in.
+   ========================================================================= */
+
+#gj-breadcrumb {
+  position: static;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  overflow: hidden;
+  z-index: auto;
+  border-bottom: 1px solid var(--color-border);
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+  color: var(--color-fg-muted);
+  background-color: var(--color-bg-header);
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+#gj-breadcrumb[hidden] {
+  display: none;
+}
+
+#gj-back-btn {
+  position: static;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  background-color: transparent;
+  color: var(--color-fg);
+  cursor: pointer;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
+#gj-back-btn:hover {
+  background-color: var(--color-row-selected);
+}
+
+#gj-back-btn:focus-visible {
+  background-color: var(--color-row-selected);
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+#gj-crumb-root {
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 2px 4px;
+}
+
+#gj-crumb-root:hover,
+#gj-crumb-root:focus-visible {
+  color: var(--color-fg);
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.gj-crumb-separator {
+  color: var(--color-fg-muted);
+  opacity: 0.7;
+}
+
+#gj-crumb-current {
+  color: var(--color-fg);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* --- Input row --------------------------------------------------------- */
+
+#gj-input-wrap {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-bg);
+  flex: 0 0 auto;
+}
+
+#gj-input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--color-fg);
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  outline: none;
+}
+
+#gj-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-row-selected);
+}
+
+/* --- Scroll region ---------------------------------------------------- */
+
+#gj-results-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 60px;
+}
+
+/* --- Listbox ----------------------------------------------------------- */
+
+#gj-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+/* --- Section header (drill-in sub-group + bookmark dividers) ----------- */
+
+.gj-section-header {
+  position: sticky;
+  top: 0;
+  width: 100%;
+  overflow: visible;
+  z-index: 2;
+  pointer-events: none;
+  color: var(--color-fg-muted);
+  background-color: var(--color-bg-header);
+  padding: 6px 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gj-section-count {
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+/* =========================================================================
+   §40.5.4 Group row li[role="option"][data-kind="group"]
+   Also serves the drill-in bookmark row (data-kind="bookmark") — shared
+   flex base — and drill-in sub-group rows (data-kind="subgroup").
+   ========================================================================= */
+
+li[role="option"] {
+  position: relative;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  overflow: hidden;
+  z-index: 0;
+  border-radius: 6px;
+  box-shadow: none;
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+  color: var(--color-fg);
+  background-color: transparent;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  margin: 1px 6px;
+}
+
+/* =========================================================================
+   §40.5.5 Selection highlight
+   Focus ring via inset shadow (inherited pattern from B-022 §39.5.3).
+   Accent contrast ≥ 4.5:1 light (#2563eb on #eff6ff) / ≥ 4.2:1 dark
+   (#60a5fa on #1e3a5f). WCAG AA.
+   ========================================================================= */
+
+li[role="option"][aria-selected="true"] {
+  position: relative;
+  z-index: 1;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 2px var(--color-accent);
+  background-color: var(--color-row-selected);
+}
+
+/* --- Row content layout ------------------------------------------------ */
+
+.gj-row-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.gj-row-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gj-row-breadcrumb {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gj-row-url {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* =========================================================================
+   §40.5.6 Group color chip .gj-color-chip
+   ========================================================================= */
+
+.gj-color-chip {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background-color: var(--gj-group-color, var(--color-avatar-bg));
+  flex-shrink: 0;
+  overflow: hidden;
+  transform: none;
+  opacity: 1;
+  pointer-events: none;
+  box-shadow: none;
+}
+
+/* =========================================================================
+   §40.5.7 Count badge .gj-row-count
+   ========================================================================= */
+
+.gj-row-count {
+  position: static;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--color-fg-muted);
+  background-color: transparent;
+  font-size: 11px;
+  white-space: nowrap;
+  margin-left: auto;
+  flex-shrink: 0;
+  padding-left: 8px;
+}
+
+/* =========================================================================
+   §40.5.10 Favicon holder (drill-in bookmark rows only) .gj-favicon
+   Byte-for-byte parity with B-022 §39.5.7 favicon holder, `gj-` prefix.
+   ========================================================================= */
+
+.gj-favicon {
+  position: relative;
+  width: 16px;
+  max-width: 16px;
+  height: 16px;
+  max-height: 16px;
+  overflow: hidden;
+  z-index: 0;
+  border-radius: 3px;
+  box-shadow: none;
+  transform: none;
+  opacity: 1;
+  pointer-events: none;
+  color: var(--color-fg-muted);
+  background-color: var(--color-avatar-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.gj-favicon img {
+  width: 16px;
+  height: 16px;
+  display: block;
+  border-radius: 3px;
+}
+
+/* =========================================================================
+   §40.5.9 <mark> highlight — token parity with B-022.
+   ========================================================================= */
+
+mark {
+  position: static;
+  overflow: visible;
+  z-index: auto;
+  border-radius: 2px;
+  box-shadow: none;
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+  color: inherit;
+  background-color: var(--mark-bg);
+  padding: 0 1px;
+}
+
+/* =========================================================================
+   §40.5.8 Empty-state container #gj-empty (D-UAT-2 anchored)
+   MUST remain a direct child of #gj-root — inset: 0 fills the popup
+   viewport, not the scrollable results container. Precedent: §39.10 D-UAT-2.
+   ========================================================================= */
+
+#gj-empty {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 100%;
+  overflow: hidden;
+  z-index: 1;
+  transform: none;
+  opacity: 1;
+  pointer-events: none;
+  color: var(--color-fg-muted);
+  background-color: var(--color-bg);
+  padding: 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+#gj-empty[hidden] {
+  display: none;
+}
+
+.gj-empty-icon {
+  font-size: 24px;
+  opacity: 0.6;
+}
+
+.gj-empty-message {
+  font-size: 13px;
+  color: var(--color-fg-muted);
+}
+
+.gj-empty-hint {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  opacity: 0.8;
+}
+
+/* =========================================================================
+   §40.5.11 Loading skeleton overlay .gj-skeleton
+   Shown during mode=loading until Promise.all resolves.
+   ========================================================================= */
+
+.gj-skeleton {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  z-index: 3;
+  transform: none;
+  opacity: 1;
+  pointer-events: none;
+  color: transparent;
+  background-color: var(--color-bg);
+  transition: opacity 160ms ease-out;
+}
+
+.gj-skeleton[hidden] {
+  display: none;
+}
+
+/* --- prefers-reduced-motion -------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .gj-skeleton {
+    transition: none;
+  }
+  #gj-input:focus {
+    box-shadow: none;
+  }
+}

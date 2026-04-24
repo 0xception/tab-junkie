@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-23 · **Version:** 2.16 · **Total Items:** 86 · **Sprint 26 closed — v1.20.0 (B-022 Quick Search Popup); S27 scope TBD**
+**Updated:** 2026-04-23 · **Version:** 2.18 · **Total Items:** 87 · **Sprint 27 closed — v1.21.0 (B-023 group-jump popup + B-087 C-11 checklist); S28 TBD**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    █████████████████░░░  87% (75/86)  [0 in progress · S27 next]
+Overall Progress    █████████████████░░░  89% (77/87)  [0 in progress · S28 next]
 ```
 
 ### Legend
@@ -55,7 +55,7 @@ Overall Progress    █████████████████░░░
 ✅ B-020 — Close tab from UI (individual + bulk) · 🔴 · S
 ✅ B-021 — Inline side-panel filter with debounce & highlight · 🟠 · M
 ✅ B-022 — Quick search popup with keyboard navigation · 🟠 · L [S26 — v1.20.0]
-⬜ B-023 — Group jump popup · 🟠 · L
+✅ B-023 — Group jump popup · 🟠 · L [S27 — v1.21.0]
 ✅ B-024 — Multi-select + bulk action bar · 🟠 · M
 ✅ B-025 — Multi-item drag as single unit · 🟠 · M [S24 — v1.18.0]
 ✅ B-026 — Item context menu · 🟠 · S
@@ -118,6 +118,7 @@ Overall Progress    █████████████████░░░
 ✅ B-084 — Refine drag drop-zone visual differentiation (reorder vs nest) · 🟡 · S [S25 — v1.19.0]
 ✅ B-085 — Add C-10 "Off-screen rect feasibility" to R2 Correctness Checklist · 🟠 · XS [S25 — v1.19.0]
 ⬜ B-086 — Sidepanel UI/UX design pass (post-feature-freeze polish) · ⚪ · M [filed S25 post-UAT; scheduled post-feature-parity]
+✅ B-087 — Add C-11 "Popup-lifecycle message ordering" to R2 Correctness Checklist · 🟠 · XS [S27 Wave 1 — S26 retro HIGH action closed]
 
 ---
 
@@ -147,7 +148,7 @@ Overall Progress    █████████████████░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 75 | 87% |
+| ✅ Done | 77 | 89% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 9 | 11% |
+| ⬜ To Do | 8 | 9% |
 | 🧊 Icebox | 2 | 2% |

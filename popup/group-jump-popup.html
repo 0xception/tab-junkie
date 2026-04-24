@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Tab Junkie — Jump to Group</title>
+    <link rel="stylesheet" href="group-jump-popup.css" />
+    <script type="module" src="group-jump-popup.js"></script>
+  </head>
+  <body>
+    <div id="gj-root" role="dialog" aria-label="Jump to Group" aria-modal="true" tabindex="-1">
+      <nav id="gj-breadcrumb" aria-label="Group path" hidden>
+        <button id="gj-back-btn" type="button" aria-label="Back to all groups">&larr;</button>
+        <span id="gj-crumb-root" role="link" tabindex="0">All Groups</span>
+        <span class="gj-crumb-separator" aria-hidden="true">&rsaquo;</span>
+        <span id="gj-crumb-current"></span>
+      </nav>
+
+      <div
+        id="gj-input-wrap"
+        role="combobox"
+        aria-expanded="false"
+        aria-controls="gj-list"
+        aria-haspopup="listbox"
+      >
+        <input
+          id="gj-input"
+          type="search"
+          autocomplete="off"
+          spellcheck="false"
+          maxlength="256"
+          placeholder="Search groups&hellip;"
+          aria-autocomplete="list"
+          aria-controls="gj-list"
+          aria-activedescendant=""
+        />
+      </div>
+
+      <div
+        id="gj-status"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        class="gj-visually-hidden"
+      ></div>
+
+      <div id="gj-results-scroll">
+        <ul id="gj-list" role="listbox" aria-label="Groups"></ul>
+        <div id="gj-skeleton" class="gj-skeleton" hidden aria-hidden="true"></div>
+      </div>
+
+      <div id="gj-empty" hidden aria-hidden="true"></div>
+    </div>
+  </body>
+</html>
