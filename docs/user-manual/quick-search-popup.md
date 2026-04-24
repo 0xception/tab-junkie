@@ -78,6 +78,12 @@ The two rows are visually distinct (section label and row icon), so it is clear 
 
 ---
 
+## Opening the side panel from the popup
+
+Below the results list the popup shows an **Open side panel** button. Clicking it (or pressing **Tab** to focus it, then **Enter**) opens the Tab Junkie side panel in the current window and closes the popup. This is handy when a quick search leads you to a task that needs the full side panel — you do not have to close the popup and then hunt for the extension icon.
+
+---
+
 ## Accessibility
 
 The popup is fully keyboard-navigable. It uses standard ARIA roles — the popup is a dialog, the search input is a combobox, the result list is a listbox, and each row is an option. A live region announces the current result count as you type. Focus stays inside the popup until you press Escape or activate an item, so Tab and Shift+Tab do not accidentally leave the popup while you are navigating.

@@ -59,3 +59,4 @@
 - [§38 — B-031 — Group Drag-Reorder + Nesting via Drag (R6 Close)](design/38-b-031-group-drag-reorder-nest.md)
 - [§39 — B-022 — Quick Search Popup (R2 Design)](design/39-b-022-quick-search-popup.md)
 - [§40 — B-023 — Group Jump Popup (R2 Design)](design/40-b-023-group-jump-popup.md)
+- [§41 — B-035 — Standalone Window Display Mode (R2 Design)](design/41-b-035-standalone-window.md)

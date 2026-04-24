@@ -403,4 +403,20 @@ Three deviations from the R2 plan shipped in R3/R4 fix-up. All are documented in
 
 **No other R2 decisions changed:** §34.1 scope, §34.2 sidepanel-only index location, §34.3 flat-array + Map structure (modulo row 1 above), §34.4 invalidation matrix (modulo row 2 above), §34.5 no-virtualisation-in-v1 stance, §34.6 debounce value + synchronous search, §34.9 empty-state matrix, §34.10 SW-context feasibility PASS, §34.11 rollback gate, §34.12 out-of-scope list, §34.13 correctness checklist — all held unchanged through the build.
 
+### §34.15 S28 Amendment — `hashItem` now includes `sortOrder`
+
+**Sprint 28 B-035 UAT-4 forced the change deferred as §37.9 F-1.**
+
+Sprint 24 §37.9 flagged "Add sortOrder to hashItem" as a follow-up item but deferred it: the B-025 author had preserved the `diffAndPatch` optimization for rename-only updates, and adding `sortOrder` to the hash was considered a perf-sensitive change requiring explicit justification.
+
+Sprint 28 B-035 (standalone window) made the deferral untenable. The standalone window is the first extension surface that consumes `MSG_STATE_CHANGED` broadcasts as a pure receiver — it has no originating-surface `renderAll` tail to compensate for same-group reorders. Without `sortOrder` in `hashItem`, same-group reorders produced `deltaType: 'noop'` across the broadcast, and the standalone window never re-rendered.
+
+**What changed:** `sortOrder` was added to the `hashItem` hash string in `sidepanel/search-index.js`. Same-group reorders now produce `deltaType: 'patch'` deltas rather than `'noop'`. The §34.4 invalidation matrix row "MSG_UPDATE_ITEM (sortOrder only) → No-op" is **superseded**: sortOrder-only edits now produce a patch delta. The index itself remains order-independent (the `_searchIndex` array ordering is not affected), but the broadcast-level diff now correctly signals position changes to all consuming surfaces.
+
+**Perf impact:** marginal — one additional string concatenation per item per diff pass. The enormous headroom documented in §34.8 (AC3 measured at 0.152 ms against a 40 ms budget) absorbs this with no observable effect.
+
+**B-030 / B-025 originating-surface `renderAll` tails:** remain in place. They are now redundant for the `hashItem`-visible change but are harmless — the originating surface re-renders once via its local tail, and remote surfaces re-render once via the broadcast delta. No double-render at the originating surface (the tail fires locally; the broadcast arrives at remote surfaces only).
+
+**Test suite:** one test in `tests/b052-fuzzy-search-perf.test.js` that asserted sortOrder-only edit → `noop` was inverted to expect `patch`. A Sprint 28 docstring in the test explains the inversion. See §41.10 for the full UAT-4 fix chain.
+
 ---

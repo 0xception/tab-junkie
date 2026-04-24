@@ -352,7 +352,12 @@ test('B-052 AC2: group-move-only edit → diffAndPatch detects groupId change (Q
   assert.equal(delta.index.byId[next[10].id].groupIdKey, 'grp-9');
 });
 
-test('B-052: sortOrder-only edit → diffAndPatch returns noop (index is order-independent)', () => {
+test('B-052: sortOrder edit → diffAndPatch returns patch (post-S28 hashItem includes sortOrder so remote surfaces reflect same-group reorder)', () => {
+  /* Sprint 28 B-035 UAT-4 surfaced the need: standalone window received
+     reorder broadcasts but diffAndPatch resolved to noop because hashItem
+     excluded sortOrder. Fix: hashItem includes sortOrder → reorder-only
+     edits now surface as patches. The originating surface's explicit
+     renderAll (B-025/B-030) remains in place — redundant but harmless. */
   const { items } = generateItemCollection(50, 555);
   const index = buildIndex(items);
 
@@ -361,8 +366,10 @@ test('B-052: sortOrder-only edit → diffAndPatch returns noop (index is order-i
   next[10].sortOrder = 1000;
 
   const delta = diffAndPatch(index, next);
-  assert.equal(delta.deltaType, 'noop');
-  assert.equal(delta.affected.length, 0);
+  assert.equal(delta.deltaType, 'patch');
+  assert.equal(delta.affected.length, 2);
+  assert.equal(delta.affected[0].kind, 'updated');
+  assert.equal(delta.affected[1].kind, 'updated');
 });
 
 test('B-052 Q-2: delta > BULK_REBUILD_THRESHOLD add+remove → full-rebuild', () => {

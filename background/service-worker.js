@@ -71,3 +71,71 @@ chrome.commands.onCommand.addListener((command) => {
       chrome.action.setPopup({ popup: 'popup/popup.html' });
     });
 });
+
+// B-035 — chrome.commands.onCommand dispatch for Alt+Shift+J (open-junkie-window).
+// Per §41.3 D-1/D-2/D-3/D-4: open (or focus) a standalone browser window of type
+// "popup" that loads sidepanel/sidepanel.html verbatim. Existing-instance
+// detection is per-trigger via chrome.windows.getAll + exact URL match against
+// chrome.runtime.getURL('sidepanel/sidepanel.html') — cold-start safe (D-3 opt c).
+// Registered synchronously at module scope — no await before addListener (MV3).
+//
+// C-11 is vacuously satisfied per §41.3 D-6: the listener performs ZERO SW-side
+// storage writes on the open/focus path. If a future polish item adds any write
+// (position persistence, open-history recency, etc.) it MUST fire BEFORE the
+// focus-shifting chrome.windows.update({focused:true}) call and the §41 chapter
+// MUST be updated to re-walk C-11.
+//
+// No new manifest permission required: chrome.windows.* is implicit under the
+// existing "tabs" permission (D-7; B-014 precedent).
+const STANDALONE_URL = chrome.runtime.getURL('sidepanel/sidepanel.html');
+const STANDALONE_WIDTH = 1200;
+const STANDALONE_HEIGHT = 800;
+
+async function openOrFocusStandaloneWindow() {
+  // D-3 option (c): per-trigger existing-instance detection; no SW state held.
+  const popupWins = await chrome.windows.getAll({ populate: true, windowTypes: ['popup'] });
+  const existing = popupWins.find((w) =>
+    Array.isArray(w.tabs)
+    && w.tabs.length === 1
+    && typeof w.tabs[0].url === 'string'
+    && w.tabs[0].url === STANDALONE_URL
+  );
+  if (existing) {
+    // Focus-path (AC3): do NOT create; focus the existing window.
+    await chrome.windows.update(existing.id, { focused: true });
+    return;
+  }
+
+  // D-4: compute a centered position relative to the focused browser window's
+  // rect. Avoids the `system.display` permission (not granted). If no focused
+  // window is found (e.g., background-only profile), omit left/top and let the
+  // browser pick defaults.
+  const allWins = await chrome.windows.getAll({ populate: false });
+  // Exclude popup-type windows from anchor computation — prevents a newly-created
+  // standalone (popup) from becoming the anchor for its own centering (M-2).
+  const realWins = allWins.filter((w) => w.type !== 'popup');
+  const anchor = realWins.find((w) => w.focused) || realWins[0] || null;
+  const left = anchor && typeof anchor.left === 'number' && typeof anchor.width === 'number'
+    ? Math.max(0, anchor.left + Math.round((anchor.width - STANDALONE_WIDTH) / 2))
+    : undefined;
+  const top = anchor && typeof anchor.top === 'number' && typeof anchor.height === 'number'
+    ? Math.max(0, anchor.top + Math.round((anchor.height - STANDALONE_HEIGHT) / 2))
+    : undefined;
+
+  // Open-path (AC2): create a new popup-type window hosting sidepanel.html.
+  await chrome.windows.create({
+    url: STANDALONE_URL,
+    type: 'popup',
+    focused: true,
+    width: STANDALONE_WIDTH,
+    height: STANDALONE_HEIGHT,
+    ...(left !== undefined && top !== undefined ? { left, top } : {}),
+  });
+}
+
+chrome.commands.onCommand.addListener((command) => {
+  if (command !== 'open-junkie-window') return;
+  openOrFocusStandaloneWindow().catch((err) => {
+    console.warn('[tab-junkie] open-junkie-window failed', err);
+  });
+});

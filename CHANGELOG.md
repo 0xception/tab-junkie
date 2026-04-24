@@ -4,6 +4,16 @@ All notable changes to Tab Junkie are documented in this file.
 
 ## [Unreleased]
 
+## [1.22.0] — 2026-04-23
+
+### Added
+- **Standalone window mode** — press **Alt+Shift+J** from any tab to open Tab Junkie in a detachable popup window sized 1200×800. If the standalone is already open, the shortcut focuses the existing window instead of opening a duplicate. The window shows the same content as the side panel and syncs in real time.
+- **Popup "Open side panel" button** — the quick-search popup (Alt+J) now has a button below the results that opens the side panel in the current window. Full keyboard flow: Alt+J → Tab → Enter.
+- **Keyboard shortcuts user manual** — new reference page listing all defaulted shortcuts (Alt+J, Alt+K, Alt+Shift+J) with instructions for remapping via `edge://extensions/shortcuts` or `chrome://extensions/shortcuts`.
+
+### Fixed
+- **Cross-surface reorder sync** — when the side panel and standalone window (or multiple Tab Junkie surfaces) are open simultaneously, dragging an item to reorder it within the same group now reflects on all open surfaces within seconds. Previously, same-group reorders only updated the originating window; remote surfaces showed the stale order.
+
 ## [1.21.0] — 2026-04-23
 
 ### Added

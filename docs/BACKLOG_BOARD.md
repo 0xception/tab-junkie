@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-23 · **Version:** 2.18 · **Total Items:** 87 · **Sprint 27 closed — v1.21.0 (B-023 group-jump popup + B-087 C-11 checklist); S28 TBD**
+**Updated:** 2026-04-23 · **Version:** 2.20 · **Total Items:** 87 · **Sprint 28 closed — v1.22.0 (B-035 standalone + B-046 shortcuts + B-082 popup button); S29 TBD**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    █████████████████░░░  89% (77/87)  [0 in progress · S28 next]
+Overall Progress    █████████████████░░░  92% (80/87)  [0 in progress · S29 next]
 ```
 
 ### Legend
@@ -67,7 +67,7 @@ Overall Progress    █████████████████░░░
 ✅ B-032 — Auto-scroll during drag · 🟡 · S [S24 — v1.18.0]
 ✅ B-033 — Drag saved+live item to Open Tabs → demote · 🟡 · S [S23 Wave 1 — merged df4a024 / PR #29]
 🧊 B-034 — Window filter row (2+ windows) · 🟡 · S [absorbed into B-014]
-⬜ B-035 — Standalone window display mode · 🟡 · M
+✅ B-035 — Standalone window display mode · 🟡 · M [S28 — v1.22.0]
 ⬜ B-036 — New tab page replacement (optional) · ⚪ · L
 ⬜ B-037 — Theme selection (≥12 themes) · 🟡 · M
 ⬜ B-038 — View mode preference (side panel vs. standalone) · ⚪ · XS
@@ -78,7 +78,7 @@ Overall Progress    █████████████████░░░
 ✅ B-043 — Export to JSON backup · 🟠 · M
 ✅ B-044 — Import HTML with count preview & flattening · 🟠 · M
 ✅ B-045 — Import JSON with validation & repair · 🟠 · M
-⬜ B-046 — Global keyboard shortcuts (popup + standalone) · 🟠 · S [deferred — requires B-022 + B-035 to ship first]
+✅ B-046 — Global keyboard shortcuts (popup + standalone) · 🟠 · XS [S28 — v1.22.0 · reduced from S to XS at R1]
 ✅ B-047 — In-panel keyboard shortcuts (select-all, clear) · 🟠 · XS
 ✅ B-048 — Item visual states (live / active / drifted / audible / selected) · 🟠 · M
 ✅ B-049 — Empty states & error feedback · 🟠 · S
@@ -113,7 +113,7 @@ Overall Progress    █████████████████░░░
 ✅ B-078 — `breakCycles` adversarial-input hardening · 🟡 · XS [Wave 1 — merged fa1a8df / PR #26]
 ✅ B-079 — Query-length cap on filter input · 🟡 · XS [Wave 1 — merged fa1a8df / PR #26]
 ✅ B-080 — Repair-summary toast plain-language parity · ⚪ · XS [Wave 1 — merged fa1a8df / PR #26]
-⬜ B-082 — "Open side panel" button in toolbar popup · 🟠 · XS [filed mid-sprint per FEATURE_PARITY_ROADMAP; scheduled S26]
+✅ B-082 — "Open side panel" button in toolbar popup · 🟠 · XS [S28 — v1.22.0]
 ✅ B-083 — Allow multiple sibling sub-groups under one parent (filter helper fix) · 🟠 · S [S25 — v1.19.0]
 ✅ B-084 — Refine drag drop-zone visual differentiation (reorder vs nest) · 🟡 · S [S25 — v1.19.0]
 ✅ B-085 — Add C-10 "Off-screen rect feasibility" to R2 Correctness Checklist · 🟠 · XS [S25 — v1.19.0]
@@ -148,7 +148,7 @@ Overall Progress    █████████████████░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 77 | 89% |
+| ✅ Done | 80 | 92% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 8 | 9% |
+| ⬜ To Do | 5 | 6% |
 | 🧊 Icebox | 2 | 2% |

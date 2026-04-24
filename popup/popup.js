@@ -91,7 +91,7 @@ let _mode = 'loading';
    DOM refs
    ========================================================================= */
 
-let rootEl, inputEl, inputWrapEl, listEl, statusEl, emptyEl, skeletonEl, scrollEl;
+let rootEl, inputEl, inputWrapEl, listEl, statusEl, emptyEl, skeletonEl, scrollEl, sidepanelBtnEl, sidepanelErrorEl;
 
 /* =========================================================================
    Entry point
@@ -106,6 +106,8 @@ document.addEventListener('DOMContentLoaded', () => {
   emptyEl = document.getElementById('qs-empty');
   skeletonEl = document.getElementById('qs-skeleton');
   scrollEl = document.getElementById('qs-results-scroll');
+  sidepanelBtnEl = document.getElementById('popup-open-sidepanel-btn');
+  sidepanelErrorEl = document.getElementById('qs-sidepanel-error');
 
   /* AC3 — programmatic focus plus native autofocus-style fallback. */
   if (inputEl) inputEl.focus();
@@ -114,6 +116,11 @@ document.addEventListener('DOMContentLoaded', () => {
   rootEl.addEventListener('keydown', _onKeyDown);
   listEl.addEventListener('click', _onListClick);
   listEl.addEventListener('mouseover', _onListMouseOver);
+
+  /* B-082 AC2: Open side panel on button click. */
+  if (sidepanelBtnEl) {
+    sidepanelBtnEl.addEventListener('click', _onOpenSidepanelClick);
+  }
 
   _showSkeleton();
   loadInitial();
@@ -452,10 +459,12 @@ function _onKeyDown(e) {
   if (e.key === 'Tab') {
     /* B-022 R4 H-2 — focus trap. Result rows are not individually focusable
        (selection lives in `aria-activedescendant`), so this is a logical
-       trap between the input and the "selected row" concept. The Tab key
-       always cycles within the popup — it never escapes to browser chrome.
-       Shape (WCAG 2.1.2 No Keyboard Trap is satisfied by Escape closing
-       the popup — Esc is the explicit exit). */
+       trap between the input, the "selected row" concept, and the Open Side
+       Panel button. The Tab key always cycles within the popup — it never
+       escapes to browser chrome.
+       Cycle (forward): input → rows (first…last) → sidepanel-btn → input
+       Cycle (reverse): input → sidepanel-btn → rows (last…first) → input
+       WCAG 2.1.2 No Keyboard Trap is satisfied by Escape closing the popup. */
     const activatable = [];
     for (let i = 0; i < _currentRows.length; i++) {
       if (_currentRows[i].kind !== 'header') activatable.push(i);
@@ -463,26 +472,35 @@ function _onKeyDown(e) {
     e.preventDefault();
     e.stopPropagation();
 
-    if (activatable.length === 0) {
-      /* Nothing to cycle to — keep focus on input. */
-      if (document.activeElement !== inputEl) inputEl.focus();
-      return;
-    }
-
-    const firstIdx = activatable[0];
-    const lastIdx = activatable[activatable.length - 1];
+    const onBtn = sidepanelBtnEl && document.activeElement === sidepanelBtnEl;
 
     if (e.shiftKey) {
-      /* Shift+Tab: input → last row; row N → row N-1; row 0 → input. */
-      if (_selectedIndex === -1) {
-        _selectedIndex = lastIdx;
+      /* Shift+Tab reverse cycle:
+         input        → sidepanel-btn
+         sidepanel-btn → last row (or input if no rows)
+         row N        → row N-1
+         row 0        → input */
+      if (document.activeElement === inputEl || _selectedIndex === -1 && !onBtn) {
+        /* From input → jump to the button. */
+        _selectedIndex = -1;
+        _renderSelection();
+        if (sidepanelBtnEl) sidepanelBtnEl.focus();
+        return;
+      }
+      if (onBtn) {
+        /* From button → last result row (or input if none). */
+        if (activatable.length === 0) {
+          inputEl.focus();
+          return;
+        }
+        _selectedIndex = activatable[activatable.length - 1];
         inputEl.focus();
         _renderSelection();
         return;
       }
+      /* On a result row — go to previous row or back to input. */
       const pos = activatable.indexOf(_selectedIndex);
       if (pos <= 0) {
-        /* On first row (or stale selection) → back to input, clear. */
         _selectedIndex = -1;
         inputEl.focus();
         _renderSelection();
@@ -493,19 +511,40 @@ function _onKeyDown(e) {
       return;
     }
 
-    /* Tab (no Shift): input → first row; row N → row N+1; last row → input. */
+    /* Tab (no Shift) forward cycle:
+       input     → first row (or sidepanel-btn if no rows)
+       row N     → row N+1
+       last row  → sidepanel-btn
+       btn       → input */
+    if (onBtn) {
+      /* From button → wrap back to input. */
+      _selectedIndex = -1;
+      _renderSelection();
+      inputEl.focus();
+      return;
+    }
+    if (activatable.length === 0) {
+      /* No rows — cycle input ↔ button. */
+      if (document.activeElement === inputEl) {
+        if (sidepanelBtnEl) sidepanelBtnEl.focus();
+      } else {
+        inputEl.focus();
+      }
+      return;
+    }
     if (_selectedIndex === -1) {
-      _selectedIndex = firstIdx;
+      /* From input → first row. */
+      _selectedIndex = activatable[0];
       inputEl.focus();
       _renderSelection();
       return;
     }
     const pos = activatable.indexOf(_selectedIndex);
     if (pos === -1 || pos === activatable.length - 1) {
-      /* On last row (or stale selection) → back to input, clear. */
+      /* Last row → sidepanel-btn. */
       _selectedIndex = -1;
-      inputEl.focus();
       _renderSelection();
+      if (sidepanelBtnEl) sidepanelBtnEl.focus();
       return;
     }
     _selectedIndex = activatable[pos + 1];
@@ -860,6 +899,44 @@ function _updateStatus() {
     msg = `${count} ${count === 1 ? 'result' : 'results'}`;
   }
   statusEl.textContent = msg;
+}
+
+/* =========================================================================
+   B-082: Open Side Panel button
+   C-11 note: this handler does NOT write to chrome.storage; it only calls
+   chrome.sidePanel.open(). If a future enhancement adds SW writes on click,
+   re-evaluate C-11 compliance at that point.
+   ========================================================================= */
+
+let _sidepanelOpening = false;
+async function _onOpenSidepanelClick() {
+  /* M-2 rapid-click guard — prevents duplicate sidePanel.open() calls if the
+     user clicks the button more than once before the async call resolves. */
+  if (_sidepanelOpening) return;
+  _sidepanelOpening = true;
+
+  /* AC5: clear any previous error before attempting. */
+  if (sidepanelErrorEl) {
+    sidepanelErrorEl.textContent = '';
+    sidepanelErrorEl.classList.add('qs-visually-hidden');
+  }
+
+  try {
+    /* AC2: resolve the current window id then open the side panel. */
+    const currentWindow = await chrome.windows.getCurrent({ populate: false });
+    await chrome.sidePanel.open({ windowId: currentWindow.id });
+    /* AC4: most browsers auto-collapse popup on focus-shift after sidePanel.open(),
+       but call window.close() defensively to handle outlier cases where auto-collapse doesn't fire. */
+    window.close();
+  } catch {
+    /* AC5: side panel open failed — keep popup open and show inline error. */
+    if (sidepanelErrorEl) {
+      sidepanelErrorEl.textContent = 'Could not open side panel. Please try again.';
+      sidepanelErrorEl.classList.remove('qs-visually-hidden');
+    }
+  } finally {
+    _sidepanelOpening = false;
+  }
 }
 
 /* =========================================================================

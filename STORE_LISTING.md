@@ -23,6 +23,7 @@ KEY FEATURES
 • Broad URL support — Save chrome://, edge://, chrome-extension://, about:, and view-source: URLs as well as http/https. Duplicate URLs are allowed with a quick confirmation prompt
 • Clear feedback — Empty-state messages with CTAs and dismissible error notifications for failed operations
 • Accessible by design — Row states (live, active, drifted, audible, selected) are distinguishable without relying on color alone; every row's title and URL meet WCAG AA contrast (4.5:1 or better) in every theme and on every background state; each row announces a consistent screen-reader label
+• Detachable standalone window (Alt+Shift+J) — work with your bookmarks outside the side panel in a floating 1200×800 window; re-pressing the shortcut focuses the existing window rather than opening a duplicate
 • Quick search (Alt+J) — Fuzzy search across all bookmarks and tabs from a popup
 • Near-instant search and filter — the side panel filter bar stays snappy even with large bookmark collections
 • Group search and drill-in — Browse groups and view their contents inline from the popup
