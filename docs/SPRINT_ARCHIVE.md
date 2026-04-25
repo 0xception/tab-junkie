@@ -1459,3 +1459,108 @@ B-025 UAT-3 surfaced a latent B-030 bug: `_computeDropTarget` required a `.item-
 2. [solution-architect] R2 broadcast-receiver audit note in CLAUDE.md (informal pre-C-entry). [MEDIUM]
 3. Patch-consumer same-group reorder extension — hygiene candidate. [LOW]
 4. Hygiene debt — B-088 bundle decision at S29 kickoff. [LOW]
+
+---
+
+## Sprint 29 — B-036 New Tab + B-089 Settings Panel + B-038 View Mode + B-040 Auto-collapse (B-039 Dropped) (2026-04-24)
+
+**Theme:** Feature-parity roadmap close — new tab page (Full L anchor) + settings UI scaffolding (S, filed mid-kickoff to unblock prefs) + 2 XS pref toggles. B-039 (newtab toggle) dropped at sprint close after MV3 constraint surfaced via UAT-9f-2.
+**Release:** v1.23.0
+**Merge commit:** `ca61da5` (PR #35)
+
+### Completed Items
+
+#### [B-089] Settings Panel Scaffolding — ✅ DONE
+- **Tier**: Fast Track (S) · **Closed**: 2026-04-24
+- **Pipeline**: R1 ✅ · R3 ✅ (~780 LOC; 24 tests) · R4 ✅ (0 CRITICAL; 2 HIGH fixed [Escape close + init dedup]; 3 MEDIUM defense-in-depth; 2 LOW)
+- **Files**: `sidepanel/settings-dialog.js` (new, ~547 LOC), `sidepanel/sidepanel.{html,js,css}` (gear button + overlay + 165 LOC dialog styles), `tests/b089-settings-dialog.test.js` (new, 24 tests)
+- **Outcome**: Sidepanel header gear icon → modal dialog with `role="dialog"` + sender-id-validated broadcast subscription + `renderToggle` / `renderSelect` helpers consumed by Wave 1. Modal-stacking guard added pre-merge (UAT-9f-1 fix). Zero new permissions, zero new message types, zero new storage schema.
+
+#### [B-036] New Tab Page Replacement — ✅ DONE
+- **Tier**: Full (L) · **Closed**: 2026-04-24
+- **Pipeline**: R1 ✅ (23 ACs) · R2 ✅ (§42 design chapter ~5000 words) · R3 ✅ (5 new files; ~32 tests) · R4 ✅ (0 CRITICAL; 4 HIGH fixed pre-R5: `_itemById` O(n²) hot-loop, `_applyFilter` redundant DOM walk, missing `console.warn` breadcrumb, missing `_handleBroadcast` try/catch) · R5 ✅ (4 gap-fill tests + 30-case UAT plan) · 2 pre-merge UAT cycles
+- **Files**: `newtab/newtab.{html,js,css}` (new — ~1700 LOC + tests), `newtab/theme-init.js` (new — verbatim duplicate of sidepanel; S30+ extraction candidate), `tests/b036-newtab.test.js` (new), `docs/design/42-b-036-newtab-page.md` (new), `docs/user-manual/new-tab-page.md` (new), `docs/UAT_B-036.md` (new, 30 cases)
+- **R2 decisions** (§42.3):
+  - D-1 vanilla DOM in `newtab/newtab.js` (do NOT import sidepanel.js); ~150-200 LOC accepted overlap
+  - D-2a `about:blank` redirect (RESCINDED at sprint close — newtab now always-on per B-039 drop)
+  - D-2b `chrome.search.query({text, disposition:'NEW_TAB'})` — `search` permission already granted
+  - D-3 CSS Grid `repeat(auto-fill, minmax(320px, 1fr))` — multi-column responsive
+  - D-4 Import fuzzy index from `sidepanel/search-index.js` verbatim
+  - D-5 C-11 fire-and-forget click-to-navigate (defensive — newtab doesn't tear down on focus shift, but pattern preserved)
+  - D-6 Serial `MSG_GET_PREFERENCES` then `Promise.all([MSG_LIST_ITEMS, MSG_LIST_GROUPS])` (later simplified post-B-039 drop)
+  - D-7 Module-scope `chrome.runtime.onMessage` subscription
+- **Pre-merge UAT fix bundle** (5 issues caught + fixed):
+  - UAT-2 sub-group order swap → removed name tiebreaker in `_orderedGroupIds`; matches sidepanel byte-for-byte
+  - UAT-3 two green indicator dots → `_buildItemRow` was double-creating wrap; removed early `_applyRowLiveState` call
+  - UAT-5 `/` shortcut over-broad guard → narrowed to web-search input only
+  - UAT-9f-1 dialog stacking → Settings refuses to open when other overlay siblings are visible
+  - UAT-9f-2 `about:blank` UX → led to B-039 drop (newtab always-on)
+
+#### [B-038] View Mode Preference — ✅ DONE
+- **Tier**: Fast Track (XS, tier-upgrade flag cleared at R2) · **Closed**: 2026-04-24
+- **Pipeline**: R1 ✅ (17 ACs) · R2 ✅ (§43 design chapter — popup-as-router pattern locked) · R3 ✅ (5-file delta; 18 tests) · R4 ✅ code PROCEED + security PROCEED (0 CRITICAL/HIGH; 2 MEDIUM hygiene; 2 LOW)
+- **Files**: `shared/messages.js` (+`MSG_OPEN_STANDALONE` — non-`tj/` prefix per dispatcher-collision avoidance), `background/service-worker.js` (+onMessage branch), `popup/popup.js` (`_bootWithPref` + `_bootQuickSearch` split; fire-and-forget sendMessage + immediate `window.close`), `sidepanel/sidepanel.js` (+ renderSelect call), `tests/b038-view-mode-pref.test.js` (new)
+- **R2 decisions** (§43): D-1 popup-as-router (Candidate A `setPopup('')` + `onClicked` rejected — MV3 cannot discriminate Alt+J from toolbar-click); D-2 surfaces governed = toolbar + `_execute_action`; D-3 inherit B-035 fallback. Naming normative: `displayMode` ∈ `'sidepanel'|'window'`. AC8 reinterpreted (R2 normative — Alt+J follows pref).
+- **C-11 critical guardrail**: popup.js fire-and-forget sendMessage + immediate `window.close()` with zero await between. Verified by self-grep AND test (AC17g asserts call ordering).
+
+#### [B-040] Sub-group Auto-collapse Preference — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-24
+- **Pipeline**: R1 ✅ (14 ACs) · R3 ✅ (~75 LOC; 17 tests) · R4 ✅ code PROCEED + security PROCEED (0 CRITICAL/HIGH; 1 MEDIUM unreachable double-catch — S30+ hygiene; 1 LOW console.warn policy)
+- **Files**: `sidepanel/sidepanel.js` (+~75 LOC: renderSettingsToggle + `_maybeCascadeCollapseChildren` helper + cascade gate in `toggleGroup`), `tests/b040-auto-collapse-subgroups.test.js` (new)
+- **Outcome**: One-way collapse cascade (expand does NOT auto-expand). `Promise.all` over individual `MSG_UPDATE_GROUP` calls (no bulk variant exists). Default OFF preserves B-008 independence. Canonical-key drift caught: `autoCollapseSubGroups` (cap G), not `autoCollapseSubgroups` per BACKLOG R1 AC.
+
+### Dropped Items
+
+#### [B-039] New Tab Page Toggle Preference — ❌ DROPPED at sprint close
+- **Originally tier**: Fast Track (XS) · originally shipped R3 + R4 clean (12 tests, 460 LOC)
+- **Drop reason**: Pre-merge UAT-9f-2 surfaced that "OFF" cannot truly hand control back to the browser's default new tab page. **Manifest V3 does NOT allow runtime removal of `chrome_url_overrides.newtab`** — once declared, the extension's HTML loads on every new tab. The only available "OFF" behaviors are `about:blank` (R2 D-2a) or a custom disabled-state CTA page (R1 AC5). Neither matches user expectation of "browser default new tab page".
+- **Product-owner decision** (2026-04-24): rather than ship a misleading toggle, drop the feature. Tab Junkie's new tab page is always-on while installed. To restore browser default, uninstall Tab Junkie via `edge://extensions` or `chrome://extensions`.
+- **Reverted in same sprint**: B-039 R3 + UAT-9f-2 disabled-state code rolled back. Pref key `newTabOverride` retained in `DEFAULT_PREFERENCES` for backward compat (removing requires schema migration).
+- **Hidden win**: B-039 R3 canonical-key audit caught a silent-bug drift in B-036 R3 (`prefs.newTabEnabled` shipped vs canonical `newTabOverride` — validator would have rejected toggle writes). Drift fix preserved across the revert.
+
+### UAT Results
+
+- **B-036**: 30-case UAT plan; 5 issues caught batch 1 (all fixed), 1 issue batch 2 (UAT-9f-2 → B-039 drop). UAT-1/4/5/6/7/8/9a/9b/9c/9d/9g/9h/10/11/12 PASS. UAT-9e SKIP. UAT-13/14/15-22 SKIP (themes are S30+).
+- **B-038, B-040, B-089**: Fast Track XS/S — no formal UAT cycle (covered by sidepanel + popup smoke checks during B-036 UAT).
+
+### Cross-module fix chain (B-036 R3 silent canonical-key drift)
+
+B-036 R3 shipped `prefs.newTabEnabled` against `DEFAULT_PREFERENCES.newTabOverride` — `validatePrefsPatch` would have rejected any write to `newTabEnabled` with `ERR_VALIDATION`, meaning the B-039 toggle would have silently no-op'd against the wrong key. B-039 R3 audit caught this on the first canonical-key cross-check; fix shipped across `newtab/newtab.js`, `tests/b036-newtab.test.js` (32 fixture replacements). Drift fix preserved across the B-039 revert because the canonical-key normalization is independent of the toggle's existence.
+
+### Velocity
+
+- Planned: 5 items (1 Full L + 1 Fast Track S + 3 Fast Track XS)
+- Delivered: 4 shipped + 1 dropped = **80% scope shipped + 100% honest scope** (B-039 drop was a discovery, not a slip)
+- Test growth: 1190 → 1295 (+105 net; ~+90 across 4 shipped items, −12 from B-039 deletion + UAT fix tests)
+- UAT rounds: B-036 = 2 cycles
+- Release: v1.23.0
+- **7 consecutive sprints shipped without rollback or post-merge regression** (S23 → S29)
+
+### Retrospective (action items → Sprint 30)
+
+- **HIGH**: File **B-090** — Add **C-12** "Manifest declarations runtime-mutability check" to R2 Correctness Checklist. R2 MUST verify whether any manifest declaration tied to enable/disable behavior can be modified at runtime. If not, R2 explicitly enumerates the available "OFF" behaviors and confirms with [product-manager] that the limited set is acceptable BEFORE R3 build. Reference: B-039 drop precedent.
+- **MEDIUM**: R1 ACs MUST cross-check `DEFAULT_PREFERENCES` canonical key names (case + spelling) BEFORE publishing. Two key-drift bugs caught in S29 alone (B-036 newTabEnabled→newTabOverride, B-040 autoCollapseSubgroups→autoCollapseSubGroups). Add to R1 self-checklist in CLAUDE.md.
+- **MEDIUM**: B-036 took 2 UAT cycles. For Full L items, allocate explicit "UAT polish budget" of 1-2 cycles after R5 — don't treat each cycle as a slip; treat as part of L-tier definition.
+- **LOW**: Add "Sprint Close — Item Drop Checklist" subsection to CLAUDE.md (alongside Gate 4): docs to update when an item is dropped mid-sprint (BACKLOG, BACKLOG_BOARD, design chapter, user manual, CHANGELOG, retro).
+
+### R4 Findings Summary
+
+- **B-089**: 0 CRITICAL / 2 HIGH fixed (Escape close + init dedup) / 3 MEDIUM defense-in-depth / 2 LOW
+- **B-036**: 0 CRITICAL / 4 HIGH fixed (`_itemById` O(n²), `_applyFilter` DOM walk, missing console.warn, missing try/catch) / ~10 MEDIUM/LOW (mostly fixed inline)
+- **B-038**: 0 CRITICAL / 0 HIGH / 2 MEDIUM (catch broadness, test reproduction drift) / 2 LOW
+- **B-040**: 0 CRITICAL / 0 HIGH / 1 MEDIUM (unreachable double-catch) / 2 LOW
+- **B-039 (dropped)**: R4 was clean (0 CRITICAL/HIGH; 2 MEDIUM coverage map gap, fragile comment-strip filter; 1 LOW). Drop was product-driven, not quality-driven.
+- **Total**: 0 CRITICAL / 6 HIGH (all fixed pre-merge) / ~10 MEDIUM / ~12 LOW
+- **UAT layer**: 5 issues caught + fixed pre-merge (B-036), 1 product-discovery (B-039 drop). 7th consecutive sprint of effective UAT-as-quality-gate.
+- **Security posture**: 1 additive message type (`MSG_OPEN_STANDALONE`, fire-and-forget, no payload). Zero new permissions. Zero new partitions. Zero CSP changes. XSS posture clean across all 4 shipped items.
+
+**Key lessons**:
+- **Lesson 1**: MV3 constraints have product implications, not just technical ones. R2 architecture MUST enumerate "what does OFF actually deliver?" for any feature whose value depends on enable/disable parity with browser-native behavior.
+- **Lesson 2**: Test-first culture combined with cross-item naming-drift audits caught 2 latent silent-bug risks (B-036 newTabEnabled, B-040 lowercase). Audit-first R3 builds pay out.
+- **Lesson 3**: The cost of dropping a feature mid-sprint is ~½ day of agent time. The cost of shipping a misleading feature is unbounded user friction. Drops driven by product discovery should be normalized as a legitimate sprint outcome.
+
+**Action Items for Sprint 30:**
+1. [solution-architect] File B-090 — C-12 "Manifest declarations runtime-mutability check" addition to CLAUDE.md. P2/XS. Reference: B-039 drop. [HIGH]
+2. [product-manager] R1 AC self-checklist update — cross-check `DEFAULT_PREFERENCES` canonical key names (case + spelling) before publishing. [MEDIUM]
+3. [scrum-master] Sprint Close — Item Drop Checklist subsection in CLAUDE.md. [LOW]
+4. S30 scope decision — B-037 themes (P2/M, last big feature), B-090 (XS), B-086 UI/UX pass (P3/M), B-088 hygiene bundle, comprehensive UAT sweep. v2 → main merge prep candidate. [HIGH]
