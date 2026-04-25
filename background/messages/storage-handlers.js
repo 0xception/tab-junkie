@@ -176,8 +176,26 @@ async function dispatch(type, payload) {
   switch (type) {
     case MSG_CREATE_ITEM:
       return createItem(p);
-    case MSG_UPDATE_ITEM:
-      return updateItem(p.id, p.patch);
+    case MSG_UPDATE_ITEM: {
+      /* B-099 §46.3 D-2 — inline drift-clear strategy: read the pre-patch
+         item BEFORE updateItem so we can detect a real URL change, run the
+         storage write, then clear the drift record IFF the URL actually
+         changed. Order is load-bearing — clearDrift must observe the post-
+         update item state, and the conditional is gated on `patch.url`
+         being defined AND the value actually changing (AC7 regression
+         guard: title-only or sortOrder-only patches must NOT clear drift). */
+      const preItem = await getItem(p.id);
+      const result = await updateItem(p.id, p.patch);
+      if (
+        p.patch
+        && Object.prototype.hasOwnProperty.call(p.patch, 'url')
+        && preItem
+        && p.patch.url !== preItem.url
+      ) {
+        await clearDrift(p.id);
+      }
+      return result;
+    }
     case MSG_DELETE_ITEM:
       await deleteItem(p.id);
       return null;

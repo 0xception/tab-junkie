@@ -849,6 +849,20 @@ function _buildIndicators(itemId) {
     const dot = document.createElement('span');
     dot.className = 'newtab-indicator-dot newtab-indicator-drifted';
     dot.setAttribute('aria-label', 'Tab has navigated away from its saved URL');
+    /* B-099 §46.3 D-7 — additive `title` tooltip showing the drifted-to
+       hostname. Hostname-only per Q3 (less PII leak than the full URL
+       with path/query). The aria-label above remains the AT carrier; the
+       title is purely a sighted-user affordance. */
+    const driftedToUrl = _driftRecords[itemId]?.driftedToUrl;
+    if (typeof driftedToUrl === 'string' && driftedToUrl.length > 0) {
+      let hostname = '';
+      try {
+        hostname = new URL(driftedToUrl).hostname;
+      } catch {
+        /* Fall through — fallback tooltip below. */
+      }
+      dot.title = hostname ? `Drifted to: ${hostname}` : 'Drifted to a different URL';
+    }
     wrap.appendChild(dot);
   }
   return wrap;

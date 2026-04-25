@@ -55,7 +55,7 @@ The same indicators you see in the side panel appear on the new tab grid:
 
 - **Green dot** — the bookmark is currently open as a live tab.
 - **Blue dot** — the bookmark is the currently active tab in your browser.
-- **Amber dot** — the bookmark's live tab has drifted away from the saved URL.
+- **Amber dot** — the bookmark's live tab has drifted away from the saved URL. Hover the dot to see the hostname the tab has drifted to (e.g., "Drifted to: github.com"). Use the side panel's right-click menu → **Snap to this tab** to update the saved URL.
 - **♪ icon** — the live tab is playing audio.
 
 Indicator changes appear within a few seconds of the underlying tab event, without any page reload.
