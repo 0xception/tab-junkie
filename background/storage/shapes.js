@@ -60,6 +60,10 @@ export function partitionKey(partition) {
 export const DEFAULT_PREFERENCES = Object.freeze({
   theme: 'system',
   displayMode: 'sidepanel',
+  // newTabOverride: kept for backward compat; B-039 dropped (MV3 constraint
+  // — chrome_url_overrides.newtab cannot be removed at runtime, so the OFF
+  // state could not deliver browser-default new tab behavior. See SPRINT 29
+  // retro + docs/design/42-b-036-newtab-page.md §42.3 D-2a RESCINDED).
   newTabOverride: false,
   autoCollapseSubGroups: false,
   /* B-060 — persist the user's last "Import duplicates anyway" choice so

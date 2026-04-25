@@ -25,8 +25,10 @@
  */
 
 import {
+  MSG_GET_PREFERENCES,
   MSG_LIST_ITEMS,
   MSG_NAVIGATE_TO_ITEM,
+  MSG_OPEN_STANDALONE,
   MSG_RECENCY_ADD,
 } from '../shared/messages.js';
 import { buildIndex, search } from '../sidepanel/search-index.js';
@@ -98,6 +100,53 @@ let rootEl, inputEl, inputWrapEl, listEl, statusEl, emptyEl, skeletonEl, scrollE
    ========================================================================= */
 
 document.addEventListener('DOMContentLoaded', () => {
+  /* B-038 — Pref-branch boot (popup-as-router). Per §43.3 D-1.3: when
+     `displayMode === 'window'`, fire MSG_OPEN_STANDALONE + window.close()
+     immediately, bypassing the quick-search bootstrap entirely. When
+     'sidepanel' (or any other / missing value — AC9 corrupt-pref fallback),
+     proceed to the existing quick-search path.
+
+     C-11 DISCIPLINE (popup-teardown race): the MSG_OPEN_STANDALONE sendMessage
+     MUST NOT be awaited, and there MUST be no `await` between the sendMessage
+     call and window.close(). chrome-mock cannot reproduce the teardown race —
+     R4 [code-reviewer] grep enforces this invariant. See §43.6 C-11 + §43.7. */
+  _bootWithPref().catch(() => {
+    /* Defensive: if the pref-branch path throws unexpectedly, fall through to
+       quick-search boot so the popup still functions. */
+    _bootQuickSearch();
+  });
+});
+
+/** Resolve the displayMode pref, then route the popup accordingly. */
+async function _bootWithPref() {
+  let displayMode = 'sidepanel';
+  try {
+    const prefs = await _sendMessage({ type: MSG_GET_PREFERENCES });
+    /* MSG_GET_PREFERENCES handler returns the preferences object directly via
+       the typed envelope's `data`. The popup's _sendMessage wrapper resolves
+       with the raw response; unwrap to read `data`. AC9: anything-not-'window'
+       falls back to 'sidepanel' (null/undefined/numbers/misspellings). */
+    const data = prefs && prefs.ok === true ? prefs.data : prefs;
+    if (data && data.displayMode === 'window') displayMode = 'window';
+  } catch {
+    /* SW unreachable or cold-start failure → safe default. */
+    displayMode = 'sidepanel';
+  }
+
+  if (displayMode === 'window') {
+    /* C-11 guardrail: fire-and-forget BEFORE window.close(); no await here
+       and no await between sendMessage and window.close(). Native runtime
+       delivery survives popup teardown. */
+    chrome.runtime.sendMessage({ type: MSG_OPEN_STANDALONE }).catch(() => { /* swallow */ });
+    window.close();
+    return;
+  }
+
+  _bootQuickSearch();
+}
+
+/** Boot the quick-search UI — the pre-B-038 default path. */
+function _bootQuickSearch() {
   rootEl = document.getElementById('qs-root');
   inputEl = document.getElementById('qs-input');
   inputWrapEl = document.getElementById('qs-input-wrap');
@@ -124,7 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   _showSkeleton();
   loadInitial();
-});
+}
 
 /* =========================================================================
    Initial load

@@ -85,6 +85,18 @@ import { buildIndex, diffAndPatch, search as searchIndex } from './search-index.
    sidepanel share the same scheme allowlist. Byte-for-byte equivalent. */
 import { isSafeFaviconUrl } from '../shared/favicon.js';
 
+/* B-089: Settings dialog scaffolding (Wave 0). The module owns its own DOM
+   wiring + broadcast subscription; sidepanel.js just injects the dialog DOM
+   refs + the shared focus-trap helpers so both dialogs reuse the same
+   overlay infrastructure. Wave 1 consumers (B-038/B-039/B-040) call
+   renderToggle / renderSelect to add their rows. */
+import {
+  init as initSettingsDialog,
+  closeSettingsDialog,
+  renderSelect as renderSettingsSelect,
+  renderToggle as renderSettingsToggle,
+} from './settings-dialog.js';
+
 /* =========================================================================
    DOM references
    ========================================================================= */
@@ -155,6 +167,12 @@ const groupFieldParentEl = document.getElementById('group-field-parent');
 const groupErrorParentEl = document.getElementById('group-error-parent');
 const groupCancelBtnEl = document.getElementById('group-cancel-btn');
 const groupSubmitBtnEl = document.getElementById('group-submit-btn');
+/* B-089: Settings dialog refs */
+const settingsBtnEl = document.getElementById('sidepanel-settings-btn');
+const settingsDialogEl = document.getElementById('settings-dialog');
+const settingsContentEl = document.getElementById('settings-content');
+const settingsErrorEl = document.getElementById('settings-error');
+const settingsCloseBtnEl = document.getElementById('settings-close-btn');
 /* B-029: Group picker modal */
 const groupPickerDialogEl = document.getElementById('group-picker-dialog');
 const groupPickerHeadingEl = document.getElementById('group-picker-heading');
@@ -591,6 +609,12 @@ function closeDialog() {
   bookmarkDialogEl.hidden = true;
   confirmDialogEl.hidden = true;
   groupDialogEl.hidden = true; /* B-027: ensure group dialog is closed too */
+  /* B-089: route settings close through the module so `_triggerEl` is cleared
+     AND focus is restored to the gear button. Manual DOM manipulation here
+     would bypass the module's focus-restore path and leave stale state. */
+  if (settingsDialogEl && !settingsDialogEl.hidden) {
+    closeSettingsDialog();
+  }
   /* B-029: ensure the picker is closed too so global Escape never leaves a
      stray picker behind. Local Escape handling in the picker calls
      closeGroupPickerDialog() directly; this branch only fires when the global
@@ -788,6 +812,69 @@ groupCancelBtnEl.addEventListener('click', closeGroupDialog);
    both share the same overlay). */
 
 /* B-027 end group dialog helpers ------------------------------------------ */
+
+/* =========================================================================
+   B-089 — Settings dialog wiring
+   =========================================================================
+   Module-scope initialization: the settings-dialog module manages its own
+   DOM (content region + error surface) and broadcast listener; we just feed
+   it the overlay + focus-trap helpers the sidepanel owns. Wave 0 ships the
+   scaffolding with no registered pref rows; B-038/B-039/B-040 (Wave 1) will
+   call renderToggle / renderSelect to add theirs.
+   ========================================================================= */
+
+initSettingsDialog({
+  overlayEl: dialogOverlayEl,
+  dialogEl: settingsDialogEl,
+  contentEl: settingsContentEl,
+  errorEl: settingsErrorEl,
+  closeBtnEl: settingsCloseBtnEl,
+  triggerBtnEl: settingsBtnEl,
+  activateFocusTrap: _activateFocusTrap,
+  deactivateFocusTrap: _deactivateFocusTrap,
+  sendMessage,
+  runtime: chrome.runtime,
+});
+
+/* B-038 — Display mode select. Registered after settings-dialog init so the
+   row paints into the dialog on every open. First section per §43.7 R3
+   handoff. Naming normative: key is `displayMode`, values are 'sidepanel' |
+   'window' (NOT 'viewMode' / 'standalone' — see §43.2). */
+renderSettingsSelect({
+  key: 'displayMode',
+  label: 'Open Tab Junkie as',
+  section: 'Display mode',
+  options: [
+    { value: 'sidepanel', label: 'Side Panel' },
+    { value: 'window', label: 'Standalone Window' },
+  ],
+  defaultValue: 'sidepanel',
+});
+
+/* B-039 — New tab page toggle: DROPPED at S29 close. Manifest V3 cannot
+   remove `chrome_url_overrides.newtab` at runtime, so the OFF state could
+   only deliver `about:blank` or a custom disabled-state page — never the
+   browser's true default new tab. The `renderSettingsToggle` call that
+   previously rendered "Replace new tab page with Tab Junkie" under a
+   "New tab page" section is intentionally absent. The pref key
+   `newTabOverride` is retained in DEFAULT_PREFERENCES for backward compat
+   but no UI exposes it. See docs/SPRINT.md S29 retro + design chapter §42. */
+
+/* B-040 — Sub-group auto-collapse toggle. Naming normative: key is
+   `autoCollapseSubGroups` (capital 'G' on Groups) per `DEFAULT_PREFERENCES`
+   in background/storage/shapes.js — the sole key the `validatePrefsPatch`
+   allow-list accepts. Note the BACKLOG AC copy uses `autoCollapseSubgroups`
+   (lowercase 'g'); that is R1 drift — the shipped key name is the contract
+   (same R3 reconciliation precedent as B-039). Default OFF: existing B-008
+   per-sub-group collapse independence remains the unchanged baseline. The
+   cascade is one-way (collapse only); the runtime handler lives in
+   `toggleGroup`. */
+renderSettingsToggle({
+  key: 'autoCollapseSubGroups',
+  label: 'Auto-collapse sub-groups when parent collapses',
+  section: 'Groups',
+  defaultValue: false,
+});
 
 /* =========================================================================
    B-059 soft-warn helpers — pre-dispatch duplicate-URL detection
@@ -4338,6 +4425,89 @@ function toggleGroup(header) {
   }).catch(() => {
     /* Non-critical — UI state is already updated */
   });
+
+  /* B-040 — Sub-group auto-collapse cascade (one-way, collapse only).
+     Gated on the `autoCollapseSubGroups` preference. When ON and the user
+     collapses a parent group (parentId === null with at least one child),
+     cascade `collapsed: true` writes to every direct child group.
+     Notes:
+       - ONE-WAY: expand-parent does NOT auto-expand children (AC4 design —
+         expansion would re-disclose previously-collapsed sub-groups the user
+         chose to hide).
+       - Depth-1 only: B-007 caps group nesting at depth 1, so only direct
+         children exist. No recursion needed (AC9).
+       - `Promise.all` non-atomic: `MSG_BULK_UPDATE_GROUPS` is not part of
+         the message contract (R1 finding). Individual writes may
+         fractionally fail; surviving writes commit. R2 AC5 accepts this
+         non-atomicity as explicit contract — a follow-up storage broadcast
+         keeps all surfaces converged.
+       - Retroactive protection: if the cascade fires before a broadcast
+         reaches us, `collapsedGroups` Set is already updated by UI painting
+         above; child collapse is driven off the LIVE `_cachedGroups`
+         (populated by renderAll + MSG_STATE_CHANGED broadcasts).
+     AC8 empty states handled inline: zero children → early return (no
+     writes); already-collapsed children → write still fires (no-op at the
+     storage layer). */
+  if (!expanded) {
+    /* Only cascade on collapse gestures — one-way guard. The `expanded`
+       snapshot was captured BEFORE we flipped the aria attribute, so
+       `!expanded` means "the user just collapsed this". */
+    _maybeCascadeCollapseChildren(groupId).catch((err) => {
+      /* Best-effort — cascade failures are logged, not surfaced. Parent
+         collapse already persisted. */
+      console.warn('[tab-junkie] B-040 cascade collapse failed:', err);
+    });
+  }
+}
+
+/**
+ * B-040 — Conditionally cascade `collapsed: true` to all direct child
+ * groups of `parentGroupId` when the `autoCollapseSubGroups` preference
+ * is ON. Reads the preference each time rather than caching; the pref
+ * toggle is rare relative to collapse gestures, and the read is a
+ * single-partition IPC round-trip.
+ *
+ * Zero-child parents short-circuit without any IPC writes (AC8a).
+ *
+ * @param {string} parentGroupId
+ * @returns {Promise<void>}
+ */
+async function _maybeCascadeCollapseChildren(parentGroupId) {
+  /* AC2: default OFF. If prefs fetch fails, silently skip cascade —
+     baseline B-008 behavior is unchanged, which is the defensive default. */
+  let prefs;
+  try {
+    prefs = await sendMessage(MSG_GET_PREFERENCES);
+  } catch {
+    return;
+  }
+  if (!prefs || prefs.autoCollapseSubGroups !== true) return;
+
+  /* Find direct children via the live `_cachedGroups` snapshot. Depth-1
+     cap from B-007 means children of children do not exist. */
+  const children = _cachedGroups.filter((g) => g.parentId === parentGroupId);
+  if (children.length === 0) return; // AC8a — zero-children no-op
+
+  /* Drive UI state synchronously so the cascade is visible before the
+     broadcast round-trip. The subsequent MSG_STATE_CHANGED (scope: 'groups')
+     from each successful write will re-render from authoritative storage. */
+  for (const child of children) {
+    collapsedGroups.add(child.id);
+  }
+
+  /* Fire individual MSG_UPDATE_GROUP writes concurrently. R1 finding: no
+     MSG_BULK_UPDATE_GROUPS exists; Promise.all is the best available
+     concurrency primitive. Each write catches its own error so one
+     failure does not swallow the others (AC5 non-atomic contract). */
+  const writes = children.map((child) =>
+    sendMessage(MSG_UPDATE_GROUP, {
+      id: child.id,
+      patch: { collapsed: true },
+    }).catch(() => {
+      console.warn('[tab-junkie] B-040 cascade write failed:', child.id);
+    }),
+  );
+  await Promise.all(writes);
 }
 
 function navigateToItem(row) {

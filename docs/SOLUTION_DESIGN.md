@@ -60,3 +60,5 @@
 - [§39 — B-022 — Quick Search Popup (R2 Design)](design/39-b-022-quick-search-popup.md)
 - [§40 — B-023 — Group Jump Popup (R2 Design)](design/40-b-023-group-jump-popup.md)
 - [§41 — B-035 — Standalone Window Display Mode (R2 Design)](design/41-b-035-standalone-window.md)
+- [§42 — B-036 — New Tab Page Replacement (R2 Design)](design/42-b-036-newtab-page.md)
+- [§43 — B-038 — View Mode Preference (R2 Decision Memo — Fast Track)](design/43-b-038-view-mode-pref.md)

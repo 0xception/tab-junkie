@@ -194,6 +194,20 @@ export const MSG_IMPORT_COLLECTION = 'tj/importCollection';
  */
 export const MSG_RECENCY_ADD = 'tj/recencyAdd';
 
+// ---- Popup → SW window routing (B-038) ----
+/**
+ * B-038 — Popup-router → SW fire-and-forget to open or focus the standalone
+ * Tab Junkie window. Fired by `popup/popup.js` at `DOMContentLoaded` when
+ * `displayMode === 'window'`, immediately followed by `window.close()` (no
+ * `await` between — C-11 discipline). SW handler calls the existing
+ * `openOrFocusStandaloneWindow()` helper.
+ *
+ * No payload. No response. Intentionally NOT in the `tj/*` namespace so the
+ * storage-handlers dispatcher (which claims all `tj/*` types) skips it,
+ * leaving the dedicated SW listener as the sole handler.
+ */
+export const MSG_OPEN_STANDALONE = 'MSG_OPEN_STANDALONE';
+
 // ---- State broadcast ----
 export const MSG_STATE_CHANGED = 'tj/stateChanged';
 

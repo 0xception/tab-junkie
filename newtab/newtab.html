@@ -1,10 +1,80 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tab Junkie — New Tab</title>
+    <link rel="stylesheet" href="newtab.css" />
+    <script src="theme-init.js"></script>
   </head>
   <body>
-    <p>Tab Junkie new tab page — UI not yet built. See B-036 in docs/BACKLOG.md.</p>
+    <!-- §42.3 D-2a: body intentionally renders empty at parse time. When the
+         pref check resolves to `false`, window.location.replace('about:blank')
+         fires before any visible DOM is injected; when it resolves to `true`,
+         newtab.js injects the skeleton + grid. Matching background colour in
+         newtab.css keeps the one-frame flash theme-neutral. -->
+    <main id="newtab-root" role="main" aria-label="Tab Junkie new tab page" hidden>
+      <header class="newtab-header">
+        <div class="newtab-brand">
+          <span class="newtab-wordmark">Tab Junkie</span>
+        </div>
+        <form id="web-search-form" class="newtab-web-search" role="search" aria-label="Web search">
+          <input
+            type="search"
+            id="web-search-input"
+            class="newtab-web-search-input"
+            placeholder="Search the web…"
+            aria-label="Search the web"
+            autocomplete="off"
+            spellcheck="false"
+            maxlength="2048"
+          />
+          <button type="submit" id="web-search-submit" class="newtab-web-search-submit" aria-label="Submit web search">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6"/>
+              <path d="M13.5 13.5l4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </form>
+      </header>
+
+      <nav id="newtab-filter-bar" class="newtab-filter-bar" aria-label="Bookmark filter">
+        <div class="newtab-filter-wrap">
+          <input
+            type="search"
+            id="newtab-filter-input"
+            class="newtab-filter-input"
+            placeholder="Filter bookmarks…"
+            aria-label="Filter bookmarks"
+            aria-controls="newtab-grid"
+            role="searchbox"
+            autocomplete="off"
+            spellcheck="false"
+            maxlength="256"
+          />
+          <button id="newtab-filter-clear" class="newtab-filter-clear" aria-label="Clear filter" type="button" hidden>×</button>
+        </div>
+      </nav>
+
+      <!-- MEDIUM QA-1 R4 fix: aria-live="polite" removed from the grid.
+           Announcing every row change (hundreds of mutations during a
+           fresh render) floods screen readers with irrelevant speech.
+           aria-live remains on #newtab-empty-state and #newtab-error-state
+           where state transitions are semantically meaningful. -->
+      <section
+        id="newtab-grid"
+        class="newtab-grid"
+        role="region"
+        aria-label="Bookmark grid"
+      >
+        <!-- newtab.js injects skeleton placeholders here at boot, then group
+             sections once MSG_LIST_ITEMS + MSG_LIST_GROUPS resolve. -->
+      </section>
+
+      <div id="newtab-empty-state" class="newtab-empty-state" role="status" aria-live="polite" hidden></div>
+      <div id="newtab-error-state" class="newtab-error-state" role="alert" hidden></div>
+    </main>
+
+    <script type="module" src="newtab.js"></script>
   </body>
 </html>

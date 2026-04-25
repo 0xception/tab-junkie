@@ -1,0 +1,639 @@
+/* =========================================================================
+   Tab Junkie — New Tab Page Styles (B-036, §42.4, §42.6, §42.7)
+   ========================================================================= */
+
+/* --- Theme custom properties ------------------------------------------- */
+/* B-036 §42.7.3 / AC21: reuse the exact palette from sidepanel.css so light
+   and dark themes stay visually consistent across every surface. The tokens
+   below are byte-identical to sidepanel.css:5-145. Any palette change MUST
+   happen in both places until the theme tokens are extracted to a shared
+   file (flagged as S30+ follow-up per §42.9). */
+
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f6f8;
+  --bg-hover: #ebedf0;
+  --bg-active: #e2e5ea;
+  --text-primary: #1a1d23;
+  --text-secondary: #5f6673;
+  --text-tertiary: #8a8f9a;
+  --border-primary: #dfe1e6;
+  --border-subtle: #ecedf0;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-subtle: #eff4ff;
+  --on-accent: #ffffff;
+  --focus-ring: #2563eb;
+  --live-indicator: #16a34a;
+  --active-bg: #eff4ff;
+  --active-bg-hover: #e2e8fd;
+  --active-border: #2563eb;
+  --audible-color: #7c3aed;
+  --drifted-color: #d97706;
+  --skeleton-base: #e8eaed;
+  --skeleton-shine: #f5f6f8;
+  --empty-color: #8a8f9a;
+  --group-count-bg: #ecedf0;
+  --group-count-text: #5f6673;
+  --avatar-text: #ffffff;
+  --mark-bg: #fef08a;
+}
+
+[data-theme="dark"] {
+  --bg-primary: #1a1d23;
+  --bg-secondary: #22262e;
+  --bg-hover: #2a2f38;
+  --bg-active: #323842;
+  --text-primary: #e8eaed;
+  --text-secondary: #9aa0ab;
+  --text-tertiary: #6b7280;
+  --border-primary: #323842;
+  --border-subtle: #2a2f38;
+  --accent: #60a5fa;
+  --accent-hover: #93bbfd;
+  --accent-subtle: #1e293b;
+  --on-accent: #0a0f1a;
+  --focus-ring: #60a5fa;
+  --live-indicator: #4ade80;
+  --active-bg: #1e293b;
+  --active-bg-hover: #263147;
+  --active-border: #60a5fa;
+  --audible-color: #a78bfa;
+  --drifted-color: #fbbf24;
+  --skeleton-base: #2a2f38;
+  --skeleton-shine: #323842;
+  --empty-color: #6b7280;
+  --group-count-bg: #2a2f38;
+  --group-count-text: #9aa0ab;
+  --avatar-text: #ffffff;
+  --mark-bg: #713f12;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] {
+    --bg-primary: #1a1d23;
+    --bg-secondary: #22262e;
+    --bg-hover: #2a2f38;
+    --bg-active: #323842;
+    --text-primary: #e8eaed;
+    --text-secondary: #9aa0ab;
+    --text-tertiary: #6b7280;
+    --border-primary: #323842;
+    --border-subtle: #2a2f38;
+    --accent: #60a5fa;
+    --accent-hover: #93bbfd;
+    --accent-subtle: #1e293b;
+    --on-accent: #0a0f1a;
+    --focus-ring: #60a5fa;
+    --live-indicator: #4ade80;
+    --active-bg: #1e293b;
+    --active-bg-hover: #263147;
+    --active-border: #60a5fa;
+    --audible-color: #a78bfa;
+    --drifted-color: #fbbf24;
+    --skeleton-base: #2a2f38;
+    --skeleton-shine: #323842;
+    --empty-color: #6b7280;
+    --group-count-bg: #2a2f38;
+    --group-count-text: #9aa0ab;
+    --avatar-text: #ffffff;
+    --mark-bg: #713f12;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f5f6f8;
+    --bg-hover: #ebedf0;
+    --bg-active: #e2e5ea;
+    --text-primary: #1a1d23;
+    --text-secondary: #5f6673;
+    --text-tertiary: #8a8f9a;
+    --border-primary: #dfe1e6;
+    --border-subtle: #ecedf0;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --accent-subtle: #eff4ff;
+    --on-accent: #ffffff;
+    --focus-ring: #2563eb;
+    --live-indicator: #16a34a;
+    --active-bg: #eff4ff;
+    --active-bg-hover: #e2e8fd;
+    --active-border: #2563eb;
+    --audible-color: #7c3aed;
+    --drifted-color: #d97706;
+    --skeleton-base: #e8eaed;
+    --skeleton-shine: #f5f6f8;
+    --empty-color: #8a8f9a;
+    --group-count-bg: #ecedf0;
+    --group-count-text: #5f6673;
+    --avatar-text: #ffffff;
+    --mark-bg: #fef08a;
+  }
+}
+
+/* --- Base reset -------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+/* Body paints in theme background at parse time so the first frame after
+   parse never shows a mismatched white canvas before the JS render. */
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  min-height: 100vh;
+}
+
+#newtab-root {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 32px clamp(16px, 4vw, 48px) 48px;
+  max-width: 1920px;
+  margin: 0 auto;
+}
+
+/* --- Header ------------------------------------------------------------ */
+
+.newtab-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding-top: 32px;
+  padding-bottom: 16px;
+}
+
+.newtab-brand {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.newtab-wordmark {
+  display: inline-block;
+}
+
+.newtab-web-search {
+  display: flex;
+  width: 100%;
+  max-width: 720px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 24px;
+  padding: 2px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.newtab-web-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-subtle);
+}
+
+.newtab-web-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 20px;
+  font-size: 16px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: inherit;
+}
+
+.newtab-web-search-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.newtab-web-search-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.newtab-web-search-submit:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.newtab-web-search-submit:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* --- Filter bar -------------------------------------------------------- */
+
+.newtab-filter-bar {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.newtab-filter-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+}
+
+.newtab-filter-input {
+  width: 100%;
+  padding: 8px 32px 8px 12px;
+  font-size: 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: inherit;
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.newtab-filter-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.newtab-filter-input:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-subtle);
+}
+
+.newtab-filter-clear {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: 18px;
+  line-height: 1;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.newtab-filter-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.newtab-filter-clear:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* --- Grid -------------------------------------------------------------- */
+
+/* §42.3 D-3: CSS Grid with repeat(auto-fill, minmax(320px, 1fr)) — responsive
+   multi-column layout with no @media breakpoints needed. align-items: start
+   keeps short groups from padding vertically to match tall ones. */
+.newtab-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  align-items: start;
+  gap: 16px;
+}
+
+/* --- Group section ----------------------------------------------------- */
+
+.newtab-group {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  overflow: hidden;
+  /* UAT-2 (S29): indent token for sub-group sections. Mirrors sidepanel
+     --group-indent (20px) so light-mode and dark-mode parity holds. */
+  --newtab-group-indent: 20px;
+}
+
+/* UAT-2 (S29): sub-group sections render visually indented under their
+   parent. Sits in the same grid cell flow as roots — this is a
+   margin-left, not a grid-column override, so the multi-column grid keeps
+   honoring auto-fill while child sections still read as nested. */
+.newtab-group--child {
+  margin-left: var(--newtab-group-indent);
+}
+
+.newtab-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-primary);
+}
+
+.newtab-group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.newtab-group-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--group-count-text);
+  background: var(--group-count-bg);
+  border-radius: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.newtab-group-items {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+
+/* --- Item row ---------------------------------------------------------- */
+
+.newtab-item-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: background 80ms ease;
+  outline: none;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+}
+
+.newtab-item-row:hover {
+  background: var(--bg-hover);
+}
+
+.newtab-item-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  background: var(--bg-hover);
+}
+
+.newtab-item-row[data-active="true"] {
+  background: var(--active-bg);
+}
+
+.newtab-item-row[data-active="true"]:hover {
+  background: var(--active-bg-hover);
+}
+
+.newtab-item-favicon,
+.newtab-item-avatar {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  object-fit: contain;
+  background: var(--bg-primary);
+}
+
+.newtab-item-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--avatar-text);
+  background: var(--accent);
+  text-transform: uppercase;
+}
+
+.newtab-item-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.newtab-item-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.newtab-item-url {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.newtab-item-title mark,
+.newtab-item-url mark {
+  background: var(--mark-bg);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
+/* --- Live-state indicators --------------------------------------------- */
+
+.newtab-item-indicators {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.newtab-indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.newtab-indicator-live {
+  background: var(--live-indicator);
+}
+
+.newtab-indicator-active {
+  background: var(--active-border);
+  box-shadow: 0 0 0 2px var(--active-bg);
+}
+
+.newtab-indicator-drifted {
+  background: var(--drifted-color);
+}
+
+.newtab-indicator-audible {
+  color: var(--audible-color);
+  display: inline-flex;
+  align-items: center;
+}
+
+/* --- Skeleton ---------------------------------------------------------- */
+
+.newtab-skeleton-group {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.newtab-skeleton-header {
+  height: 40px;
+  background: var(--skeleton-base);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.newtab-skeleton-row {
+  height: 40px;
+  margin: 6px 14px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--skeleton-base) 0%,
+    var(--skeleton-shine) 50%,
+    var(--skeleton-base) 100%
+  );
+  background-size: 200% 100%;
+  animation: newtab-skeleton-shine 1.4s ease-in-out infinite;
+}
+
+@keyframes newtab-skeleton-shine {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+/* --- Empty / error states --------------------------------------------- */
+
+.newtab-empty-state,
+.newtab-error-state {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  gap: 12px;
+  color: var(--empty-color);
+}
+
+.newtab-empty-icon,
+.newtab-error-icon {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.newtab-empty-title,
+.newtab-error-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.newtab-empty-message,
+.newtab-error-message {
+  font-size: 14px;
+  color: var(--text-secondary);
+  max-width: 360px;
+}
+
+.newtab-empty-cta,
+.newtab-error-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.newtab-empty-cta:hover,
+.newtab-error-cta:hover {
+  background: var(--accent-hover);
+}
+
+.newtab-empty-cta:focus-visible,
+.newtab-error-cta:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* --- Reduced motion ---------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .newtab-skeleton-row {
+    animation: none;
+  }
+  .newtab-item-row,
+  .newtab-web-search,
+  .newtab-filter-input,
+  .newtab-web-search-submit {
+    transition: none;
+  }
+}
