@@ -511,6 +511,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const CSS_PATH = resolve(__dirname, '..', 'sidepanel', 'sidepanel.css');
 const CSS_SRC = readFileSync(CSS_PATH, 'utf8');
+/* B-037 §45.3 D-3 — palette tokens moved to shared/themes.css. The
+   sidepanel.css file no longer carries `[data-theme="…"]` palette blocks.
+   Token-presence assertions read this superset stylesheet. */
+const SHARED_THEMES_PATH = resolve(__dirname, '..', 'shared', 'themes.css');
+const SHARED_THEMES_SRC = readFileSync(SHARED_THEMES_PATH, 'utf8');
 
 test('AC4: `.item-row[data-active="true"]:hover` rule exists and targets `var(--active-bg-hover)`', () => {
   /* Extract the selector block and confirm it references the hover token.
@@ -523,14 +528,15 @@ test('AC4: `.item-row[data-active="true"]:hover` rule exists and targets `var(--
   );
 });
 
-test('AC4: `--active-bg-hover` token is defined in all 4 theme blocks (light, dark, system-light, system-dark)', () => {
-  /* Count the occurrences to verify 4 definitions (one per theme block). If a
-     future refactor drops a definition, the hover background will fall back
-     to the initial value (transparent) in that theme. */
-  const matches = CSS_SRC.match(/--active-bg-hover:\s*#[0-9a-fA-F]{3,8}/g) || [];
+test('AC4: `--active-bg-hover` token is defined across the consolidated theme blocks', () => {
+  /* B-037 §45.3 D-3: palette blocks moved to shared/themes.css. The token
+     must be defined per-theme there. Count occurrences across the 13 named
+     themes + system + 2 legacy aliases + dark-system override = ≥ 13
+     definitions (one per resolvable `[data-theme="…"]` block). */
+  const matches = SHARED_THEMES_SRC.match(/--active-bg-hover:\s*#[0-9a-fA-F]{3,8}/g) || [];
   assert.ok(
-    matches.length >= 4,
-    `--active-bg-hover must be defined in all 4 theme blocks; found ${matches.length}`,
+    matches.length >= 13,
+    `--active-bg-hover must be defined per theme in shared/themes.css; found ${matches.length}`,
   );
 });
 
@@ -604,26 +610,43 @@ test('AC6: default `.item-select` visibility is hidden (revealed only by the tri
    `--selected-border` (#60a5fa).
    ========================================================================= */
 
-test('H-1: dark-theme `.item-select[aria-checked="true"]` overrides the checkmark stroke to the dark `--on-accent` value', () => {
-  /* Forced dark: `[data-theme="dark"]` override. */
-  const forcedDarkRe = /\[data-theme="dark"\] \.item-select\[aria-checked="true"\]\s*\{\s*\n\s*background-image:\s*url\("data:image\/svg\+xml,[^"]*stroke='%230a0f1a'/;
+test('H-1: dark themes resolve `--item-select-checked-bg` to the dark `--on-accent` (#0a0f1a or palette equivalent) for AA contrast on `--selected-border`', () => {
+  /* B-037 §45.3 D-3: per-theme stroke colour is encoded into the
+     `--item-select-checked-bg` custom property declared in shared/themes.css.
+     The legacy `[data-theme="dark"]` alias retains the original `%230a0f1a`
+     (one-dark `--on-accent`) value. The dark-system @media block must also
+     define the dark-stroke variant. */
+  const legacyDarkAliasRe = /\[data-theme="dark"\][\s\S]*?--item-select-checked-bg:\s*url\("data:image\/svg\+xml,[^"]*stroke='%23[0-9a-fA-F]{6}'/;
   assert.ok(
-    forcedDarkRe.test(CSS_SRC),
-    'forced-dark override must re-encode the checkmark SVG with `stroke=\'%230a0f1a\'` for AA contrast on dark `--selected-border`',
+    legacyDarkAliasRe.test(SHARED_THEMES_SRC),
+    'legacy `[data-theme="dark"]` alias must define `--item-select-checked-bg` with a non-white stroke for AA contrast',
   );
-  /* System dark: `[data-theme="system"]` inside `@media (prefers-color-scheme: dark)`. */
-  const systemDarkRe = /@media \(prefers-color-scheme: dark\)[\s\S]*?\[data-theme="system"\] \.item-select\[aria-checked="true"\]\s*\{\s*\n\s*background-image:\s*url\("data:image\/svg\+xml,[^"]*stroke='%230a0f1a'/;
+  /* System dark: `[data-theme="system"]` inside `@media (prefers-color-scheme: dark)`
+     must override `--item-select-checked-bg` with the dark `--on-accent` (#0a0f1a). */
+  const systemDarkRe = /@media \(prefers-color-scheme: dark\)\s*\{[\s\S]*?\[data-theme="system"\][\s\S]*?--item-select-checked-bg:\s*url\("data:image\/svg\+xml,[^"]*stroke='%230a0f1a'/;
   assert.ok(
-    systemDarkRe.test(CSS_SRC),
+    systemDarkRe.test(SHARED_THEMES_SRC),
     'system-dark override must re-encode the checkmark SVG with `stroke=\'%230a0f1a\'` — parity with the forced-dark override',
   );
 });
 
-test('H-1: light-theme base `.item-select[aria-checked="true"]` uses `stroke=\'white\'` (AA-passing on light `--selected-border`)', () => {
-  const re = /\n\.item-select\[aria-checked="true"\]\s*\{[\s\S]*?stroke='white'/;
+test('H-1: light-theme base `.item-select[aria-checked="true"]` consumes `var(--item-select-checked-bg)`; light themes resolve to a white-stroke SVG for AA contrast on light `--selected-border`', () => {
+  /* B-037 §45.3 D-3: the rule itself in sidepanel.css references the
+     `--item-select-checked-bg` custom property; the per-theme value lives in
+     shared/themes.css. R4 HIGH-2 added a fallback URL — the regex tolerates
+     both the bare `var(--item-select-checked-bg)` and the fallback form
+     `var(--item-select-checked-bg, url(...))`. */
+  const ruleRe = /\.item-select\[aria-checked="true"\]\s*\{[\s\S]*?background-image:\s*var\(--item-select-checked-bg[,)]/;
   assert.ok(
-    re.test(CSS_SRC),
-    'light-theme base rule must retain the white stroke — dark-theme override handles the contrast swap separately',
+    ruleRe.test(CSS_SRC),
+    'sidepanel.css `.item-select[aria-checked="true"]` rule must consume `var(--item-select-checked-bg)`',
+  );
+  /* The default (`[data-theme="system"]` light) palette must define
+     `--item-select-checked-bg` with `stroke='white'`. */
+  const lightSystemRe = /\[data-theme="system"\]\s*\{[\s\S]*?--item-select-checked-bg:\s*url\("data:image\/svg\+xml,[^"]*stroke='white'/;
+  assert.ok(
+    lightSystemRe.test(SHARED_THEMES_SRC),
+    'default light-system palette must define `--item-select-checked-bg` with `stroke=\'white\'`',
   );
 });
 

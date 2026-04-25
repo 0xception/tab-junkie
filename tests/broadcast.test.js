@@ -83,7 +83,9 @@ test('AC1: MSG_CREATE_GROUP triggers a groups broadcast', async () => {
 
 test('AC1: MSG_SET_PREFERENCES triggers a preferences broadcast', async () => {
   const before = __getSendMessageCalls().length;
-  const res = await sendMsg(MSG_SET_PREFERENCES, { patch: { theme: 'dark' } });
+  /* B-037: legacy 'dark' is no longer a writable theme value; use 'one-dark'
+     (the migration target slug) instead. */
+  const res = await sendMsg(MSG_SET_PREFERENCES, { patch: { theme: 'one-dark' } });
   assert.equal(res.ok, true);
   await new Promise((r) => setTimeout(r, 10));
   const calls = __getSendMessageCalls().slice(before);

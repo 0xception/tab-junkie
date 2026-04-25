@@ -439,24 +439,33 @@ test('B-092 AC5: prefs broadcast re-fetches and applyDenseLayout flips body clas
    reproduction above cannot silently drift from the production code.
    ========================================================================= */
 
-test('B-092 source invariant: sidepanel.js declares `applyDenseLayout` helper', () => {
-  const src = readFile('sidepanel/sidepanel.js');
-  assert.match(src, /function applyDenseLayout\(prefs\)/,
-    'sidepanel.js must declare the applyDenseLayout helper');
-  assert.match(src, /classList\.add\('tj-dense'\)/,
-    'sidepanel applyDenseLayout must add .tj-dense to body');
-  assert.match(src, /classList\.remove\('tj-dense'\)/,
-    'sidepanel applyDenseLayout must remove .tj-dense from body');
+test('B-092 + B-088 source invariant: sidepanel.js wires the shared dense-layout applier', () => {
+  /* B-088 fix #1 — the per-surface helpers were factored into
+     shared/surface-prefs.js. The surface code now imports the shared applier
+     under a stable local alias and the canonical body-class write lives in
+     the shared module. */
+  const sidepanelSrc = readFile('sidepanel/sidepanel.js');
+  assert.match(sidepanelSrc, /from ['"]\.\.\/shared\/surface-prefs\.js['"]/,
+    'sidepanel.js must import from shared/surface-prefs.js');
+  assert.match(sidepanelSrc, /applyDenseLayout/,
+    'sidepanel.js must reference the applyDenseLayout helper');
+  const sharedSrc = readFile('shared/surface-prefs.js');
+  assert.match(sharedSrc, /export function applyDenseLayout\(prefs\)/,
+    'shared/surface-prefs.js must export applyDenseLayout(prefs)');
+  assert.match(sharedSrc, /classList\.add\('tj-dense'\)/,
+    'shared applyDenseLayout must add .tj-dense to body');
+  assert.match(sharedSrc, /classList\.remove\('tj-dense'\)/,
+    'shared applyDenseLayout must remove .tj-dense from body');
 });
 
-test('B-092 source invariant: newtab.js declares `_applyDenseLayout` helper', () => {
-  const src = readFile('newtab/newtab.js');
-  assert.match(src, /function _applyDenseLayout\(prefs\)/,
-    'newtab.js must declare the _applyDenseLayout helper');
-  assert.match(src, /classList\.add\('tj-dense'\)/,
-    'newtab _applyDenseLayout must add .tj-dense to body');
-  assert.match(src, /classList\.remove\('tj-dense'\)/,
-    'newtab _applyDenseLayout must remove .tj-dense from body');
+test('B-092 + B-088 source invariant: newtab.js wires the shared dense-layout applier', () => {
+  /* B-088 fix #1 — the inline `_applyDenseLayout` clone was removed in
+     favour of the shared/surface-prefs.js export. */
+  const newtabSrc = readFile('newtab/newtab.js');
+  assert.match(newtabSrc, /from ['"]\.\.\/shared\/surface-prefs\.js['"]/,
+    'newtab.js must import from shared/surface-prefs.js');
+  assert.match(newtabSrc, /_applyDenseLayout/,
+    'newtab.js must reference the _applyDenseLayout local alias');
 });
 
 test('B-092 source invariant: sidepanel.css ships `.tj-dense` descendant rules per AC3', () => {

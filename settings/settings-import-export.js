@@ -455,13 +455,16 @@ async function _handleImportFile(file, triggerEl, format) {
   _setImportInFlight(true);
   let content;
   try {
-    try {
-      content = await _readFileAsText(file);
-    } catch {
+    /* B-088 fix #7 — nested try/catch collapsed into a single Promise resolve.
+       File-read failures map to `null`, which the explicit empty-content
+       check below converts into the same toast (distinct from ERR_EMPTY_FILE,
+       so the user can tell "couldn't open" from "file is blank"). */
+    content = await _readFileAsText(file).then((c) => c, () => null);
+    if (content === null) {
       showToast('Couldn\u2019t read file \u2014 try again');
       return;
     }
-    if (!content || content.length === 0) {
+    if (content.length === 0) {
       showToast(_importErrorToast('ERR_EMPTY_FILE', fmt));
       return;
     }

@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-24 · **Version:** 2.23 · **Total Items:** 92 · **Sprint 30 active — B-091 settings redesign (L) + B-090 + B-092 + B-093**
+**Updated:** 2026-04-25 · **Version:** 2.26 · **Total Items:** 98 · **Sprint 31 + Sprint 32 closed — v1.26.0 shipped 2026-04-25**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    █████████████████░░░  86% (79/92)  [4 in progress · S30 active]
+Overall Progress    ██████████████████░░  90% (90/98)  [0 in progress · S31+S32 closed]
 ```
 
 ### Legend
@@ -68,8 +68,8 @@ Overall Progress    █████████████████░░░
 ✅ B-033 — Drag saved+live item to Open Tabs → demote · 🟡 · S [S23 Wave 1 — merged df4a024 / PR #29]
 🧊 B-034 — Window filter row (2+ windows) · 🟡 · S [absorbed into B-014]
 ✅ B-035 — Standalone window display mode · 🟡 · M [S28 — v1.22.0]
-🔄 B-036 — New tab page replacement (optional) · ⚪ · L [S29 Wave 0 anchor]
-⬜ B-037 — Theme selection (≥12 themes) · 🟡 · M
+✅ B-036 — New tab page replacement (always-on) · ⚪ · L [S29 Wave 0 anchor — shipped always-on after B-039 drop, v1.23.0]
+✅ B-037 — Theme selection (14 themes) · 🟡 · M [S31 anchor — v1.26.0]
 ✅ B-038 — View mode preference (side panel vs. standalone) · ⚪ · XS [S29 Wave 1 — R4 clean PROCEED]
 🧊 B-039 — New tab page toggle preference · ⚪ · XS [S29 — DROPPED, MV3 constraint precludes true OFF state]
 ✅ B-040 — Sub-group auto-collapse preference · ⚪ · XS [S29 Wave 1 — R4 clean + canonical-key drift caught]
@@ -122,11 +122,32 @@ Overall Progress    █████████████████░░░
 
 ---
 
+## Sprint 32 — Polish + hygiene cleanup
+
+> 4/4 done · 0 in progress · Polish-only sprint closed · v1.26.0 shipped combined with S31
+
+✅ B-088 — Hygiene bundle (cross-surface helper factor-out + carry-forwards) · 🟡 · S [S32 — R4 PROCEED, 8 fixes shipped, +4 perf regression tests, v1.26.0]
+✅ B-096 — Sync `validatePreferences` import-validator with 14-slug enum · 🟡 · XS [S32 — R4 PROCEED, +10 tests, S31 security MEDIUM closed, v1.26.0]
+✅ B-097 — Customizable keyboard shortcut for Settings · ⚪ · XS [S32 — R4 PROCEED, +18 tests, shared/settings-tab.js extracted, v1.26.0]
+✅ B-098 — Tokyo Night theme (14th theme slip-in) · ⚪ · XS [S32 — additive palette, approved mid-S31, v1.26.0]
+
+---
+
+## Sprint 31 — Themes + process polish + popup Settings link
+
+> 3/3 done · 0 in progress · v1.26.0 shipped combined with S32
+
+✅ B-037 — Theme selection (14 themes) · 🟡 · M [S31 anchor — 14 themes shipped, v1.26.0]
+✅ B-094 — Process polish bundle (R2 C-1 stale-SW + R1 selector-audit) · 🟡 · XS [S31 — S30 retro action closed, v1.26.0]
+✅ B-095 — Toolbar popup → Settings link · ⚪ · XS [S31 — R4 PROCEED, +7 tests, v1.26.0]
+
+---
+
 ## Sprint 30 — Settings page redesign + dense layout + import/export rehome
 
-> 0/4 done · 4 in progress · B-091 Spike-First (L) anchor; Wave 1 consumers B-092 + B-093; B-090 doc edit parallel · Themes (B-037) deferred to S31
+> 4/4 done · 0 in progress · v1.24.0 shipped
 
-🔄 B-091 — Settings page redesign (full-page surface) · 🟡 · L [S30 Wave 0 anchor — R5 complete; awaits user UAT before R6 close]
+✅ B-091 — Settings page redesign (full-page surface) · 🟡 · L [S30 Wave 0 anchor — R5+UAT complete, v1.24.0]
 ✅ B-093 — Import/export controls rehome to Settings page · 🟡 · S [S30 Wave 1 — R4 PROCEED + 2 MED fixes; +13 tests]
 ✅ B-092 — Dense / compact layout toggle · ⚪ · XS [S30 Wave 1 — R4 PROCEED, +24 tests]
 ✅ B-090 — Add C-12 "Manifest declarations runtime-mutability" to R2 Correctness Checklist · 🟡 · XS [S30 Wave 0 — S29 retro HIGH action closed]
@@ -135,10 +156,10 @@ Overall Progress    █████████████████░░░
 
 ## Sprint 29 — New tab page + preferences surface
 
-> 4/5 done + 1 dropped · Settings panel scaffolding unblocks 2 XS pref toggles · B-036 anchored newtab parity (always-on); B-039 dropped at sprint close (MV3 constraint precludes true OFF state)
+> 5/5 done + 1 dropped · v1.23.0 shipped · B-036 newtab always-on; B-039 dropped (MV3 constraint)
 
 ✅ B-089 — Settings panel scaffolding (prefs UI surface) · 🟡 · S [S29 Wave 0 — 1214 tests, 2 HIGH fixed]
-🔄 B-036 — New tab page replacement (optional) · ⚪ · L [S29 Wave 0 anchor — shipped always-on after B-039 drop]
+✅ B-036 — New tab page replacement (always-on) · ⚪ · L [S29 Wave 0 anchor — shipped always-on after B-039 drop, v1.23.0]
 ✅ B-038 — View mode preference (side panel vs. standalone) · ⚪ · XS [S29 Wave 1 — R4 clean PROCEED]
 🧊 B-039 — New tab page toggle preference · ⚪ · XS [S29 — DROPPED, MV3 constraint precludes true OFF state]
 ✅ B-040 — Sub-group auto-collapse preference · ⚪ · XS [S29 Wave 1 — R4 clean + canonical-key drift caught]
@@ -165,13 +186,13 @@ Overall Progress    █████████████████░░░
 | 🔴 P0 Critical | 14 | 15% |
 | 🟠 P1 High | 34 | 37% |
 | 🟡 P2 Medium | 20 | 22% |
-| ⚪ P3 Nice-to-have | 7 | 8% |
+| ⚪ P3 Nice-to-have | 8 | 8% |
 
 ## Status Summary
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 79 | 86% |
-| 🔄 In Progress | 4 | 4% |
-| ⬜ To Do | 6 | 7% |
+| ✅ Done | 92 | 94% |
+| 🔄 In Progress | 0 | 0% |
+| ⬜ To Do | 3 | 3% |
 | 🧊 Icebox | 3 | 3% |

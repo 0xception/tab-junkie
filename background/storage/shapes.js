@@ -11,6 +11,7 @@
 
 import { StorageError, ERR_CORRUPT_DATA } from './errors.js';
 import { normalizeUrl } from '../../shared/url.js';
+import { VALID_THEME_SLUGS_READ } from '../../shared/theme-slugs.js';
 
 // ---- Field length caps (H1) ------------------------------------------------
 // Enforced in validators at the storage boundary to prevent quota-exhaustion
@@ -60,11 +61,13 @@ export function partitionKey(partition) {
 export const DEFAULT_PREFERENCES = Object.freeze({
   theme: 'system',
   displayMode: 'sidepanel',
-  // newTabOverride: kept for backward compat; B-039 dropped (MV3 constraint
-  // — chrome_url_overrides.newtab cannot be removed at runtime, so the OFF
-  // state could not deliver browser-default new tab behavior. See SPRINT 29
-  // retro + docs/design/42-b-036-newtab-page.md §42.3 D-2a RESCINDED).
-  newTabOverride: false,
+  /* B-088 fix #2 — legacy new-tab-override ghost-key removed. The pref
+     existed only to gate the toggle in the original B-036 design; B-039
+     (Sprint 29) dropped the toggle because MV3's chrome_url_overrides cannot
+     be removed at runtime. The newtab page is now always-on, leaving the
+     pref a no-op storage slot. Stale on-disk values from pre-removal builds
+     are tolerated by isPreferences (extra keys ignored) and stripped on
+     import by validatePreferences. */
   autoCollapseSubGroups: false,
   /* B-060 — persist the user's last "Import duplicates anyway" choice so
      subsequent import preview dialogs default to their preferred behavior.
@@ -127,11 +130,20 @@ function isGroup(v) {
     && isNumber(v.createdAt) && isNumber(v.updatedAt);
 }
 
+/* B-037 §45.3 D-1 / D-2 / D-5 — `theme` enum extension. READ-side allow-list
+   sourced from shared/theme-slugs.js: 13 new slugs + 2 legacy aliases
+   ('light', 'dark'). The two legacy values are tolerated here so
+   `assertShape()` does not throw ERR_CORRUPT_DATA on disk values written
+   before B-037 shipped. The legacy values are normalised by `getPreferences()`
+   (preferences.js) BEFORE the defaults-merge so the runtime contract sees only
+   the new 13-slug enum. Writes go through `validatePrefsPatch()` which gates
+   on the 13 new slugs ONLY — legacy values can never be re-written. */
+
 function isPreferences(v) {
   if (!v || typeof v !== 'object') return false;
-  if (!(v.theme === 'light' || v.theme === 'dark' || v.theme === 'system')) return false;
+  if (typeof v.theme !== 'string' || !VALID_THEME_SLUGS_READ.has(v.theme)) return false;
   if (!(v.displayMode === 'sidepanel' || v.displayMode === 'window')) return false;
-  if (!isBool(v.newTabOverride) || !isBool(v.autoCollapseSubGroups)) return false;
+  if (!isBool(v.autoCollapseSubGroups)) return false;
   /* B-060 — `importSkipDuplicates` was added in Sprint 18 Wave 2. It is
      OPTIONAL on the shape validator: pre-B-060 stored prefs lack the key,
      and `getPreferences()` merges DEFAULT_PREFERENCES over stored so the

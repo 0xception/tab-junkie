@@ -11,6 +11,7 @@ import {
   readPartition,
 } from './partitions.js';
 import { writeTransaction } from './write-transaction.js';
+import { VALID_THEME_SLUGS_WRITE } from '../../shared/theme-slugs.js';
 
 function validatePrefsPatch(patch) {
   if (!patch || typeof patch !== 'object') {
@@ -22,14 +23,11 @@ function validatePrefsPatch(patch) {
       throw new StorageError(ERR_VALIDATION, `setPreferences: unknown field "${k}"`);
     }
   }
-  if ('theme' in patch && !['light', 'dark', 'system'].includes(patch.theme)) {
-    throw new StorageError(ERR_VALIDATION, 'setPreferences: theme must be light|dark|system');
+  if ('theme' in patch && !VALID_THEME_SLUGS_WRITE.includes(patch.theme)) {
+    throw new StorageError(ERR_VALIDATION, `setPreferences: theme must be one of ${VALID_THEME_SLUGS_WRITE.join('|')}`);
   }
   if ('displayMode' in patch && !['sidepanel', 'window'].includes(patch.displayMode)) {
     throw new StorageError(ERR_VALIDATION, 'setPreferences: displayMode must be sidepanel|window');
-  }
-  if ('newTabOverride' in patch && typeof patch.newTabOverride !== 'boolean') {
-    throw new StorageError(ERR_VALIDATION, 'setPreferences: newTabOverride must be boolean');
   }
   if ('autoCollapseSubGroups' in patch && typeof patch.autoCollapseSubGroups !== 'boolean') {
     throw new StorageError(ERR_VALIDATION, 'setPreferences: autoCollapseSubGroups must be boolean');
@@ -48,6 +46,19 @@ function validatePrefsPatch(patch) {
 
 export async function getPreferences() {
   const stored = await readPartition(PARTITION_PREFS);
+  /* B-037 §45.3 D-2 — read-time legacy theme normalisation. Runs AFTER
+     `readPartition`/`assertShape` (which tolerates 'light'/'dark' via the
+     read-side allow-list in shapes.js) and BEFORE the defaults-merge so the
+     runtime contract sees only the 13-slug enum. We mutate a shallow copy
+     here — the persisted disk value stays at its legacy string until the
+     user picks a new theme, which keeps R6 rollback trivial. */
+  if (stored && typeof stored === 'object') {
+    if (stored.theme === 'light' || stored.theme === 'dark') {
+      const migrated = { ...stored };
+      migrated.theme = stored.theme === 'light' ? 'atom-one-light' : 'one-dark';
+      return { ...DEFAULT_PREFERENCES, ...migrated };
+    }
+  }
   return { ...DEFAULT_PREFERENCES, ...stored };
 }
 

@@ -188,30 +188,61 @@ export function renderToggle(spec) {
 }
 
 /**
- * Register a select row. Same signature as B-089's renderSelect.
+ * Register a select row. Same signature as B-089's renderSelect, with the
+ * B-037 §45.3 D-6 extension: an optional `optgroups` parameter is accepted
+ * as an alternative to the flat `options` array. Mutually exclusive — if
+ * both are passed, an error is thrown at registration time.
  *
  * @param {Object} spec
  * @param {string} spec.key
  * @param {string} spec.label
  * @param {string} [spec.section]
- * @param {Array<{value: string, label: string}>} spec.options
+ * @param {Array<{value: string, label: string}>} [spec.options]
+ * @param {Array<{label: string, options: Array<{value: string, label: string}>}>} [spec.optgroups]
  * @param {string} [spec.defaultValue]
  * @returns {{ key: string, type: 'select' }}
  */
 export function renderSelect(spec) {
   _assertInit();
   _assertNewKey(spec && spec.key);
-  if (!spec || !Array.isArray(spec.options) || spec.options.length === 0) {
-    throw new Error('renderSelect: options array is required');
+  const hasOptions = !!(spec && Array.isArray(spec.options) && spec.options.length > 0);
+  const hasOptgroups = !!(spec && Array.isArray(spec.optgroups) && spec.optgroups.length > 0);
+  if (hasOptions && hasOptgroups) {
+    throw new Error('renderSelect: `options` and `optgroups` are mutually exclusive');
+  }
+  if (!hasOptions && !hasOptgroups) {
+    throw new Error('renderSelect: options array or optgroups array is required');
   }
   const section = spec.section || 'General';
+
+  let optgroups = null;
+  let flatOptions;
+  if (hasOptgroups) {
+    /* B-037 §45.3 D-6 — preserve a flat `field.options` derived from the
+       optgroup list so `_writeControlValue`'s "valid option" check (line 373)
+       continues to work without change. */
+    optgroups = spec.optgroups.map((g) => {
+      if (!g || !Array.isArray(g.options) || g.options.length === 0) {
+        throw new Error('renderSelect: each optgroup requires a non-empty options array');
+      }
+      return {
+        label: String(g.label || ''),
+        options: g.options.map((o) => ({ value: String(o.value), label: String(o.label) })),
+      };
+    });
+    flatOptions = optgroups.flatMap((g) => g.options);
+  } else {
+    flatOptions = spec.options.map((o) => ({ value: String(o.value), label: String(o.label) }));
+  }
+
   const field = {
     kind: 'select',
     key: spec.key,
     label: String(spec.label || ''),
     section,
-    options: spec.options.map((o) => ({ value: String(o.value), label: String(o.label) })),
-    defaultValue: spec.defaultValue != null ? String(spec.defaultValue) : spec.options[0].value,
+    options: flatOptions,
+    optgroups,
+    defaultValue: spec.defaultValue != null ? String(spec.defaultValue) : flatOptions[0].value,
     rowEl: null,
     inputEl: null,
     errorEl: null,
@@ -291,51 +322,20 @@ function _setPageError(msg) {
 
 /* The banner is structured as <div id="settings-error-banner"><span
    id="settings-error-banner-text"></span><button>Reload</button></div>. The
-   forked module writes the message into the inner <span> by querying via
-   ownerDocument.getElementById when available; falls back to walking
-   descendants by id in headless test setups where lookup-by-id is not wired.
-   MEDIUM-1: never return the banner element itself — overwriting its
-   textContent would destroy the Reload button. If neither lookup finds the
-   text node, log + create-or-reuse a child <span> for the message instead. */
+   forked module writes the message into the inner <span> resolved via
+   ownerDocument.getElementById. MEDIUM-1: never return the banner element
+   itself — overwriting its textContent would destroy the Reload button.
+   B-088 fix #6: collapsed to a single canonical lookup. The HTML contract
+   guarantees the inner <span> is present; tests provide the same id via
+   getElementById on their FakeDocument. Returning null on miss is a contract
+   violation and surfaces a warn — callers gracefully no-op. */
 function _resolveBannerTextNode(banner) {
-  // ownerDocument lookup (real DOM + most test harnesses).
-  if (banner.ownerDocument && typeof banner.ownerDocument.getElementById === 'function') {
-    const node = banner.ownerDocument.getElementById('settings-error-banner-text');
+  const doc = banner && banner.ownerDocument;
+  if (doc && typeof doc.getElementById === 'function') {
+    const node = doc.getElementById('settings-error-banner-text');
     if (node) return node;
   }
-  // Fallback: look up directly by descendants' id (FakeElement test path).
-  const descendant = _findDescendantById(banner, 'settings-error-banner-text');
-  if (descendant) return descendant;
-  // MEDIUM-1 defensive fallback: the canonical <span> child is missing. Warn
-  // so any production occurrence is observable, then create or reuse a child
-  // span. NEVER return the banner itself — that would overwrite the Reload
-  // button when textContent is set.
-  console.warn('[B-091] settings banner text node not found; defensive fallback engaged');
-  const doc = banner.ownerDocument || globalThis.document;
-  if (!doc || typeof doc.createElement !== 'function') return null;
-  const fallback = doc.createElement('span');
-  fallback.id = 'settings-error-banner-text';
-  fallback.className = 'settings-error-banner-text';
-  // Insert before any existing children so the Reload button (typically last)
-  // remains positioned correctly.
-  const firstChild = banner.childNodes && banner.childNodes[0];
-  if (firstChild && typeof banner.insertBefore === 'function') {
-    banner.insertBefore(fallback, firstChild);
-  } else if (typeof banner.appendChild === 'function') {
-    banner.appendChild(fallback);
-  } else {
-    return null;
-  }
-  return fallback;
-}
-
-function _findDescendantById(root, id) {
-  const kids = root.children || root.childNodes || [];
-  for (const c of kids) {
-    if (c && c.id === id) return c;
-    const hit = _findDescendantById(c, id);
-    if (hit) return hit;
-  }
+  console.warn('[B-091] settings-error-banner-text missing — banner unwritten');
   return null;
 }
 
@@ -474,11 +474,28 @@ function _buildFieldDom(field) {
   } else {
     const select = doc.createElement('select');
     select.className = 'settings-select';
-    for (const opt of field.options) {
-      const o = doc.createElement('option');
-      o.value = opt.value;
-      o.textContent = opt.label; /* textContent — never innerHTML */
-      select.appendChild(o);
+    /* B-037 §45.3 D-6 — when `optgroups` is present, build <optgroup>
+       wrappers instead of a flat <option> list. The flat `field.options`
+       remains the authoritative valid-value list for _writeControlValue. */
+    if (Array.isArray(field.optgroups) && field.optgroups.length > 0) {
+      for (const group of field.optgroups) {
+        const og = doc.createElement('optgroup');
+        og.setAttribute('label', group.label);
+        for (const opt of group.options) {
+          const o = doc.createElement('option');
+          o.value = opt.value;
+          o.textContent = opt.label; /* textContent — never innerHTML */
+          og.appendChild(o);
+        }
+        select.appendChild(og);
+      }
+    } else {
+      for (const opt of field.options) {
+        const o = doc.createElement('option');
+        o.value = opt.value;
+        o.textContent = opt.label; /* textContent — never innerHTML */
+        select.appendChild(o);
+      }
     }
     controlWrap.appendChild(select);
     inputEl = select;

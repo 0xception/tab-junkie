@@ -194,7 +194,9 @@ test('B-045 AC10 e2e: valid preferences apply during commit', async () => {
   assert.equal(commit.ok, true);
   const storedPrefs = __getRawStore('tj:prefs');
   assert.equal(storedPrefs.theme, 'dark');
-  assert.equal(storedPrefs.newTabOverride, true);
+  /* B-088 fix #2 — `newTabOverride` ghost-key is stripped on import. */
+  assert.equal('newTabOverride' in storedPrefs, false,
+    'legacy newTabOverride must not land in storage on commit');
 });
 
 test('B-045 AC10 e2e: invalid preferences do NOT clobber storage', async () => {
@@ -450,7 +452,9 @@ test('B-070 AC1 e2e: prefs-only backup commits; prefs applied atomically', async
 
   const storedPrefs = __getRawStore('tj:prefs');
   assert.equal(storedPrefs.theme, 'dark', 'new theme applied from backup');
-  assert.equal(storedPrefs.newTabOverride, true, 'newTabOverride applied');
+  /* B-088 fix #2 — `newTabOverride` ghost-key is stripped on import. */
+  assert.equal('newTabOverride' in storedPrefs, false,
+    'legacy newTabOverride must not land in storage on commit');
   assert.equal(storedPrefs.autoCollapseSubGroups, true, 'autoCollapseSubGroups applied');
 });
 

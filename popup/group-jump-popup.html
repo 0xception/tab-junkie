@@ -1,8 +1,14 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="system">
   <head>
     <meta charset="utf-8" />
     <title>Tab Junkie — Jump to Group</title>
+    <!-- B-037 UAT-6: shared FOUC guard runs SYNC before any stylesheet so
+         the cached `data-theme` attribute is set before paint. Shared themes
+         stylesheet loads BEFORE the surface-specific stylesheet so palette
+         tokens resolve before component rules consume them. -->
+    <script src="../shared/theme-init.js"></script>
+    <link rel="stylesheet" href="../shared/themes.css" />
     <link rel="stylesheet" href="group-jump-popup.css" />
     <script type="module" src="group-jump-popup.js"></script>
   </head>

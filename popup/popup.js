@@ -34,6 +34,13 @@ import {
 import { buildIndex, search } from '../sidepanel/search-index.js';
 import { buildHighlightedText } from '../shared/highlight.js';
 import { isSafeFaviconUrl } from '../shared/favicon.js';
+/* B-097: Settings tab dispatcher factored to shared/settings-tab.js
+   (3rd-caller threshold: sidepanel + popup + SW shortcut). C-11 discipline
+   preserved — fire-and-forget call before window.close(), no await between. */
+import { openOrFocusSettingsTab } from '../shared/settings-tab.js';
+/* B-088 fix #1 — shared theme applier. Popup ignores `applyDenseLayout`
+   (the 320px popup has no compact layout). */
+import { applyTheme as _applyTheme } from '../shared/surface-prefs.js';
 
 /* =========================================================================
    Tunables (all lifted from §39.3 / §39.4)
@@ -61,8 +68,6 @@ let _items = [];
 let _itemById = new Map();
 /** @type {Array<Object>} Open tabs from MSG_LIST_ITEMS.openTabs. */
 let _openTabs = [];
-/** Map<number, Object> — tabId → tab. */
-let _tabById = new Map();
 /** Map<string, Object> — tab.url → tab (recency resolution of url: ids). */
 let _tabByUrl = new Map();
 /** Per-item live-state map from MSG_LIST_ITEMS.liveStates. */
@@ -93,7 +98,7 @@ let _mode = 'loading';
    DOM refs
    ========================================================================= */
 
-let rootEl, inputEl, inputWrapEl, listEl, statusEl, emptyEl, skeletonEl, scrollEl, sidepanelBtnEl, sidepanelErrorEl;
+let rootEl, inputEl, inputWrapEl, listEl, statusEl, emptyEl, skeletonEl, scrollEl, sidepanelBtnEl, sidepanelErrorEl, settingsBtnEl;
 
 /* =========================================================================
    Entry point
@@ -128,6 +133,10 @@ async function _bootWithPref() {
        falls back to 'sidepanel' (null/undefined/numbers/misspellings). */
     const data = prefs && prefs.ok === true ? prefs.data : prefs;
     if (data && data.displayMode === 'window') displayMode = 'window';
+    /* B-037: hydrate the theme attribute + sessionStorage from the same prefs
+       fetch. Best-effort — the FOUC guard already painted with the cached
+       value, so a missing/invalid theme leaves the cached attribute in place. */
+    if (data && typeof data.theme === 'string') _applyTheme(data.theme);
   } catch {
     /* SW unreachable or cold-start failure → safe default. */
     displayMode = 'sidepanel';
@@ -157,6 +166,7 @@ function _bootQuickSearch() {
   scrollEl = document.getElementById('qs-results-scroll');
   sidepanelBtnEl = document.getElementById('popup-open-sidepanel-btn');
   sidepanelErrorEl = document.getElementById('qs-sidepanel-error');
+  settingsBtnEl = document.getElementById('popup-open-settings-btn');
 
   /* AC3 — programmatic focus plus native autofocus-style fallback. */
   if (inputEl) inputEl.focus();
@@ -169,6 +179,11 @@ function _bootQuickSearch() {
   /* B-082 AC2: Open side panel on button click. */
   if (sidepanelBtnEl) {
     sidepanelBtnEl.addEventListener('click', _onOpenSidepanelClick);
+  }
+
+  /* B-095 AC2: Open Settings tab on button click. */
+  if (settingsBtnEl) {
+    settingsBtnEl.addEventListener('click', _onOpenSettingsClick);
   }
 
   _showSkeleton();
@@ -205,7 +220,6 @@ async function loadInitial() {
 
     /* Build resolution maps + search indexes. */
     _itemById = new Map(_items.map((it) => [it.id, it]));
-    _tabById = new Map(_openTabs.map((t) => [t.tabId, t]));
     _tabByUrl = new Map(_openTabs.map((t) => [t.url, t]));
     _searchIndex = buildIndex(_items);
     _openTabIndex = _openTabs.map((t) => ({
@@ -508,11 +522,10 @@ function _onKeyDown(e) {
   if (e.key === 'Tab') {
     /* B-022 R4 H-2 — focus trap. Result rows are not individually focusable
        (selection lives in `aria-activedescendant`), so this is a logical
-       trap between the input, the "selected row" concept, and the Open Side
-       Panel button. The Tab key always cycles within the popup — it never
-       escapes to browser chrome.
-       Cycle (forward): input → rows (first…last) → sidepanel-btn → input
-       Cycle (reverse): input → sidepanel-btn → rows (last…first) → input
+       trap between the input, the "selected row" concept, and the footer buttons.
+       The Tab key always cycles within the popup — it never escapes to browser chrome.
+       Cycle (forward): input → rows (first…last) → sidepanel-btn → settings-btn → input
+       Cycle (reverse): input → settings-btn → sidepanel-btn → rows (last…first) → input
        WCAG 2.1.2 No Keyboard Trap is satisfied by Escape closing the popup. */
     const activatable = [];
     for (let i = 0; i < _currentRows.length; i++) {
@@ -521,23 +534,30 @@ function _onKeyDown(e) {
     e.preventDefault();
     e.stopPropagation();
 
-    const onBtn = sidepanelBtnEl && document.activeElement === sidepanelBtnEl;
+    const onSidepanelBtn = sidepanelBtnEl && document.activeElement === sidepanelBtnEl;
+    const onSettingsBtn = settingsBtnEl && document.activeElement === settingsBtnEl;
 
     if (e.shiftKey) {
       /* Shift+Tab reverse cycle:
-         input        → sidepanel-btn
-         sidepanel-btn → last row (or input if no rows)
-         row N        → row N-1
-         row 0        → input */
-      if (document.activeElement === inputEl || _selectedIndex === -1 && !onBtn) {
-        /* From input → jump to the button. */
+         input          → settings-btn
+         settings-btn   → sidepanel-btn
+         sidepanel-btn  → last row (or input if no rows)
+         row N          → row N-1
+         row 0          → input */
+      if (document.activeElement === inputEl || (_selectedIndex === -1 && !onSidepanelBtn && !onSettingsBtn)) {
+        /* From input → jump to settings button. */
         _selectedIndex = -1;
         _renderSelection();
+        if (settingsBtnEl) settingsBtnEl.focus();
+        return;
+      }
+      if (onSettingsBtn) {
+        /* From settings-btn → sidepanel-btn. */
         if (sidepanelBtnEl) sidepanelBtnEl.focus();
         return;
       }
-      if (onBtn) {
-        /* From button → last result row (or input if none). */
+      if (onSidepanelBtn) {
+        /* From sidepanel-btn → last result row (or input if none). */
         if (activatable.length === 0) {
           inputEl.focus();
           return;
@@ -561,19 +581,25 @@ function _onKeyDown(e) {
     }
 
     /* Tab (no Shift) forward cycle:
-       input     → first row (or sidepanel-btn if no rows)
-       row N     → row N+1
-       last row  → sidepanel-btn
-       btn       → input */
-    if (onBtn) {
-      /* From button → wrap back to input. */
+       input          → first row (or sidepanel-btn if no rows)
+       row N          → row N+1
+       last row       → sidepanel-btn
+       sidepanel-btn  → settings-btn
+       settings-btn   → input */
+    if (onSettingsBtn) {
+      /* From settings-btn → wrap back to input. */
       _selectedIndex = -1;
       _renderSelection();
       inputEl.focus();
       return;
     }
+    if (onSidepanelBtn) {
+      /* From sidepanel-btn → settings-btn. */
+      if (settingsBtnEl) settingsBtnEl.focus();
+      return;
+    }
     if (activatable.length === 0) {
-      /* No rows — cycle input ↔ button. */
+      /* No rows — cycle input → sidepanel-btn → settings-btn → input. */
       if (document.activeElement === inputEl) {
         if (sidepanelBtnEl) sidepanelBtnEl.focus();
       } else {
@@ -986,6 +1012,20 @@ async function _onOpenSidepanelClick() {
   } finally {
     _sidepanelOpening = false;
   }
+}
+
+/* =========================================================================
+   B-095 + B-097: Open Settings button
+   C-11 DISCIPLINE (popup-teardown race): openOrFocusSettingsTab() is called
+   fire-and-forget (.catch swallows). window.close() is the immediately next
+   statement — no await between dispatch and close. Native runtime delivery
+   from the shared helper survives popup teardown. See §43.6 C-11.
+   ========================================================================= */
+
+function _onOpenSettingsClick(e) {
+  e.preventDefault();
+  openOrFocusSettingsTab().catch(() => { /* swallow — popup teardown */ });
+  window.close();
 }
 
 /* =========================================================================

@@ -2,147 +2,11 @@
    Tab Junkie — Sidepanel Styles
    ========================================================================= */
 
-/* --- Theme custom properties ------------------------------------------- */
-
-[data-theme="light"] {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f5f6f8;
-  --bg-hover: #ebedf0;
-  --bg-active: #e2e5ea;
-  --text-primary: #1a1d23;
-  --text-secondary: #5f6673;
-  --text-tertiary: #8a8f9a;
-  --border-primary: #dfe1e6;
-  --border-subtle: #ecedf0;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --accent-subtle: #eff4ff;
-  --on-accent: #ffffff;
-  --focus-ring: #2563eb;
-  --live-indicator: #16a34a;
-  --active-bg: #eff4ff;
-  --active-bg-hover: #e2e8fd;
-  --active-border: #2563eb;
-  --audible-color: #7c3aed;
-  --drifted-color: #d97706;
-  --danger: #c62828; /* B-044: destructive-emphasis text — 5.62:1 on light --bg-primary */
-  --skeleton-base: #e8eaed;
-  --skeleton-shine: #f5f6f8;
-  --empty-color: #8a8f9a;
-  --group-count-bg: #ecedf0;
-  --group-count-text: #5f6673;
-  --avatar-text: #ffffff;
-  --collapse-icon: #8a8f9a;
-  --mark-bg: #fef08a;
-  --selected-bg: #dbeafe;
-  --selected-border: #2563eb;
-}
-
-[data-theme="dark"] {
-  --bg-primary: #1a1d23;
-  --bg-secondary: #22262e;
-  --bg-hover: #2a2f38;
-  --bg-active: #323842;
-  --text-primary: #e8eaed;
-  --text-secondary: #9aa0ab;
-  --text-tertiary: #6b7280;
-  --border-primary: #323842;
-  --border-subtle: #2a2f38;
-  --accent: #60a5fa;
-  --accent-hover: #93bbfd;
-  --accent-subtle: #1e293b;
-  --on-accent: #0a0f1a;
-  --focus-ring: #60a5fa;
-  --live-indicator: #4ade80;
-  --active-bg: #1e293b;
-  --active-bg-hover: #263147;
-  --active-border: #60a5fa;
-  --audible-color: #a78bfa;
-  --drifted-color: #fbbf24;
-  --danger: #f87171; /* B-044: destructive-emphasis text — 6.10:1 on dark --bg-primary */
-  --skeleton-base: #2a2f38;
-  --skeleton-shine: #323842;
-  --empty-color: #6b7280;
-  --group-count-bg: #2a2f38;
-  --group-count-text: #9aa0ab;
-  --avatar-text: #ffffff;
-  --collapse-icon: #6b7280;
-  --mark-bg: #713f12;
-  --selected-bg: #1e3a5f;
-  --selected-border: #60a5fa;
-}
-
-@media (prefers-color-scheme: dark) {
-  [data-theme="system"] {
-    --bg-primary: #1a1d23;
-    --bg-secondary: #22262e;
-    --bg-hover: #2a2f38;
-    --bg-active: #323842;
-    --text-primary: #e8eaed;
-    --text-secondary: #9aa0ab;
-    --text-tertiary: #6b7280;
-    --border-primary: #323842;
-    --border-subtle: #2a2f38;
-    --accent: #60a5fa;
-    --accent-hover: #93bbfd;
-    --accent-subtle: #1e293b;
-    --on-accent: #0a0f1a;
-    --focus-ring: #60a5fa;
-    --live-indicator: #4ade80;
-    --active-bg: #1e293b;
-    --active-bg-hover: #263147;
-    --active-border: #60a5fa;
-    --audible-color: #a78bfa;
-    --drifted-color: #fbbf24;
-    --danger: #f87171; /* B-044: matches [data-theme="dark"] */
-    --skeleton-base: #2a2f38;
-    --skeleton-shine: #323842;
-    --empty-color: #6b7280;
-    --group-count-bg: #2a2f38;
-    --group-count-text: #9aa0ab;
-    --avatar-text: #ffffff;
-    --collapse-icon: #6b7280;
-    --mark-bg: #713f12;
-    --selected-bg: #1e3a5f;
-    --selected-border: #60a5fa;
-  }
-}
-
-@media (prefers-color-scheme: light) {
-  [data-theme="system"] {
-    --bg-primary: #ffffff;
-    --bg-secondary: #f5f6f8;
-    --bg-hover: #ebedf0;
-    --bg-active: #e2e5ea;
-    --text-primary: #1a1d23;
-    --text-secondary: #5f6673;
-    --text-tertiary: #8a8f9a;
-    --border-primary: #dfe1e6;
-    --border-subtle: #ecedf0;
-    --accent: #2563eb;
-    --accent-hover: #1d4ed8;
-    --accent-subtle: #eff4ff;
-    --on-accent: #ffffff;
-    --focus-ring: #2563eb;
-    --live-indicator: #16a34a;
-    --active-bg: #eff4ff;
-    --active-bg-hover: #e2e8fd;
-    --active-border: #2563eb;
-    --audible-color: #7c3aed;
-    --drifted-color: #d97706;
-    --danger: #c62828; /* B-044: matches [data-theme="light"] */
-    --skeleton-base: #e8eaed;
-    --skeleton-shine: #f5f6f8;
-    --empty-color: #8a8f9a;
-    --group-count-bg: #ecedf0;
-    --group-count-text: #5f6673;
-    --avatar-text: #ffffff;
-    --collapse-icon: #8a8f9a;
-    --mark-bg: #fef08a;
-    --selected-bg: #dbeafe;
-    --selected-border: #2563eb;
-  }
-}
+/* B-037 §45.3 D-3: theme palette tokens (every per-theme palette block) are
+   the single-source-of-truth in `shared/themes.css`, loaded by
+   `sidepanel.html` BEFORE this stylesheet. This file owns layout, typography,
+   and component rules only. Do NOT add per-theme palette blocks here —
+   they belong in shared/themes.css. */
 
 /* --- Base reset -------------------------------------------------------- */
 
@@ -1483,22 +1347,23 @@ mark {
    duplicated across both dark-theme selector forms. */
 .item-select[aria-checked="true"] {
   background-color: var(--selected-border);
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-037: stroke-colour resolves per theme via `--item-select-checked-bg`
+     declared in shared/themes.css. The fallback URL matches the canonical
+     light-theme white-stroke checkmark so the control still renders correctly
+     if shared/themes.css is somehow unavailable (defensive — prevents a blank
+     filled square on the off chance the cascade fails to provide the var). */
+  background-image: var(--item-select-checked-bg, url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"));
   background-repeat: no-repeat;
   background-position: center;
 }
 
-/* B-048 H-1: dark-theme checkmark stroke override (forced dark). */
-[data-theme="dark"] .item-select[aria-checked="true"] {
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%230a0f1a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-}
-
-/* B-048 H-1: dark-theme checkmark stroke override (system-dark). */
-@media (prefers-color-scheme: dark) {
-  [data-theme="system"] .item-select[aria-checked="true"] {
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%230a0f1a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  }
-}
+/* B-037 §45.3 D-3: per-theme checkmark stroke override is delivered by the
+   `--item-select-checked-bg` CSS custom property declared per theme in
+   `shared/themes.css`. Light themes resolve to a white-stroke SVG; dark
+   themes resolve to a dark-stroke SVG matching their `--on-accent` colour
+   so the contrast on the saturated accent background is ≥ AA. CSS custom
+   properties cannot interpolate into a `url()` data URI inside a single
+   declaration, so the entire url() is the variable. */
 
 /* When bulk bar is visible, add bottom padding so last items are not occluded */
 #item-list.has-bulk-bar {

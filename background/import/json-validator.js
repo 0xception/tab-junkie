@@ -62,6 +62,7 @@ import {
   sanitizeGroup,
 } from '../../shared/export-schema.js';
 import { KNOWN_VERSION } from '../storage/migration.js';
+import { VALID_THEME_SLUGS_READ } from '../../shared/theme-slugs.js';
 import {
   StorageError,
   ERR_INVALID_FORMAT,
@@ -144,13 +145,10 @@ function assertRootShape(root) {
 function validatePreferences(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const p = /** @type {Record<string, unknown>} */ (raw);
-  if (p.theme !== undefined && p.theme !== 'light' && p.theme !== 'dark' && p.theme !== 'system') {
+  if (p.theme !== undefined && !VALID_THEME_SLUGS_READ.has(p.theme)) {
     return null;
   }
   if (p.displayMode !== undefined && p.displayMode !== 'sidepanel' && p.displayMode !== 'window') {
-    return null;
-  }
-  if (p.newTabOverride !== undefined && typeof p.newTabOverride !== 'boolean') {
     return null;
   }
   if (p.autoCollapseSubGroups !== undefined && typeof p.autoCollapseSubGroups !== 'boolean') {
@@ -162,10 +160,17 @@ function validatePreferences(raw) {
   if (p.importSkipDuplicates !== undefined && typeof p.importSkipDuplicates !== 'boolean') {
     return null;
   }
+  /* B-088 fix #2 — drop the `newTabOverride` ghost-key on import. The pref
+     was deprecated in B-039 (Sprint 29 — MV3 chrome_url_overrides cannot be
+     removed at runtime, so the OFF state never delivered browser-default new
+     tab behavior). Stripping at the import boundary prevents stale values
+     from re-entering storage via backup-restore. */
+  // eslint-disable-next-line no-unused-vars
+  const { newTabOverride: _legacyNewTabOverride, ...rest } = p;
   /* Build a full-shape object the commit path will pass through — merge over
      DEFAULT_PREFERENCES so any missing key lands with its default. Unknown
      keys pass through verbatim (forward-compat per §32.5.4). */
-  return { ...DEFAULT_PREFERENCES, ...p };
+  return { ...DEFAULT_PREFERENCES, ...rest };
 }
 
 /* =========================================================================

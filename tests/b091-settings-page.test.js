@@ -53,7 +53,7 @@ class FakeElement {
   constructor(tag, doc) {
     this.tagName = (tag || 'DIV').toUpperCase();
     this.ownerDocument = doc;
-    this.id = '';
+    this._id = '';
     this.className = '';
     this.textContent = '';
     this.hidden = false;
@@ -68,6 +68,15 @@ class FakeElement {
     this._attrs = {};
     this._listeners = {};
     this._parent = null;
+  }
+  /* B-088 fix #6 — track id assignments in a doc-level registry so
+     getElementById can resolve the canonical banner text node. */
+  get id() { return this._id; }
+  set id(v) {
+    this._id = v || '';
+    if (this.ownerDocument && this.ownerDocument._byId && this._id) {
+      this.ownerDocument._byId.set(this._id, this);
+    }
   }
   setAttribute(k, v) { this._attrs[k] = String(v); }
   getAttribute(k) { return k in this._attrs ? this._attrs[k] : null; }
@@ -110,7 +119,10 @@ class FakeElement {
 function makeFakeDocument() {
   const doc = {
     _activeElement: null,
+    /* B-088 fix #6 — id registry; populated by FakeElement's id setter. */
+    _byId: new Map(),
     createElement(tag) { return new FakeElement(tag, doc); },
+    getElementById(id) { return this._byId.get(id) || null; },
   };
   return doc;
 }
@@ -637,15 +649,14 @@ test('B-091 AC7: sidepanel.js no longer imports from settings-dialog.js; new dis
   assert.equal(js.includes('initSettingsDialog'), false, 'no init call to deleted module');
   assert.equal(js.includes('renderSettingsSelect'), false, 'no Wave 1 select call (now in settings.js)');
   assert.equal(js.includes('renderSettingsToggle'), false, 'no Wave 1 toggle call (now in settings.js)');
-  // New dispatcher uses chrome.runtime.getURL with the settings page path.
+  // B-097: dispatcher logic factored to shared/settings-tab.js; sidepanel.js imports + calls the helper.
   assert.ok(
-    js.includes("chrome.runtime.getURL('settings/settings.html')"),
-    'gear-button dispatcher resolves the new settings page URL',
+    js.includes('openOrFocusSettingsTab'),
+    'gear-button dispatcher calls openOrFocusSettingsTab (shared helper)',
   );
-  // Dispatcher calls chrome.tabs.create with that URL.
   assert.ok(
-    /chrome\.tabs\.create\(\{\s*url:\s*SETTINGS_PAGE_URL\s*\}\)/.test(js),
-    'dispatcher calls chrome.tabs.create on the create-new path',
+    js.includes('../shared/settings-tab.js'),
+    'sidepanel.js imports from shared/settings-tab.js (B-097 factored module)',
   );
 });
 
@@ -728,11 +739,20 @@ test('B-091 init() is idempotent — second call does not double-attach broadcas
    Test 17 — Theme placeholder text present (AC9)
    ========================================================================= */
 
-test('B-091 AC9: Theme section contains the inactive placeholder copy', () => {
+test('B-091 AC9: Theme section placeholder removed by B-037 (S31)', () => {
+  /* B-091 originally reserved a placeholder paragraph in the Theme fieldset
+     that B-037 (Sprint 31) removed when wiring the live theme picker. The
+     fieldset itself remains in settings.html; the legend is unchanged.
+     Asserting the negative protects against a regression that re-introduces
+     the placeholder copy on top of the live picker. */
   const html = readFile('settings/settings.html');
   assert.ok(
-    html.includes('Theme selection coming in a future update.'),
-    'theme placeholder copy must be present',
+    !html.includes('Theme selection coming in a future update.'),
+    'theme placeholder copy must be removed once B-037 wires the live picker',
+  );
+  assert.ok(
+    /<fieldset class="settings-section" data-section="Theme">/.test(html),
+    'Theme fieldset itself must still be present',
   );
 });
 

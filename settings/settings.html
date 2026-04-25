@@ -1,12 +1,15 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="system">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Settings — Tab Junkie</title>
-    <!-- B-091 §44.3 D-9 / R0 R-3: theme-init runs SYNC before stylesheet so the
-         FOUC paint matches the cached theme. Verbatim copy of sidepanel/theme-init.js. -->
-    <script src="theme-init.js"></script>
+    <!-- B-037 §45.3 D-4: shared FOUC guard runs SYNC before any stylesheet so
+         the cached `data-theme` attribute is set before paint. The shared
+         themes stylesheet must load BEFORE the surface-specific stylesheet so
+         palette tokens resolve before component rules consume them. -->
+    <script src="../shared/theme-init.js"></script>
+    <link rel="stylesheet" href="../shared/themes.css" />
     <link rel="stylesheet" href="settings.css" />
     <script type="module" src="settings.js"></script>
   </head>
@@ -59,8 +62,9 @@
 
         <fieldset class="settings-section" data-section="Theme">
           <legend class="settings-section-legend">Theme</legend>
-          <!-- B-091 AC9: visible inactive placeholder. B-037 (S31) replaces. -->
-          <p class="settings-section-placeholder">Theme selection coming in a future update.</p>
+          <!-- B-037 (S31) §45.3 D-1: Theme rows are appended here at runtime
+               by settings-fields.js (renderSelect for theme with optgroups
+               grouping Auto / Light / Dark). -->
         </fieldset>
 
         <fieldset class="settings-section" data-section="Data">

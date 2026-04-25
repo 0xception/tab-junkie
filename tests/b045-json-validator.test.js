@@ -434,11 +434,11 @@ test('B-045 AC9: unknown fields on group are silently dropped', () => {
  * AC10 — Preferences
  * ========================================================================= */
 
-test('B-045 AC10: valid preferences pass through', () => {
+test('B-045 AC10 + B-088 fix #2: valid preferences pass through; legacy newTabOverride dropped', () => {
   const prefs = {
     theme: 'dark',
     displayMode: 'sidepanel',
-    newTabOverride: true,
+    newTabOverride: true, // B-088 fix #2 — legacy field present in input
     autoCollapseSubGroups: false,
   };
   const content = baseBackup({ preferences: prefs });
@@ -447,11 +447,15 @@ test('B-045 AC10: valid preferences pass through', () => {
      (§32.5.4 forward-compat). The validator fills defaults for any known key
      missing from the backup, including the `importSkipDuplicates` default
      added in Sprint 18 Wave 2. Assert the explicitly-set keys here; the new
-     default is covered by a dedicated B-060 test below. */
+     default is covered by a dedicated B-060 test below.
+     B-088 fix #2 — `newTabOverride` ghost-key is now stripped on import so it
+     never reaches storage. The validator still ACCEPTS the legacy field in
+     the input (no preferencesSkipped) — it just drops it. */
   assert.equal(res.preferences.theme, 'dark');
   assert.equal(res.preferences.displayMode, 'sidepanel');
-  assert.equal(res.preferences.newTabOverride, true);
   assert.equal(res.preferences.autoCollapseSubGroups, false);
+  assert.equal('newTabOverride' in res.preferences, false,
+    'legacy newTabOverride must be stripped (B-088 fix #2)');
   assert.equal(res.repairs.preferencesSkipped, false);
 });
 
@@ -475,8 +479,11 @@ test('B-045 AC10: preferences with bad theme → preferencesSkipped, no prefs', 
 });
 
 test('B-045 AC10: preferences with wrong type on boolean → preferencesSkipped', () => {
+  /* B-088 fix #2 — `newTabOverride` is no longer type-checked (it's
+     unconditionally stripped on import). Use `autoCollapseSubGroups` instead
+     to exercise the wrong-type-rejection path that survives B-088. */
   const content = baseBackup({
-    preferences: { newTabOverride: 'yes' },
+    preferences: { autoCollapseSubGroups: 'yes' },
   });
   const res = parseAndValidate(content);
   assert.equal(res.preferences, undefined);

@@ -1,0 +1,658 @@
+/* =========================================================================
+   Tab Junkie — Shared Theme Tokens (B-037 §45.3 D-3 Option A)
+   ========================================================================= */
+/* Single source of truth for every `[data-theme="…"]` palette block. Imported
+   by every surface HTML (sidepanel.html, newtab.html, settings.html) AFTER
+   the inline `shared/theme-init.js` FOUC guard sets the `data-theme` attribute
+   on <html>. Per-surface stylesheets contain layout / typography / component
+   rules only — never palette tokens.
+
+   Token list = sidepanel-superset (28 tokens). Surfaces that don't reference
+   the surface-only tokens (newtab, settings) simply ignore the unused custom
+   properties — CSS does not warn or error on undefined customs that aren't
+   consumed.
+
+   §45.3 D-2 — Legacy aliases:
+     `[data-theme="light"]` reuses the `atom-one-light` palette.
+     `[data-theme="dark"]`  reuses the `one-dark`        palette.
+   These aliases are retained so that stale `sessionStorage['tj-theme']` values
+   from pre-B-037 sessions can paint correctly during the brief window before
+   `getPreferences()` migrates the disk value and re-writes sessionStorage.
+
+   AC11(c): NO `transition` declarations on palette-bound rules. Theme swaps
+   must be instantaneous regardless of `prefers-reduced-motion`.
+   ========================================================================= */
+
+/* --- Default palette (data-theme="system" + light OS) -------------------- */
+[data-theme="system"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f6f8;
+  --bg-hover: #ebedf0;
+  --bg-active: #e2e5ea;
+  --text-primary: #1a1d23;
+  --text-secondary: #5f6673;
+  --text-tertiary: #8a8f9a;
+  --border-primary: #dfe1e6;
+  --border-subtle: #ecedf0;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-subtle: #eff4ff;
+  --on-accent: #ffffff;
+  --focus-ring: #2563eb;
+  --live-indicator: #16a34a;
+  --active-bg: #eff4ff;
+  --active-bg-hover: #e2e8fd;
+  --active-border: #2563eb;
+  --audible-color: #7c3aed;
+  --drifted-color: #d97706;
+  --danger: #c62828;
+  --skeleton-base: #e8eaed;
+  --skeleton-shine: #f5f6f8;
+  --empty-color: #8a8f9a;
+  --group-count-bg: #ecedf0;
+  --group-count-text: #5f6673;
+  --avatar-text: #ffffff;
+  --collapse-icon: #8a8f9a;
+  --mark-bg: #fef08a;
+  --selected-bg: #dbeafe;
+  --selected-border: #2563eb;
+  /* B-037: SVG-encoded URL for the item-select checkmark stroke. Light themes
+     keep the white stroke baseline; dark themes override below. */
+  --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* When the OS reports dark, `data-theme="system"` flips to a dark palette. */
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] {
+    --bg-primary: #1a1d23;
+    --bg-secondary: #22262e;
+    --bg-hover: #2a2f38;
+    --bg-active: #323842;
+    --text-primary: #e8eaed;
+    --text-secondary: #9aa0ab;
+    --text-tertiary: #6b7280;
+    --border-primary: #323842;
+    --border-subtle: #2a2f38;
+    --accent: #60a5fa;
+    --accent-hover: #93bbfd;
+    --accent-subtle: #1e293b;
+    --on-accent: #0a0f1a;
+    --focus-ring: #60a5fa;
+    --live-indicator: #4ade80;
+    --active-bg: #1e293b;
+    --active-bg-hover: #263147;
+    --active-border: #60a5fa;
+    --audible-color: #a78bfa;
+    --drifted-color: #fbbf24;
+    --danger: #f87171;
+    --skeleton-base: #2a2f38;
+    --skeleton-shine: #323842;
+    --empty-color: #6b7280;
+    --group-count-bg: #2a2f38;
+    --group-count-text: #9aa0ab;
+    --avatar-text: #ffffff;
+    --collapse-icon: #6b7280;
+    --mark-bg: #713f12;
+    --selected-bg: #1e3a5f;
+    --selected-border: #60a5fa;
+    /* Dark-system override: checkmark stroke uses dark `--on-accent`
+       colour-encoded into the SVG so the contrast on the saturated accent
+       background is ≥ AA. */
+    --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%230a0f1a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+}
+
+/* =========================================================================
+   LIGHT THEMES (4)
+   ========================================================================= */
+
+/* --- GitHub Light --- */
+[data-theme="github-light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f6f8fa;
+  --bg-hover: #eaeef2;
+  --bg-active: #d0d7de;
+  --text-primary: #1f2328;
+  --text-secondary: #656d76;
+  --text-tertiary: #8c959f;
+  --border-primary: #d0d7de;
+  --border-subtle: #eaeef2;
+  --accent: #0969da;
+  --accent-hover: #0550ae;
+  --accent-subtle: #ddf4ff;
+  --on-accent: #ffffff;
+  --focus-ring: #0969da;
+  --live-indicator: #1a7f37;
+  --active-bg: #ddf4ff;
+  --active-bg-hover: #b6e3ff;
+  --active-border: #0969da;
+  --audible-color: #8250df;
+  --drifted-color: #9a6700;
+  --danger: #cf222e;
+  --skeleton-base: #eaeef2;
+  --skeleton-shine: #f6f8fa;
+  --empty-color: #8c959f;
+  --group-count-bg: #eaeef2;
+  --group-count-text: #656d76;
+  --avatar-text: #ffffff;
+  --collapse-icon: #8c959f;
+  --mark-bg: #fff8c5;
+  --selected-bg: #ddf4ff;
+  --selected-border: #0969da;
+  --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* --- Tomorrow (light) --- */
+[data-theme="tomorrow"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f5;
+  --bg-hover: #efefef;
+  --bg-active: #e0e0e0;
+  --text-primary: #4d4d4c;
+  --text-secondary: #8e908c;
+  --text-tertiary: #a8a8a8;
+  --border-primary: #d6d6d6;
+  --border-subtle: #efefef;
+  --accent: #4271ae;
+  --accent-hover: #3060a0;
+  --accent-subtle: #eaf2fb;
+  --on-accent: #ffffff;
+  --focus-ring: #4271ae;
+  --live-indicator: #718c00;
+  --active-bg: #eaf2fb;
+  --active-bg-hover: #d6e6f5;
+  --active-border: #4271ae;
+  --audible-color: #8959a8;
+  --drifted-color: #c99e00;
+  --danger: #c82829;
+  --skeleton-base: #efefef;
+  --skeleton-shine: #f5f5f5;
+  --empty-color: #a8a8a8;
+  --group-count-bg: #efefef;
+  --group-count-text: #8e908c;
+  --avatar-text: #ffffff;
+  --collapse-icon: #a8a8a8;
+  --mark-bg: #fff8c5;
+  --selected-bg: #eaf2fb;
+  --selected-border: #4271ae;
+  --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* --- Atom One Light --- */
+[data-theme="atom-one-light"] {
+  --bg-primary: #fafafa;
+  --bg-secondary: #f0f0f0;
+  --bg-hover: #e8e8e8;
+  --bg-active: #dcdcdc;
+  --text-primary: #383a42;
+  --text-secondary: #696c77;
+  --text-tertiary: #a0a1a7;
+  --border-primary: #d4d4d4;
+  --border-subtle: #e8e8e8;
+  --accent: #4078f2;
+  --accent-hover: #2c5fd5;
+  --accent-subtle: #e6efff;
+  --on-accent: #ffffff;
+  --focus-ring: #4078f2;
+  --live-indicator: #50a14f;
+  --active-bg: #e6efff;
+  --active-bg-hover: #cee0ff;
+  --active-border: #4078f2;
+  --audible-color: #a626a4;
+  --drifted-color: #c18401;
+  --danger: #e45649;
+  --skeleton-base: #e8e8e8;
+  --skeleton-shine: #f0f0f0;
+  --empty-color: #a0a1a7;
+  --group-count-bg: #e8e8e8;
+  --group-count-text: #696c77;
+  --avatar-text: #ffffff;
+  --collapse-icon: #a0a1a7;
+  --mark-bg: #fff3a8;
+  --selected-bg: #e6efff;
+  --selected-border: #4078f2;
+  --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* --- Solarized Light --- */
+[data-theme="solarized-light"] {
+  --bg-primary: #fdf6e3;
+  --bg-secondary: #eee8d5;
+  --bg-hover: #e4dcc4;
+  --bg-active: #d8d2bd;
+  --text-primary: #586e75;
+  --text-secondary: #657b83;
+  --text-tertiary: #93a1a1;
+  --border-primary: #d8d2bd;
+  --border-subtle: #eee8d5;
+  --accent: #268bd2;
+  --accent-hover: #1f6da6;
+  --accent-subtle: #e3eef7;
+  --on-accent: #fdf6e3;
+  --focus-ring: #268bd2;
+  --live-indicator: #859900;
+  --active-bg: #e3eef7;
+  --active-bg-hover: #cfe1f0;
+  --active-border: #268bd2;
+  --audible-color: #6c71c4;
+  --drifted-color: #b58900;
+  --danger: #dc322f;
+  --skeleton-base: #eee8d5;
+  --skeleton-shine: #fdf6e3;
+  --empty-color: #93a1a1;
+  --group-count-bg: #eee8d5;
+  --group-count-text: #657b83;
+  --avatar-text: #fdf6e3;
+  --collapse-icon: #93a1a1;
+  --mark-bg: #f4e8a8;
+  --selected-bg: #e3eef7;
+  --selected-border: #268bd2;
+  --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* =========================================================================
+   DARK THEMES (8)
+   ========================================================================= */
+
+/* --- GitHub Dark --- */
+[data-theme="github-dark"] {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-hover: #21262d;
+  --bg-active: #30363d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-tertiary: #6e7681;
+  --border-primary: #30363d;
+  --border-subtle: #21262d;
+  --accent: #2f81f7;
+  --accent-hover: #58a6ff;
+  --accent-subtle: #0c2d6b;
+  --on-accent: #ffffff;
+  --focus-ring: #2f81f7;
+  --live-indicator: #3fb950;
+  --active-bg: #0c2d6b;
+  --active-bg-hover: #1c3d7b;
+  --active-border: #2f81f7;
+  --audible-color: #a371f7;
+  --drifted-color: #d29922;
+  --danger: #f85149;
+  --skeleton-base: #21262d;
+  --skeleton-shine: #30363d;
+  --empty-color: #6e7681;
+  --group-count-bg: #21262d;
+  --group-count-text: #8b949e;
+  --avatar-text: #ffffff;
+  --collapse-icon: #6e7681;
+  --mark-bg: #4d3a00;
+  --selected-bg: #0c2d6b;
+  --selected-border: #2f81f7;
+  --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* --- Tomorrow Night --- */
+[data-theme="tomorrow-night"] {
+  --bg-primary: #1d1f21;
+  --bg-secondary: #282a2e;
+  --bg-hover: #373b41;
+  --bg-active: #3e4145;
+  --text-primary: #c5c8c6;
+  --text-secondary: #969896;
+  --text-tertiary: #707880;
+  --border-primary: #373b41;
+  --border-subtle: #282a2e;
+  --accent: #81a2be;
+  --accent-hover: #a3bdd4;
+  --accent-subtle: #2a3340;
+  --on-accent: #1d1f21;
+  --focus-ring: #81a2be;
+  --live-indicator: #b5bd68;
+  --active-bg: #2a3340;
+  --active-bg-hover: #354255;
+  --active-border: #81a2be;
+  --audible-color: #b294bb;
+  --drifted-color: #de935f;
+  --danger: #cc6666;
+  --skeleton-base: #282a2e;
+  --skeleton-shine: #373b41;
+  --empty-color: #707880;
+  --group-count-bg: #373b41;
+  --group-count-text: #969896;
+  --avatar-text: #ffffff;
+  --collapse-icon: #707880;
+  --mark-bg: #5a4a1c;
+  --selected-bg: #2a3340;
+  --selected-border: #81a2be;
+  --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%231d1f21' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* --- Atom One Dark --- */
+[data-theme="atom-one-dark"] {
+  --bg-primary: #282c34;
+  --bg-secondary: #21252b;
+  --bg-hover: #2c313a;
+  --bg-active: #3e4451;
+  --text-primary: #abb2bf;
+  --text-secondary: #828997;
+  --text-tertiary: #5c6370;
+  --border-primary: #3e4451;
+  --border-subtle: #2c313a;
+  --accent: #61afef;
+  --accent-hover: #82c0f5;
+  --accent-subtle: #2c3a4d;
+  --on-accent: #282c34;
+  --focus-ring: #61afef;
+  --live-indicator: #98c379;
+  --active-bg: #2c3a4d;
+  --active-bg-hover: #364660;
+  --active-border: #61afef;
+  --audible-color: #c678dd;
+  --drifted-color: #e5c07b;
+  --danger: #e06c75;
+  --skeleton-base: #2c313a;
+  --skeleton-shine: #3e4451;
+  --empty-color: #5c6370;
+  --group-count-bg: #2c313a;
+  --group-count-text: #828997;
+  --avatar-text: #ffffff;
+  --collapse-icon: #5c6370;
+  --mark-bg: #5a4a1c;
+  --selected-bg: #2c3a4d;
+  --selected-border: #61afef;
+  --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23282c34' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* --- Solarized Dark --- */
+[data-theme="solarized-dark"] {
+  --bg-primary: #002b36;
+  --bg-secondary: #073642;
+  --bg-hover: #0d4655;
+  --bg-active: #1a5161;
+  --text-primary: #839496;
+  --text-secondary: #93a1a1;
+  --text-tertiary: #586e75;
+  --border-primary: #1a5161;
+  --border-subtle: #073642;
+  --accent: #268bd2;
+  --accent-hover: #3a9fe4;
+  --accent-subtle: #0a3a4f;
+  --on-accent: #002b36;
+  --focus-ring: #268bd2;
+  --live-indicator: #859900;
+  --active-bg: #0a3a4f;
+  --active-bg-hover: #134a62;
+  --active-border: #268bd2;
+  --audible-color: #6c71c4;
+  --drifted-color: #b58900;
+  --danger: #dc322f;
+  --skeleton-base: #073642;
+  --skeleton-shine: #0d4655;
+  --empty-color: #586e75;
+  --group-count-bg: #073642;
+  --group-count-text: #93a1a1;
+  --avatar-text: #ffffff;
+  --collapse-icon: #586e75;
+  --mark-bg: #5a4a1c;
+  --selected-bg: #0a3a4f;
+  --selected-border: #268bd2;
+  --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23002b36' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* --- Dracula --- */
+[data-theme="dracula"] {
+  --bg-primary: #282a36;
+  --bg-secondary: #1e1f29;
+  --bg-hover: #343746;
+  --bg-active: #44475a;
+  --text-primary: #f8f8f2;
+  --text-secondary: #c5c5d2;
+  --text-tertiary: #6272a4;
+  --border-primary: #44475a;
+  --border-subtle: #343746;
+  --accent: #bd93f9;
+  --accent-hover: #d2afff;
+  --accent-subtle: #3b2f55;
+  --on-accent: #282a36;
+  --focus-ring: #bd93f9;
+  --live-indicator: #50fa7b;
+  --active-bg: #3b2f55;
+  --active-bg-hover: #4b3e6f;
+  --active-border: #bd93f9;
+  --audible-color: #ff79c6;
+  --drifted-color: #ffb86c;
+  --danger: #ff5555;
+  --skeleton-base: #343746;
+  --skeleton-shine: #44475a;
+  --empty-color: #6272a4;
+  --group-count-bg: #343746;
+  --group-count-text: #c5c5d2;
+  --avatar-text: #f8f8f2;
+  --collapse-icon: #6272a4;
+  --mark-bg: #5a4a1c;
+  --selected-bg: #3b2f55;
+  --selected-border: #bd93f9;
+  --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23282a36' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* --- Nord --- */
+[data-theme="nord"] {
+  --bg-primary: #2e3440;
+  --bg-secondary: #3b4252;
+  --bg-hover: #434c5e;
+  --bg-active: #4c566a;
+  --text-primary: #eceff4;
+  --text-secondary: #d8dee9;
+  --text-tertiary: #a0a8b6;
+  --border-primary: #4c566a;
+  --border-subtle: #3b4252;
+  --accent: #88c0d0;
+  --accent-hover: #a3d1de;
+  --accent-subtle: #3a4a55;
+  --on-accent: #2e3440;
+  --focus-ring: #88c0d0;
+  --live-indicator: #a3be8c;
+  --active-bg: #3a4a55;
+  --active-bg-hover: #455a68;
+  --active-border: #88c0d0;
+  --audible-color: #b48ead;
+  --drifted-color: #ebcb8b;
+  --danger: #bf616a;
+  --skeleton-base: #3b4252;
+  --skeleton-shine: #434c5e;
+  --empty-color: #a0a8b6;
+  --group-count-bg: #3b4252;
+  --group-count-text: #d8dee9;
+  --avatar-text: #eceff4;
+  --collapse-icon: #a0a8b6;
+  --mark-bg: #5a4a1c;
+  --selected-bg: #3a4a55;
+  --selected-border: #88c0d0;
+  --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%232e3440' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* --- One Dark (D-2 migration target for legacy 'dark') --- */
+[data-theme="one-dark"] {
+  --bg-primary: #282c34;
+  --bg-secondary: #21252b;
+  --bg-hover: #2c313a;
+  --bg-active: #3e4451;
+  --text-primary: #abb2bf;
+  --text-secondary: #828997;
+  --text-tertiary: #5c6370;
+  --border-primary: #3e4451;
+  --border-subtle: #2c313a;
+  --accent: #61afef;
+  --accent-hover: #82c0f5;
+  --accent-subtle: #2c3a4d;
+  --on-accent: #282c34;
+  --focus-ring: #61afef;
+  --live-indicator: #98c379;
+  --active-bg: #2c3a4d;
+  --active-bg-hover: #364660;
+  --active-border: #61afef;
+  --audible-color: #c678dd;
+  --drifted-color: #e5c07b;
+  --danger: #e06c75;
+  --skeleton-base: #2c313a;
+  --skeleton-shine: #3e4451;
+  --empty-color: #5c6370;
+  --group-count-bg: #2c313a;
+  --group-count-text: #828997;
+  --avatar-text: #ffffff;
+  --collapse-icon: #5c6370;
+  --mark-bg: #5a4a1c;
+  --selected-bg: #2c3a4d;
+  --selected-border: #61afef;
+  --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23282c34' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* --- Monokai --- */
+[data-theme="monokai"] {
+  --bg-primary: #272822;
+  --bg-secondary: #1e1f1a;
+  --bg-hover: #3e3d32;
+  --bg-active: #49483e;
+  --text-primary: #f8f8f2;
+  --text-secondary: #cfcfc2;
+  --text-tertiary: #75715e;
+  --border-primary: #49483e;
+  --border-subtle: #3e3d32;
+  --accent: #a6e22e;
+  --accent-hover: #b8e85a;
+  --accent-subtle: #3a4023;
+  --on-accent: #272822;
+  --focus-ring: #a6e22e;
+  --live-indicator: #a6e22e;
+  --active-bg: #3a4023;
+  --active-bg-hover: #4a5230;
+  --active-border: #a6e22e;
+  --audible-color: #ae81ff;
+  --drifted-color: #fd971f;
+  --danger: #f92672;
+  --skeleton-base: #3e3d32;
+  --skeleton-shine: #49483e;
+  --empty-color: #75715e;
+  --group-count-bg: #3e3d32;
+  --group-count-text: #cfcfc2;
+  --avatar-text: #f8f8f2;
+  --collapse-icon: #75715e;
+  --mark-bg: #5a4a1c;
+  --selected-bg: #3a4023;
+  --selected-border: #a6e22e;
+  --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23272822' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* --- Tokyo Night --- */
+[data-theme="tokyo-night"] {
+  --bg-primary: #1a1b26;
+  --bg-secondary: #16161e;
+  --bg-hover: #1f2335;
+  --bg-active: #24283b;
+  --text-primary: #c0caf5;
+  --text-secondary: #a9b1d6;
+  --text-tertiary: #565f89;
+  --border-primary: #414868;
+  --border-subtle: #24283b;
+  --accent: #7aa2f7;
+  --accent-hover: #9bb5f9;
+  --accent-subtle: #1f2b4a;
+  --on-accent: #1a1b26;
+  --focus-ring: #7aa2f7;
+  --live-indicator: #9ece6a;
+  --active-bg: #1f2b4a;
+  --active-bg-hover: #273660;
+  --active-border: #7aa2f7;
+  --audible-color: #bb9af7;
+  --drifted-color: #e0af68;
+  --danger: #f7768e;
+  --skeleton-base: #1f2335;
+  --skeleton-shine: #24283b;
+  --empty-color: #565f89;
+  --group-count-bg: #1f2335;
+  --group-count-text: #a9b1d6;
+  --avatar-text: #ffffff;
+  --collapse-icon: #565f89;
+  --mark-bg: #3d3416;
+  --selected-bg: #1f2b4a;
+  --selected-border: #7aa2f7;
+  --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%231a1b26' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* =========================================================================
+   LEGACY ALIASES (D-2) — transitional support for stale sessionStorage
+   values from pre-B-037 sessions. After getPreferences() migrates the
+   stored value and re-writes sessionStorage, the next paint uses the new
+   slug directly. These aliases prevent unstyled paints on the first frame.
+   ========================================================================= */
+
+/* legacy 'light' → mirrors atom-one-light */
+[data-theme="light"] {
+  --bg-primary: #fafafa;
+  --bg-secondary: #f0f0f0;
+  --bg-hover: #e8e8e8;
+  --bg-active: #dcdcdc;
+  --text-primary: #383a42;
+  --text-secondary: #696c77;
+  --text-tertiary: #a0a1a7;
+  --border-primary: #d4d4d4;
+  --border-subtle: #e8e8e8;
+  --accent: #4078f2;
+  --accent-hover: #2c5fd5;
+  --accent-subtle: #e6efff;
+  --on-accent: #ffffff;
+  --focus-ring: #4078f2;
+  --live-indicator: #50a14f;
+  --active-bg: #e6efff;
+  --active-bg-hover: #cee0ff;
+  --active-border: #4078f2;
+  --audible-color: #a626a4;
+  --drifted-color: #c18401;
+  --danger: #e45649;
+  --skeleton-base: #e8e8e8;
+  --skeleton-shine: #f0f0f0;
+  --empty-color: #a0a1a7;
+  --group-count-bg: #e8e8e8;
+  --group-count-text: #696c77;
+  --avatar-text: #ffffff;
+  --collapse-icon: #a0a1a7;
+  --mark-bg: #fff3a8;
+  --selected-bg: #e6efff;
+  --selected-border: #4078f2;
+  --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* legacy 'dark' → mirrors one-dark */
+[data-theme="dark"] {
+  --bg-primary: #282c34;
+  --bg-secondary: #21252b;
+  --bg-hover: #2c313a;
+  --bg-active: #3e4451;
+  --text-primary: #abb2bf;
+  --text-secondary: #828997;
+  --text-tertiary: #5c6370;
+  --border-primary: #3e4451;
+  --border-subtle: #2c313a;
+  --accent: #61afef;
+  --accent-hover: #82c0f5;
+  --accent-subtle: #2c3a4d;
+  --on-accent: #282c34;
+  --focus-ring: #61afef;
+  --live-indicator: #98c379;
+  --active-bg: #2c3a4d;
+  --active-bg-hover: #364660;
+  --active-border: #61afef;
+  --audible-color: #c678dd;
+  --drifted-color: #e5c07b;
+  --danger: #e06c75;
+  --skeleton-base: #2c313a;
+  --skeleton-shine: #3e4451;
+  --empty-color: #5c6370;
+  --group-count-bg: #2c313a;
+  --group-count-text: #828997;
+  --avatar-text: #ffffff;
+  --collapse-icon: #5c6370;
+  --mark-bg: #5a4a1c;
+  --selected-bg: #2c3a4d;
+  --selected-border: #61afef;
+  --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23282c34' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}

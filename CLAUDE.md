@@ -333,6 +333,17 @@ Every R1 AC block MUST include — up front, not buried in an edge-case AC — a
 
 This subsection prevents literal AC readings from silently waiving confirmation dialogs (B-070 Sprint 19 near-miss) and prevents edge-case ACs from being the only place where retention status is documented (B-007 Sprint 20 AC15 reactive placement).
 
+**Selector-audit step for rehome items (mandatory subsection in every R1 AC block for rehome items)**
+
+Any item whose ACs include moving an existing DOM element from one surface to another MUST include a subsection that enumerates every existing test file that references the moved element's selectors (button IDs, dialog IDs, file-input IDs, ARIA labels, etc.) so that R3 has a complete checklist of test files requiring selector updates. The enumeration format is:
+
+```
+**Selector audit (rehome items)**: [element name] (selector: `#element-id`) moved from [source surface] to [target surface].
+Affected test files: `tests/foo.test.js` (line N), `tests/bar.test.js` (line N), …
+```
+
+If no existing test references the moved element's selectors, state "No existing test files reference these selectors." Sprint 30 B-093 is the precedent — selector-reference scope was underestimated at R1, requiring mid-R3 grep work.
+
 ### Round 2: Architecture
 - [solution-architect]: Evaluate feature against the existing architecture — read the chapter(s) relevant to the item under `docs/design/NN-*.md` (full chapter list is in the root index `docs/SOLUTION_DESIGN.md`). Do NOT read the root index as a substitute for the chapter content.
 - Produce: storage schema changes, message contracts, event flow, component structure, drift-detection impact.
@@ -340,7 +351,7 @@ This subsection prevents literal AC readings from silently waiving confirmation 
 
 | # | Check | What to verify |
 |---|-------|---------------|
-| C-1 | Storage schema versioned | Any change to persisted data shapes must bump a schema version and define a migration path |
+| C-1 | Storage schema versioned | Any change to persisted data shapes must bump a schema version and define a migration path. Additionally, when a sprint adds a new key to `DEFAULT_PREFERENCES` + the validator allow-list, R2 MUST note that an extension toggle-OFF-then-ON cycle is required after update to flush the SW module cache; this note MUST be reflected in the release notes (`CHANGELOG.md`). Sprint 30 B-092 `denseLayout` is the precedent — `chrome-mock` cannot reproduce the SW module-cache stale-state, so this is a UAT-time discovery gap that R2 must prevent. |
 | C-2 | Message contracts typed | Every message type has a documented shape with sender/receiver contracts |
 | C-3 | Service worker cold-start safe | No assumption that the SW is already running; all entry points must re-hydrate state |
 | C-4 | ID stability | Item identity must survive URL drift, rename, and cross-window moves |

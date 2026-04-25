@@ -72,6 +72,14 @@ const NEWTAB_CSS = readFileSync(
   new URL('../newtab/newtab.css', import.meta.url),
   'utf8',
 );
+/* B-037 §45.3 D-3: theme palette tokens moved to shared/themes.css. The
+   newtab page imports it via <link> in newtab.html; AC21 token-presence
+   assertions now read this consolidated stylesheet. */
+const SHARED_THEMES_CSS = readFileSync(
+  new URL('../shared/themes.css', import.meta.url),
+  'utf8',
+);
+const NEWTAB_HTML_FOR_LINK = NEWTAB_HTML;
 const NEWTAB_JS = readFileSync(
   new URL('../newtab/newtab.js', import.meta.url),
   'utf8',
@@ -111,16 +119,26 @@ test('B-036 AC19: newtab.html declares the required ARIA roles', () => {
   assert.match(NEWTAB_HTML, /aria-label="Filter bookmarks"/, 'filter input aria-label');
 });
 
-test('B-036 AC21: newtab.css declares the sidepanel token palette under both themes', () => {
-  assert.match(NEWTAB_CSS, /\[data-theme="light"\]/, 'light-theme tokens block');
-  assert.match(NEWTAB_CSS, /\[data-theme="dark"\]/, 'dark-theme tokens block');
-  assert.match(NEWTAB_CSS, /--bg-primary:/, '--bg-primary token');
-  assert.match(NEWTAB_CSS, /--text-primary:/, '--text-primary token');
-  assert.match(NEWTAB_CSS, /--accent:/, '--accent token');
-  assert.match(NEWTAB_CSS, /--focus-ring:/, '--focus-ring token');
-  assert.match(NEWTAB_CSS, /--mark-bg:/, '--mark-bg token');
-  assert.match(NEWTAB_CSS, /--live-indicator:/, '--live-indicator token');
-  assert.match(NEWTAB_CSS, /--drifted-color:/, '--drifted-color token');
+test('B-036 AC21 (post-B-037): theme palette tokens are sourced from shared/themes.css and linked from newtab.html', () => {
+  /* B-037 §45.3 D-3 consolidated all `[data-theme="…"]` palette blocks into
+     shared/themes.css. The newtab page imports it via <link> BEFORE
+     newtab.css so palette tokens resolve before component rules consume
+     them. AC21 originally checked these tokens in newtab.css; the locked
+     contract is now: tokens exist in shared/themes.css + the link is wired. */
+  assert.match(SHARED_THEMES_CSS, /\[data-theme="system"\]/, 'system theme block');
+  assert.match(SHARED_THEMES_CSS, /\[data-theme="light"\]/, 'legacy light-theme alias');
+  assert.match(SHARED_THEMES_CSS, /\[data-theme="dark"\]/, 'legacy dark-theme alias');
+  assert.match(SHARED_THEMES_CSS, /--bg-primary:/, '--bg-primary token');
+  assert.match(SHARED_THEMES_CSS, /--text-primary:/, '--text-primary token');
+  assert.match(SHARED_THEMES_CSS, /--accent:/, '--accent token');
+  assert.match(SHARED_THEMES_CSS, /--focus-ring:/, '--focus-ring token');
+  assert.match(SHARED_THEMES_CSS, /--mark-bg:/, '--mark-bg token');
+  assert.match(SHARED_THEMES_CSS, /--live-indicator:/, '--live-indicator token');
+  assert.match(SHARED_THEMES_CSS, /--drifted-color:/, '--drifted-color token');
+  /* newtab.html must import shared/themes.css via <link>. */
+  assert.match(NEWTAB_HTML_FOR_LINK, /href="\.\.\/shared\/themes\.css"/, 'newtab.html must <link> shared/themes.css');
+  /* newtab.css MUST NOT carry palette blocks any more. */
+  assert.doesNotMatch(NEWTAB_CSS, /\[data-theme=/, 'newtab.css must NOT contain `[data-theme=` palette selectors');
 });
 
 test('B-036 §42.3 D-1: newtab.js does NOT import sidepanel/sidepanel.js', () => {

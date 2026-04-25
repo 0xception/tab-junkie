@@ -2,41 +2,33 @@
    Tab Junkie — Quick Search Popup Styles (B-022)
    Authoritative spec: docs/design/39-b-022-quick-search-popup.md §39.5
    Every positioned property enumerated in §39.5 is materialised here.
-   Light + dark tokens mirror sidepanel.css with identical contrast ratios
-   (WCAG AA confirmed in §39.5.3).
+
+   B-037 §45.3 D-3: palette tokens consolidated into shared/themes.css. The
+   popup consumes the shared 13-theme system via the legacy `--color-*` /
+   `--mark-bg` token aliases mapped to shared tokens below. `--shadow-popup`
+   is a popup-only structural token (not a palette token) and stays here.
    ========================================================================= */
 
-/* --- Theme custom properties ------------------------------------------- */
-
+/* --- Token aliases: popup → shared/themes.css --------------------------- */
+/* B-037: instead of declaring per-theme palettes here, map the popup's
+   pre-existing `--color-*` / `--mark-bg` tokens onto the shared palette
+   tokens declared in `shared/themes.css` for every active `[data-theme]`.
+   Layout / component rules below continue to consume the popup-local names
+   without modification. The `--shadow-popup` value remains popup-local
+   since it is a structural shadow, not a palette colour. */
 :root {
-  /* Light-theme defaults. Dark overrides live under prefers-color-scheme. */
-  --color-fg: #1a1a1a;
-  --color-fg-muted: #6b7280;
-  --color-bg: #ffffff;
-  --color-bg-header: #f9fafb;
-  --color-row-selected: #eff6ff;
-  --color-accent: #2563eb;
-  --color-border: #e5e7eb;
-  --color-avatar-bg: #e5e7eb;
-  --color-error: #dc2626;
-  --mark-bg: #fef08a;
-  --shadow-popup: 0 4px 18px rgba(0, 0, 0, 0.12);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-fg: #f4f4f4;
-    --color-fg-muted: #9ca3af;
-    --color-bg: #1e1e1e;
-    --color-bg-header: #171717;
-    --color-row-selected: #1e3a5f;
-    --color-accent: #60a5fa;
-    --color-border: #262626;
-    --color-avatar-bg: #3f3f46;
-    --color-error: #f87171;
-    --mark-bg: #713f12;
-    --shadow-popup: 0 4px 18px rgba(0, 0, 0, 0.40);
-  }
+  --color-fg: var(--text-primary);
+  --color-fg-muted: var(--text-secondary);
+  --color-bg: var(--bg-primary);
+  --color-bg-header: var(--bg-secondary);
+  --color-row-selected: var(--selected-bg);
+  --color-accent: var(--accent);
+  --color-border: var(--border-primary);
+  --color-avatar-bg: var(--bg-active);
+  --color-error: var(--danger);
+  /* `--mark-bg` is consumed directly from shared/themes.css — no alias here
+     to avoid a self-referential `var()` cycle on the popup `:root`. */
+  --shadow-popup: 0 4px 18px rgba(0, 0, 0, 0.18);
 }
 
 /* --- Base reset -------------------------------------------------------- */
@@ -336,14 +328,9 @@ li[role="option"][aria-selected="true"] {
 }
 
 .qs-overlay-livedot {
-  background-color: var(--color-success, #10b981);
-}
-
-@media (prefers-color-scheme: dark) {
-  /* Boost the green for dark-mode contrast (AA vs dark bg). */
-  .qs-overlay-livedot {
-    background-color: var(--color-success, #34d399);
-  }
+  /* B-037: per-theme green from shared/themes.css; each theme's
+     `--live-indicator` is tuned for AA contrast on its own bg. */
+  background-color: var(--live-indicator, #10b981);
 }
 
 /* =========================================================================
@@ -451,7 +438,8 @@ mark {
   gap: 4px;
 }
 
-#popup-open-sidepanel-btn {
+#popup-open-sidepanel-btn,
+#popup-open-settings-btn {
   width: 100%;
   padding: 7px 12px;
   font-size: 13px;
@@ -466,11 +454,13 @@ mark {
   transition: background-color 120ms ease, color 120ms ease;
 }
 
-#popup-open-sidepanel-btn:hover {
+#popup-open-sidepanel-btn:hover,
+#popup-open-settings-btn:hover {
   background-color: var(--color-row-selected);
 }
 
-#popup-open-sidepanel-btn:focus-visible {
+#popup-open-sidepanel-btn:focus-visible,
+#popup-open-settings-btn:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
@@ -490,7 +480,8 @@ mark {
   #qs-input:focus {
     box-shadow: none;
   }
-  #popup-open-sidepanel-btn {
+  #popup-open-sidepanel-btn,
+  #popup-open-settings-btn {
     transition: none;
   }
 }

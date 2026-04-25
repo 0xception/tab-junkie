@@ -25,9 +25,8 @@
  * @property {number} updatedAt
  *
  * @typedef {Object} Preferences
- * @property {'light'|'dark'|'system'} theme
+ * @property {string} theme  // B-037: one of 13 slugs (system, github-light, tomorrow, atom-one-light, solarized-light, github-dark, tomorrow-night, atom-one-dark, solarized-dark, dracula, nord, one-dark, monokai); legacy 'light'/'dark' tolerated on read.
  * @property {'sidepanel'|'window'} displayMode
- * @property {boolean} newTabOverride
  * @property {boolean} autoCollapseSubGroups
  *
  * @typedef {Object} TxOp
