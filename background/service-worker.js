@@ -23,6 +23,7 @@
 import { runMigrations } from './storage/migration.js';
 import { registerStorageHandlers } from './messages/storage-handlers.js';
 import { registerTabEventListeners, initializeLiveState } from './tabs/index.js';
+import { MSG_OPEN_STANDALONE } from '../shared/messages.js';
 
 /**
  * The readyPromise gate: resolves when the migration pipeline completes
@@ -138,4 +139,36 @@ chrome.commands.onCommand.addListener((command) => {
   openOrFocusStandaloneWindow().catch((err) => {
     console.warn('[tab-junkie] open-junkie-window failed', err);
   });
+});
+
+// B-038 — MSG_OPEN_STANDALONE fire-and-forget handler.
+// Per §43.3 D-1.3: the quick-search popup routes toolbar-click + Alt+J to the
+// standalone window when displayMode === 'window' by firing this message
+// (without awaiting — C-11 discipline) then calling window.close(). The SW-side
+// handler is a simple pass-through that invokes openOrFocusStandaloneWindow().
+// Registered synchronously at module scope — no await before addListener (MV3).
+//
+// C-11 vacuous on the SW side: zero storage writes on this path (same posture
+// as the open-junkie-window command listener above). The popup side is where
+// C-11 matters; see popup/popup.js.
+//
+// Sender validation matches the storage-handlers pattern (AC5 defense-in-depth):
+// only messages from THIS extension's own origin are processed. Message type is
+// NOT in the `tj/*` namespace so the storage-handlers dispatcher skips it —
+// this listener is the sole handler.
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || typeof message !== 'object' || message.type !== MSG_OPEN_STANDALONE) {
+    return false;
+  }
+  if (!sender || sender.id !== chrome.runtime.id) {
+    return false;
+  }
+  openOrFocusStandaloneWindow().catch((err) => {
+    console.warn('[tab-junkie] MSG_OPEN_STANDALONE failed', err);
+  });
+  // Fire-and-forget contract: popup doesn't wait on the response. Acknowledge
+  // synchronously so Chrome tears down the message channel cleanly and no
+  // "receiver did not respond" console warning fires in the caller's context.
+  sendResponse({ ok: true });
+  return false;
 });

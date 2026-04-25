@@ -4,6 +4,20 @@ All notable changes to Tab Junkie are documented in this file.
 
 ## [Unreleased]
 
+## [1.23.0] — 2026-04-24
+
+### Added
+- **New tab page replacement** — every new tab opens to the Tab Junkie grid: a wide, multi-column view of your bookmarks organized by group. Includes a web search input (powered by your browser's default search engine), a quick-filter input that narrows the grid in real time with `<mark>` highlights, and live-state indicators (active / live / drifted / audible) on every bookmark row. Sub-groups render indented under their parent. Keyboard nav: `/` focuses the search input, Tab cycles search → filter → grid, Enter activates a row, click navigates to an existing tab or opens a new one.
+- **Settings panel** — sidepanel header gains a gear-icon button that opens a Settings dialog. Fully keyboard-accessible (Tab cycles, Escape closes, focus restores to the gear). The dialog hosts new preference rows added in this release.
+- **Display mode preference** — Settings → "Display mode": choose **Side Panel** (default) or **Standalone Window** to control which surface opens when you press Alt+J or click the toolbar icon. Alt+Shift+J always opens the standalone window regardless of pref.
+- **Sub-group auto-collapse preference** — Settings → "Groups": opt-in toggle. When ON, collapsing a parent group also collapses all its sub-groups in one action. Default OFF (preserves existing independent-collapse behavior).
+
+### Changed
+- **`hashItem` cross-module fix** — preference broadcasts now propagate consistently to the new tab page (inherited from the S28 fix to the index hashing).
+
+### Removed
+- **New tab page toggle (B-039)** — *dropped pre-merge.* Manifest V3 does not allow runtime removal of `chrome_url_overrides.newtab`, so an "off" state could not actually return the new tab page to the browser default — only redirect to `about:blank` or render a custom disabled page. Rather than ship a toggle that doesn't deliver what users expect, the toggle is removed and the new tab page is always-on while Tab Junkie is installed. To restore your browser's default new tab behavior, disable or uninstall Tab Junkie via your browser's extension management page (`edge://extensions` or `chrome://extensions`).
+
 ## [1.22.0] — 2026-04-23
 
 ### Added
