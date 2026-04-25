@@ -6,6 +6,19 @@ All notable changes to Tab Junkie are documented in this file.
 
 *(nothing pending)*
 
+## [1.27.0] — 2026-04-25
+
+### Fixed
+- **Drift detection now persists across URL changes (B-099)** — fixes a behavior defect that has been latent since the initial drift implementation. Previously, when a saved bookmark's claimed live tab navigated to a different URL, the bookmark↔tab association was silently severed and the now-unclaimed tab "orphaned" into Open Tabs as if you had opened a fresh untracked tab. Now the bookmark↔tab association survives URL drift: the saved bookmark keeps its live indicator AND gains a drift warning indicator (orange triangle in side panel, orange dot on the new tab page) until either the live tab navigates back to the saved URL, you close the tab, you snap the bookmark to the new URL (see below), or you explicitly delete the bookmark.
+
+### Added
+- **"Snap to this tab" context menu action (B-099)** — right-click any drifted bookmark to update its saved URL to wherever the live tab currently is. The action is only present in the menu when the bookmark has drifted. After clicking, an inline toast appears with an **Undo** button — you have ~6 seconds to revert if it was an accident. The original URL is preserved by closure during the undo window, so undo always restores exactly what was there before.
+- **Drift indicator hover tooltip** — hover the orange drift triangle (side panel) or drift dot (new tab page) to see the hostname the tab has drifted to (e.g., "Drifted to: github.com"). Helps you decide whether to snap or close at a glance without having to switch to the tab.
+- **Drift indicator size bump (side panel only)** — drift triangle increased from 14 px to 16 px in the side panel for slightly better visual prominence in dense lists. New tab page drift dot remains at 12 px (dense-grid-friendly).
+
+### Note
+- **No reload required.** B-099 introduces zero new pref keys, zero new manifest entries, and zero storage schema changes — you can update and use the new behavior immediately. (The `Alt+Comma` Settings shortcut and theme additions from v1.26.0 still require the one-time extension toggle described in the v1.26.0 notes if you have not already done so.)
+
 ## [1.26.0] — 2026-04-25
 
 ### Added

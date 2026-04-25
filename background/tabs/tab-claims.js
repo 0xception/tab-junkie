@@ -150,9 +150,22 @@ export async function releaseClaimByTab(tabId) {
 }
 
 /**
- * Re-evaluate claims when a tab's URL changes. If the tab held a claim and
- * the new URL no longer matches the claimed item, release the old claim. Then
- * attempt to claim for a different item whose URL matches the new URL.
+ * Re-evaluate claims when a tab's URL changes.
+ *
+ * B-099 (Option B, §46.3 D-1): the URL-mismatch claim-release branch has been
+ * removed. When a claimed tab navigates to a URL that no longer matches the
+ * claimed item, the claim is PRESERVED — the bookmark↔tab association now
+ * survives drift. Claim release is reduced to four explicit triggers:
+ *   1. tabs.onRemoved          — releaseClaimByTab
+ *   2. windows.onRemoved        — releaseClaimByTab cascade
+ *   3. MSG_DEMOTE_ITEM         — releaseClaimByTab in the demote handler
+ *   4. MSG_NAVIGATE_TO_ITEM    — stale-claim repair branch
+ *
+ * The "try to claim a different item" branch is preserved so a previously
+ * UNCLAIMED tab navigating to a matching saved URL still auto-claims.
+ * Under D-3 (re-claim contention), a tab that is still claimed (because the
+ * claim was preserved across the URL change) hits the `alreadyClaimed`
+ * short-circuit below — the auto-claim branch is a no-op for drifted tabs.
  *
  * @param {number} tabId
  * @param {string} newUrl
@@ -163,21 +176,12 @@ export async function reevaluateTab(tabId, newUrl, items) {
   const normalizedNew = safeNormalizeForMatch(newUrl);
   let dirty = false;
 
-  // Release current claim if URL no longer matches
-  for (const [itemId, claimedTabId] of Object.entries(claimsMirror)) {
-    if (claimedTabId === tabId) {
-      const item = items.find((it) => it.id === itemId);
-      if (!item || safeNormalizeForMatch(item.url) !== normalizedNew) {
-        delete claimsMirror[itemId];
-        dirty = true;
-      }
-      break;
-    }
-  }
-
   // Try to claim for a different item whose URL matches the new URL
   if (normalizedNew) {
-    // Check if this tab is already claimed (may still be valid from above)
+    // B-099 D-3: if the tab is already claimed (the claim is preserved across
+    // URL changes — see D-1 above), the auto-claim block is a no-op. The
+    // original claim wins; the new matching item remains unclaimed until the
+    // user explicitly demotes the original or closes the tab.
     const alreadyClaimed = Object.values(claimsMirror).includes(tabId);
     if (!alreadyClaimed) {
       // Find unclaimed items matching this URL, sorted by sortOrder

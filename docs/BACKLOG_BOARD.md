@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-25 · **Version:** 2.26 · **Total Items:** 98 · **Sprint 31 + Sprint 32 closed — v1.26.0 shipped 2026-04-25**
+**Updated:** 2026-04-25 · **Version:** 2.27 · **Total Items:** 99 · **Sprint 33 active — B-099 drift fix (Option B + reconcile action)**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  90% (90/98)  [0 in progress · S31+S32 closed]
+Overall Progress    ██████████████████░░  92% (92/99)  [1 in progress · S33 active]
 ```
 
 ### Legend
@@ -119,6 +119,14 @@ Overall Progress    ██████████████████░░
 ✅ B-085 — Add C-10 "Off-screen rect feasibility" to R2 Correctness Checklist · 🟠 · XS [S25 — v1.19.0]
 ⬜ B-086 — Sidepanel UI/UX design pass (post-feature-freeze polish) · ⚪ · M [filed S25 post-UAT; scheduled post-feature-parity]
 ✅ B-087 — Add C-11 "Popup-lifecycle message ordering" to R2 Correctness Checklist · 🟠 · XS [S27 Wave 1 — S26 retro HIGH action closed]
+
+---
+
+## Sprint 33 — Drift fix (Option B + reconcile action)
+
+> 0/1 done · 1 in progress · Single-item sprint · v1.27.0 release to release/v2 only (no main merge)
+
+🔄 B-099 — Drift fix: never release claim on URL change + "Update bookmark URL" reconcile action · 🟠 · M [S33 anchor — Option B locked; bug fix dating to S1]
 
 ---
 

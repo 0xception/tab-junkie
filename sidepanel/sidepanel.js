@@ -140,6 +140,9 @@ const filterEmptyClearBtnEl = document.getElementById('filter-empty-clear-btn');
 const toastEl = document.getElementById('toast');
 const toastMessageEl = document.getElementById('toast-message');
 const toastDismissEl = document.getElementById('toast-dismiss');
+/* B-099 — optional Undo button on the toast. Hidden by default; shown only
+   when showToast() is invoked with the { undoLabel, onUndo } options. */
+const toastUndoEl = document.getElementById('toast-undo');
 const contextMenuEl = document.getElementById('context-menu');
 const bulkActionBarEl = document.getElementById('bulk-action-bar');
 const bulkCountEl = document.getElementById('bulk-count');
@@ -1628,16 +1631,78 @@ function applyFilter() {
    Toast (B-049 — transient error feedback)
    ========================================================================= */
 
-function showToast(message) {
+/* B-099 — current onUndo handler captured by closure of the most recent
+   showToast({ undoLabel, onUndo }) call. Cleared whenever the toast hides
+   (auto-dismiss, manual dismiss, or new toast supersedes). Per §46.3 D-10:
+   the lambda already closes over its own `originalUrl`; this module-scope
+   ref only carries it from showToast() into the click listener — never a
+   shared mutable. */
+let _toastUndoHandler = null;
+
+/**
+ * Show a transient toast.
+ *
+ * Backward-compatible: existing callers `showToast('text')` continue to work.
+ * B-099 extends with an optional second arg for an Undo affordance.
+ *
+ * @param {string} message
+ * @param {{ undoLabel?: string, onUndo?: () => any, durationMs?: number }} [options]
+ */
+function showToast(message, options) {
   clearTimeout(_toastTimer);
   toastMessageEl.textContent = message;
+
+  const opts = options || {};
+  const hasUndo = typeof opts.onUndo === 'function' && typeof opts.undoLabel === 'string' && opts.undoLabel.length > 0;
+  if (hasUndo) {
+    toastUndoEl.textContent = opts.undoLabel;
+    toastUndoEl.hidden = false;
+    _toastUndoHandler = opts.onUndo;
+  } else {
+    toastUndoEl.hidden = true;
+    toastUndoEl.textContent = '';
+    _toastUndoHandler = null;
+  }
+
   toastEl.hidden = false;
-  _toastTimer = setTimeout(() => { toastEl.hidden = true; }, 4000);
+  /* B-099 D-10: undo-bearing toasts default to 6 s (mid-point of the locked
+     5-8 s window). Plain error toasts keep the original 4 s default. Caller
+     may override via `durationMs` (used by tests for fast-path coverage). */
+  const defaultDuration = hasUndo ? 6000 : 4000;
+  const duration = typeof opts.durationMs === 'number' && opts.durationMs > 0
+    ? opts.durationMs
+    : defaultDuration;
+  _toastTimer = setTimeout(() => {
+    toastEl.hidden = true;
+    toastUndoEl.hidden = true;
+    _toastUndoHandler = null;
+  }, duration);
 }
 
 toastDismissEl.addEventListener('click', () => {
   clearTimeout(_toastTimer);
   toastEl.hidden = true;
+  toastUndoEl.hidden = true;
+  _toastUndoHandler = null;
+});
+
+toastUndoEl.addEventListener('click', () => {
+  /* Snapshot the handler before hiding the toast so a slow handler can't be
+     re-entered if a second click slips through during teardown. */
+  const handler = _toastUndoHandler;
+  clearTimeout(_toastTimer);
+  toastEl.hidden = true;
+  toastUndoEl.hidden = true;
+  _toastUndoHandler = null;
+  if (typeof handler === 'function') {
+    try {
+      handler();
+    } catch {
+      /* Undo handler threw synchronously — swallow to keep the toast clean.
+         Async failures must be handled by the handler itself (it may dispatch
+         its own follow-up showToast on error per D-10). */
+    }
+  }
 });
 
 /* =========================================================================
@@ -2196,14 +2261,40 @@ function _createAudibleIcon() {
   return span;
 }
 
-function _createDriftedIcon() {
+/**
+ * B-099 §46.3 D-7 — drift indicator factory.
+ *
+ * Two changes from B-011:
+ *  1. SVG bumped from 14 → 16 px (viewport scaled in lockstep) so the icon
+ *     reads as more prominent next to the green live dot, audible note, and
+ *     the cross-window badge. Color stays driven by `--drifted-color` (which
+ *     is defined in all 14 themes per §46.2 reality check).
+ *  2. Optional `driftedToUrl` arg: when present, sets `title="Drifted to:
+ *     <hostname>"` on the span — a browser-native tooltip. Hostname-only
+ *     per Q3 (concise across long URLs with paths/queries; less PII leak).
+ *     The row's `aria-label` (built by `buildItemRowAriaLabel`) is still the
+ *     authoritative AT carrier (B-048 AC7 contract preserved); the new
+ *     `title` is additive for sighted users.
+ *
+ * @param {string} [driftedToUrl] the absolute URL the live tab drifted to
+ */
+function _createDriftedIcon(driftedToUrl) {
   const span = document.createElement('span');
   span.className = 'item-drifted-icon';
   /* B-048 AC7: see `_createAudibleIcon` — row-level `aria-label` carries
      the drift state. Icon is visual-only for AT. */
   span.setAttribute('aria-hidden', 'true');
   span.innerHTML =
-    '<svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1l6 11H1L7 1z" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/><path d="M7 5v3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="7" cy="10" r="0.8" fill="currentColor"/></svg>';
+    '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 1l7 13H1L8 1z" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linejoin="round"/><path d="M8 6v3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="11.5" r="0.9" fill="currentColor"/></svg>';
+  if (typeof driftedToUrl === 'string' && driftedToUrl.length > 0) {
+    let hostname = '';
+    try {
+      hostname = new URL(driftedToUrl).hostname;
+    } catch {
+      /* Fall through — fallback tooltip below covers the un-parseable case. */
+    }
+    span.title = hostname ? `Drifted to: ${hostname}` : 'Drifted to a different URL';
+  }
   return span;
 }
 
@@ -2350,7 +2441,10 @@ function buildItemRow(item, liveStates, driftRecords) {
     }
 
     if (needsDrifted) {
-      indicators.appendChild(_createDriftedIcon());
+      /* B-099 D-7: pass driftedToUrl through so the icon renders the
+         "Drifted to: <hostname>" tooltip. `drifted` is the raw drift record
+         (or undefined) sourced from `driftRecords[itemId]` above. */
+      indicators.appendChild(_createDriftedIcon(drifted?.driftedToUrl));
     }
 
     row.appendChild(indicators);
@@ -3087,8 +3181,30 @@ function _ensureIndicators(row, live, isDrifted) {
         row.appendChild(indicators);
       }
     }
-    driftedIcon = _createDriftedIcon();
+    /* B-099 D-7: when the drift indicator is created on a live-state patch
+       (state transitioned false → true after the row was first rendered),
+       look up the drifted-to URL from the in-memory cache so the new icon
+       carries the "Drifted to: <hostname>" tooltip. The cache is the same
+       authoritative source `buildItemRow` reads at first paint. */
+    const itemId = row.dataset.itemId;
+    const driftedToUrl = itemId ? _cachedDriftRecords[itemId]?.driftedToUrl : undefined;
+    driftedIcon = _createDriftedIcon(driftedToUrl);
     indicators.appendChild(driftedIcon);
+  } else if (needsDrifted && driftedIcon) {
+    /* B-099 M-1: tooltip refresh for true→true drift change (item drifts to
+       a new URL without the indicator being removed first). Re-derive the
+       hostname from the current cache entry so the title stays accurate. */
+    const itemId = row.dataset.itemId;
+    const driftedToUrl = itemId ? _cachedDriftRecords[itemId]?.driftedToUrl : undefined;
+    if (typeof driftedToUrl === 'string' && driftedToUrl.length > 0) {
+      let hostname = '';
+      try {
+        hostname = new URL(driftedToUrl).hostname;
+      } catch {
+        /* Fall through — use raw URL as fallback. */
+      }
+      driftedIcon.title = hostname ? `Drifted to: ${hostname}` : 'Drifted to a different URL';
+    }
   } else if (!needsDrifted && driftedIcon) {
     driftedIcon.remove();
     const indicators = row.querySelector('.item-indicators');
@@ -5876,6 +5992,77 @@ function openContextMenu(row, x, y) {
     closeContextMenu();
   });
   contextMenuEl.appendChild(editBtn);
+
+  /* B-099 §46.3 D-5 / D-9 — "Snap to this tab" is rendered between Edit and
+     Move-to-group, but only when the item is currently drifted. Visibility
+     gate is `_cachedDriftRecords[itemId]`. When the item has no drift record,
+     the entry is completely absent from the DOM (not disabled, not muted) so
+     the menu collapses naturally to its non-drifted shape (AC5).
+
+     B-026 H-1 pattern: the click handler RE-READS the drift record at click
+     time (not at menu-open time) — a `scope: items` broadcast may race the
+     right-click → click sequence and clear the drift while the menu is open.
+     If the drift cleared between menu open and click, the action is a defensive
+     no-op (closes the menu silently rather than dispatching a stale URL). */
+  if (_cachedDriftRecords[itemId]) {
+    const snapBtn = document.createElement('button');
+    snapBtn.className = 'context-menu-item';
+    snapBtn.setAttribute('role', 'menuitem');
+    snapBtn.setAttribute('tabindex', '-1');
+    snapBtn.textContent = 'Snap to this tab';
+    snapBtn.addEventListener('click', () => {
+      /* H-1 re-read at click time. */
+      const driftNow = _cachedDriftRecords[itemId];
+      if (!driftNow || typeof driftNow.driftedToUrl !== 'string') {
+        closeContextMenu();
+        return;
+      }
+      const driftedToUrl = driftNow.driftedToUrl;
+      /* §46.3 D-10 critical-constraint #3: capture originalUrl by closure
+         BEFORE the dispatch await so the Undo lambda doesn't re-read
+         `_itemById` (which will be post-snap by the time Undo fires). */
+      const cachedItem = _itemById.get(itemId);
+      const originalUrl = cachedItem?.url;
+      if (typeof originalUrl !== 'string' || originalUrl.length === 0) {
+        /* Defensive — item should always be in the cache at this point.
+           If it's missing, fall back with user feedback rather than a
+           silent no-op (B-099 M-4). */
+        closeContextMenu();
+        showToast('Could not snap bookmark. Try again.');
+        return;
+      }
+      /* B-099 M-2: show toast OPTIMISTICALLY before the SW round-trip so
+         there is no feedback gap between menu close and toast appearance,
+         even on SW cold-start. Failure replaces it with an error toast. */
+      closeContextMenu();
+      showToast('Bookmark snapped to current tab', {
+        undoLabel: 'Undo',
+        durationMs: 6000,
+        onUndo: () => {
+          /* Symmetric Undo dispatch — same MSG_UPDATE_ITEM round-trip
+             with the original URL. SW handler clears any drift record
+             written between snap and undo (no-op if nothing to clear).
+             If the live tab is still at driftedToUrl, drift will be
+             re-detected naturally on the next tabs.onUpdated event
+             (per §46.3 D-10). */
+          sendMessage(MSG_UPDATE_ITEM, { id: itemId, patch: { url: originalUrl } })
+            .catch(() => {
+              showToast('Could not undo. Try again.');
+            });
+        },
+      });
+      sendMessage(MSG_UPDATE_ITEM, { id: itemId, patch: { url: driftedToUrl } })
+        .then((resp) => {
+          if (!resp || resp.ok === false) {
+            showToast('Could not snap bookmark. Try again.');
+          }
+        })
+        .catch(() => {
+          showToast('Could not snap bookmark. Try again.');
+        });
+    });
+    contextMenuEl.appendChild(snapBtn);
+  }
 
   /* Move to group */
   const moveLabel = document.createElement('span');

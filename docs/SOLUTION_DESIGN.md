@@ -64,3 +64,4 @@
 - [§43 — B-038 — View Mode Preference (R2 Decision Memo — Fast Track)](design/43-b-038-view-mode-pref.md)
 - [§44 — B-091 — Settings Page Redesign (R2 Design)](design/44-b-091-settings-page.md)
 - [§45 — B-037 — Theme Selection (R2 Design)](design/45-b-037-themes.md)
+- [§46 — B-099 — Drift Fix (Option B + Reconcile Action) (R2 Design)](design/46-b-099-drift-fix.md)

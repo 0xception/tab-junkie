@@ -216,9 +216,12 @@
       </div>
     </div>
 
-    <!-- Toast for transient errors — hidden by default -->
+    <!-- Toast for transient errors — hidden by default. B-099 adds an
+         optional Undo affordance (hidden until showToast({undoLabel,onUndo})
+         is invoked). -->
     <div id="toast" class="toast" role="alert" aria-live="assertive" hidden>
       <span id="toast-message" class="toast-message"></span>
+      <button id="toast-undo" class="toast-undo" type="button" hidden>Undo</button>
       <button id="toast-dismiss" class="toast-dismiss" aria-label="Dismiss" type="button">&times;</button>
     </div>
 

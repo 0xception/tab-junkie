@@ -10,15 +10,31 @@ import { registerTabEventListeners } from '../background/tabs/tab-events.js';
 // event listeners. Instead we register once and test in a single test
 // that exercises all three event types.
 
-test('AC4: tab events never call chrome.storage.local.set', async () => {
+test('AC4: tab events do not write storage from the synchronous handler path', async () => {
+  /* B-099 §46.3 D-1 (Sprint 33) — under Option B the original AC4 invariant
+     "tab events never call chrome.storage.local.set" is no longer honest.
+     A URL-change event on a CLAIMED tab now correctly invokes
+     `detectDriftForTab`, which writes the drift record to `tj:drift`
+     (storage.local). That write is the central B-099 fix and the very
+     thing the previous broken claim-release was masking.
+
+     The narrowed invariant: the synchronous portion of the tab-event
+     handlers (LiveTabIndex patches, opener-map updates, claimsMirror
+     reads) writes ZERO storage; storage writes are only ever performed
+     from the downstream debounced path (drift detection, claim release
+     on tab close), and only when the corresponding state actually changes.
+     This test exercises the URL-change-on-UNCLAIMED-tab path so neither
+     drift nor claim writes are expected. */
+
   // Fresh state
   __resetMock();
   __resetLiveTabIndex();
   __resetTabClaims();
 
-  // Set up tabs and items
+  // Set up tabs and items — note: item-1 saves https://example.com but the
+  // tab we exercise (tab 99) carries a different URL so it is NOT claimed.
   __setMockTabs([
-    { id: 1, url: 'https://example.com', windowId: 1, active: true, audible: false },
+    { id: 99, url: 'https://untracked.example/start', windowId: 1, active: true, audible: false },
     { id: 2, url: 'https://other.com', windowId: 1, active: false, audible: false },
   ]);
 
@@ -37,19 +53,20 @@ test('AC4: tab events never call chrome.storage.local.set', async () => {
   // Reset the set call counter AFTER all setup writes
   __resetSetCallCount();
 
-  // Fire onUpdated (URL change)
-  chrome.tabs.onUpdated.__fire(1, { url: 'https://new-url.com' }, { id: 1, windowId: 1, active: true });
+  // Fire onUpdated (URL change) on the unclaimed tab — no drift can fire,
+  // no claim re-evaluation has anything to release.
+  chrome.tabs.onUpdated.__fire(99, { url: 'https://untracked.example/page2' }, { id: 99, windowId: 1, active: true });
 
-  // Fire onActivated
+  // Fire onActivated — pure in-memory LiveTabIndex update.
   chrome.tabs.onActivated.__fire({ tabId: 2, windowId: 1 });
 
-  // Fire onRemoved
+  // Fire onRemoved on a tab that holds no claim — nothing to release.
   chrome.tabs.onRemoved.__fire(2);
 
   // Wait past the 100ms debounce + async handlers
   await new Promise((r) => setTimeout(r, 250));
 
-  // chrome.storage.local.set should never have been called by any tab event
+  // chrome.storage.local.set should never have been called from this scenario
   const count = __setCallCount();
   assert.equal(count, 0, `chrome.storage.local.set was called ${count} times, expected 0`);
 });

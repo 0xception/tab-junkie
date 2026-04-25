@@ -1192,6 +1192,37 @@ mark {
   background: var(--bg-hover);
 }
 
+/* B-099 — inline Undo affordance on the toast. Mirrors the dismiss button's
+   hit-target sizing while reading as a real action (text label, accent color
+   on hover). Hidden by default; shown when showToast() is invoked with the
+   { undoLabel, onUndo } options. */
+.toast-undo {
+  flex-shrink: 0;
+  height: 24px;
+  border: none;
+  background: none;
+  color: var(--accent-primary, var(--text-primary));
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  padding: 0 8px;
+}
+
+.toast-undo:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.toast-undo:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--text-primary));
+  outline-offset: 2px;
+}
+
 /* --- Context menu (B-026) ---------------------------------------------- */
 
 .context-menu {

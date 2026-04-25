@@ -45,9 +45,20 @@ Right-clicking any bookmark row (with no multi-item selection active) opens a co
 |--------|-------------|
 | Navigate | Switch to the item's open tab, or open a new tab if it is not currently open |
 | Edit | Open the edit dialog to change the item's title, URL, or group |
+| Snap to this tab | **Only shown when the bookmark has drifted** (its live tab has navigated away from the saved URL). Updates the saved URL to match the live tab's current URL. A toast appears with an **Undo** button — you have about 6 seconds to revert if you change your mind. After the toast dismisses, the snap is permanent (until edited again). |
 | Move to group | Reassign the item to a different group via the [group picker](#the-group-picker) |
 | Close tab | Close the browser tab for this item. Only available when the item's tab is currently open. |
 | Delete | Remove the bookmark permanently. This action is shown in red to indicate it is destructive. |
+
+### Drift indicator and "Snap to this tab"
+
+When you save a bookmark and later open it, Tab Junkie tracks the live tab. If you then navigate that tab to a different URL (for example, you saved a search results page and clicked through to one of the results), the bookmark **drifts** — the saved URL no longer matches what's open. Drift is shown as an orange warning triangle on the right of the row in the side panel (or an orange dot on the new tab page).
+
+Hovering the drift indicator shows a tooltip with the hostname of the new URL (e.g., "Drifted to: github.com"), so you can decide at a glance whether to snap, close, or ignore.
+
+The "Snap to this tab" entry in the right-click menu lets you update the saved URL in one click. The Undo button on the resulting toast captures the original URL by closure — clicking Undo always restores exactly the URL that was there before, even if the live tab has navigated again in the meantime.
+
+If you don't snap and instead close the tab, the bookmark reverts to its original saved URL and the drift indicator clears. Drift state is recomputed live whenever the tab navigates, so navigating back to the saved URL also clears the indicator without any explicit action.
 
 ### Selection context menu
 
