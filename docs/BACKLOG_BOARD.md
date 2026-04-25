@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-25 · **Version:** 2.27 · **Total Items:** 99 · **Sprint 33 active — B-099 drift fix (Option B + reconcile action)**
+**Updated:** 2026-04-26 · **Version:** 2.28 · **Total Items:** 104 · **Sprint 34 active — Visual polish (group color cohesion + dotted drift bar). B-104 R1 + B-101 R2 launched in parallel.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  92% (92/99)  [1 in progress · S33 active]
+Overall Progress    █████████████████░░░  89% (93/104)  [2 in progress · S34 active]
 ```
 
 ### Legend
@@ -122,11 +122,30 @@ Overall Progress    ██████████████████░░
 
 ---
 
+## Sprint 34 — Visual polish: group color cohesion + dotted drift bar (active)
+
+> 0/2 done · 2 in progress · Kicked off 2026-04-26
+
+🔄 B-104 — Themed group color system (colored headers + theme-aware 9-slot palette tokens) · 🟡 · M [S34 Wave 0 anchor — R1 in progress]
+🔄 B-101 — Dotted drift bar in row left-edge gutter (drops 16 px triangle) · ⚪ · S [S34 Wave 0 parallel — R2 in progress, R1 locked pre-sprint]
+
+---
+
 ## Sprint 33 — Drift fix (Option B + reconcile action)
 
-> 0/1 done · 1 in progress · Single-item sprint · v1.27.0 release to release/v2 only (no main merge)
+> 1/1 done · v1.27.0 shipped to release/v2 only (no main merge)
 
-🔄 B-099 — Drift fix: never release claim on URL change + "Update bookmark URL" reconcile action · 🟠 · M [S33 anchor — Option B locked; bug fix dating to S1]
+✅ B-099 — Drift fix: Option B (claim survives URL change) + "Snap to this tab" reconcile action · 🟠 · M [S33 anchor — bug latent since S1; +11 tests, 14/14 UAT PASS, 4 follow-ups filed]
+
+---
+
+## Pending Triage (filed from S33 B-099 UAT, awaiting sprint placement)
+
+> 3 items · all P2 · candidates for S35 or later
+
+⬜ B-100 — Delete-on-live UX: Delete should default to Close-tab when item is live · 🟡 · M [filed S33 UAT-2 user feedback]
+⬜ B-102 — Cross-window demote broadcast bug: item vanishes from non-originating windows · 🟡 · M [filed S33 UAT-13 user feedback]
+⬜ B-103 — Promote-tab duplicate bug: tab shown as both bookmark AND open-tab after promote · 🟡 · S [filed S33 UAT-13 user feedback]
 
 ---
 
@@ -200,7 +219,9 @@ Overall Progress    ██████████████████░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 92 | 94% |
-| 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 3 | 3% |
+| ✅ Done | 93 | 89% |
+| 🔄 In Progress | 2 | 2% |
+| ⬜ To Do | 6 | 6% |
 | 🧊 Icebox | 3 | 3% |
+
+**To Do breakdown (8 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-100 (delete-on-live UX, P2/M · S33 follow-up), B-101 (dotted drift bar, P3/S · **planned for S34**), B-102 (cross-window demote bug, P2/M · S33 follow-up), B-103 (promote duplicate bug, P2/S · S33 follow-up), B-104 (themed group colors, P2/M · **planned for S34**).
