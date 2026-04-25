@@ -19,8 +19,8 @@ import {
   MSG_BULK_REORDER_ITEMS,
   MSG_BULK_REORDER_GROUPS,
   MSG_PROMOTE_TAB,
-  MSG_EXPORT_COLLECTION,
-  MSG_IMPORT_COLLECTION,
+  /* B-093: MSG_EXPORT_COLLECTION + MSG_IMPORT_COLLECTION moved to
+     settings/settings-import-export.js along with the import/export UI. */
 } from '../shared/messages.js';
 
 import {
@@ -85,17 +85,10 @@ import { buildIndex, diffAndPatch, search as searchIndex } from './search-index.
    sidepanel share the same scheme allowlist. Byte-for-byte equivalent. */
 import { isSafeFaviconUrl } from '../shared/favicon.js';
 
-/* B-089: Settings dialog scaffolding (Wave 0). The module owns its own DOM
-   wiring + broadcast subscription; sidepanel.js just injects the dialog DOM
-   refs + the shared focus-trap helpers so both dialogs reuse the same
-   overlay infrastructure. Wave 1 consumers (B-038/B-039/B-040) call
-   renderToggle / renderSelect to add their rows. */
-import {
-  init as initSettingsDialog,
-  closeSettingsDialog,
-  renderSelect as renderSettingsSelect,
-  renderToggle as renderSettingsToggle,
-} from './settings-dialog.js';
+/* B-091: B-089 modal import removed. Settings is now a full-page tab —
+   gear-button dispatcher fires chrome.tabs.create / chrome.tabs.update below.
+   Wave 0 pref controls (B-038 displayMode, B-040 autoCollapseSubGroups) live
+   in settings/settings.js, not here. */
 
 /* =========================================================================
    DOM references
@@ -109,18 +102,9 @@ const panelHeaderEl = document.getElementById('panel-header');
 const addBookmarkBtnEl = document.getElementById('add-bookmark-btn');
 /* B-081: new-group button in header — opens the group dialog in create mode. */
 const addGroupBtnEl = document.getElementById('add-group-btn');
-/* B-042: export-to-HTML button in header. */
-const exportHtmlBtnEl = document.getElementById('export-html-btn');
-/* B-043: export-to-JSON backup button in header. */
-const exportJsonBtnEl = document.getElementById('export-json-btn');
-/* B-044: import-from-HTML button + hidden file input in header. */
-const importHtmlBtnEl = document.getElementById('import-html-btn');
-const importFileInputEl = document.getElementById('import-file-input');
-/* B-045: import-from-JSON button + dedicated hidden file input (separate
-   from the HTML input so the `accept` filter + click wiring don't clash
-   per §33.4 Q-3). */
-const importJsonBtnEl = document.getElementById('import-json-btn');
-const importJsonFileInputEl = document.getElementById('import-json-file-input');
+/* B-093: B-042/043/044/045 export + import buttons + hidden file inputs
+   relocated from the sidepanel header to the Settings page Data section.
+   See settings/settings-import-export.js for the relocated handlers. */
 const dialogOverlayEl = document.getElementById('dialog-overlay');
 const bookmarkDialogEl = document.getElementById('bookmark-dialog');
 const confirmDialogEl = document.getElementById('confirm-dialog');
@@ -167,12 +151,10 @@ const groupFieldParentEl = document.getElementById('group-field-parent');
 const groupErrorParentEl = document.getElementById('group-error-parent');
 const groupCancelBtnEl = document.getElementById('group-cancel-btn');
 const groupSubmitBtnEl = document.getElementById('group-submit-btn');
-/* B-089: Settings dialog refs */
+/* B-091: gear button — opens the Settings page tab via the dispatcher
+   below (focus existing else create new). The four B-089 modal DOM refs
+   were removed when the modal was deleted. */
 const settingsBtnEl = document.getElementById('sidepanel-settings-btn');
-const settingsDialogEl = document.getElementById('settings-dialog');
-const settingsContentEl = document.getElementById('settings-content');
-const settingsErrorEl = document.getElementById('settings-error');
-const settingsCloseBtnEl = document.getElementById('settings-close-btn');
 /* B-029: Group picker modal */
 const groupPickerDialogEl = document.getElementById('group-picker-dialog');
 const groupPickerHeadingEl = document.getElementById('group-picker-heading');
@@ -458,6 +440,19 @@ function applyTheme(theme) {
   sessionStorage.setItem('tj-theme', currentTheme);
 }
 
+/* B-092 — opt-in compact layout. Reads the `denseLayout` boolean off the
+   prefs snapshot and flips a single `.tj-dense` class on <body>. All visual
+   density changes are driven by pure-CSS descendant selectors in
+   sidepanel.css; this helper is the only JS surface required. */
+function applyDenseLayout(prefs) {
+  const enabled = !!(prefs && prefs.denseLayout === true);
+  if (enabled) {
+    document.body.classList.add('tj-dense');
+  } else {
+    document.body.classList.remove('tj-dense');
+  }
+}
+
 const darkMq = globalThis.matchMedia('(prefers-color-scheme: dark)');
 darkMq.addEventListener('change', () => {
   if (currentTheme === 'system') {
@@ -609,12 +604,9 @@ function closeDialog() {
   bookmarkDialogEl.hidden = true;
   confirmDialogEl.hidden = true;
   groupDialogEl.hidden = true; /* B-027: ensure group dialog is closed too */
-  /* B-089: route settings close through the module so `_triggerEl` is cleared
-     AND focus is restored to the gear button. Manual DOM manipulation here
-     would bypass the module's focus-restore path and leave stale state. */
-  if (settingsDialogEl && !settingsDialogEl.hidden) {
-    closeSettingsDialog();
-  }
+  /* B-091: B-089 modal branch removed — Settings is now a full-page tab,
+     not an in-sidepanel modal, so global Escape no longer needs to close
+     it. */
   /* B-029: ensure the picker is closed too so global Escape never leaves a
      stray picker behind. Local Escape handling in the picker calls
      closeGroupPickerDialog() directly; this branch only fires when the global
@@ -814,67 +806,38 @@ groupCancelBtnEl.addEventListener('click', closeGroupDialog);
 /* B-027 end group dialog helpers ------------------------------------------ */
 
 /* =========================================================================
-   B-089 — Settings dialog wiring
+   B-091 — Settings page gear-button dispatcher (§44.3 D-2)
    =========================================================================
-   Module-scope initialization: the settings-dialog module manages its own
-   DOM (content region + error surface) and broadcast listener; we just feed
-   it the overlay + focus-trap helpers the sidepanel owns. Wave 0 ships the
-   scaffolding with no registered pref rows; B-038/B-039/B-040 (Wave 1) will
-   call renderToggle / renderSelect to add theirs.
-   ========================================================================= */
+   The gear button opens the full-page Settings tab via chrome.tabs.create or,
+   if a Settings tab is already open, focuses that tab via chrome.tabs.update
+   + chrome.windows.update (focus-existing-else-create per §41 B-035 D-3 (c)).
+   Failure surfaces a toast — the gear button must never appear broken.
+   Wave 0 controls (B-038 displayMode, B-040 autoCollapseSubGroups) are
+   registered in settings/settings.js, not here. */
 
-initSettingsDialog({
-  overlayEl: dialogOverlayEl,
-  dialogEl: settingsDialogEl,
-  contentEl: settingsContentEl,
-  errorEl: settingsErrorEl,
-  closeBtnEl: settingsCloseBtnEl,
-  triggerBtnEl: settingsBtnEl,
-  activateFocusTrap: _activateFocusTrap,
-  deactivateFocusTrap: _deactivateFocusTrap,
-  sendMessage,
-  runtime: chrome.runtime,
-});
+const SETTINGS_PAGE_URL = chrome.runtime.getURL('settings/settings.html');
 
-/* B-038 — Display mode select. Registered after settings-dialog init so the
-   row paints into the dialog on every open. First section per §43.7 R3
-   handoff. Naming normative: key is `displayMode`, values are 'sidepanel' |
-   'window' (NOT 'viewMode' / 'standalone' — see §43.2). */
-renderSettingsSelect({
-  key: 'displayMode',
-  label: 'Open Tab Junkie as',
-  section: 'Display mode',
-  options: [
-    { value: 'sidepanel', label: 'Side Panel' },
-    { value: 'window', label: 'Standalone Window' },
-  ],
-  defaultValue: 'sidepanel',
-});
+if (settingsBtnEl) {
+  settingsBtnEl.addEventListener('click', () => {
+    openOrFocusSettingsTab().catch((err) => {
+      showToast('Could not open Settings');
+      console.warn('[B-091] settings dispatcher failed:', err && err.message ? err.message : err);
+    });
+  });
+}
 
-/* B-039 — New tab page toggle: DROPPED at S29 close. Manifest V3 cannot
-   remove `chrome_url_overrides.newtab` at runtime, so the OFF state could
-   only deliver `about:blank` or a custom disabled-state page — never the
-   browser's true default new tab. The `renderSettingsToggle` call that
-   previously rendered "Replace new tab page with Tab Junkie" under a
-   "New tab page" section is intentionally absent. The pref key
-   `newTabOverride` is retained in DEFAULT_PREFERENCES for backward compat
-   but no UI exposes it. See docs/SPRINT.md S29 retro + design chapter §42. */
-
-/* B-040 — Sub-group auto-collapse toggle. Naming normative: key is
-   `autoCollapseSubGroups` (capital 'G' on Groups) per `DEFAULT_PREFERENCES`
-   in background/storage/shapes.js — the sole key the `validatePrefsPatch`
-   allow-list accepts. Note the BACKLOG AC copy uses `autoCollapseSubgroups`
-   (lowercase 'g'); that is R1 drift — the shipped key name is the contract
-   (same R3 reconciliation precedent as B-039). Default OFF: existing B-008
-   per-sub-group collapse independence remains the unchanged baseline. The
-   cascade is one-way (collapse only); the runtime handler lives in
-   `toggleGroup`. */
-renderSettingsToggle({
-  key: 'autoCollapseSubGroups',
-  label: 'Auto-collapse sub-groups when parent collapses',
-  section: 'Groups',
-  defaultValue: false,
-});
+async function openOrFocusSettingsTab() {
+  const matches = await chrome.tabs.query({ url: SETTINGS_PAGE_URL });
+  if (Array.isArray(matches) && matches.length > 0) {
+    const tab = matches[0];
+    await chrome.tabs.update(tab.id, { active: true });
+    if (typeof tab.windowId === 'number') {
+      await chrome.windows.update(tab.windowId, { focused: true });
+    }
+    return;
+  }
+  await chrome.tabs.create({ url: SETTINGS_PAGE_URL });
+}
 
 /* =========================================================================
    B-059 soft-warn helpers — pre-dispatch duplicate-URL detection
@@ -1698,865 +1661,15 @@ toastDismissEl.addEventListener('click', () => {
 });
 
 /* =========================================================================
-   Export collection (B-042 — HTML export; B-043 — JSON follows in Wave 4)
+   B-093 — Import / Export controls relocated to the Settings page Data
+   section. The B-042/B-043 export helpers, B-044/B-045 import flow, the
+   destructive-confirmation preview dialog (B-070 §AC4 retained), the
+   five-megabyte oversize guard, the in-flight gate, and the four button
+   click handlers + two file-input change handlers now live in
+   `settings/settings-import-export.js`. The SW message contracts
+   (`MSG_EXPORT_COLLECTION` / `MSG_IMPORT_COLLECTION`) are unchanged — only
+   the host surface moved.
    ========================================================================= */
-
-/**
- * Turn an in-memory string into a downloaded file via a hidden `<a download>`.
- * Lives sidepanel-side because the MV3 service worker has no
- * `URL.createObjectURL`. Revokes the object URL after the click so no blob
- * references leak (B-042 AC6).
- *
- * @param {string} filename
- * @param {string} mimeType
- * @param {string} content
- */
-function _triggerBlobDownload(filename, mimeType, content) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  try {
-    a.click();
-  } finally {
-    document.body.removeChild(a);
-    /* Defer revoke until after the click tail has handed the blob to the
-       browser's download pipeline. queueMicrotask keeps it in the same task
-       while still ordering after the synchronous click handler. */
-    queueMicrotask(() => URL.revokeObjectURL(url));
-  }
-}
-
-/**
- * Map a StorageError code from the export handler to a user-facing toast
- * string (Q-8). Unknown codes fall through to a generic retry message.
- * @param {string} code
- * @returns {string}
- */
-function _exportErrorToast(code) {
-  switch (code) {
-    case 'ERR_NOT_READY':
-      return 'Export failed \u2014 extension is still starting, try again in a moment';
-    case 'ERR_SAFE_MODE':
-      return 'Export failed \u2014 read-only mode';
-    case 'ERR_VALIDATION':
-      return 'Export failed \u2014 invalid request';
-    default:
-      return 'Export failed \u2014 try again';
-  }
-}
-
-async function _exportCollectionAsHtml() {
-  try {
-    const data = await sendMessage(MSG_EXPORT_COLLECTION, { format: 'html' });
-    _triggerBlobDownload(data.filename, data.mimeType, data.content);
-    const itemCount = data.itemCount;
-    const groupCount = data.groupCount;
-    /* AC7 — literal copy: "Exported {N} bookmarks across {M} groups". No
-       filename suffix (matched verbatim per Q-H3). Pluralization retained as a
-       UX improvement; the {N}/{M} placeholders in the AC are substituted. */
-    showToast(
-      'Exported ' + itemCount + ' bookmark' + (itemCount === 1 ? '' : 's')
-      + ' across ' + groupCount + ' group' + (groupCount === 1 ? '' : 's'),
-    );
-  } catch (err) {
-    /* Code-only fallback message; titles/URLs are never logged (AC11 privacy). */
-    const code = err && err.code ? String(err.code) : 'ERR_UNKNOWN';
-    console.warn('export failed:', code);
-    showToast(_exportErrorToast(code));
-  }
-}
-
-if (exportHtmlBtnEl) {
-  exportHtmlBtnEl.addEventListener('click', () => {
-    /* M-3: explicitly discard the Promise so an unexpected pre-try throw is
-       not flagged as an unhandled rejection by the linter/runtime. */
-    void _exportCollectionAsHtml();
-  });
-}
-
-/**
- * B-043 — JSON backup export. Mirrors _exportCollectionAsHtml: dispatch the
- * message, pipe the result through the shared blob-download helper, surface
- * a toast on success or via _exportErrorToast on failure.
- *
- * The toast copy diverges from the HTML path because B-043 AC10 specifies
- * a "backup" framing ("Backup exported: <filename>"), while B-042 AC7 uses
- * item/group counts. The filename carries the date suffix, so the user gets
- * confirmation of exactly what landed on disk.
- */
-async function _exportCollectionAsJson() {
-  try {
-    const data = await sendMessage(MSG_EXPORT_COLLECTION, { format: 'json' });
-    _triggerBlobDownload(data.filename, data.mimeType, data.content);
-    /* AC10 literal copy pattern. Filename is system-generated (not user input),
-       safe to concatenate into a text-context toast. */
-    showToast('Backup exported: ' + data.filename);
-  } catch (err) {
-    const code = err && err.code ? String(err.code) : 'ERR_UNKNOWN';
-    /* Code-only warn — titles/URLs are never logged (AC12 privacy). */
-    console.warn('export failed:', code);
-    showToast(_exportErrorToast(code));
-  }
-}
-
-if (exportJsonBtnEl) {
-  exportJsonBtnEl.addEventListener('click', () => {
-    void _exportCollectionAsJson();
-  });
-}
-
-/* =========================================================================
-   B-044 — Import from Netscape HTML
-   =========================================================================
-   UX flow (§33.4):
-     click Import HTML → set accept → programmatic file-input.click() → user
-     picks file → FileReader.readAsText → pre-dispatch preview (zero storage
-     mutation) → "Import N bookmarks across M groups… Replace all?" dialog with
-     Cancel default-focused → on Replace-all, re-dispatch with commit:true.
-     Success toast: "Imported N bookmarks into M groups. K skipped."
-
-   Security invariants:
-     - AC2: extension filter enforced client-side before reading the file.
-     - AC15: the parser never uses innerHTML; titles survive as literal text.
-     - AC16: zero network calls during the entire flow.
-     - AC17: no new manifest permissions (programmatic <input type="file">).
-   ========================================================================= */
-
-/** Upper bound — matches §33.10 pre-dispatch oversize guard. */
-const IMPORT_MAX_BYTES = 5 * 1024 * 1024;
-
-/* Single in-flight guard — gates both the preview dispatch and the commit
-   dispatch so repeated clicks on "Import HTML" (or a double-click on
-   "Replace all") cannot fire overlapping round-trips. Also toggles the
-   button's disabled + aria-busy state so users see the import is running. */
-let _importInFlight = false;
-
-/** Enter the in-flight state: disable the Import buttons + mark aria-busy. */
-function _setImportInFlight(inFlight) {
-  _importInFlight = inFlight;
-  if (importHtmlBtnEl) {
-    importHtmlBtnEl.disabled = inFlight;
-    if (inFlight) {
-      importHtmlBtnEl.setAttribute('aria-busy', 'true');
-    } else {
-      importHtmlBtnEl.removeAttribute('aria-busy');
-    }
-  }
-  if (importJsonBtnEl) {
-    importJsonBtnEl.disabled = inFlight;
-    if (inFlight) {
-      importJsonBtnEl.setAttribute('aria-busy', 'true');
-    } else {
-      importJsonBtnEl.removeAttribute('aria-busy');
-    }
-  }
-}
-
-/**
- * Map a MSG_IMPORT_COLLECTION failure code to a user-facing toast string.
- * @param {string} code
- * @param {'html'|'json'} [format='html']
- *   Drives the format-specific toast for `ERR_INVALID_FORMAT`: HTML
- *   imports say "Not a valid Netscape bookmarks file"; JSON imports say
- *   "Backup file is malformed and cannot be imported".
- * @returns {string}
- */
-function _importErrorToast(code, format) {
-  switch (code) {
-    case 'ERR_INVALID_FORMAT':
-      return format === 'json'
-        ? 'Backup file is malformed and cannot be imported'
-        : 'Not a valid Netscape bookmarks file';
-    case 'ERR_EMPTY_FILE':
-      return 'File is empty';
-    case 'ERR_MALFORMED_ROOT':
-      return 'Backup file is malformed and cannot be imported';
-    case 'ERR_UNKNOWN_SCHEMA_VERSION':
-      return 'Backup was created in a newer version. Please update Tab Junkie before importing.';
-    case 'ERR_UNREPAIRABLE':
-      return 'Backup file contains unrecoverable errors';
-    case 'ERR_QUOTA_EXCEEDED':
-      return 'Import failed: not enough storage space. Delete items and try again.';
-    case 'ERR_SAFE_MODE':
-      return 'Cannot import while in safe mode. Please update Tab Junkie.';
-    case 'ERR_VALIDATION':
-      return 'Import failed: invalid request';
-    default:
-      return 'Import failed: invalid file format';
-  }
-}
-
-/**
- * B-045 — sum AC5+AC6+AC7+AC8+AC12 repair counts for a `RepairReport`.
- * AC16 exactly: "Imported N items, M groups. K repairs." K is the sum;
- * AC9 unknown-field drops are NOT counted per AC9.
- *
- * @param {Object|undefined} repairs
- * @returns {number}
- */
-function _sumRepairs(repairs) {
-  if (!repairs || typeof repairs !== 'object') return 0;
-  return (repairs.orphanedGroups || 0)
-    + (repairs.cyclesBroken || 0)
-    + (repairs.duplicateIds || 0)
-    + (repairs.orphanedItems || 0)
-    + (repairs.duplicateUrls || 0);
-}
-
-/**
- * B-080 — build the plain-language repair breakdown array, shared between the
- * preview-dialog body (`_buildImportPreviewBody`) and the post-import success
- * toast. Matches the exact B-070 AC3 label wording so both surfaces stay in
- * sync.
- *
- * @param {Object|undefined} repairs
- * @returns {string[]}  non-empty parts; empty array if no repairs
- */
-function _plainLanguageRepairParts(repairs) {
-  if (!repairs || typeof repairs !== 'object') return [];
-  const parts = [];
-  if (repairs.orphanedGroups > 0) {
-    parts.push(repairs.orphanedGroups + ' group'
-      + (repairs.orphanedGroups === 1 ? '' : 's')
-      + ' had missing parents, moved to the top level');
-  }
-  if (repairs.cyclesBroken > 0) {
-    parts.push(repairs.cyclesBroken + ' group loop'
-      + (repairs.cyclesBroken === 1 ? '' : 's') + ' fixed');
-  }
-  if (repairs.duplicateIds > 0) {
-    parts.push(repairs.duplicateIds + ' duplicate group/item ID'
-      + (repairs.duplicateIds === 1 ? '' : 's') + ' renumbered');
-  }
-  if (repairs.orphanedItems > 0) {
-    parts.push(repairs.orphanedItems + ' item'
-      + (repairs.orphanedItems === 1 ? '' : 's')
-      + ' with no group moved to Ungrouped');
-  }
-  return parts;
-}
-
-/**
- * B-070 AC1 — detect whether a JSON backup string carries a populated
- * `preferences` object. Used by the zero-bookmark guard to decide between
- * rejecting an empty backup ("Backup contains no bookmarks") and routing a
- * prefs-only backup through the prefs-only confirmation dialog.
- *
- * Best-effort, cold-start-safe: a malformed file that fails JSON.parse is
- * treated as "no preferences" (the real validator will surface the actual
- * error on commit). Only the top-level `preferences` key is inspected here —
- * the validator remains the source of truth for key-level validation.
- *
- * B-070 R4 F-2 note: this check is intentionally permissive — ANY non-empty
- * `preferences` object routes the prefs-only path (even one that happens to
- * match every system default). This is safe because the prefs-only
- * confirmation dialog (see `_openImportPreviewDialog({ prefsOnly: true })`
- * below) is an explicit click-to-confirm gate on the destructive
- * items/groups replace. Do NOT re-introduce a direct `_commitImport`
- * short-circuit here — the CLAUDE.md "Confirmation dialogs for destructive
- * actions" rule applies even when the user's existing bookmarks would be
- * wiped by a backup whose prefs are all defaults.
- *
- * @param {string} content
- * @returns {boolean}
- */
-function _hasPopulatedPreferences(content) {
-  if (typeof content !== 'string' || content.length === 0) return false;
-  let parsed;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    return false;
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
-  const prefs = parsed.preferences;
-  if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) return false;
-  return Object.keys(prefs).length > 0;
-}
-
-/**
- * Build the import-preview dialog body as structured DOM nodes — never
- * innerHTML. "REPLACE" is wrapped in a strong+warning span per AC4.
- *
- * B-060 — when `includeDupToggle === true`, appends an "Import duplicates
- * anyway" checkbox with a helper-text description. The caller reads
- * `_pendingImportDupCheckboxEl.checked` when the user confirms; element id
- * `import-dup-checkbox` is unique per dialog open (stale handle resets on
- * next `_buildImportPreviewBody` call). The checkbox is omitted on the
- * prefs-only dialog variant (nothing to dedupe in a zero-item backup).
- *
- * @param {{ itemsImported: number, groupsImported: number,
- *           duplicatesSkipped?: number, skipped?: number,
- *           repairs?: Object }} counts
- * @param {string} filename
- * @param {'html'|'json'} [format='html']
- *   'json' uses the "items"/"groups" wording to match AC4's
- *   "... N items in M groups from this backup." copy. 'html' retains the
- *   B-044 wording ("bookmarks ... folders").
- * @param {Object} [opts]
- * @param {boolean} [opts.includeDupToggle=false]
- *   B-060 — render the "Import duplicates anyway" checkbox row.
- * @param {boolean} [opts.dupToggleDefault=true]
- *   B-060 — default state for the checkbox. `true` = checkbox UNchecked (skip,
- *   the system default). `false` = checkbox CHECKED (last user choice was
- *   "import duplicates anyway"). Read from preferences.importSkipDuplicates.
- */
-function _buildImportPreviewBody(counts, filename, format, opts) {
-  const { itemsImported, groupsImported, duplicatesSkipped = 0, skipped = 0, repairs } = counts;
-  const isJson = format === 'json';
-  const includeDupToggle = !!(opts && opts.includeDupToggle);
-  /* `dupToggleDefault` mirrors the preference: `true` means "skip duplicates"
-     which maps to an UNCHECKED checkbox; `false` means "import duplicates
-     anyway" → CHECKED. */
-  const dupSkipDefault = !(opts && opts.dupToggleDefault === false);
-  const frag = document.createDocumentFragment();
-  const line1 = document.createElement('span');
-  const itemNoun = isJson
-    ? (itemsImported === 1 ? 'item' : 'items')
-    : (itemsImported === 1 ? 'bookmark' : 'bookmarks');
-  const groupNoun = isJson
-    ? (groupsImported === 1 ? 'group' : 'groups')
-    : (groupsImported === 1 ? 'folder' : 'folders');
-  line1.textContent =
-    'Import ' + itemsImported + ' ' + itemNoun
-    + ' in ' + groupsImported + ' ' + groupNoun
-    + (filename ? ' from ' + filename : '') + '. ';
-  frag.appendChild(line1);
-  const strong = document.createElement('strong');
-  strong.className = 'import-replace-emphasis';
-  strong.textContent = 'This will REPLACE all existing bookmarks and groups.';
-  frag.appendChild(strong);
-  const line2 = document.createElement('span');
-  line2.textContent = ' Continue?';
-  frag.appendChild(line2);
-  if (skipped > 0) {
-    const extra = document.createElement('span');
-    extra.className = 'import-extra-line';
-    extra.textContent = ' ' + skipped + ' malformed entr'
-      + (skipped === 1 ? 'y' : 'ies') + ' will be skipped.';
-    frag.appendChild(extra);
-  }
-  if (duplicatesSkipped > 0) {
-    const dup = document.createElement('span');
-    dup.className = 'import-extra-line';
-    dup.textContent = ' ' + duplicatesSkipped + ' item'
-      + (duplicatesSkipped === 1 ? '' : 's')
-      + ' have duplicate URLs.';
-    frag.appendChild(dup);
-  }
-  /* B-045 — structured repair summary (separate span, never innerHTML). The
-     parts are joined with commas in a single textContent assignment so users
-     see one readable footnote rather than a row of bullet points.
-     B-070 AC3 — labels rewritten to plain language. */
-  if (isJson && repairs) {
-    /* B-080 — plain-language labels now come from the shared helper so the
-       preview dialog and the post-import toast stay in sync. */
-    const parts = _plainLanguageRepairParts(repairs);
-    if (repairs.preferencesSkipped) {
-      parts.push('preferences skipped (invalid shape)');
-    }
-    if (parts.length > 0) {
-      const rep = document.createElement('span');
-      rep.className = 'import-extra-line import-repair-line';
-      rep.textContent = ' Repairs: ' + parts.join(', ') + '.';
-      frag.appendChild(rep);
-    }
-  }
-  /* B-060 — "Import duplicates anyway" checkbox row. Structured DOM only,
-     never innerHTML. The checkbox is tabbable between the REPLACE warning
-     copy and the Cancel / Replace buttons (confirm-dialog action order).
-     aria-describedby links the checkbox label to its helper text so screen
-     readers announce the description alongside the checkbox label. */
-  if (includeDupToggle) {
-    const row = document.createElement('span');
-    row.className = 'import-extra-line import-dup-toggle';
-    const label = document.createElement('label');
-    label.className = 'import-dup-toggle__label';
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.id = 'import-dup-checkbox';
-    checkbox.className = 'import-dup-toggle__input';
-    /* Default state: UNCHECKED when the user's stored preference is
-       "skip duplicates" (the system default); CHECKED when the user
-       previously toggled on "Import duplicates anyway". */
-    checkbox.checked = !dupSkipDefault;
-    checkbox.setAttribute('aria-describedby', 'import-dup-checkbox-help');
-    label.appendChild(checkbox);
-    const labelText = document.createElement('span');
-    labelText.className = 'import-dup-toggle__label-text';
-    labelText.textContent = ' Import duplicates anyway';
-    label.appendChild(labelText);
-    row.appendChild(label);
-    const help = document.createElement('span');
-    help.id = 'import-dup-checkbox-help';
-    help.className = 'import-dup-toggle__help';
-    help.textContent = 'By default, items with URLs that already exist in'
-      + ' this file are skipped. Check this to import them anyway.';
-    row.appendChild(help);
-    frag.appendChild(row);
-  }
-  return frag;
-}
-
-/**
- * B-070 R4 F-1 — build the prefs-only confirmation body as structured DOM
- * nodes. A prefs-only backup (items: [], groups: []) still triggers the
- * atomic replace in commit.js, so the user MUST see and click-confirm the
- * destruction of their existing bookmarks+groups. "REPLACE" uses the same
- * `import-replace-emphasis` class as the bookmark/data path so the
- * `--danger` token styling is consistent across all three dialog variants.
- *
- * @param {string} filename
- * @returns {DocumentFragment}
- */
-function _buildPrefsOnlyImportBody(filename) {
-  const frag = document.createDocumentFragment();
-  const line1 = document.createElement('span');
-  line1.textContent = 'This backup contains only preferences (0 items, 0 groups)'
-    + (filename ? ' from ' + filename : '') + '. Importing will ';
-  frag.appendChild(line1);
-  const strong = document.createElement('strong');
-  strong.className = 'import-replace-emphasis';
-  strong.textContent = 'REPLACE';
-  frag.appendChild(strong);
-  const line2 = document.createElement('span');
-  line2.textContent = ' all your existing bookmarks and groups with an empty'
-    + ' collection. Your preferences will be updated. Continue?';
-  frag.appendChild(line2);
-  return frag;
-}
-
-/**
- * Open the import-preview confirmation dialog. Extends the shared confirm-
- * dialog primitive (§33.4 Q-2) by replacing the <p> body with a
- * document-fragment composed of structured DOM nodes — never innerHTML.
- *
- * B-070 R4 F-1: `prefsOnly: true` opens a dedicated prefs-only variant with
- * its own heading/body/button copy. The dialog is still the same primitive;
- * the opt-in flag just swaps the three copy slots.
- *
- * B-060: `skipDuplicatesDefault` controls the "Import duplicates anyway"
- * checkbox initial state (read from preferences.importSkipDuplicates by the
- * caller). The checkbox only renders on the bookmark-data variant, never on
- * the prefs-only variant (no items to dedupe in a zero-item backup).
- */
-function _openImportPreviewDialog(
-  { counts, filename, onConfirm, triggerEl, format, prefsOnly, skipDuplicatesDefault },
-) {
-  _pendingConfirmCallback = onConfirm;
-  _dialogTriggerEl = triggerEl || null;
-  if (prefsOnly === true) {
-    /* B-070 R4 F-1 — prefs-only variant: distinct heading so the user
-       understands the context is "restore settings from a prefs-only
-       backup" (which still wipes bookmarks per §33.7 atomic-replace
-       semantics). */
-    confirmHeadingEl.textContent = 'Import preferences-only backup?';
-    confirmBodyEl.replaceChildren();
-    confirmBodyEl.appendChild(_buildPrefsOnlyImportBody(filename));
-    confirmDeleteBtnEl.textContent = 'Replace and apply preferences';
-  } else {
-    /* B-070 AC4 — JSON restores groups + preferences, not just bookmarks, so the
-       heading scope is broader on the JSON path. HTML path keeps the B-044 copy. */
-    confirmHeadingEl.textContent = format === 'json'
-      ? 'Replace all data?'
-      : 'Replace all bookmarks?';
-    /* Clear prior textContent before appending structured nodes. */
-    confirmBodyEl.replaceChildren();
-    confirmBodyEl.appendChild(_buildImportPreviewBody(counts, filename, format, {
-      /* B-060 — show the dup-toggle on the bookmark-data variants. */
-      includeDupToggle: true,
-      dupToggleDefault: skipDuplicatesDefault !== false,
-    }));
-    confirmDeleteBtnEl.textContent = format === 'json' ? 'Replace and import' : 'Replace all';
-  }
-  confirmDeleteBtnEl.dataset.variant = 'destructive';
-  bookmarkDialogEl.hidden = true;
-  confirmDialogEl.hidden = false;
-  dialogOverlayEl.hidden = false;
-  dialogOverlayEl.removeAttribute('aria-hidden');
-  _activateFocusTrap(confirmDialogEl);
-  /* AC4 / B-044 AC5: Cancel default-focused. */
-  confirmCancelBtnEl.focus();
-}
-
-/**
- * Read a File to text via FileReader. Wraps the event-based API in a Promise.
- * @param {File} file
- * @returns {Promise<string>}
- */
-function _readFileAsText(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
-    reader.onerror = () => reject(reader.error || new Error('File read failed'));
-    reader.readAsText(file);
-  });
-}
-
-/**
- * Kick off the Import-HTML flow. Programmatic file-input.click().
- */
-function _beginImportHtml() {
-  if (!importFileInputEl) return;
-  /* AC2: enforce the HTML extension filter at the browser level. The listener
-     also double-checks the filename post-pick for robustness against OS file
-     pickers that ignore `accept`. */
-  importFileInputEl.accept = '.html,.htm,text/html';
-  importFileInputEl.value = ''; /* reset so re-picking the same file still fires change */
-  importFileInputEl.click();
-}
-
-/**
- * B-045 — kick off the Import-JSON flow. Programmatic file-input.click().
- * Separate input from the HTML flow per §33.4 Q-3 (dedicated inputs keep
- * the `accept` attribute + `change` wiring isolated).
- */
-function _beginImportJson() {
-  if (!importJsonFileInputEl) return;
-  /* AC1: enforce the JSON extension filter at the browser level. The
-     listener re-checks the filename post-pick for robustness against
-     OS file pickers that ignore `accept`. */
-  importJsonFileInputEl.accept = 'application/json,.json';
-  importJsonFileInputEl.value = '';
-  importJsonFileInputEl.click();
-}
-
-/**
- * Handle a picked import file: validate extension, read text, dispatch
- * preview round-trip, open confirmation dialog, dispatch commit on confirm.
- * @param {File} file
- * @param {HTMLElement} triggerEl element to restore focus to
- * @param {'html'|'json'} [format='html']
- */
-async function _handleImportFile(file, triggerEl, format) {
-  const fmt = format === 'json' ? 'json' : 'html';
-  /* Extension re-check in case the OS picker ignored `accept`. */
-  const lowerName = (file.name || '').toLowerCase();
-  if (fmt === 'html') {
-    if (!lowerName.endsWith('.html') && !lowerName.endsWith('.htm')) {
-      showToast('Select an .html or .htm file');
-      return;
-    }
-  } else {
-    /* B-045 AC1 — non-.json must not open a parse. */
-    if (!lowerName.endsWith('.json')) {
-      showToast('Please select a .json file');
-      return;
-    }
-  }
-  /* §33.10 oversize guard — reject before reading a huge file. */
-  if (file.size > IMPORT_MAX_BYTES) {
-    showToast('File too large (max 5 MiB)');
-    return;
-  }
-
-  /* Guard the preview round-trip: disable the buttons until either the
-     dialog opens (then the dialog's own modality prevents re-entry) or
-     the preview short-circuits (empty / error). */
-  _setImportInFlight(true);
-  let content;
-  try {
-    try {
-      content = await _readFileAsText(file);
-    } catch {
-      showToast('Couldn\u2019t read file \u2014 try again');
-      return;
-    }
-    if (!content || content.length === 0) {
-      showToast(_importErrorToast('ERR_EMPTY_FILE', fmt));
-      return;
-    }
-
-    /* B-060 — read the user's stored duplicate-handling default BEFORE the
-       preview round-trip. Best-effort: if MSG_GET_PREFERENCES fails, fall
-       back to the system default (skip duplicates = true) so the import
-       flow never blocks on a preferences read.
-       Read fresh each open so another window changing the preference
-       reflects on this dialog without cross-window broadcast plumbing. */
-    let importSkipDuplicatesPref = true;
-    try {
-      const prefs = await sendMessage(MSG_GET_PREFERENCES);
-      if (prefs && typeof prefs.importSkipDuplicates === 'boolean') {
-        importSkipDuplicatesPref = prefs.importSkipDuplicates;
-      }
-    } catch {
-      /* Fall through with the `true` default — non-blocking. */
-    }
-
-    /* B-060 — forward the user's stored preference to the preview round-trip
-       so the preview count matches what a commit with the same preference
-       would produce. The dialog checkbox can still override the commit
-       round-trip (preview numbers are advisory, not load-bearing). */
-    let previewData;
-    try {
-      previewData = await sendMessage(MSG_IMPORT_COLLECTION, {
-        format: fmt,
-        content,
-        options: { skipDuplicates: importSkipDuplicatesPref },
-      });
-    } catch (err) {
-      const code = err && err.code ? String(err.code) : 'ERR_UNKNOWN';
-      /* AC14 / AC13 privacy: never log titles/URLs/file content — code only. */
-      console.warn('import preview failed:', code);
-      showToast(_importErrorToast(code, fmt));
-      return;
-    }
-
-    /* Reject a "valid but empty" file before opening the confirm dialog —
-       a DOCTYPE-only file (HTML) or a backup with zero items + zero groups
-       AND empty/absent preferences (JSON) would otherwise let the user wipe
-       storage for nothing.
-       B-070 AC1 — a JSON backup with zero items + zero groups BUT a populated
-       preferences object is a legitimate "restore settings" flow: route it
-       through the prefs-only confirmation dialog.
-       B-070 R4 F-1 — even though commit returns 0 items + 0 groups, the
-       underlying `writeTransaction` still atomically REPLACES the user's
-       items and groups with empty arrays (§33.7). That is destructive and
-       MUST show a confirm dialog per CLAUDE.md "Confirmation dialogs for
-       destructive actions." The prefs-only dialog variant opened below
-       gives the user a click-to-confirm gate with body copy that makes the
-       destruction explicit.
-       The client-side check below only needs to detect that SOMETHING
-       non-empty exists in the `preferences` slot so we route correctly; the
-       validator is the source of truth for key-level validation and will set
-       `preferencesSkipped: true` if the shape is invalid. */
-    if ((previewData.itemsImported || 0) === 0 && (previewData.groupsImported || 0) === 0) {
-      if (fmt === 'json' && _hasPopulatedPreferences(content)) {
-        const capturedContent = content;
-        const capturedFilename = file.name;
-        _openImportPreviewDialog({
-          counts: previewData,
-          filename: file.name,
-          triggerEl,
-          format: 'json',
-          prefsOnly: true,
-          onConfirm: () => {
-            /* Re-entry guard — see below for the populated-backup path.
-               Dialog click handler clears _pendingConfirmCallback on first
-               fire; this is defense-in-depth. */
-            if (_importInFlight) return;
-            void _commitImport({
-              content: capturedContent,
-              filename: capturedFilename,
-              format: 'json',
-              prefsOnly: true,
-            });
-          },
-        });
-        return;
-      }
-      showToast(fmt === 'json' ? 'Backup contains no bookmarks' : 'File contains no bookmarks');
-      return;
-    }
-
-    /* Capture `content` + `filename` + `fmt` in the confirm closure so the
-       commit dispatch is independent of any module-level state that
-       `closeDialog()` may clear between the user's Replace click and the
-       SW round-trip. */
-    const capturedContent = content;
-    const capturedFilename = file.name;
-    const capturedFormat = fmt;
-    /* B-060 — snapshot the pref at dialog-open time so the "did the user
-       change the setting?" diff is stable even if preferences mutate between
-       the preview read and the commit click. */
-    const capturedPrefDefault = importSkipDuplicatesPref;
-    _openImportPreviewDialog({
-      counts: previewData,
-      filename: file.name,
-      triggerEl,
-      format: fmt,
-      skipDuplicatesDefault: importSkipDuplicatesPref,
-      onConfirm: () => {
-        /* Re-entry guard: the dialog's click handler already clears
-           _pendingConfirmCallback on first fire, so this is defense-in-depth
-           against future refactors. */
-        if (_importInFlight) return;
-        /* B-060 — read the checkbox at confirm time. The element may be
-           missing (defensive) in which case we fall back to the pref default.
-           `checked === true` means "import duplicates anyway" → skip=false. */
-        const cb = document.getElementById('import-dup-checkbox');
-        const userSkipDuplicates = cb instanceof HTMLInputElement
-          ? !cb.checked
-          : capturedPrefDefault;
-        void _commitImport({
-          content: capturedContent,
-          filename: capturedFilename,
-          format: capturedFormat,
-          skipDuplicates: userSkipDuplicates,
-          pendingPrefDefault: capturedPrefDefault,
-        });
-      },
-    });
-  } finally {
-    /* Release the guard — the dialog is now modal (commit path will
-       re-acquire on Replace) or an error branch already aborted. */
-    _setImportInFlight(false);
-  }
-}
-
-/**
- * Round-trip 2: dispatch the actual commit. Parses the same content a second
- * time in the SW (§33.4 "parse twice" decision — cold-start-safe, no session
- * stash). Shows the success or failure toast.
- *
- * B-060: `skipDuplicates` (derived from the dialog checkbox state) gates the
- * in-file URL dedup pass on the SW parser. The client also persists the last
- * explicit choice to `tj:prefs.importSkipDuplicates` iff it differs from the
- * prior preference default (`pendingPrefDefault`). On the prefs-only variant
- * we never touch the preference — there's nothing to dedupe.
- *
- * @param {{content: string, filename: string, format?: 'html'|'json',
- *          prefsOnly?: boolean, skipDuplicates?: boolean,
- *          pendingPrefDefault?: boolean}} pending
- */
-async function _commitImport(pending) {
-  if (!pending || typeof pending.content !== 'string') return;
-  const fmt = pending.format === 'json' ? 'json' : 'html';
-  const prefsOnly = pending.prefsOnly === true;
-  /* B-060 — `skipDuplicates` is only a user-facing knob on bookmark-data
-     imports. Default true (= skip) when undefined so the v1 contract still
-     holds for any caller that doesn't opt in. */
-  const skipDuplicates = pending.skipDuplicates !== false;
-  /* Commit can take ~2s on a 1000-bookmark file. Block re-entry + visibly
-     disable the trigger so users don't think the click was lost. */
-  _setImportInFlight(true);
-  try {
-    const data = await sendMessage(MSG_IMPORT_COLLECTION, {
-      format: fmt,
-      content: pending.content,
-      commit: true,
-      /* B-060 — forward the user's duplicate-handling choice. Prefs-only
-         imports never carry this (there are no records to dedupe). */
-      ...(prefsOnly ? {} : { options: { skipDuplicates } }),
-    });
-    let msg;
-    if (fmt === 'json') {
-      /* B-045 AC16 — exact toast copy: "Imported N items, M groups." with an
-         optional " K repairs." segment when K > 0.
-         B-070 AC1 — prefs-only backup: when the sidepanel routed through the
-         preferences-only short-circuit AND the commit returned zero items +
-         zero groups, surface the "Preferences applied." success copy. If the
-         validator rejected the preferences (preferencesSkipped), fall back to
-         the default empty-zero message rather than claiming prefs applied. */
-      if (prefsOnly
-        && (data.itemsImported || 0) === 0
-        && (data.groupsImported || 0) === 0
-        && !(data.repairs && data.repairs.preferencesSkipped)) {
-        msg = 'Imported 0 items, 0 groups. Preferences applied.';
-      } else {
-        const repairsK = _sumRepairs(data.repairs);
-        msg = 'Imported ' + data.itemsImported + ' item'
-          + (data.itemsImported === 1 ? '' : 's')
-          + ', ' + data.groupsImported + ' group'
-          + (data.groupsImported === 1 ? '' : 's') + '.';
-        if (repairsK > 0) {
-          /* B-080 — plain-language repair breakdown in the toast, matching
-             the preview-dialog body (B-070 AC3). Previously the toast surfaced
-             only a count ("K repairs"); users had no way to see WHICH repairs
-             happened without re-running an import. This appends the same
-             per-type summary the preview dialog uses. */
-          msg += ' ' + repairsK + ' repair' + (repairsK === 1 ? '' : 's') + ':';
-          const repairParts = _plainLanguageRepairParts(data.repairs);
-          msg += ' ' + repairParts.join(', ') + '.';
-        }
-        /* B-060 — surface the user's choice in the post-import toast. */
-        const dupCount = data.duplicatesSkipped || 0;
-        if (dupCount > 0) {
-          msg += skipDuplicates
-            ? ' ' + dupCount + ' duplicate' + (dupCount === 1 ? '' : 's') + ' skipped.'
-            : ' ' + dupCount + ' duplicate' + (dupCount === 1 ? '' : 's') + ' included.';
-        }
-        if (data.repairs && data.repairs.preferencesSkipped) {
-          msg += ' Preferences skipped (invalid shape).';
-        }
-      }
-    } else {
-      /* B-044 AC13 + B-060: "Imported N bookmarks into M groups." plus a
-         tail that surfaces the user's duplicate-handling choice. `skipped`
-         still counts malformed entries; `duplicatesSkipped` counts repeated
-         URLs (which are either dropped or kept depending on the checkbox). */
-      msg = 'Imported ' + data.itemsImported + ' bookmark'
-        + (data.itemsImported === 1 ? '' : 's')
-        + ' into ' + data.groupsImported + ' group'
-        + (data.groupsImported === 1 ? '' : 's') + '.';
-      const malformed = data.skipped || 0;
-      if (malformed > 0) {
-        msg += ' ' + malformed + ' malformed entr'
-          + (malformed === 1 ? 'y' : 'ies') + ' skipped.';
-      }
-      const dupCount = data.duplicatesSkipped || 0;
-      if (dupCount > 0) {
-        msg += skipDuplicates
-          ? ' ' + dupCount + ' duplicate' + (dupCount === 1 ? '' : 's') + ' skipped.'
-          : ' ' + dupCount + ' duplicate' + (dupCount === 1 ? '' : 's') + ' included.';
-      }
-    }
-    showToast(msg);
-    /* B-060 — persist the user's choice when it differs from the stored
-     default. Best-effort: a setPreferences failure must NEVER block the
-     post-import toast or invalidate the completed import. */
-    if (!prefsOnly && typeof pending.pendingPrefDefault === 'boolean'
-      && pending.pendingPrefDefault !== skipDuplicates) {
-      sendMessage(MSG_SET_PREFERENCES, {
-        patch: { importSkipDuplicates: skipDuplicates },
-      }).catch((err) => {
-        /* AC13 privacy: log code only — never titles/URLs. */
-        const code = err && err.code ? String(err.code) : 'ERR_UNKNOWN';
-        console.warn('import preference persist failed:', code);
-      });
-    }
-  } catch (err) {
-    const code = err && err.code ? String(err.code) : 'ERR_UNKNOWN';
-    console.warn('import commit failed:', code);
-    showToast(_importErrorToast(code, fmt));
-  } finally {
-    _setImportInFlight(false);
-  }
-}
-
-if (importHtmlBtnEl) {
-  importHtmlBtnEl.addEventListener('click', () => {
-    /* Extra defense: the disabled attribute already prevents the event in
-       most browsers, but ignore the click if somehow an import is still
-       in flight (e.g. a programmatic dispatch that bypasses `disabled`). */
-    if (_importInFlight) return;
-    _beginImportHtml();
-  });
-}
-
-if (importFileInputEl) {
-  importFileInputEl.addEventListener('change', (e) => {
-    const input = e.target;
-    const file = input && input.files && input.files[0];
-    if (!file) return;
-    void _handleImportFile(file, importHtmlBtnEl, 'html');
-    /* Reset value so re-picking the same file later still fires `change`. */
-    input.value = '';
-  });
-}
-
-/* B-045 — Import-from-JSON click + file-picker wiring. Mirrors the HTML
-   path (separate input + change listener per §33.4 Q-3). */
-if (importJsonBtnEl) {
-  importJsonBtnEl.addEventListener('click', () => {
-    if (_importInFlight) return;
-    _beginImportJson();
-  });
-}
-
-if (importJsonFileInputEl) {
-  importJsonFileInputEl.addEventListener('change', (e) => {
-    const input = e.target;
-    const file = input && input.files && input.files[0];
-    if (!file) return;
-    void _handleImportFile(file, importJsonBtnEl, 'json');
-    input.value = '';
-  });
-}
 
 /* =========================================================================
    Clear filter helper (B-049 — shared by × button, Escape, and CTA)
@@ -5951,6 +5064,10 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   if (scope === 'preferences') {
     sendMessage(MSG_GET_PREFERENCES).then((prefs) => {
       applyTheme(prefs.theme);
+      /* B-092: re-evaluate compact-layout body class on every prefs
+         broadcast so a toggle from the Settings tab propagates here without
+         a sidepanel reload. */
+      applyDenseLayout(prefs);
     }).catch(() => {});
   }
 });
@@ -7022,6 +6139,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
     const prefs = await sendMessage(MSG_GET_PREFERENCES);
     applyTheme(prefs.theme);
+    /* B-092: hydrate compact-layout body class from prefs snapshot before
+       the first render so dense rules apply on first paint. */
+    applyDenseLayout(prefs);
 
     const [itemsResp, groups] = await Promise.all([
       sendMessage(MSG_LIST_ITEMS),

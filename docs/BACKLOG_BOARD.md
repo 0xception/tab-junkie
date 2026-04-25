@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-24 · **Version:** 2.22 · **Total Items:** 88 · **Sprint 29 active — B-089 (scaffolding) + B-036 (newtab) + B-038/040 (prefs); B-039 dropped**
+**Updated:** 2026-04-24 · **Version:** 2.23 · **Total Items:** 92 · **Sprint 30 active — B-091 settings redesign (L) + B-090 + B-092 + B-093**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    █████████████████░░░  90% (79/88)  [5 in progress · S29 active · B-039 dropped]
+Overall Progress    █████████████████░░░  86% (79/92)  [4 in progress · S30 active]
 ```
 
 ### Legend
@@ -122,6 +122,17 @@ Overall Progress    █████████████████░░░
 
 ---
 
+## Sprint 30 — Settings page redesign + dense layout + import/export rehome
+
+> 0/4 done · 4 in progress · B-091 Spike-First (L) anchor; Wave 1 consumers B-092 + B-093; B-090 doc edit parallel · Themes (B-037) deferred to S31
+
+🔄 B-091 — Settings page redesign (full-page surface) · 🟡 · L [S30 Wave 0 anchor — R5 complete; awaits user UAT before R6 close]
+✅ B-093 — Import/export controls rehome to Settings page · 🟡 · S [S30 Wave 1 — R4 PROCEED + 2 MED fixes; +13 tests]
+✅ B-092 — Dense / compact layout toggle · ⚪ · XS [S30 Wave 1 — R4 PROCEED, +24 tests]
+✅ B-090 — Add C-12 "Manifest declarations runtime-mutability" to R2 Correctness Checklist · 🟡 · XS [S30 Wave 0 — S29 retro HIGH action closed]
+
+---
+
 ## Sprint 29 — New tab page + preferences surface
 
 > 4/5 done + 1 dropped · Settings panel scaffolding unblocks 2 XS pref toggles · B-036 anchored newtab parity (always-on); B-039 dropped at sprint close (MV3 constraint precludes true OFF state)
@@ -151,16 +162,16 @@ Overall Progress    █████████████████░░░
 
 | Priority | Count | % |
 |----------|-------|---|
-| 🔴 P0 Critical | 14 | 16% |
-| 🟠 P1 High | 34 | 39% |
-| 🟡 P2 Medium | 17 | 19% |
-| ⚪ P3 Nice-to-have | 6 | 7% |
+| 🔴 P0 Critical | 14 | 15% |
+| 🟠 P1 High | 34 | 37% |
+| 🟡 P2 Medium | 20 | 22% |
+| ⚪ P3 Nice-to-have | 7 | 8% |
 
 ## Status Summary
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 79 | 90% |
-| 🔄 In Progress | 5 | 6% |
-| ⬜ To Do | 1 | 1% |
+| ✅ Done | 79 | 86% |
+| 🔄 In Progress | 4 | 4% |
+| ⬜ To Do | 6 | 7% |
 | 🧊 Icebox | 3 | 3% |

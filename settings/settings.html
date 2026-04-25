@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Settings — Tab Junkie</title>
+    <!-- B-091 §44.3 D-9 / R0 R-3: theme-init runs SYNC before stylesheet so the
+         FOUC paint matches the cached theme. Verbatim copy of sidepanel/theme-init.js. -->
+    <script src="theme-init.js"></script>
+    <link rel="stylesheet" href="settings.css" />
+    <script type="module" src="settings.js"></script>
+  </head>
+  <body>
+    <main class="settings-main">
+      <h1 class="settings-h1">Settings</h1>
+
+      <!-- B-091 AC10a: top-of-page error banner. Hidden until pref-load failure
+           populates it. Carries the Reload button (focus moves here on error
+           per D-3 error path). role="alert" implies aria-live="assertive" —
+           a load failure is time-critical, so we keep the implicit assertive
+           behavior and drop the conflicting aria-live="polite" attribute
+           (HIGH-3: NVDA honors aria-live, JAWS honors role; the contradiction
+           produced split AT behavior). -->
+      <div
+        id="settings-error-banner"
+        class="settings-error-banner"
+        role="alert"
+        hidden
+      >
+        <span id="settings-error-banner-text" class="settings-error-banner-text"></span>
+        <button
+          id="settings-reload-btn"
+          type="button"
+          class="settings-error-banner-btn"
+        >Reload</button>
+      </div>
+
+      <!-- B-091 AC4: section ordering locked top-to-bottom — Display, Layout,
+           Groups, Theme, Data. Each section is a <fieldset> with a <legend>
+           heading per D-6 (legend is the AT heading; no <h2> redundancy). -->
+      <div id="settings-content" class="settings-content">
+        <fieldset class="settings-section" data-section="Display">
+          <legend class="settings-section-legend">Display</legend>
+          <!-- Display rows are appended here at runtime by settings-fields.js
+               (renderSelect for displayMode). -->
+        </fieldset>
+
+        <fieldset class="settings-section" data-section="Layout">
+          <legend class="settings-section-legend">Layout</legend>
+          <!-- Layout rows are appended here at runtime by settings-fields.js
+               (renderToggle for B-092 denseLayout). -->
+        </fieldset>
+
+        <fieldset class="settings-section" data-section="Groups">
+          <legend class="settings-section-legend">Groups</legend>
+          <!-- Groups rows are appended here at runtime (renderToggle for
+               autoCollapseSubGroups). -->
+        </fieldset>
+
+        <fieldset class="settings-section" data-section="Theme">
+          <legend class="settings-section-legend">Theme</legend>
+          <!-- B-091 AC9: visible inactive placeholder. B-037 (S31) replaces. -->
+          <p class="settings-section-placeholder">Theme selection coming in a future update.</p>
+        </fieldset>
+
+        <fieldset class="settings-section" data-section="Data">
+          <legend class="settings-section-legend">Data</legend>
+          <!-- B-093 AC2 — Import / Export controls relocated from the
+               sidepanel header. Button order top-to-bottom: Export HTML →
+               Export JSON → Import HTML → Import JSON. The two hidden file
+               inputs sit after the buttons in DOM order; tabindex="-1"
+               keeps them out of the keyboard traversal (clicks are
+               programmatic from the import button handlers). aria-labels
+               match the original B-042/B-043/B-044/B-045 buttons verbatim. -->
+          <div class="settings-data-buttons">
+            <button id="settings-export-html-btn" type="button"
+                    aria-label="Export bookmarks to HTML">Export HTML</button>
+            <button id="settings-export-json-btn" type="button"
+                    aria-label="Export bookmarks to JSON backup">Export JSON</button>
+            <button id="settings-import-html-btn" type="button"
+                    aria-label="Import bookmarks from HTML">Import HTML</button>
+            <button id="settings-import-json-btn" type="button"
+                    aria-label="Import bookmarks from JSON backup">Import JSON</button>
+            <input id="settings-import-file-input" type="file"
+                   accept=".html,.htm,text/html"
+                   hidden tabindex="-1" aria-hidden="true" />
+            <input id="settings-import-json-file-input" type="file"
+                   accept="application/json,.json"
+                   hidden tabindex="-1" aria-hidden="true" />
+          </div>
+        </fieldset>
+      </div>
+
+      <!-- B-091 §44.9 OQ-1 / AC out-of-scope (f): discoverable footer note.
+           Plain <p> inside <main> per §44.7 (no <footer> landmark needed). -->
+      <p class="settings-footer">Close this tab to return to your bookmarks.</p>
+    </main>
+
+    <!-- B-093: import-preview confirm dialog. Hosts the destructive-action
+         confirmation flow that B-070 §AC4 introduced — preserved verbatim.
+         Hidden until an Import HTML / Import JSON click resolves a preview
+         round-trip. -->
+    <div id="settings-dialog-overlay" class="dialog-overlay" hidden aria-hidden="true">
+      <div id="settings-confirm-dialog" class="dialog-modal" role="alertdialog"
+           aria-modal="true" aria-labelledby="settings-confirm-heading"
+           aria-describedby="settings-confirm-body" hidden>
+        <h2 id="settings-confirm-heading" class="dialog-title"></h2>
+        <p id="settings-confirm-body" class="dialog-body"></p>
+        <div class="dialog-actions">
+          <button type="button" id="settings-confirm-cancel-btn" class="dialog-btn dialog-btn--secondary">Cancel</button>
+          <button type="button" id="settings-confirm-delete-btn" class="dialog-btn dialog-btn--danger">Replace</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- B-093: toast surface for import/export status messages. Mirrors the
+         sidepanel toast contract (B-049). -->
+    <div id="settings-toast" class="toast" role="alert" aria-live="assertive" hidden>
+      <span id="settings-toast-message" class="toast-message"></span>
+      <button id="settings-toast-dismiss" class="toast-dismiss" aria-label="Dismiss" type="button">&times;</button>
+    </div>
+  </body>
+</html>

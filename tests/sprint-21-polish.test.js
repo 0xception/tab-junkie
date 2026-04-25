@@ -155,10 +155,13 @@ test('B-079: #filter-input has maxlength="256" to cap adversarial paste', () => 
    B-080 — post-import toast plain-language repair breakdown
    ========================================================================= */
 
-const sidepanelJs = readFileSync(new URL('../sidepanel/sidepanel.js', import.meta.url), 'utf8');
+/* B-093: import/export controls relocated from sidepanel/sidepanel.js to
+   settings/settings-import-export.js. The B-080 plain-language breakdown
+   helper moved with them — these tests now point at the new host module. */
+const importExportJs = readFileSync(new URL('../settings/settings-import-export.js', import.meta.url), 'utf8');
 
-test('B-080: _plainLanguageRepairParts helper is defined in sidepanel.js', () => {
-  assert.match(sidepanelJs, /function _plainLanguageRepairParts\s*\(\s*repairs\s*\)/,
+test('B-080: _plainLanguageRepairParts helper is defined in settings/settings-import-export.js', () => {
+  assert.match(importExportJs, /function _plainLanguageRepairParts\s*\(\s*repairs\s*\)/,
     'Shared helper _plainLanguageRepairParts(repairs) must exist');
 });
 
@@ -166,7 +169,7 @@ test('B-080: toast path uses _plainLanguageRepairParts for the breakdown', () =>
   /* Regex isolates the JSON-format toast block. The breakdown call must be
      present AFTER the base "Imported N items, M groups." message so the
      repair summary is appended, not replaced. */
-  assert.match(sidepanelJs,
+  assert.match(importExportJs,
     /repairsK > 0[^}]*_plainLanguageRepairParts\(data\.repairs\)/s,
     'Toast path must invoke _plainLanguageRepairParts when repairsK > 0');
 });
@@ -178,10 +181,10 @@ test('B-080: preview-dialog body reuses _plainLanguageRepairParts (not duplicate
      contains `parts.push(repairs.orphanedGroups`, so the expected count
      across the whole file is exactly 1 (the helper body). More than 1
      means the dialog body still has the old inline copy. */
-  const inlineParts = (sidepanelJs.match(/parts\.push\(repairs\.orphanedGroups/g) || []).length;
+  const inlineParts = (importExportJs.match(/parts\.push\(repairs\.orphanedGroups/g) || []).length;
   assert.equal(inlineParts, 1,
     'Only the _plainLanguageRepairParts helper itself should push on repairs.orphanedGroups — any other occurrence is duplicated inline logic');
-  const dialogCallSite = sidepanelJs.match(/_buildImportPreviewBody[\s\S]*?\n\}/);
+  const dialogCallSite = importExportJs.match(/_buildImportPreviewBody[\s\S]*?\n\}/);
   assert.ok(dialogCallSite, 'Must locate _buildImportPreviewBody function body');
   assert.match(dialogCallSite[0], /_plainLanguageRepairParts/,
     '_buildImportPreviewBody must invoke _plainLanguageRepairParts');

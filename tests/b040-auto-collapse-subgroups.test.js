@@ -57,13 +57,19 @@ import {
   MSG_UPDATE_GROUP,
 } from '../shared/messages.js';
 
+/* B-091: B-089 settings-dialog deleted; renderToggle + init now live in
+   settings/settings-fields.js. The dialog open/close lifecycle is gone, so
+   the legacy `openSettingsDialog(triggerBtnEl)` calls below become
+   `loadPreferences()` against the same forked module. The renderToggle /
+   init / field-registry contract is byte-for-byte preserved per §44.3 D-8
+   AC6 API parity. */
 import {
-  init as initSettingsDialog,
-  openSettingsDialog,
+  init as initSettingsFields,
+  loadPreferences,
   renderToggle,
   _resetForTest,
   _getFieldsForTest,
-} from '../sidepanel/settings-dialog.js';
+} from '../settings/settings-fields.js';
 
 /* =========================================================================
    FakeElement harness — byte-for-byte match with b039 precedent.
@@ -132,6 +138,8 @@ function makeFakeDocument() {
 }
 
 function setupDialogHarness({ getPrefsResult, setPrefsError } = {}) {
+  /* B-091: harness now mirrors the full-page Settings surface — see
+     b038-view-mode-pref.test.js parallel update. */
   const doc = makeFakeDocument();
   const overlayEl = new FakeElement('div', doc);
   overlayEl.hidden = true;
@@ -139,7 +147,7 @@ function setupDialogHarness({ getPrefsResult, setPrefsError } = {}) {
   dialogEl.hidden = true;
   overlayEl.appendChild(dialogEl);
   const contentEl = new FakeElement('div', doc);
-  const errorEl = new FakeElement('span', doc);
+  const errorEl = new FakeElement('div', doc);
   errorEl.hidden = true;
   const closeBtnEl = new FakeElement('button', doc);
   const triggerBtnEl = new FakeElement('button', doc);
@@ -174,15 +182,9 @@ function setupDialogHarness({ getPrefsResult, setPrefsError } = {}) {
     },
   };
 
-  initSettingsDialog({
-    overlayEl,
-    dialogEl,
+  initSettingsFields({
     contentEl,
     errorEl,
-    closeBtnEl,
-    triggerBtnEl,
-    activateFocusTrap: () => {},
-    deactivateFocusTrap: () => {},
     sendMessage,
     runtime,
   });
@@ -264,7 +266,7 @@ test('B-040 AC2: fresh-install prefs (key absent) paints toggle as OFF', async (
     defaultValue: false,
   });
 
-  await openSettingsDialog(h.triggerBtnEl);
+  await loadPreferences();
 
   const field = _getFieldsForTest().find((f) => f.key === 'autoCollapseSubGroups');
   assert.equal(field.inputEl.checked, false, 'fresh-install default MUST be OFF');
@@ -280,7 +282,7 @@ test('B-040 AC3-on: toggling ON dispatches MSG_SET_PREFERENCES with {autoCollaps
     defaultValue: false,
   });
 
-  await openSettingsDialog(h.triggerBtnEl);
+  await loadPreferences();
 
   const field = _getFieldsForTest().find((f) => f.key === 'autoCollapseSubGroups');
   field.inputEl.checked = true;

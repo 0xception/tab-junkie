@@ -154,6 +154,11 @@ const runtime = {
   id: 'test-extension-id',
   lastError: null,
   sendMessage(...args) { sendMessageCalls.push(args); return Promise.resolve(); },
+  /* B-091: extension-page surfaces (settings/, newtab/, popup/) call
+     chrome.runtime.getURL to resolve their own page paths. Mock returns a
+     deterministic chrome-extension://-style URL that the chrome.tabs.query
+     `url` filter can match against. */
+  getURL(path) { return `chrome-extension://test-extension-id/${path}`; },
   onMessage: {
     _listeners: [],
     addListener(fn) { this._listeners.push(fn); },
@@ -175,6 +180,18 @@ const tabs = {
       }
       if ('active' in filter) {
         result = result.filter((t) => t.active === filter.active);
+      }
+      if ('url' in filter) {
+        // B-091 §44.3 D-2: dispatcher uses chrome.tabs.query({url}). Real
+        // Chrome accepts a string or an array (with optional wildcards); the
+        // mock supports exact match on the string form, sufficient for the
+        // settings-page dispatcher tests.
+        const wanted = filter.url;
+        if (typeof wanted === 'string') {
+          result = result.filter((t) => t.url === wanted);
+        } else if (Array.isArray(wanted)) {
+          result = result.filter((t) => wanted.includes(t.url));
+        }
       }
     }
     return deepClone(result);
@@ -212,11 +229,14 @@ const tabs = {
   onAttached: createEventMock(),
 };
 
+/* B-091: track windows.update calls so dispatcher tests can assert
+   focus-existing-tab path. */
+const windowsUpdateCalls = [];
+
 const windows = {
   WINDOW_ID_NONE: -1,
   async update(windowId, props) {
-    // No-op in tests — windows are not tracked in state
-    void windowId; void props;
+    windowsUpdateCalls.push({ windowId, props });
     return { id: windowId };
   },
   /* B-014: window-ordinal tests seed `state.mockWindows` via __setMockWindows. */
@@ -286,6 +306,8 @@ export function __resetMock() {
   windows.onCreated._listeners.length = 0;
   windows.onRemoved._listeners.length = 0;
   windows.onFocusChanged._listeners.length = 0;
+  /* B-091 */
+  windowsUpdateCalls.length = 0;
   /* B-082 */
   sidePanelState.openReject = false;
   sidePanelState.openCalls = [];
@@ -328,6 +350,11 @@ export function __setBytesInUse(n) {
 /** Set mock tabs returned by chrome.tabs.query. */
 export function __setMockTabs(tabs) {
   state.mockTabs = deepClone(tabs);
+}
+
+/** B-091: return recorded chrome.windows.update() calls. */
+export function __getWindowsUpdateCalls() {
+  return [...windowsUpdateCalls];
 }
 
 /** B-014: seed the windows returned by chrome.windows.getAll(). */

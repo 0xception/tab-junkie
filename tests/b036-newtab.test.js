@@ -640,6 +640,10 @@ test('B-036 AC3 + AC11 (B-039 dropped at S29 close): grid renders unconditionall
     spy,
     { ok: true, data: { items, groups: [], liveStates: {}, driftRecords: {}, openTabs: [], windowMap: {} } },
     { ok: true, data: groups },
+    /* B-092: newtab now reads prefs in parallel on boot to hydrate the
+       `.tj-dense` body class on first paint. The newtab is still always on
+       (B-039 stays dropped); the pref read is purely cosmetic and not a gate. */
+    { ok: true, data: { theme: 'system', denseLayout: false } },
   );
   await freshImportNewtab();
   await fireBootAndFlush();
@@ -650,11 +654,12 @@ test('B-036 AC3 + AC11 (B-039 dropped at S29 close): grid renders unconditionall
     'AC11 — web-search input focused on boot');
   const root = document.getElementById('newtab-root');
   assert.equal(root.hidden, false, 'main root revealed (newtab is always on)');
-  /* B-039 dropped: no MSG_GET_PREFERENCES read fires on boot — only the
-     items + groups parallel fetch. */
+  /* B-092: a single MSG_GET_PREFERENCES read fires on boot for the dense
+     layout hydration. The prefs fetch is decorative — not a gate — so the
+     B-039-drop invariant (newtab always renders) is preserved. */
   const prefReads = spy.sendMessageCalls.filter((m) => m.type === 'tj/getPreferences');
-  assert.equal(prefReads.length, 0,
-    'no MSG_GET_PREFERENCES read on boot (B-039 dropped — no pref gate)');
+  assert.equal(prefReads.length, 1,
+    'B-092 hydration: exactly one MSG_GET_PREFERENCES read on boot for dense-layout body class');
 });
 
 test('B-036 AC4: skeleton placeholders render before list fetch resolves', async () => {
@@ -1036,27 +1041,35 @@ test('B-036 AC9: broadcast from an UNKNOWN sender is rejected (XSS posture)', as
     'broadcasts from foreign senders ignored — no refetch fired');
 });
 
-test('B-036 §42.3 D-7 preferences (B-039 dropped at S29 close): broadcast on the preferences scope is a safe no-op for the newtab', async () => {
+test('B-036 §42.3 D-7 preferences (B-039 dropped at S29 close, B-092 dense-layout listener added): broadcast on the preferences scope re-fetches prefs but does not redirect', async () => {
   const spy = globalThis._spy;
   queueResponses(
     spy,
     { ok: true, data: { items: [], liveStates: {}, driftRecords: {}, openTabs: [], windowMap: {} } },
     { ok: true, data: [] },
+    /* B-092: third boot-time response — the parallel MSG_GET_PREFERENCES. */
+    { ok: true, data: { theme: 'system', denseLayout: false } },
   );
   await freshImportNewtab();
   await fireBootAndFlush();
   /* No disabled-state DOM was ever mounted — the surface is gone. */
   assert.equal(document.querySelector('.newtab-disabled-state'), null,
     'disabled-state DOM no longer exists (B-039 dropped at S29 close)');
-  /* The newtab still subscribes to preferences-scope broadcasts but takes
-     no action — B-038 (display-mode) does not affect newtab rendering and
-     B-040 (auto-collapse) is sidepanel-only. Verify the listener does not
-     throw and does not fire any extra sendMessage / pref read. */
+  /* B-092: the newtab now re-fetches prefs on a preferences-scope broadcast
+     so the `.tj-dense` body class can flip without a page reload. The
+     listener does NOT redirect, does NOT mount a disabled state, and does
+     NOT trigger a list re-render — only a single MSG_GET_PREFERENCES read. */
   const callsBefore = spy.sendMessageCalls.length;
+  /* Queue a response for the broadcast-driven prefs re-read. */
+  queueResponses(spy, { ok: true, data: { theme: 'system', denseLayout: true } });
   fireBroadcast(spy, 'preferences');
   await flushMicro(3);
-  assert.equal(spy.sendMessageCalls.length, callsBefore,
-    'preferences-scope broadcast triggers no follow-up sendMessage (no-op handler)');
+  const callsAfter = spy.sendMessageCalls.length;
+  assert.equal(callsAfter - callsBefore, 1,
+    'B-092: preferences-scope broadcast triggers exactly one follow-up MSG_GET_PREFERENCES (dense-layout re-evaluation)');
+  const lastCall = spy.sendMessageCalls[spy.sendMessageCalls.length - 1];
+  assert.equal(lastCall.type, 'tj/getPreferences',
+    'broadcast handler dispatched MSG_GET_PREFERENCES — not MSG_LIST_ITEMS');
   assert.equal(window.location._replacedWith, null,
     'preferences-scope broadcast does NOT redirect (B-039 dropped, no disabled-state to render)');
 });

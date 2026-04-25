@@ -487,6 +487,23 @@ body {
   border-radius: 2px;
 }
 
+/* --- B-092 Dense layout (opt-in) -------------------------------------- */
+/* When the `denseLayout` pref is ON, newtab.js adds `.tj-dense` to <body>.
+   These descendant selectors compress newtab item rows to a single line:
+   reduced padding, smaller title font (14px → 12px), URL line hidden. */
+
+.tj-dense .newtab-item-row {
+  padding: 4px 14px;
+}
+
+.tj-dense .newtab-item-title {
+  font-size: 12px;
+}
+
+.tj-dense .newtab-item-url {
+  display: none;
+}
+
 /* --- Live-state indicators --------------------------------------------- */
 
 .newtab-item-indicators {

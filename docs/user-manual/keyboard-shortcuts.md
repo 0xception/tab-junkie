@@ -42,6 +42,14 @@ Scroll to Tab Junkie in the list. Click the edit field next to any entry, press 
 
 ---
 
+---
+
+## Settings
+
+There is no keyboard shortcut for opening Settings. Click the **gear icon** (⚙) in the side panel header to open the [Settings page](settings.md) in a new tab. If a Settings tab is already open, the gear button focuses it rather than opening a second copy.
+
+---
+
 ## Accessibility
 
 Keyboard shortcuts are the primary way for keyboard-first users to discover and reach Tab Junkie surfaces without touching the mouse. Once a surface is open, all navigation within it is fully keyboard-accessible — see the individual feature pages for details on in-surface keyboard controls.

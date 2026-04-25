@@ -4,6 +4,20 @@ All notable changes to Tab Junkie are documented in this file.
 
 ## [Unreleased]
 
+## [1.24.0] — 2026-04-24
+
+### Added
+- **Settings page** — the gear icon (⚙) in the side panel header now opens a dedicated full-page Settings tab instead of a compact modal. The Settings page hosts all preference controls with plenty of room to read labels and descriptions. If a Settings tab is already open, the gear button focuses it rather than opening a second copy. Close the tab to return to browsing.
+- **Compact layout toggle** — Settings → Layout → **Compact layout**. When on, bookmark rows in the side panel and new tab grid collapse to a single line with smaller fonts, letting you see more bookmarks at once without scrolling. Default off; existing layouts are unchanged.
+- **Import / Export rehomed to Settings** — the Import and Export controls have moved from the side panel header buttons into Settings → Data. All four flows (Export HTML, Export JSON, Import HTML, Import JSON) are preserved, including the replace-all confirmation dialog for destructive imports.
+
+### Changed
+- **Side panel header decluttered** — only the New Group and Settings (gear) buttons remain in the header action cluster. The Import and Export buttons have moved to Settings → Data (see above).
+- **Settings modal deprecated and removed** — the compact B-089 modal dialog is replaced by the full-page Settings tab described above.
+
+### Note
+After updating, disable and re-enable Tab Junkie at `edge://extensions` (or `chrome://extensions`) to flush the service worker module cache. This ensures all new preference keys (such as the compact layout toggle) register correctly. Without this step you may see a "Could not save" error on new preference toggles until the service worker restarts on its own.
+
 ## [1.23.0] — 2026-04-24
 
 ### Added
