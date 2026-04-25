@@ -6,15 +6,19 @@ The Settings page is where you configure Tab Junkie's display, layout, and data 
 
 ## Opening Settings
 
-Click the **gear icon** (⚙) in the top-right corner of the Tab Junkie side panel header. The Settings page opens in a new tab and immediately gains focus.
+There are three ways to open the Settings page:
 
-If you click the gear button while a Settings tab is already open (even in another window), Tab Junkie focuses the existing tab rather than opening a duplicate.
+- **Keyboard shortcut** — press **Alt+,** (Alt+Comma) from any browser tab. If a Settings tab is already open, this shortcut focuses it rather than opening a second copy. You can remap the shortcut at `edge://extensions/shortcuts` (or `chrome://extensions/shortcuts`).
+- **Gear icon** — click the **⚙** icon in the top-right corner of the Tab Junkie side panel header.
+- **Quick-search popup** — press **Alt+J** to open the quick-search popup, then click the **Open Settings** button in the popup footer.
+
+All three paths focus an existing Settings tab rather than opening a duplicate.
 
 ---
 
 ## Sections
 
-Settings is organised into five sections from top to bottom.
+Settings is organised into six sections from top to bottom.
 
 ### Display
 
@@ -51,9 +55,34 @@ Controls group collapse behavior in the side panel.
 
 ### Theme
 
-*(Coming in a future update.)*
+Choose a color theme for all Tab Junkie surfaces. The selected theme applies instantly across the side panel, new tab page, standalone window, settings page, and both popups (quick-search and group-jump).
 
-Theme selection will let you choose from Tab Junkie's built-in IDE-inspired color themes. Until that feature ships, the extension uses your browser's system color scheme (light or dark) to select a matching default theme.
+| Setting | Options | Default |
+|---------|---------|---------|
+| **Theme** | System Default · 13 named themes | System Default |
+
+**Available themes:**
+
+| Theme | Style |
+|-------|-------|
+| System Default | Follows your OS dark/light preference automatically |
+| Dracula | Dark — purple-tinted dark background, vivid accents |
+| Nord | Dark — cool blue-grey tones |
+| One Dark | Dark — Atom-inspired neutral dark |
+| Monokai | Dark — high-contrast with orange/green highlights |
+| Tomorrow Night | Dark — muted dark with warm accents |
+| Atom One Dark | Dark — true Atom One Dark palette |
+| Solarized Dark | Dark — warm amber-on-dark Solarized palette |
+| GitHub Dark | Dark — GitHub's official dark mode palette |
+| Tokyo Night | Dark — neon-accented cool dark (newest) |
+| Tomorrow | Light — soft light complement to Tomorrow Night |
+| Atom One Light | Light — Atom One Light palette |
+| Solarized Light | Light — classic Solarized light |
+| GitHub Light | Light — GitHub's official light mode palette |
+
+**To change your theme:** open Settings → Theme → select a theme from the dropdown. The change applies within ~500ms across all open Tab Junkie surfaces — no reload required.
+
+> **After updating Tab Junkie:** if you have just installed or updated to v1.26.0 and theme changes produce "Could not save" errors, disable and re-enable the extension at `edge://extensions` (or `chrome://extensions`). This flushes the service worker module cache so the extended theme validator loads correctly. See the [After updating settings](#after-changing-settings) note below.
 
 ### Data
 
@@ -74,7 +103,7 @@ Import and export your bookmarks.
 
 The Settings page is fully keyboard-navigable:
 
-- **Tab** — moves focus forward through controls (Display → Layout → Groups → Data) in top-to-bottom DOM order.
+- **Tab** — moves focus forward through controls (Display → Layout → Groups → Theme → Data) in top-to-bottom DOM order.
 - **Shift+Tab** — moves focus backward.
 - **Space** or **Enter** — toggles a checkbox (On/Off settings).
 - **Arrow keys** — cycles options in a `<select>` dropdown.

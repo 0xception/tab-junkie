@@ -2,88 +2,11 @@
    Tab Junkie — Settings Page Styles (B-091, §44)
    ========================================================================= */
 
-/* --- Theme custom properties ------------------------------------------- */
-/* B-091 §44.3 D-9 / §44.7: reuse the palette from sidepanel.css + newtab.css
-   so light and dark themes stay visually consistent across every surface.
-   The tokens below are byte-identical to newtab.css:12-134. Any palette
-   change MUST happen in all three places until the theme tokens are
-   extracted to a shared file (S30+ follow-up). */
-
-[data-theme="light"] {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f5f6f8;
-  --bg-hover: #ebedf0;
-  --bg-active: #e2e5ea;
-  --text-primary: #1a1d23;
-  --text-secondary: #5f6673;
-  --text-tertiary: #8a8f9a;
-  --border-primary: #dfe1e6;
-  --border-subtle: #ecedf0;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --accent-subtle: #eff4ff;
-  --on-accent: #ffffff;
-  --focus-ring: #2563eb;
-  --danger: #dc2626;
-}
-
-[data-theme="dark"] {
-  --bg-primary: #1a1d23;
-  --bg-secondary: #22262e;
-  --bg-hover: #2a2f38;
-  --bg-active: #323842;
-  --text-primary: #e8eaed;
-  --text-secondary: #9aa0ab;
-  --text-tertiary: #6b7280;
-  --border-primary: #323842;
-  --border-subtle: #2a2f38;
-  --accent: #60a5fa;
-  --accent-hover: #93bbfd;
-  --accent-subtle: #1e293b;
-  --on-accent: #0a0f1a;
-  --focus-ring: #60a5fa;
-  --danger: #f87171;
-}
-
-@media (prefers-color-scheme: dark) {
-  [data-theme="system"] {
-    --bg-primary: #1a1d23;
-    --bg-secondary: #22262e;
-    --bg-hover: #2a2f38;
-    --bg-active: #323842;
-    --text-primary: #e8eaed;
-    --text-secondary: #9aa0ab;
-    --text-tertiary: #6b7280;
-    --border-primary: #323842;
-    --border-subtle: #2a2f38;
-    --accent: #60a5fa;
-    --accent-hover: #93bbfd;
-    --accent-subtle: #1e293b;
-    --on-accent: #0a0f1a;
-    --focus-ring: #60a5fa;
-    --danger: #f87171;
-  }
-}
-
-@media (prefers-color-scheme: light) {
-  [data-theme="system"] {
-    --bg-primary: #ffffff;
-    --bg-secondary: #f5f6f8;
-    --bg-hover: #ebedf0;
-    --bg-active: #e2e5ea;
-    --text-primary: #1a1d23;
-    --text-secondary: #5f6673;
-    --text-tertiary: #8a8f9a;
-    --border-primary: #dfe1e6;
-    --border-subtle: #ecedf0;
-    --accent: #2563eb;
-    --accent-hover: #1d4ed8;
-    --accent-subtle: #eff4ff;
-    --on-accent: #ffffff;
-    --focus-ring: #2563eb;
-    --danger: #dc2626;
-  }
-}
+/* B-037 §45.3 D-3: theme palette tokens (every per-theme palette block) are
+   the single-source-of-truth in `shared/themes.css`, loaded by `settings.html`
+   BEFORE this stylesheet. This file owns layout, typography, and component
+   rules only. Do NOT add per-theme palette blocks here — they belong in
+   shared/themes.css. */
 
 /* --- Base reset -------------------------------------------------------- */
 

@@ -75,6 +75,12 @@ import {
    didn't need to change (bugs were entirely in sidepanel drag handlers). */
 import { computeItemReorder, computeMultiItemReorder, computeGroupReorder } from '../shared/sort-order.js';
 
+/* B-088 fix #1 — shared appliers for the theme attribute + dense-layout body
+   class. Sidepanel keeps `currentTheme` module-local for the
+   prefers-color-scheme reactor below; the shared `applyTheme` returns the
+   resolved slug so the reactor stays in sync without a separate read. */
+import { applyTheme as _sharedApplyTheme, applyDenseLayout as _sharedApplyDenseLayout } from '../shared/surface-prefs.js';
+
 /* B-052: pre-lowercased in-memory search index. §34 (docs/design/34) is the
    authoritative spec. The module is pure (no DOM); sidepanel owns the DOM-
    patch path (`_patchSingleRow`) and the render path (`renderAll`) that
@@ -85,8 +91,13 @@ import { buildIndex, diffAndPatch, search as searchIndex } from './search-index.
    sidepanel share the same scheme allowlist. Byte-for-byte equivalent. */
 import { isSafeFaviconUrl } from '../shared/favicon.js';
 
+/* B-097: openOrFocusSettingsTab factored out from inline gear-button dispatcher
+   into shared/settings-tab.js (3rd-caller threshold reached: sidepanel + popup +
+   SW shortcut all dispatch the same focus-existing-else-create logic). */
+import { openOrFocusSettingsTab } from '../shared/settings-tab.js';
+
 /* B-091: B-089 modal import removed. Settings is now a full-page tab —
-   gear-button dispatcher fires chrome.tabs.create / chrome.tabs.update below.
+   gear-button dispatcher calls openOrFocusSettingsTab() from shared/settings-tab.js.
    Wave 0 pref controls (B-038 displayMode, B-040 autoCollapseSubGroups) live
    in settings/settings.js, not here. */
 
@@ -273,10 +284,6 @@ let _pendingGroupsRender = false;
    contracts enforced below + in the corresponding event handlers.
    ========================================================================= */
 
-/* DRAG_DEBUG — feature flag for the R3 debug pass. Set to `true` during
-   R3 Edge UAT; MUST be `false` before PR merge (R4 greps for this). */
-const DRAG_DEBUG = false;
-
 /* Non-null while an item-row drag is in flight. Shape:
    { itemId, sourceGroupId, cachedItemsGen, pendingTargetRowId,
      pendingInsertPosition, pendingDestGroupId, rafHandle, scrollListener,
@@ -368,10 +375,6 @@ let _b009HoverState = null;
    Open Tabs section AND dragged item is saved+live. */
 let _b033DropTarget = null;
 
-function _dragLog(...args) {
-  if (DRAG_DEBUG) console.log('[drag]', ...args);
-}
-
 const dropIndicatorEl = document.createElement('div');
 dropIndicatorEl.className = 'drop-indicator';
 dropIndicatorEl.hidden = true;
@@ -429,29 +432,21 @@ async function sendMessage(type, payload = {}) {
 }
 
 /* =========================================================================
-   Theme (B2 — sessionStorage sync, W3 — simplified darkMq)
+   Theme (B-037 §45.3 D-1/D-4 — 13-slug enum, sessionStorage sync write)
    ========================================================================= */
 
-let currentTheme = 'light';
+let currentTheme = 'system';
 
+/* B-088 fix #1 — thin wrapper over the shared applier. Tracks the resolved
+   slug in `currentTheme` so the prefers-color-scheme reactor (below) sees the
+   user's selection. The shared module owns sessionStorage + DOM writes. */
 function applyTheme(theme) {
-  currentTheme = (theme === 'light' || theme === 'dark') ? theme : 'system';
-  document.documentElement.setAttribute('data-theme', currentTheme);
-  sessionStorage.setItem('tj-theme', currentTheme);
+  currentTheme = _sharedApplyTheme(theme);
 }
 
-/* B-092 — opt-in compact layout. Reads the `denseLayout` boolean off the
-   prefs snapshot and flips a single `.tj-dense` class on <body>. All visual
-   density changes are driven by pure-CSS descendant selectors in
-   sidepanel.css; this helper is the only JS surface required. */
-function applyDenseLayout(prefs) {
-  const enabled = !!(prefs && prefs.denseLayout === true);
-  if (enabled) {
-    document.body.classList.add('tj-dense');
-  } else {
-    document.body.classList.remove('tj-dense');
-  }
-}
+/* B-088 fix #1 — thin re-export of the shared dense-layout applier. Kept as a
+   local alias so all in-file call sites remain unchanged. */
+const applyDenseLayout = _sharedApplyDenseLayout;
 
 const darkMq = globalThis.matchMedia('(prefers-color-scheme: dark)');
 darkMq.addEventListener('change', () => {
@@ -808,14 +803,12 @@ groupCancelBtnEl.addEventListener('click', closeGroupDialog);
 /* =========================================================================
    B-091 — Settings page gear-button dispatcher (§44.3 D-2)
    =========================================================================
-   The gear button opens the full-page Settings tab via chrome.tabs.create or,
-   if a Settings tab is already open, focuses that tab via chrome.tabs.update
-   + chrome.windows.update (focus-existing-else-create per §41 B-035 D-3 (c)).
-   Failure surfaces a toast — the gear button must never appear broken.
+   The gear button opens the full-page Settings tab via the shared
+   openOrFocusSettingsTab() helper (shared/settings-tab.js, factored out in
+   B-097). Focus-existing-else-create per §41 B-035 D-3 (c). Failure surfaces
+   a toast — the gear button must never appear broken.
    Wave 0 controls (B-038 displayMode, B-040 autoCollapseSubGroups) are
    registered in settings/settings.js, not here. */
-
-const SETTINGS_PAGE_URL = chrome.runtime.getURL('settings/settings.html');
 
 if (settingsBtnEl) {
   settingsBtnEl.addEventListener('click', () => {
@@ -824,19 +817,6 @@ if (settingsBtnEl) {
       console.warn('[B-091] settings dispatcher failed:', err && err.message ? err.message : err);
     });
   });
-}
-
-async function openOrFocusSettingsTab() {
-  const matches = await chrome.tabs.query({ url: SETTINGS_PAGE_URL });
-  if (Array.isArray(matches) && matches.length > 0) {
-    const tab = matches[0];
-    await chrome.tabs.update(tab.id, { active: true });
-    if (typeof tab.windowId === 'number') {
-      await chrome.windows.update(tab.windowId, { focused: true });
-    }
-    return;
-  }
-  await chrome.tabs.create({ url: SETTINGS_PAGE_URL });
 }
 
 /* =========================================================================
@@ -3771,13 +3751,6 @@ itemListEl.addEventListener('dragstart', (e) => {
       queueMicrotask(() => ghostEl.remove());
     }
 
-    _dragLog('dragstart', {
-      itemId,
-      sourceGroupId,
-      cachedItemsGen: _cachedItemsGen,
-      isMulti,
-      payloadCount: payloadItemIds.length,
-    });
     return;
   }
 
@@ -3905,7 +3878,6 @@ itemListEl.addEventListener('drop', async (e) => {
        (existing B-017 message). Saved-only items were already rejected at
        target-compute time (AC3); only saved+live reach here. */
     if (state.pendingDropType === 'openTabs') {
-      _dragLog('drop — openTabs demote', { itemId: state.itemId });
       sendMessage(MSG_DEMOTE_ITEM, { id: state.itemId })
         .then(() => {
           showToast('Bookmark removed — tab stays open');
@@ -3924,14 +3896,12 @@ itemListEl.addEventListener('drop', async (e) => {
        single-item and multi-item paths per AC13e (empty-dest empty-state). */
     if (state.pendingDropType === 'emptyGroup') {
       if (!state.pendingDestGroupId) {
-        _dragLog('drop — emptyGroup target missing destGroupId; cancel');
         return;
       }
 
       /* AC24 — broadcast race guard: refresh items if our snapshot is stale
          before computing the reorder. Same pattern as the item-row branch. */
       if (state.cachedItemsGen !== _cachedItemsGen) {
-        _dragLog('drop (emptyGroup) — broadcast race detected; refreshing items');
         try {
           const itemsResp = await sendMessage(MSG_LIST_ITEMS);
           _cachedItems = itemsResp.items;
@@ -3965,10 +3935,8 @@ itemListEl.addEventListener('drop', async (e) => {
           return (ia?.sortOrder ?? 0) - (ib?.sortOrder ?? 0);
         });
         updates = computeMultiItemReorder(_cachedItems, sortedIds, destGroupId, destIndex);
-        _dragLog('drop (multi, emptyGroup)', { count: sortedIds.length, destGroupId, destIndex, updates });
       } else {
         updates = computeItemReorder(_cachedItems, state.itemId, destGroupId, destIndex);
-        _dragLog('drop (emptyGroup)', { itemId: state.itemId, destGroupId, destIndex, updates });
       }
 
       if (updates.length === 0) return;
@@ -3977,14 +3945,12 @@ itemListEl.addEventListener('drop', async (e) => {
     }
 
     if (!state.pendingTargetRowId) {
-      _dragLog('drop — no pending target; cancel');
       return;
     }
 
     /* AC24 — broadcast race guard. If _cachedItems advanced during drag,
        await fresh snapshot before computing the reorder spec. */
     if (state.cachedItemsGen !== _cachedItemsGen) {
-      _dragLog('drop — broadcast race detected; refreshing items before reorder');
       try {
         const itemsResp = await sendMessage(MSG_LIST_ITEMS);
         _cachedItems = itemsResp.items;
@@ -4021,10 +3987,8 @@ itemListEl.addEventListener('drop', async (e) => {
         return (ia?.sortOrder ?? 0) - (ib?.sortOrder ?? 0);
       });
       updates = computeMultiItemReorder(_cachedItems, sortedIds, destGroupId, destIndex);
-      _dragLog('drop (multi)', { count: sortedIds.length, destGroupId, destIndex, updates });
     } else {
       updates = computeItemReorder(_cachedItems, state.itemId, destGroupId, destIndex);
-      _dragLog('drop', { itemId: state.itemId, destGroupId, destIndex, updates });
     }
 
     if (updates.length === 0) return; // same-position no-op
@@ -4162,7 +4126,6 @@ itemListEl.addEventListener('dragend', () => {
      `payloadItemIds` for explicit multi-drag row-class removal. Matches the
      drop-handler ordering + the B-031 cleanup-before-null precedent. */
   if (_itemDragState) {
-    _dragLog('dragend — cancelled');
     _cleanupItemDragDom();
     _itemDragState = null;
   }
@@ -4303,7 +4266,6 @@ function _dragTick() {
       timerHandle: setTimeout(() => {
         /* Only fire if still hovering same group + drag still in flight. */
         if (_itemDragState && _b009HoverState && _b009HoverState.groupId === hoveredGroup) {
-          _dragLog('b009 — expanding collapsed group', hoveredGroup);
           sendMessage(MSG_UPDATE_GROUP, { id: hoveredGroup, patch: { collapsed: false } })
             .catch(() => {/* best-effort; drag continues regardless */});
           _clearB009Hover();
@@ -4361,7 +4323,6 @@ function _dragTick() {
       itemDragIndicatorEl.style.transform = `translateY(${y}px)`;
       itemDragIndicatorEl.style.opacity = '1';
     }
-    _dragLog('tick (emptyGroup)', { destGroupId: target.destGroupId });
     return;
   }
 
@@ -4399,7 +4360,6 @@ function _dragTick() {
     - containerRect.top + scrollTop;
   itemDragIndicatorEl.style.transform = `translateY(${y}px)`;
   itemDragIndicatorEl.style.opacity = '1';
-  _dragLog('tick', { rowId: target.rowId, pos: target.insertPosition, y });
 }
 
 /* _computeDropTarget — R2 contract + B-033 Open Tabs demote target.

@@ -32,7 +32,10 @@
  * `innerHTML` is never used with user content.
  */
 
-import { MSG_LIST_ITEMS, MSG_LIST_GROUPS, MSG_NAVIGATE_TO_ITEM } from '../shared/messages.js';
+import { MSG_GET_PREFERENCES, MSG_LIST_ITEMS, MSG_LIST_GROUPS, MSG_NAVIGATE_TO_ITEM } from '../shared/messages.js';
+/* B-037 UAT-6: shared theme applier. Popup ignores broadcast subscriptions
+   (short-lived surface; one-shot boot read is the precedent from popup.js). */
+import { applyTheme as _applyTheme } from '../shared/surface-prefs.js';
 import {
   buildGroupPickerRows,
   normalizeGroupPickerQuery,
@@ -58,6 +61,26 @@ const GROUP_RESULT_CAP = 100;
 /** @type {Array<Object>} */ let _items = [];
 /** @type {Record<string, Object>} */ let _liveStates = {};
 /** @type {Array<Object>} */ let _groups = [];
+/* B-088 fix #5 — per-group {saved, open} counts precomputed once when items
+   load. Lookup is O(1); _pickerRowFromGroup previously did an O(n) scan over
+   `_items` per call — when the picker rendered S sub-groups during drill-in
+   that produced an O(n*S) hot path. Recompute alongside _items / _liveStates
+   in loadInitial so the cache stays in sync with the source data. */
+/** @type {Map<string, {saved: number, open: number}>} */
+let _groupCountsById = new Map();
+
+function _rebuildGroupCounts() {
+  const counts = new Map();
+  for (const it of _items) {
+    if (!it.groupId) continue;
+    let entry = counts.get(it.groupId);
+    if (!entry) { entry = { saved: 0, open: 0 }; counts.set(it.groupId, entry); }
+    entry.saved += 1;
+    const ls = _liveStates[it.id];
+    if (ls && ls.live) entry.open += 1;
+  }
+  _groupCountsById = counts;
+}
 /** @type {Record<string, number>} */ let _windowMap = {};
 /** @type {import('../shared/group-picker-core.js').PickerRow[]} */
 let _allRows = [];
@@ -119,6 +142,15 @@ document.addEventListener('DOMContentLoaded', () => {
   crumbRootEl.addEventListener('click', _exitDrillIn);
   crumbRootEl.addEventListener('keydown', _onCrumbRootKey);
 
+  /* B-037 UAT-6: hydrate theme from prefs. Best-effort — the FOUC guard
+     (theme-init.js) already painted with the cached value, so a missing/
+     invalid theme leaves the cached attribute in place. One-shot read on
+     boot is sufficient (popup is short-lived; mirrors popup.js pattern). */
+  _sendMessage({ type: MSG_GET_PREFERENCES }).then((prefs) => {
+    const data = prefs && prefs.ok === true ? prefs.data : prefs;
+    if (data && typeof data.theme === 'string') _applyTheme(data.theme);
+  }).catch(() => { /* SW unreachable — theme-init.js sync fallback remains */ });
+
   _showSkeleton();
   loadInitial();
 });
@@ -153,6 +185,10 @@ async function loadInitial() {
       _groups = [];
     }
 
+    /* B-088 fix #5 — precompute per-group {saved, open} once for O(1) lookup
+       in _pickerRowFromGroup during drill-in render. */
+    _rebuildGroupCounts();
+
     _allRows = buildGroupPickerRows({
       groups: _groups,
       items: _items,
@@ -180,6 +216,7 @@ async function loadInitial() {
     _items = [];
     _groups = [];
     _liveStates = {};
+    _groupCountsById = new Map();
     _allRows = [];
     _mode = 'empty-no-groups';
     _currentRows = [];
@@ -754,23 +791,18 @@ function _buildRowElement(row, index, q) {
 }
 
 function _pickerRowFromGroup(g) {
-  /* Build a minimal PickerRow-shaped object for a sub-group under drill-in.
-     Counts pulled from the same data set the main rows used. */
-  let saved = 0;
-  let open = 0;
-  for (const it of _items) {
-    if (it.groupId !== g.id) continue;
-    saved++;
-    const ls = _liveStates[it.id];
-    if (ls && ls.live) open++;
-  }
+  /* B-088 fix #5 — counts pulled from the precomputed `_groupCountsById` map
+     (rebuilt by _rebuildGroupCounts whenever _items / _liveStates change).
+     This collapses the previous O(n*m) scan (n items × m sub-groups rendered)
+     to O(1) per call; the build itself is O(n) once at boot. */
+  const counts = _groupCountsById.get(g.id);
   return {
     id: g.id,
     name: g.name || '',
     color: g.color || null,
     breadcrumb: '',
-    savedCount: saved,
-    openCount: open,
+    savedCount: counts ? counts.saved : 0,
+    openCount: counts ? counts.open : 0,
     searchKey: (g.name || '').toLowerCase(),
   };
 }

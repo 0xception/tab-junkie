@@ -11,11 +11,12 @@ Tab Junkie registers global keyboard shortcuts so you can open its surfaces from
 | **Alt+J** | Open the quick-search popup |
 | **Alt+K** | Open the group-jump popup |
 | **Alt+Shift+J** | Open Tab Junkie in a standalone window |
+| **Alt+,** (Alt+Comma) | Open the Tab Junkie Settings page |
 | *(unbound — user-assignable)* | Open the Tab Junkie side panel |
 
-The three shortcuts with default keys (Alt+J, Alt+K, Alt+Shift+J) work from any ordinary browser tab. The side-panel shortcut has no default key assigned; you can set one yourself (see below).
+The four shortcuts with default keys (Alt+J, Alt+K, Alt+Shift+J, Alt+Comma) work from any ordinary browser tab. The side-panel shortcut has no default key assigned; you can set one yourself (see below).
 
-> **Browser limit:** most Chromium-based browsers cap custom extension commands at 4 user-assignable slots (the built-in `_execute_action` and `_execute_side_panel` entries do not count toward this limit). Tab Junkie currently uses 2 custom slots (`open-junkie-window`, `group-jump`), leaving room for future shortcuts.
+> **Browser limit:** most Chromium-based browsers cap custom extension commands at 4 user-assignable slots (the built-in `_execute_action` and `_execute_side_panel` entries do not count toward this limit). Tab Junkie currently uses 3 custom slots (`open-junkie-window`, `group-jump`, `open-junkie-settings`), leaving room for one future shortcut.
 
 ---
 
@@ -26,6 +27,7 @@ Shortcuts are registered globally, meaning you do not need to have the Tab Junki
 - **Alt+J** opens the [quick-search popup](quick-search-popup.md), which lets you fuzzy-search bookmarks and open tabs by title or URL.
 - **Alt+K** opens the [group-jump popup](group-jump-popup.md), which lets you jump directly to a bookmark group.
 - **Alt+Shift+J** opens a standalone Tab Junkie window. If the window is already open, this shortcut brings it into focus rather than opening a second copy.
+- **Alt+,** (Alt+Comma) opens the [Settings page](settings.md) directly. If a Settings tab is already open, this shortcut focuses it rather than opening a second copy.
 
 ---
 
@@ -46,7 +48,7 @@ Scroll to Tab Junkie in the list. Click the edit field next to any entry, press 
 
 ## Settings
 
-There is no keyboard shortcut for opening Settings. Click the **gear icon** (⚙) in the side panel header to open the [Settings page](settings.md) in a new tab. If a Settings tab is already open, the gear button focuses it rather than opening a second copy.
+Press **Alt+,** (Alt+Comma) from any browser tab to open the [Settings page](settings.md) directly. If a Settings tab is already open, the shortcut focuses it rather than opening a second copy. You can also click the **gear icon** (⚙) in the side panel header, or use the **Settings** button in the quick-search popup, to reach the same page.
 
 ---
 

@@ -10,35 +10,26 @@
    a shared stylesheet reference.
    ========================================================================= */
 
-/* --- Theme custom properties ------------------------------------------- */
-
+/* --- Token aliases: group-jump-popup → shared/themes.css --------------- */
+/* B-037 UAT-6: palette tokens consolidated into shared/themes.css via the
+   13-theme [data-theme] system. The group-jump popup's pre-existing
+   `--color-*` / `--mark-bg` tokens are mapped onto shared palette tokens
+   declared in `shared/themes.css` for every active `[data-theme]`.
+   Layout / component rules below continue to consume the popup-local names
+   without modification. `--shadow-popup` is a structural shadow token
+   (not a palette colour) and stays here. Mirrors popup.css §39.5 pattern. */
 :root {
-  /* Light-theme defaults. Dark overrides live under prefers-color-scheme. */
-  --color-fg: #1a1a1a;
-  --color-fg-muted: #6b7280;
-  --color-bg: #ffffff;
-  --color-bg-header: #f9fafb;
-  --color-row-selected: #eff6ff;
-  --color-accent: #2563eb;
-  --color-border: #e5e7eb;
-  --color-avatar-bg: #e5e7eb;
-  --mark-bg: #fef08a;
+  --color-fg: var(--text-primary);
+  --color-fg-muted: var(--text-secondary);
+  --color-bg: var(--bg-primary);
+  --color-bg-header: var(--bg-secondary);
+  --color-row-selected: var(--selected-bg);
+  --color-accent: var(--accent);
+  --color-border: var(--border-primary);
+  --color-avatar-bg: var(--bg-active);
+  /* `--mark-bg` is consumed directly from shared/themes.css — no alias here
+     to avoid a self-referential `var()` cycle on the popup `:root`. */
   --shadow-popup: 0 4px 18px rgba(0, 0, 0, 0.12);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-fg: #f4f4f4;
-    --color-fg-muted: #9ca3af;
-    --color-bg: #1e1e1e;
-    --color-bg-header: #171717;
-    --color-row-selected: #1e3a5f;
-    --color-accent: #60a5fa;
-    --color-border: #262626;
-    --color-avatar-bg: #3f3f46;
-    --mark-bg: #713f12;
-    --shadow-popup: 0 4px 18px rgba(0, 0, 0, 0.40);
-  }
 }
 
 /* --- Base reset -------------------------------------------------------- */

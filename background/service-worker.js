@@ -24,6 +24,7 @@ import { runMigrations } from './storage/migration.js';
 import { registerStorageHandlers } from './messages/storage-handlers.js';
 import { registerTabEventListeners, initializeLiveState } from './tabs/index.js';
 import { MSG_OPEN_STANDALONE } from '../shared/messages.js';
+import { openOrFocusSettingsTab } from '../shared/settings-tab.js';
 
 /**
  * The readyPromise gate: resolves when the migration pipeline completes
@@ -138,6 +139,19 @@ chrome.commands.onCommand.addListener((command) => {
   if (command !== 'open-junkie-window') return;
   openOrFocusStandaloneWindow().catch((err) => {
     console.warn('[tab-junkie] open-junkie-window failed', err);
+  });
+});
+
+// B-097 — chrome.commands.onCommand dispatch for Alt+Comma (open-junkie-settings).
+// Opens (or focuses) the Settings page tab via the shared openOrFocusSettingsTab
+// helper (focus-existing-else-create; same pattern as B-035 B-091). Cold-start
+// safe: per-trigger tab query, no SW state held. Zero storage writes on this
+// path → C-11 vacuously satisfied (no storage mutation before any focus-shifting
+// call). Registered synchronously at module scope — no await before addListener.
+chrome.commands.onCommand.addListener((cmd) => {
+  if (cmd !== 'open-junkie-settings') return;
+  openOrFocusSettingsTab().catch((err) => {
+    console.warn('[B-097] settings shortcut failed:', err && err.message);
   });
 });
 

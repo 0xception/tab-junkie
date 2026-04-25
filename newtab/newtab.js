@@ -14,9 +14,10 @@
  * means the OFF state could not deliver browser-default new-tab behavior —
  * only `about:blank` or a custom disabled-state page. Product-owner decision:
  * ship newtab always-on. Users who want their browser default back must
- * uninstall Tab Junkie. The pref key `newTabOverride` is retained in
- * `DEFAULT_PREFERENCES` for backward compat but no longer drives any
- * behavior here. See §42.3 D-2a (RESCINDED) and `docs/SPRINT.md` S29 retro.
+ * uninstall Tab Junkie. The legacy `newTabOverride` pref key was removed in
+ * B-088 (Sprint 32 hygiene) — stale on-disk values are tolerated by
+ * `isPreferences` and stripped by the json-import validator. See §42.3 D-2a
+ * (RESCINDED) and `docs/SPRINT.md` S29 retro.
  *
  * C-11 guardrail (§42.3 D-5, critical):
  *   - The ONLY SW-write fired from the newtab is MSG_NAVIGATE_TO_ITEM.
@@ -41,6 +42,8 @@ import { SCOPE } from '../shared/scopes.js';
 import { buildHighlightedText } from '../shared/highlight.js';
 import { isSafeFaviconUrl } from '../shared/favicon.js';
 import { buildIndex, search, diffAndPatch } from '../sidepanel/search-index.js';
+/* B-088 fix #1 — shared theme + dense-layout appliers. */
+import { applyTheme as _applyTheme, applyDenseLayout as _applyDenseLayout } from '../shared/surface-prefs.js';
 
 /* =========================================================================
    Tunables
@@ -112,19 +115,6 @@ let _errorStateEl = null;
 
 document.addEventListener('DOMContentLoaded', () => { void boot(); });
 
-/* B-092 — opt-in compact layout. Reads `denseLayout` off the prefs snapshot
-   and flips a single `.tj-dense` class on <body>. Density rules are pure CSS
-   descendant selectors in newtab.css; no per-row JS. */
-function _applyDenseLayout(prefs) {
-  const enabled = !!(prefs && prefs.denseLayout === true);
-  if (!document || !document.body || !document.body.classList) return;
-  if (enabled) {
-    document.body.classList.add('tj-dense');
-  } else {
-    document.body.classList.remove('tj-dense');
-  }
-}
-
 async function boot() {
   _rootEl = document.getElementById('newtab-root');
   _gridEl = document.getElementById('newtab-grid');
@@ -164,6 +154,10 @@ async function boot() {
        fetch above swallows its own failure; if `prefsResp` is null we
        simply leave the body class at its default (off). */
     _applyDenseLayout(prefsResp);
+    /* B-037: hydrate the theme attribute + sessionStorage from prefs so the
+       newtab repaints with the correct theme. A null prefsResp leaves the
+       FOUC-guard-applied attribute in place (cached value or 'system'). */
+    if (prefsResp && typeof prefsResp.theme === 'string') _applyTheme(prefsResp.theme);
   } catch (err) {
     _renderErrorState(err);
     return;
@@ -459,6 +453,9 @@ async function _handleBroadcast(scope) {
       try {
         const prefs = await _sendMessage({ type: MSG_GET_PREFERENCES, payload: {} });
         _applyDenseLayout(prefs);
+        /* B-037: re-apply theme on every prefs broadcast so a theme change
+           from any other surface propagates here without a page reload. */
+        if (prefs && typeof prefs.theme === 'string') _applyTheme(prefs.theme);
       } catch {
         /* Best-effort; a failed prefs re-read leaves the body class at its
            current value. The next successful broadcast or boot resyncs it. */

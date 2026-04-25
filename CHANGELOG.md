@@ -4,6 +4,30 @@ All notable changes to Tab Junkie are documented in this file.
 
 ## [Unreleased]
 
+*(nothing pending)*
+
+## [1.26.0] — 2026-04-25
+
+### Added
+- **Theme selection (B-037)** — choose from 14 themes inspired by popular IDE color schemes (Dracula, Nord, One Dark, Monokai, Tomorrow Night, Atom One Dark, Solarized Dark, GitHub Dark, Tokyo Night, Tomorrow, Atom One Light, Solarized Light, GitHub Light, plus System default that auto-switches with your OS dark/light preference). Theme picker lives in Settings → Theme. Selected theme applies instantly across all surfaces (side panel, new tab page, standalone window, popup, group-jump popup) within ~500ms via broadcast.
+- **Settings keyboard shortcut (B-097)** — `Alt+Comma` opens the Settings page directly. Customizable via `edge://extensions/shortcuts` (or `chrome://extensions/shortcuts`).
+- **Toolbar popup → Settings link (B-095)** — quick-search popup footer (Alt+J) gains an "Open Settings" button alongside the existing "Open side panel" entry.
+
+### Changed
+- **Theme architecture refactor** — palette declarations consolidated to `shared/themes.css` (eliminates ~3,500 LOC triplication across sidepanel/newtab/settings/popup); FOUC-guard scripts consolidated to `shared/theme-init.js`. Cross-surface helper factor-out (`shared/surface-prefs.js`, `shared/settings-tab.js`, `shared/theme-slugs.js`).
+- **Process polish (B-094)** — CLAUDE.md gains C-1 stale-SW release-note guidance + R1 selector-audit subsection (Sprint 30 retro action items closed).
+- **Hygiene bundle (B-088)** — 8 carry-forward fixes from S25-S31: cross-surface helper factor-out, ghost-key cleanup (`newTabOverride` removed from prefs), DRAG_DEBUG removal, dead-code removal (`_tabById`), `_pickerRowFromGroup` O(n+m) perf fix, banner text-node 3-path collapse, nested-catch simplification, JSDoc/comment drift pass.
+- **Import validator sync (B-096)** — JSON import now accepts the full theme enum (was silently dropping new B-037 slugs as fail-closed pre-existing defect).
+
+### Removed
+- **`newTabOverride` ghost-key** (B-088 fix #2) — pref retained from B-039 drop in S29 has been fully removed from `DEFAULT_PREFERENCES` + validators. Backups containing the legacy field strip it on import.
+
+### Note
+- **After updating: please disable and re-enable Tab Junkie at `edge://extensions`** (or `chrome://extensions`). This flushes the SW module cache so:
+  - The extended theme validator allows the new theme slugs (S30/B-092 stale-SW precedent).
+  - The new `Alt+Comma` Settings shortcut registers (new `commands` manifest entry; per CLAUDE.md C-1 stale-SW guidance added in this same release).
+- Without this step, you may see "Could not save" errors on theme selection or the Settings shortcut may not respond until the SW restarts naturally.
+
 ## [1.24.0] — 2026-04-24
 
 ### Added

@@ -1665,3 +1665,135 @@ When the extension is updated and a new pref key is added to `DEFAULT_PREFERENCE
 2. [product-manager] R1 AC template: rehome items must include "selector audit" listing test files with moved-element ID refs. [MEDIUM]
 3. [scrum-master] S31 scope decision — B-037 themes is the natural Settings → Theme section anchor. B-082 toolbar popup Settings entry as polish XS. B-086 UI/UX pass + B-088 hygiene candidates. v2 → main merge prep evaluation. [HIGH]
 4. Settings keyboard shortcut deferral noted; revisit if usage friction surfaces. [LOW]
+
+---
+
+## Sprint 31 — Themes + Process Polish + Popup Settings Link (2026-04-25)
+
+**Theme:** Ship the B-037 theme system (14 IDE-inspired themes) as the final major user-facing feature of v2. B-094 closes Sprint 30 retro process action items; B-095 adds an "Open Settings" footer button to the quick-search popup. B-098 Tokyo Night approved mid-sprint as an additive slip-in.
+**Release:** v1.26.0 (combined with Sprint 32; skips v1.25.0 per product-owner direction)
+**Branch:** `feature/sprint-31-themes`
+**Tests:** 1,295 → ~1,360 (+65 S31 portion; final combined 1,401 after S32)
+
+### Completed Items
+
+#### [B-037] Theme Selection — ✅ DONE
+- **Tier**: Full (M) · **Closed**: 2026-04-25
+- **Pipeline**: R1 ✅ · R2 ✅ (§45 design chapter, ~5,000 words) · R3 ✅ · R4 ✅ (0 CRITICAL / 4 HIGH all fixed) · R5 ✅ (30/30 UAT PASS after UAT-6 fix cycle) · R6 ✅ (§45.10 As Built filled) · R7 ✅
+- **Files changed**: `shared/themes.css` (new, canonical palette — 14 themes + system), `shared/theme-init.js` (new, consolidated FOUC-guard), `shared/theme-slugs.js` (new), `shared/surface-prefs.js` (new), `shared/settings-tab.js` (new), `settings/settings.{html,js,css}`, `sidepanel/sidepanel.{html,js}`, `newtab/newtab.{html,js}`, `popup/popup.{html,js}`, `popup/group-jump.{html,js}`, `docs/design/45-b-037-themes.md` (new), `tests/b037-themes.test.js` (new, 41 tests)
+- **Key decisions**: D-1 14-slug catalog (incl. B-098 Tokyo Night); D-2 `shared/themes.css` canonical source; D-3 `shared/theme-init.js` FOUC-guard; D-5 `MSG_STATE_CHANGED` broadcast (no new message types); D-6 read-time migration (`'light'`/`'dark'` → new slugs); D-7 rollback via safe-mode fallback to `'system'`
+- **UAT-6 fix**: group-jump popup missed in R3 theme sweep — same HIGH-1 pattern applied post-UAT; 30/30 PASS after fix
+
+#### [B-094] Process Polish Bundle — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-25
+- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (0 findings — doc-only)
+- **Files changed**: `CLAUDE.md` (C-1 stale-SW guidance + R1 selector-audit subsection)
+- **Outcome**: Sprint 30 retro MEDIUM action items × 2 closed
+
+#### [B-095] Toolbar Popup → Settings Link — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-25
+- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (0 HIGH, 2 MEDIUM inline)
+- **Files changed**: `popup/popup.{html,js,css}`, `shared/settings-tab.js` (factor-out reused), `tests/b095-popup-settings-btn.test.js` (+7 tests)
+
+### UAT Results
+- **B-037**: 30/30 PASS (UAT-6 fix cycle required — group-jump popup theme miss; fixed pre-close)
+- **B-094**: N/A (doc-only edit)
+- **B-095**: smoke PASS (Settings button renders, opens/focuses Settings tab, Tab trap correct)
+
+### Velocity
+- Planned: 3 items / 1M + 2XS
+- Completed: 3 items + B-098 slip-in / 1M + 3XS — 100%+ scope
+- Carried over: 0
+
+### R4 Findings Summary
+- **B-037**: 0 CRITICAL / 4 HIGH (all fixed) / ~6 MEDIUM (most inline) / ~8 LOW (deferred)
+- **B-094**: 0 findings
+- **B-095**: 0 CRITICAL / 0 HIGH / 2 MEDIUM (inline) / 0 LOW
+- **Total**: 0 CRITICAL / 4 HIGH / ~8 MEDIUM / ~8 LOW
+- **Full dedup**: `docs/findings/sprint-31.md`
+
+### Retrospective
+
+**What Went Well:**
+- Full 7-round pipeline on B-037 delivered the theme system cleanly; `shared/themes.css` consolidation eliminated ~3,500 LOC duplication.
+- UAT-6 caught the group-jump popup miss before release — validates the popup-surface audit precedent now documented in §45.10.
+- B-095 reused the newly extracted `shared/settings-tab.js` from B-037 — same-sprint factor-out pays off immediately.
+
+**What to Improve:**
+- R3 missed the group-jump popup surface in the theme-wiring sweep; UAT-6 fix cycle added overhead. The popup-surface audit checklist (§45.10 precedent) addresses this going forward.
+- B-098 Tokyo Night could have been filed during S31 R1 to appear in the initial catalog planning instead of as a mid-sprint approval.
+
+**Action Items for Sprint 32:**
+1. [frontend-engineer] B-096 — sync `validatePreferences` import-validator with 14-slug enum (S30 B-092 security MEDIUM). [HIGH]
+2. [frontend-engineer] B-097 — Settings keyboard shortcut Alt+Comma (S30 LOW deferred). [HIGH]
+3. [frontend-engineer] B-088 — hygiene bundle (carry-forward S25-S31 debt). [MEDIUM]
+
+---
+
+## Sprint 32 — Polish + Hygiene Cleanup (2026-04-25)
+
+**Theme:** Close carry-forward debt queue accumulated S25-S31. Four Fast Track items: B-088 hygiene bundle (8 targeted fixes), B-096 import-validator sync (closes S30 B-092 security MEDIUM), B-097 Settings keyboard shortcut Alt+Comma, B-098 Tokyo Night theme (slip-in from S31, closed here). Zero new features; clean-up-only sprint.
+**Release:** v1.26.0 (combined with Sprint 31; skips v1.25.0)
+**Branch:** `feature/sprint-31-themes` (same branch; no new branch for S32)
+**Tests:** ~1,360 → 1,401 (+41 S32 portion)
+
+### Completed Items
+
+#### [B-088] Hygiene Bundle — ✅ DONE
+- **Tier**: Fast Track (S) · **Closed**: 2026-04-25
+- **Pipeline**: R1 ✅ · R3 ✅ (8 targeted fixes) · R4 ✅ (0 HIGH)
+- **8 fixes**: (1) cross-surface helper factor-out `shared/surface-prefs.js` + `shared/settings-tab.js`; (2) `newTabOverride` ghost-key removed from `DEFAULT_PREFERENCES` + validators; (3) `DRAG_DEBUG` + debug logging removed; (4) dead `_tabById` helper removed; (5) `_pickerRowFromGroup` O(n²) → O(n+m) perf fix; (6) banner text-node 3-path → single `textContent`; (7) nested-catch simplification; (8) JSDoc/comment drift pass
+- **Files changed**: `background/service-worker.js`, `background/storage/preferences.js`, `background/tabs/tab-claims.js`, `shared/surface-prefs.js`, `shared/settings-tab.js`, `sidepanel/sidepanel.js`, `tests/b088-hygiene.test.js` (+4 perf regression tests)
+
+#### [B-096] Import Validator Sync — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-25
+- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (0 HIGH)
+- **Files changed**: `background/import/json-validator.js` (theme enum extended to 14 slugs), `tests/b096-import-validator.test.js` (+10 tests)
+- **Outcome**: Closes S30 B-092 security MEDIUM — JSON import was silently rejecting valid B-037 theme slugs
+
+#### [B-097] Settings Keyboard Shortcut Alt+Comma — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-25
+- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (0 HIGH)
+- **Files changed**: `manifest.json` (`open-junkie-settings` command with `Alt+Comma` default), `background/service-worker.js` (`chrome.commands.onCommand` handler), `shared/settings-tab.js` (reused), `docs/user-manual/keyboard-shortcuts.md` (verified present), `tests/b097-settings-shortcut.test.js` (+18 tests)
+
+#### [B-098] Tokyo Night Theme — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-25 · *Slip-in approved mid-S31*
+- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (0 findings — additive palette)
+- **Files changed**: `shared/themes.css` (+`[data-theme="tokyo-night"]` palette block), `shared/theme-slugs.js` (+slug), `settings/settings.js` (+option)
+
+### UAT Results
+- **B-088**: smoke PASS (ghost-key removed, debug logging absent, perf regression tests green)
+- **B-096**: automated tests PASS (+10); JSON import accepts all 14 theme slugs
+- **B-097**: smoke PASS (Alt+Comma opens/focuses Settings tab; `commands` entry confirmed in Edge)
+- **B-098**: visual PASS (Tokyo Night theme renders correctly in sidepanel, newtab, popup, settings)
+
+### Velocity
+- Planned: 3 items / 1S + 2XS
+- Completed: 4 items / 1S + 3XS — B-098 slip-in absorbed without scope impact
+- Test growth: +41 (net S32 portion); combined S31+S32: 1,295 → 1,401 (+106)
+- Fix cycles: 0 (no UAT failures in S32)
+- Carried over: 0
+
+### R4 Findings Summary
+- **B-088**: 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW
+- **B-096**: 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW
+- **B-097**: 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW
+- **B-098**: 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW
+- **Total S32**: 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW — clean sprint
+- **Full dedup**: `docs/findings/sprint-32.md`
+
+### Retrospective
+
+**What Went Well:**
+- All 4 Fast Track items shipped with zero R4 findings — validates the hygiene-bundle pattern for clearing carry-forward debt efficiently.
+- B-096 closed the S30 B-092 security MEDIUM at exactly the right moment (before v1.26.0 shipped with new theme slugs).
+- B-088 hygiene bundle cleared the longest-standing items from the S25-S31 deferred debt queue; codebase exits S32 with no known carry-forward debt.
+
+**What to Improve:**
+- B-098 was a mid-sprint approval that slightly disrupted S31 R1 planning cadence; better to file slip-in candidates at sprint kickoff.
+- S32 had no formal R5 test round (all Fast Track) — the combined suite PASS is sufficient, but a brief joint UAT sweep of the S31+S32 theme system would have been procedurally cleaner.
+
+**Action Items for Next Sprint:**
+1. [scrum-master] Evaluate v2 → main merge readiness. S32 closes the last carry-forward debt queue; feature set is complete. Schedule merge-prep sprint or direct merge if UAT sweep passes. [HIGH]
+2. [technical-writer] Full user-manual coverage audit now that v2 feature set is complete. [MEDIUM]
+3. [scrum-master] File B-086 (UI/UX design pass, P3/M) as a post-merge candidate if v2 ships to main. [LOW]

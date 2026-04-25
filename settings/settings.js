@@ -19,6 +19,13 @@ import { renderSelect, renderToggle, init as initSettingsFields, loadPreferences
    buttons + two file inputs in the Data section + the destructive-action
    confirm dialog (B-070 §AC4 retained). */
 import { init as initImportExport } from './settings-import-export.js';
+import { MSG_GET_PREFERENCES, MSG_STATE_CHANGED } from '../shared/messages.js';
+import { SCOPE } from '../shared/scopes.js';
+/* B-088 fix #1 — Live theme application is shared with sidepanel/newtab/popup
+   via shared/surface-prefs.js. The settings page subscribes to
+   MSG_STATE_CHANGED below so theme changes from any other surface (or this
+   page) apply within 500 ms (B-037 §45.3 D-4 / AC10(a)). */
+import { applyTheme as _applyTheme } from '../shared/surface-prefs.js';
 
 /* =========================================================================
    Promise wrapper around chrome.runtime.sendMessage. Same shape as the
@@ -103,6 +110,38 @@ async function boot() {
     defaultValue: false,
   });
 
+  // B-037 theme select — 13 slugs grouped under three optgroups (Auto / Light
+  // / Dark) per §45.3 D-1 + D-6. Section name "Theme" matches the static
+  // <fieldset data-section="Theme"> placeholder slot that B-091 reserved.
+  renderSelect({
+    key: 'theme',
+    label: 'Theme',
+    section: 'Theme',
+    optgroups: [
+      { label: 'Auto', options: [
+        { value: 'system', label: 'System Default' },
+      ]},
+      { label: 'Light', options: [
+        { value: 'github-light',    label: 'GitHub Light' },
+        { value: 'tomorrow',        label: 'Tomorrow' },
+        { value: 'atom-one-light',  label: 'Atom One Light' },
+        { value: 'solarized-light', label: 'Solarized Light' },
+      ]},
+      { label: 'Dark', options: [
+        { value: 'github-dark',     label: 'GitHub Dark' },
+        { value: 'tomorrow-night',  label: 'Tomorrow Night' },
+        { value: 'atom-one-dark',   label: 'Atom One Dark' },
+        { value: 'solarized-dark',  label: 'Solarized Dark' },
+        { value: 'dracula',         label: 'Dracula' },
+        { value: 'nord',            label: 'Nord' },
+        { value: 'one-dark',        label: 'One Dark' },
+        { value: 'monokai',         label: 'Monokai' },
+        { value: 'tokyo-night',     label: 'Tokyo Night' },
+      ]},
+    ],
+    defaultValue: 'system',
+  });
+
   // B-093 — Import / Export controls in the Data section. The module wires
   // its own DOM (4 buttons + 2 hidden file inputs + confirm dialog overlay
   // + toast); we just hand it the document and the shared sendMessage
@@ -116,9 +155,26 @@ async function boot() {
     console.warn('[B-093] settings import/export wiring failed', code);
   }
 
+  /* B-037 — listen for prefs broadcast and re-apply the theme. The
+     settings-fields module already subscribes to refresh control values;
+     this listener runs in parallel so the page repaints alongside the
+     control re-sync (well within the 500 ms AC10(a) budget). */
+  if (chrome?.runtime?.onMessage?.addListener) {
+    chrome.runtime.onMessage.addListener((msg, sender) => {
+      if (!sender || sender.id !== chrome.runtime.id) return;
+      if (!msg || msg.type !== MSG_STATE_CHANGED) return;
+      const scope = msg.payload && msg.payload.scope;
+      if (scope !== SCOPE.PREFERENCES) return;
+      sendMessage(MSG_GET_PREFERENCES).then((prefs) => {
+        if (prefs && typeof prefs.theme === 'string') _applyTheme(prefs.theme);
+      }).catch(() => { /* best-effort; next broadcast retries */ });
+    });
+  }
+
   // Fetch + paint. On success → focus first control. On error → focus Reload.
   try {
-    await loadPreferences();
+    const prefs = await loadPreferences();
+    if (prefs && typeof prefs.theme === 'string') _applyTheme(prefs.theme);
     const first = getFirstFocusableControl();
     if (first && typeof first.focus === 'function') {
       first.focus({ preventScroll: false });

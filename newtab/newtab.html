@@ -1,11 +1,16 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="system">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tab Junkie — New Tab</title>
+    <!-- B-037 §45.3 D-4: shared FOUC guard runs SYNC before any stylesheet so
+         the cached `data-theme` attribute is set before paint. Shared themes
+         stylesheet loads BEFORE the surface-specific stylesheet so palette
+         tokens resolve before component rules consume them. -->
+    <script src="../shared/theme-init.js"></script>
+    <link rel="stylesheet" href="../shared/themes.css" />
     <link rel="stylesheet" href="newtab.css" />
-    <script src="theme-init.js"></script>
   </head>
   <body>
     <!-- §42.3 D-2a: body intentionally renders empty at parse time. When the
