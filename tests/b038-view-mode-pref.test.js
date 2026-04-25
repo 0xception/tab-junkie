@@ -36,13 +36,19 @@ import {
   MSG_SET_PREFERENCES,
 } from '../shared/messages.js';
 
+/* B-091: B-089 settings-dialog deleted; renderSelect + init now live in
+   settings/settings-fields.js. The dialog open/close lifecycle is gone, so
+   the legacy `openSettingsDialog(triggerBtnEl)` calls below become
+   `loadPreferences()` against the same forked module. The renderSelect /
+   init / field-registry contract is byte-for-byte preserved per §44.3 D-8
+   AC6 API parity. */
 import {
-  init as initSettingsDialog,
-  openSettingsDialog,
+  init as initSettingsFields,
+  loadPreferences,
   renderSelect,
   _resetForTest,
   _getFieldsForTest,
-} from '../sidepanel/settings-dialog.js';
+} from '../settings/settings-fields.js';
 
 /* =========================================================================
    Naming-contract assertion (§43.2 — R3 prereq).
@@ -422,6 +428,12 @@ function makeFakeDocument() {
 }
 
 function setupDialogHarness({ getPrefsResult, setPrefsError } = {}) {
+  /* B-091: harness now mirrors the full-page Settings surface. The forked
+     settings-fields module wants `contentEl` (the section container) +
+     `errorEl` (the top banner). We retain the trigger/close/dialog/overlay
+     locals as inert placeholders so the existing test cases that close over
+     them (e.g., `await openSettingsDialog(h.triggerBtnEl)` rewritten below)
+     keep working without further surgery. */
   const doc = makeFakeDocument();
   const overlayEl = new FakeElement('div', doc);
   overlayEl.hidden = true;
@@ -429,7 +441,7 @@ function setupDialogHarness({ getPrefsResult, setPrefsError } = {}) {
   dialogEl.hidden = true;
   overlayEl.appendChild(dialogEl);
   const contentEl = new FakeElement('div', doc);
-  const errorEl = new FakeElement('span', doc);
+  const errorEl = new FakeElement('div', doc);
   errorEl.hidden = true;
   const closeBtnEl = new FakeElement('button', doc);
   const triggerBtnEl = new FakeElement('button', doc);
@@ -464,15 +476,9 @@ function setupDialogHarness({ getPrefsResult, setPrefsError } = {}) {
     },
   };
 
-  initSettingsDialog({
-    overlayEl,
-    dialogEl,
+  initSettingsFields({
     contentEl,
     errorEl,
-    closeBtnEl,
-    triggerBtnEl,
-    activateFocusTrap: () => {},
-    deactivateFocusTrap: () => {},
     sendMessage,
     runtime,
   });
@@ -489,7 +495,7 @@ test('B-038 AC17e-1: renderSelect({ key: "displayMode" }) registers a select row
 
   renderSelect({
     key: 'displayMode',
-    label: 'Open Tab Junkie as',
+    label: 'Open Tab Junkie on click',
     section: 'Display mode',
     options: [
       { value: 'sidepanel', label: 'Side Panel' },
@@ -518,7 +524,7 @@ test('B-038 AC17e-2: section name is "Display mode" per §43.7 R3 handoff', () =
 
   renderSelect({
     key: 'displayMode',
-    label: 'Open Tab Junkie as',
+    label: 'Open Tab Junkie on click',
     section: 'Display mode',
     options: [
       { value: 'sidepanel', label: 'Side Panel' },
@@ -544,7 +550,7 @@ test("B-038 AC17e-3: stored displayMode='window' is reflected in the select on o
 
   renderSelect({
     key: 'displayMode',
-    label: 'Open Tab Junkie as',
+    label: 'Open Tab Junkie on click',
     section: 'Display mode',
     options: [
       { value: 'sidepanel', label: 'Side Panel' },
@@ -553,7 +559,7 @@ test("B-038 AC17e-3: stored displayMode='window' is reflected in the select on o
     defaultValue: 'sidepanel',
   });
 
-  await openSettingsDialog(h.triggerBtnEl);
+  await loadPreferences();
 
   const field = _getFieldsForTest().find((f) => f.key === 'displayMode');
   assert.equal(field.inputEl.value, 'window', 'persisted displayMode must paint into the select');
@@ -564,7 +570,7 @@ test("B-038 AC17f: changing the select dispatches MSG_SET_PREFERENCES with parti
 
   renderSelect({
     key: 'displayMode',
-    label: 'Open Tab Junkie as',
+    label: 'Open Tab Junkie on click',
     section: 'Display mode',
     options: [
       { value: 'sidepanel', label: 'Side Panel' },
@@ -573,7 +579,7 @@ test("B-038 AC17f: changing the select dispatches MSG_SET_PREFERENCES with parti
     defaultValue: 'sidepanel',
   });
 
-  await openSettingsDialog(h.triggerBtnEl);
+  await loadPreferences();
 
   const field = _getFieldsForTest().find((f) => f.key === 'displayMode');
   field.inputEl.value = 'window';
@@ -592,7 +598,7 @@ test("B-038 AC17 (hygiene): corrupt stored displayMode value falls back to defau
 
   renderSelect({
     key: 'displayMode',
-    label: 'Open Tab Junkie as',
+    label: 'Open Tab Junkie on click',
     section: 'Display mode',
     options: [
       { value: 'sidepanel', label: 'Side Panel' },
@@ -601,7 +607,7 @@ test("B-038 AC17 (hygiene): corrupt stored displayMode value falls back to defau
     defaultValue: 'sidepanel',
   });
 
-  await openSettingsDialog(h.triggerBtnEl);
+  await loadPreferences();
 
   const field = _getFieldsForTest().find((f) => f.key === 'displayMode');
   assert.equal(field.inputEl.value, 'sidepanel',

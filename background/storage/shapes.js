@@ -72,6 +72,12 @@ export const DEFAULT_PREFERENCES = Object.freeze({
      `false` = keep every duplicate (user opted in via the checkbox on a
      previous import). */
   importSkipDuplicates: true,
+  /* B-092 — opt-in compact layout. When true, all three rendering surfaces
+     (sidepanel / newtab / standalone window) toggle a `.tj-dense` class on
+     <body> that drives shorter rows, smaller title font, and hides the URL
+     line via pure CSS descendant selectors. Default OFF preserves the
+     two-line baseline rendering. */
+  denseLayout: false,
 });
 
 /** Default empty shape for a given partition. */
@@ -133,6 +139,11 @@ function isPreferences(v) {
      writes or backup restores), its type must be boolean — protects against
      adversarial values landing via MSG_SET_PREFERENCES / import restore. */
   if ('importSkipDuplicates' in v && !isBool(v.importSkipDuplicates)) return false;
+  /* B-092 — `denseLayout` follows the same OPTIONAL pattern as
+     `importSkipDuplicates`: pre-B-092 stored prefs lack the key, and the
+     `getPreferences()` defaults-merge guarantees the runtime value is always
+     populated. When present on disk it must be a boolean. */
+  if ('denseLayout' in v && !isBool(v.denseLayout)) return false;
   return true;
 }
 

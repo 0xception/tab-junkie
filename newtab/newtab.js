@@ -35,6 +35,7 @@ import {
   MSG_LIST_GROUPS,
   MSG_NAVIGATE_TO_ITEM,
   MSG_STATE_CHANGED,
+  MSG_GET_PREFERENCES,
 } from '../shared/messages.js';
 import { SCOPE } from '../shared/scopes.js';
 import { buildHighlightedText } from '../shared/highlight.js';
@@ -111,6 +112,19 @@ let _errorStateEl = null;
 
 document.addEventListener('DOMContentLoaded', () => { void boot(); });
 
+/* B-092 — opt-in compact layout. Reads `denseLayout` off the prefs snapshot
+   and flips a single `.tj-dense` class on <body>. Density rules are pure CSS
+   descendant selectors in newtab.css; no per-row JS. */
+function _applyDenseLayout(prefs) {
+  const enabled = !!(prefs && prefs.denseLayout === true);
+  if (!document || !document.body || !document.body.classList) return;
+  if (enabled) {
+    document.body.classList.add('tj-dense');
+  } else {
+    document.body.classList.remove('tj-dense');
+  }
+}
+
 async function boot() {
   _rootEl = document.getElementById('newtab-root');
   _gridEl = document.getElementById('newtab-grid');
@@ -129,11 +143,14 @@ async function boot() {
   _attachStaticEventHandlers();
 
   /* §42.3 D-6: parallel fetch — items + groups in parallel, render once both
-     resolve. */
+     resolve. B-092: prefs are fetched alongside as a best-effort lookup so
+     the dense-layout body class is applied before first paint. A prefs
+     fetch failure is non-fatal — the dense flag stays at its default. */
   try {
-    const [itemsResp, groupsResp] = await Promise.all([
+    const [itemsResp, groupsResp, prefsResp] = await Promise.all([
       _sendMessage({ type: MSG_LIST_ITEMS, payload: {} }),
       _sendMessage({ type: MSG_LIST_GROUPS, payload: {} }),
+      _sendMessage({ type: MSG_GET_PREFERENCES, payload: {} }).catch(() => null),
     ]);
     _setItems(Array.isArray(itemsResp?.items) ? itemsResp.items : []);
     _liveStates = itemsResp && typeof itemsResp.liveStates === 'object' && itemsResp.liveStates
@@ -143,6 +160,10 @@ async function boot() {
       ? itemsResp.driftRecords
       : {};
     _groups = Array.isArray(groupsResp) ? groupsResp : [];
+    /* B-092: hydrate the dense-layout body class from prefs. The prefs
+       fetch above swallows its own failure; if `prefsResp` is null we
+       simply leave the body class at its default (off). */
+    _applyDenseLayout(prefsResp);
   } catch (err) {
     _renderErrorState(err);
     return;
@@ -427,13 +448,23 @@ async function _handleBroadcast(scope) {
       await _refetchAndPatchLiveState();
       return;
     }
-    /* SCOPE.PREFERENCES — no-op since B-039 was dropped at S29 close. The
-       newtab is always on; there is no pref-driven behavior to re-evaluate.
-       B-038 (display-mode) does not affect newtab rendering, and B-040
-       (auto-collapse) is sidepanel-only. We still subscribe to the scope
-       (filtering happens above) but take no action.
+    /* SCOPE.PREFERENCES — B-092: re-fetch prefs and re-apply the dense
+       layout body class so a toggle from the Settings tab propagates to the
+       newtab without a page reload. Prior B-038/B-039/B-040 prefs do not
+       affect newtab rendering (B-038 display-mode is popup-only, B-039 was
+       dropped at S29 close, B-040 auto-collapse is sidepanel-only).
        SCOPE.WINDOW_MAP — ignored in v1 (no window badges on newtab per §42.9
        follow-up #1). */
+    if (scope === SCOPE.PREFERENCES) {
+      try {
+        const prefs = await _sendMessage({ type: MSG_GET_PREFERENCES, payload: {} });
+        _applyDenseLayout(prefs);
+      } catch {
+        /* Best-effort; a failed prefs re-read leaves the body class at its
+           current value. The next successful broadcast or boot resyncs it. */
+      }
+      return;
+    }
   } catch (err) {
     console.warn('[B-036] broadcast handler failed:', err);
   }

@@ -39,6 +39,11 @@ function validatePrefsPatch(patch) {
   if ('importSkipDuplicates' in patch && typeof patch.importSkipDuplicates !== 'boolean') {
     throw new StorageError(ERR_VALIDATION, 'setPreferences: importSkipDuplicates must be boolean');
   }
+  /* B-092 — opt-in compact layout. Boolean-typed; rejected when not present
+     in the allow-list above, so the type check here is sufficient. */
+  if ('denseLayout' in patch && typeof patch.denseLayout !== 'boolean') {
+    throw new StorageError(ERR_VALIDATION, 'setPreferences: denseLayout must be boolean');
+  }
 }
 
 export async function getPreferences() {

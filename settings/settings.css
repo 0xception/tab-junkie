@@ -1,0 +1,568 @@
+/* =========================================================================
+   Tab Junkie — Settings Page Styles (B-091, §44)
+   ========================================================================= */
+
+/* --- Theme custom properties ------------------------------------------- */
+/* B-091 §44.3 D-9 / §44.7: reuse the palette from sidepanel.css + newtab.css
+   so light and dark themes stay visually consistent across every surface.
+   The tokens below are byte-identical to newtab.css:12-134. Any palette
+   change MUST happen in all three places until the theme tokens are
+   extracted to a shared file (S30+ follow-up). */
+
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f6f8;
+  --bg-hover: #ebedf0;
+  --bg-active: #e2e5ea;
+  --text-primary: #1a1d23;
+  --text-secondary: #5f6673;
+  --text-tertiary: #8a8f9a;
+  --border-primary: #dfe1e6;
+  --border-subtle: #ecedf0;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-subtle: #eff4ff;
+  --on-accent: #ffffff;
+  --focus-ring: #2563eb;
+  --danger: #dc2626;
+}
+
+[data-theme="dark"] {
+  --bg-primary: #1a1d23;
+  --bg-secondary: #22262e;
+  --bg-hover: #2a2f38;
+  --bg-active: #323842;
+  --text-primary: #e8eaed;
+  --text-secondary: #9aa0ab;
+  --text-tertiary: #6b7280;
+  --border-primary: #323842;
+  --border-subtle: #2a2f38;
+  --accent: #60a5fa;
+  --accent-hover: #93bbfd;
+  --accent-subtle: #1e293b;
+  --on-accent: #0a0f1a;
+  --focus-ring: #60a5fa;
+  --danger: #f87171;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] {
+    --bg-primary: #1a1d23;
+    --bg-secondary: #22262e;
+    --bg-hover: #2a2f38;
+    --bg-active: #323842;
+    --text-primary: #e8eaed;
+    --text-secondary: #9aa0ab;
+    --text-tertiary: #6b7280;
+    --border-primary: #323842;
+    --border-subtle: #2a2f38;
+    --accent: #60a5fa;
+    --accent-hover: #93bbfd;
+    --accent-subtle: #1e293b;
+    --on-accent: #0a0f1a;
+    --focus-ring: #60a5fa;
+    --danger: #f87171;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f5f6f8;
+    --bg-hover: #ebedf0;
+    --bg-active: #e2e5ea;
+    --text-primary: #1a1d23;
+    --text-secondary: #5f6673;
+    --text-tertiary: #8a8f9a;
+    --border-primary: #dfe1e6;
+    --border-subtle: #ecedf0;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --accent-subtle: #eff4ff;
+    --on-accent: #ffffff;
+    --focus-ring: #2563eb;
+    --danger: #dc2626;
+  }
+}
+
+/* --- Base reset -------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* --- Page layout ------------------------------------------------------- */
+
+.settings-main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 24px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.settings-h1 {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-section-placeholder {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.settings-footer {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: center;
+  margin-top: 12px;
+}
+
+/* --- Top error banner (AC10a) ------------------------------------------ */
+
+.settings-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  background: var(--bg-primary);
+}
+
+.settings-error-banner-text {
+  font-size: 13px;
+  color: var(--danger);
+  flex: 1 1 auto;
+}
+
+.settings-error-banner-btn {
+  font-size: 13px;
+  padding: 6px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.settings-error-banner-btn:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.settings-error-banner-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* --- Settings sections + control rows ---------------------------------- */
+/* B-091 §44.3 D-9: rules below RELOCATED VERBATIM from sidepanel/sidepanel.css
+   lines 983-1119. Selectors are emitted byte-for-byte by settings-fields.js
+   (forked from settings-dialog.js) so the visual treatment is preserved.
+   The dialog-only `.settings-dialog` rule from sidepanel.css:970-973 is NOT
+   relocated — it was deleted entirely (no dialog any more). */
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  /* Reset default fieldset chrome — we redraw the border/padding above. */
+  margin: 0;
+  min-width: 0;
+}
+
+.settings-section-legend {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  min-height: 32px;
+}
+
+.settings-row + .settings-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.settings-row-label {
+  font-size: 13px;
+  color: var(--text-primary);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.settings-row-control {
+  flex: 0 0 auto;
+}
+
+/* Toggle switch — native checkbox styled as a pill. Keyboard-accessible
+   because the checkbox remains the real control; the visual is a sibling
+   label that follows the :checked state. */
+.settings-toggle {
+  position: relative;
+  display: inline-flex;
+  width: 36px;
+  height: 20px;
+}
+
+.settings-toggle__input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+  /* Keep pointer interactions on the checkbox so screen readers + keyboard
+     see the control; the visual track sits behind it. */
+  z-index: 1;
+}
+
+.settings-toggle__track {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-active);
+  border: 1px solid var(--border-primary);
+  border-radius: 999px;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.settings-toggle__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 150ms ease;
+}
+
+.settings-toggle__input:checked ~ .settings-toggle__track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.settings-toggle__input:checked ~ .settings-toggle__thumb {
+  transform: translateX(16px);
+}
+
+.settings-toggle__input:focus-visible ~ .settings-toggle__track {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.settings-toggle__input:disabled ~ .settings-toggle__track {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.settings-select {
+  font-size: 13px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  outline: none;
+  min-width: 140px;
+}
+
+.settings-select:focus-visible {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--accent-subtle);
+}
+
+.settings-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.settings-row-error {
+  display: block;
+  width: 100%;
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--danger);
+  margin-top: 2px;
+}
+
+/* =========================================================================
+   B-093 — Data section: Import / Export buttons + confirm dialog + toast.
+   The dialog and toast rules below are copied from the sidepanel pattern
+   (sidepanel.css §dialog, §toast) so the visual treatment of the
+   destructive-action confirmation dialog matches across surfaces.
+   ========================================================================= */
+
+/* Data section button column — single column of four full-width buttons
+   spaced consistently. Buttons inherit the section's neutral background and
+   gain a primary-style border on hover/focus. */
+.settings-data-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-data-buttons > button {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+
+.settings-data-buttons > button:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.settings-data-buttons > button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.settings-data-buttons > button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.settings-data-buttons > button[aria-busy="true"] {
+  opacity: 0.8;
+  cursor: progress;
+}
+
+/* Confirm dialog overlay (B-070 §AC4 retained). Modal backdrop, single
+   centered dialog. Only rendered when the user picks an import file and the
+   preview round-trip resolves with a non-empty payload. */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.dialog-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  width: 100%;
+  max-width: 360px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dialog-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.dialog-body {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* B-044: emphasize the "REPLACE all" clause. */
+.import-replace-emphasis {
+  color: var(--danger, #c62828);
+  font-weight: 600;
+}
+
+.import-extra-line {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-secondary);
+}
+
+/* B-060 — "Import duplicates anyway" checkbox row. */
+.import-dup-toggle {
+  margin-top: 10px;
+}
+
+.import-dup-toggle__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-primary, inherit);
+}
+
+.import-dup-toggle__input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.import-dup-toggle__label-text {
+  font-weight: 500;
+}
+
+.import-dup-toggle__help {
+  display: block;
+  margin-top: 4px;
+  margin-left: 24px;
+  font-size: 0.9em;
+  color: var(--text-secondary);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dialog-btn {
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.dialog-btn--secondary {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--border-primary);
+}
+
+.dialog-btn--secondary:hover {
+  background: var(--bg-hover);
+}
+
+.dialog-btn--secondary:focus-visible,
+.dialog-btn--danger:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.dialog-btn--danger {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.dialog-btn--danger:hover {
+  background: #b91c1c;
+}
+
+/* Toast surface (B-049 mirror). One toast at a time, slides up from the
+   bottom of the viewport. */
+.toast {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  right: 16px;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  animation: settings-toast-slide-up 0.2s ease-out;
+}
+
+@keyframes settings-toast-slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.toast-message {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.toast-dismiss {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  padding: 0;
+}
+
+.toast-dismiss:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* `--danger` token already declared at the top of this file (lines 27/45/
+   65/84) so the dialog-btn--danger / import-replace-emphasis rules above
+   inherit the existing palette. No additional palette declaration needed. */
