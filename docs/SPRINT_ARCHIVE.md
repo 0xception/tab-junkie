@@ -1564,3 +1564,104 @@ B-036 R3 shipped `prefs.newTabEnabled` against `DEFAULT_PREFERENCES.newTabOverri
 2. [product-manager] R1 AC self-checklist update — cross-check `DEFAULT_PREFERENCES` canonical key names (case + spelling) before publishing. [MEDIUM]
 3. [scrum-master] Sprint Close — Item Drop Checklist subsection in CLAUDE.md. [LOW]
 4. S30 scope decision — B-037 themes (P2/M, last big feature), B-090 (XS), B-086 UI/UX pass (P3/M), B-088 hygiene bundle, comprehensive UAT sweep. v2 → main merge prep candidate. [HIGH]
+
+---
+
+## Sprint 30 — B-091 Settings Page Redesign + B-092 Dense Layout + B-093 Import/Export Rehome + B-090 C-12 (2026-04-24)
+
+**Theme:** Configuration surface redesign — full-page Settings tab replaces B-089 modal; dense layout opt-in across all 3 surfaces; import/export rehomed to Settings → Data; B-090 C-12 checklist addition closes S29 retro HIGH.
+**Release:** v1.24.0
+**Merge commit:** `b113598` (PR #36)
+
+### Completed Items
+
+#### [B-090] C-12 Manifest Runtime-Mutability Checklist Add — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-24
+- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (code PROCEED + security PROCEED; 0 findings)
+- **Files**: `CLAUDE.md` (+1 row C-12 in R2 Correctness Checklist table)
+- **Outcome**: C-12 row added immediately after C-11. References B-039 drop as blocking precedent. Future R2 reviews now have explicit checklist gate for any feature whose enable/disable depends on a manifest declaration.
+
+#### [B-091] Settings Page Redesign — ✅ DONE
+- **Tier**: Spike-First (L) · **Closed**: 2026-04-24
+- **Pipeline**: R0 ✅ · R1 ✅ (15 ACs) · R2 ✅ (§44 chapter; 10 D-decisions) · R3 ✅ (~700 net LOC; 5 created, 4 modified, 2 deleted atomically) · R4 ✅ (0 CRITICAL; 6 HIGH all fixed pre-R5) · R5 ✅ (27 tests + 30-case UAT plan) · R6 ✅ (§44.10 As Built filled) · R7 ✅
+- **Files**: 
+  - NEW: `settings/{settings.html,settings.js,settings.css,settings-fields.js,theme-init.js}`, `tests/b091-settings-page.test.js`, `docs/design/44-b-091-settings-page.md`, `docs/design/44-b-091-settings-page-r0-spike.md`, `docs/UAT_B-091.md`, `docs/user-manual/settings.md`
+  - MOD: `sidepanel/{sidepanel.html,sidepanel.js,sidepanel.css}`
+  - DEL: `sidepanel/settings-dialog.js` (B-089), `tests/b089-settings-dialog.test.js` (atomic in same R3 commit)
+- **R0 spike** (`docs/design/44-b-091-settings-page-r0-spike.md`): D-1 LOCKED Candidate B (`chrome.tabs.create` dedicated tab); rejected modal, sidepanel takeover, standalone window. No sub-item split.
+- **R2 decisions** (§44.3):
+  - D-1 Surface = `chrome.tabs.create({url: chrome.runtime.getURL('settings/settings.html')})`
+  - D-2 Tab dispatcher home = sidepanel-context (gear `click` handler), NOT SW
+  - D-3 Focus management = skeleton state during async fetch; on resolve focus first control; on error focus Reload button
+  - D-4 Performance budget = paint < 300ms, prefs < 200ms, save round-trip < 500ms
+  - D-5 Broadcast lifecycle = subscribe via forked module's `init()`; tab close GCs JS realm + listener automatically
+  - D-6 Accessibility = `<main>` landmark, `<h1>` page title, `<fieldset>`/`<legend>` for sections, `<label for>`, native keyboard nav
+  - D-7 Rollback plan = `git revert <merge-sha>`; zero storage migration
+  - D-8 Forked module API contract = byte-for-byte parity with B-089 `renderToggle`/`renderSelect`; ~50% LOC reduction by dropping dialog-lifecycle deps
+  - D-9 B-089 deletion checklist = full file deletion + sidepanel.html DOM removal + sidepanel.js wiring removal + CSS rules relocated to settings.css
+  - D-10 Test plan = 15 enumerated cases mapped to ACs
+- **As Built deviations** (§44.10): 0 R2 deviations; 2 UAT-discovered findings:
+  - UAT-discovered: stale-SW module-cache gotcha (new pref keys require extension toggle-OFF-then-ON to flush SW cache before they save successfully)
+  - R4 fix bundle: 6 HIGH (controls disabled during pref load, redundant double-write, ARIA `role=alert`+`aria-live=polite` contradiction, 3 security-reviewer PASS checks) all resolved pre-R5
+
+#### [B-092] Dense / Compact Layout Toggle — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-24
+- **Pipeline**: R1 ✅ · R3 ✅ (~80 LOC; 24 tests) · R4 ✅ code PROCEED + security PROCEED (0 CRITICAL/HIGH; 1 MEDIUM cross-surface helper duplication — S30+ tech-debt; 3 LOW)
+- **Files**: `settings/settings.{html,js}` (renderToggle + Layout placeholder removal), `sidepanel/sidepanel.{js,css}` (`applyDenseLayout` helper + `.tj-dense` rules), `newtab/newtab.{js,css}` (parallel newtab implementation), `background/storage/{shapes,preferences}.js` (`denseLayout` key + validator), `tests/b092-dense-layout.test.js` (new), `tests/b036-newtab.test.js` (assertion updates)
+- **Outcome**: Settings → Layout → "Compact layout" toggle. When ON, `.tj-dense` body class flips on sidepanel + newtab + standalone. Pure CSS — single-line items, smaller fonts, hidden URL via descendant selectors. Default OFF preserves baseline.
+- **Canonical key**: `denseLayout` (camelCase, matches `displayMode` / `autoCollapseSubGroups` / `importSkipDuplicates` convention).
+
+#### [B-093] Import / Export Controls Rehome — ✅ DONE
+- **Tier**: Fast Track (S) · **Closed**: 2026-04-24
+- **Pipeline**: R1 ✅ · R3 ✅ (758 LOC new + 859 LOC removed from sidepanel.js) · R4 ✅ code PROCEED + security PROCEED (0 CRITICAL/HIGH; 2 MEDIUM both fixed pre-merge: `_wireOnce` document-keydown idempotency, `_importInFlight` clear-too-early)
+- **Files**: 
+  - NEW: `settings/settings-import-export.js` (758 LOC), `tests/b093-import-export-rehome.test.js` (10 tests)
+  - MOD: `sidepanel/sidepanel.{html,js}` (-37 + -859 LOC), `settings/settings.{html,js,css}` (Data section + handlers), `tests/{b081-add-group-button,sprint-21-polish}.test.js` (selector + helper-location retargets)
+- **Outcome**: 4 buttons + 2 file inputs moved from sidepanel header → Settings → Data section. Aria-labels preserved verbatim. All B-042/B-043/B-044/B-045 flows preserved. **B-070 §AC4 destructive-confirmation gate RETAINED** — preview dialog still default-focuses Cancel; Replace requires explicit click. B-070 R4 F-1 prefs-only variant + B-060 duplicate-toggle preference persist + B-080 plain-language repair breakdown + §33.10 5 MiB guard all preserved.
+
+### UAT Results
+
+- **B-091**: 30-case UAT plan executed; 28 PASS + 2 PASS-on-retry. Stale-SW gotcha was UAT-13/14 initial fail → toggle-OFF-then-ON cycle → PASS.
+- **B-092**: PASS (after stale-SW reload — same root cause)
+- **B-093**: PASS — sidepanel header confirmed buttonless; Settings → Data confirmed all 4 controls present + functional
+- **B-090**: N/A (doc-only)
+
+### Stale-SW Gotcha (new precedent — documented across 4 surfaces)
+
+When the extension is updated and a new pref key is added to `DEFAULT_PREFERENCES` + validator, the running SW retains the OLD module imports. `MSG_SET_PREFERENCES` with the new key throws `ERR_VALIDATION: unknown field` until the SW restarts. **Mitigation**: extension toggle-OFF-then-ON at `edge://extensions` flushes SW module cache. Documented in:
+- `CHANGELOG.md` v1.24.0 release note
+- `docs/user-manual/settings.md` first-time setup section
+- `docs/design/44-b-091-settings-page.md` §44.10.4 (new precedent)
+- S30 retrospective action item (S31 R2 checklist addition)
+
+### Velocity
+
+- Planned: 4 items (1 Spike-First L + 1 Fast Track S + 2 Fast Track XS)
+- Delivered: 4 items — 100% scope. Zero deferrals, zero drops.
+- Test growth: 1295 → 1331 (+36 net; B-091 +24, B-092 +24, B-093 +11, minus B-089's 24 deleted; minor adjustments in B-038/B-040 retargets)
+- UAT rounds: 1 (B-091; stale-SW retry within same UAT cycle)
+- Release: v1.24.0
+- **8 consecutive sprints shipped without rollback or post-merge regression** (S23 → S30)
+
+### Retrospective (action items → Sprint 31)
+
+- **MEDIUM — New-pref-key stale-SW release note**: R2 MUST note "extension toggle required after update; add to release notes" whenever a sprint adds a new key to `DEFAULT_PREFERENCES`. Production-only issue that `chrome-mock.js` cannot reproduce. Discovered at UAT, not at design.
+- **MEDIUM — Selector audit step in R1 ACs**: For any rehome item (B-093 precedent), R1 ACs should include an explicit "selector audit" listing existing test files that reference moved element IDs. R3 then has a complete checklist instead of grepping.
+- **LOW — Settings keyboard shortcut**: Settings has no `commands` shortcut entry. Adding one requires C-6 + C-12 audit. Lower-friction alternative: B-082 toolbar popup Settings entry. Defer to S31+.
+
+### R4 Findings Summary
+
+- **B-090**: 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW (doc-only)
+- **B-091**: 0 CRITICAL / 6 HIGH (all fixed pre-R5) / multiple MEDIUM (mostly inline) / LOW deferred
+- **B-092**: 0 CRITICAL / 0 HIGH / 1 MEDIUM (cross-surface helper duplication — S30+ tech-debt) / 3 LOW
+- **B-093**: 0 CRITICAL / 0 HIGH / 2 MEDIUM (both fixed pre-merge: `_wireOnce` document-keydown, `_importInFlight` clear-too-early) / 2 LOW
+- **Total**: 0 CRITICAL / 8 HIGH (all fixed pre-merge) / ~6 MEDIUM (most resolved) / ~6 LOW deferred
+- **Security posture**: zero new permissions, zero new manifest declarations, zero new message types, zero CSP changes, zero storage migration, zero XSS surface. All rendered text via `textContent`. Sender-id validation confirmed.
+
+**Key lesson**: The Wave 0 anchor + Wave 1 consumers pattern (precedent: S29) continues to ship cleanly. B-091 R3 landed → B-092 + B-093 R3 plugged in without merge conflicts or rework. The forked-helpers pattern (B-091 D-8 — port B-089 module verbatim, drop dialog-lifecycle deps) produced a ~50% LOC reduction with byte-for-byte API parity, validated by zero behavior change in the B-038 + B-040 tests after retargeting.
+
+**Action Items for Sprint 31:**
+1. [solution-architect] R2 C-1 checklist addition: stale-SW release-note guidance for new pref keys. [MEDIUM]
+2. [product-manager] R1 AC template: rehome items must include "selector audit" listing test files with moved-element ID refs. [MEDIUM]
+3. [scrum-master] S31 scope decision — B-037 themes is the natural Settings → Theme section anchor. B-082 toolbar popup Settings entry as polish XS. B-086 UI/UX pass + B-088 hygiene candidates. v2 → main merge prep evaluation. [HIGH]
+4. Settings keyboard shortcut deferral noted; revisit if usage friction surfaces. [LOW]
