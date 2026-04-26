@@ -1,117 +1,119 @@
 # Current Sprint
 
-*Sprint 34 closed 2026-04-26. Awaiting product-owner direction for next sprint.*
+*Sprint 35 — Bug-fix queue + tint-brightness polish. Planned 2026-04-26. **Awaiting product-owner approval to kick off R1.***
 
-The post-close state below documents the v1.28.0 release. Two-item visual-polish sprint shipped clean: B-101 (dotted drift bar) + B-104 (themed group color system). One follow-up backlog item filed (B-105 — solarized-light baseline contrast defect).
-
-Ships to `release/v2` as v1.28.0. **No main merge** — that remains a manual product-owner task.
+Five-item bug-fix-and-polish sprint targeting v1.29.0. Clears the entire P2 carryover queue (B-100, B-102, B-103, B-105) plus a P3 polish item (B-106 group-header brightness bump). Ships to `release/v2`. No main merge — that remains a manual product-owner task.
 
 ---
 
-## Gate 4 — Release Checklist (verified 2026-04-26)
+## Gate 6 — Sprint Readiness (verified 2026-04-26)
 
 | # | Check | Status |
 |---|-------|--------|
-| 1 | All R4 review findings resolved | ✅ — B-101: 1 HIGH (test stub stale) absorbed by R5 + 2 MEDIUM addressed; B-104: 3 HIGH (qa-reviewer WCAG/Ungrouped/hover) all fixed in R3-fix + 4 MEDIUM (M-1, M-2, M-3, M-5) all addressed in R3-fix or R6 |
-| 2 | All R5 automated tests passing | ✅ — 1,426/1,426 (+14 net via T1-T6 B-101 + T1-T9 B-104) |
-| 3 | UAT sign-off recorded by [test-engineer] | 🟡 — UAT plans authored (B-101: 6 cases; B-104: 7 cases). **Pending human walk-through during sprint close.** Following S33 pattern. |
-| 4 | No open blockers in `SPRINT.md` | ✅ |
-| 5 | Relevant `docs/design/NN-*.md` chapters updated | ✅ — `docs/design/47-b-104-themed-group-colors.md` §47.10 As Built filled (incl. M-2 atom-one-dark promotion + M-3 D-5 contrast correction); `docs/design/48-b-101-drift-bar.md` §48.10 As Built filled (incl. D-3a live+drifted permutation extension) |
-| 6 | `manifest.json` permissions reviewed | ✅ — zero new permissions; version bumped 1.27.0 → 1.28.0 |
-| 7 | `./build.sh` produces a clean package | ✅ — 328K, 87 files, no errors |
-| 8 | Rollback plan documented for storage schema changes | ✅ — N/A (zero schema changes for both items); single-commit revert documented in §47.8 + §48.8 |
-| 9 | README/STORE_LISTING/CHANGELOG updated | ✅ — CHANGELOG `[1.28.0]` entry added covering both items + B-105 follow-up disclosure. User-manual: no update needed (drift indicator behavior section in `managing-items.md` reads correctly with the new visual — only icon→bar change is visual-only) |
-| 10 | `BACKLOG.md` updated — completed items set to `done` | ✅ — B-101 + B-104 → `done`; B-105 filed as new backlog row |
-| 11 | `BACKLOG_BOARD.md` updated — progress dashboard accurate | ✅ — totals: 105 items / 95 done / 90% completion / 1 new follow-up in backlog |
-| 12 | `SPRINT.md` "Completed This Sprint" reflects all finished items | ✅ (below) |
-| 13 | `SPRINT_ARCHIVE.md` updated — Sprint 34 entry appended | ✅ |
+| 1 | All sprint items have passed Definition of Ready | ⏳ — all 5 items have user story + priority/effort + dependencies; ACs locked at R1 by [product-manager] for B-100/B-102/B-103/B-105/B-106 |
+| 2 | Total sprint effort fits the sprint duration | ✅ — 2 M (B-100, B-102) + 2 S (B-103, B-105) + 1 XS (B-106) = at the P-3 limit (max 2 M parallel) but well within Full sprint capacity |
+| 3 | No unresolved blockers from S34 | ✅ — S34 closed clean, B-105 + B-106 are the natural follow-ups |
+| 4 | `SPRINT.md` "Active Items" populated | ✅ (below) |
+| 5 | `BACKLOG.md` items filed | ✅ — B-100, B-102, B-103, B-105 (S33/S34 follow-ups) + B-106 NEW |
+| 6 | `BACKLOG_BOARD.md` updated | ✅ — Sprint 35 section added; totals refreshed (106 items, 90% complete after B-106 file) |
+| 7 | Deps-resolved check | ✅ — B-100: B-026 ✅ + B-099 ✅. B-102: B-014 ✅ + B-050 ✅. B-103: B-016 ✅ + B-055 ✅. B-105: B-037 ✅. B-106: B-104 ✅ + **B-105 (must land first within this sprint)** |
+
+**Pending product-owner approval before R1 launch.**
+
+---
+
+## Active Items
+
+### [B-100] Delete-on-live UX redesign
+- **Tier**: Full (M) — R1 → R2 → R3 → R4 (3 reviewers parallel) → R5 → R6 → R7
+- **Status**: Backlog filed; awaiting R1 launch
+- **Wave**: 0 (anchor — independent of B-102/103/105/106)
+- **Feature Context**: Delete (X) on a live bookmark currently demotes (deletes the bookmark, leaves the tab open). User feedback from S33 UAT-14: this is too destructive as a default — pressing X to "close" a live row should close the tab and keep the bookmark; explicit bookmark deletion should be a deliberate context-menu action with confirmation.
+- **Dependencies**: B-026 ✅ (item context menu host), B-099 ✅ (claim semantics finalized)
+- **Open R1 questions**: (a) default Delete-button click action when item is live: close-tab vs. current demote behavior; (b) "Delete bookmark" location: context menu entry vs. Shift+Click modifier; (c) confirmation pattern: modal vs. toast-with-undo; (d) non-live items: Delete button stays as-is (no tab to close)
+- **Files (expected)**: `sidepanel/sidepanel.js` (Delete button handler in item action row + context menu); `sidepanel/sidepanel.html` (potentially new menu entry markup); `sidepanel/sidepanel.css` (label/visual changes if needed); `tests/b100-delete-on-live.test.js` (new, ≥ 6 tests); `docs/UAT_B-100.md` (new, ≥ 5 cases); `docs/design/49-b-100-delete-on-live.md` (new R6 chapter)
+- **Risk flags**: This is a UX behavior change to a destructive action. R1 must lock the destructive-action confirmation pattern explicitly (per DoR Gate 7). Existing keyboard shortcuts and bulk action bar interactions must be regression-checked.
+
+### [B-102] Cross-window demote broadcast bug
+- **Tier**: Full (M) — R1 → R2 → R3 → R4 (3 reviewers parallel) → R5 → R6 → R7
+- **Status**: Backlog filed; awaiting R1 launch
+- **Wave**: 0 (parallel to B-100; touches background broadcast logic + sidepanel receiver — different files than B-100)
+- **Feature Context**: When a user demotes a bookmark in one window, the originating window correctly shows the item moving to Open Tabs. Other open windows show the item completely GONE (vanishes from both groups AND Open Tabs). Suggests broadcast scope filter is incorrectly suppressing the relevant scope on non-originating sidepanels.
+- **Dependencies**: B-014 ✅ (multi-window awareness), B-050 ✅ (state broadcast)
+- **Investigation needed at R2**: trace `MSG_DEMOTE_ITEM` broadcast scope; verify non-originating windows refetch items + openTabs on broadcast. Check if broadcast-handler scope filter is dropping the wrong scope on non-originating sidepanels.
+- **Files (expected)**: `background/messages/storage-handlers.js` (`MSG_DEMOTE_ITEM` broadcast scope) OR `sidepanel/sidepanel.js` (broadcast receiver); `tests/b102-cross-window-demote.test.js` (new, ≥ 5 tests); `docs/UAT_B-102.md` (new, ≥ 4 cases incl. multi-window manual repro); `docs/design/50-b-102-cross-window-demote.md` (new R6 chapter)
+- **Risk flags**: Multi-window UAT requires opening 2+ extension windows in a real browser session — chrome-mock can simulate but the bug may have a real-DOM-only manifestation. R5 [test-engineer] must execute the multi-window UAT in Edge before sprint close.
+
+### [B-103] Promote-tab duplicate bug
+- **Tier**: Full (S) — R1 → R2 → R3 → R4 (3 reviewers parallel) → R5 → R6 → R7
+  - *Tier upgraded from Fast Track (S default) to Full because the bug is in claim-establishment timing — touches the same subsystem as B-099 drift fix; full pipeline ensures regression coverage.*
+- **Status**: Backlog filed; awaiting R1 launch
+- **Wave**: 0 (parallel to B-100/B-102; touches `MSG_PROMOTE_TAB` + `buildOpenTabs` filter — different files)
+- **Feature Context**: After promoting an open tab → saved bookmark, BOTH the new bookmark item AND the original Open Tabs item are visible in the sidepanel; both show active. Indicates promote flow isn't establishing the claim atomically — there's a window where bookmark exists but claim isn't yet wired so `buildOpenTabs` doesn't filter the tab out.
+- **Dependencies**: B-016 ✅ (promote tab), B-055 ✅ (Open Tabs section)
+- **Investigation needed at R2**: trace `MSG_PROMOTE_TAB` → does it call `claimTabForItem` after `createItem`? Check broadcast emission timing relative to claim establishment. Likely fix: ensure the broadcast fires AFTER both `createItem` AND `claimTabForItem` resolve (atomic from receiver's perspective).
+- **Files (expected)**: `background/messages/storage-handlers.js` (`MSG_PROMOTE_TAB` handler); `tests/b103-promote-duplicate.test.js` (new, ≥ 5 tests); `docs/UAT_B-103.md` (new, ≥ 3 cases); R6 chapter folded into B-099 §46 As Built or new chapter (R6 architect decides)
+
+### [B-105] Solarized-light baseline WCAG AA contrast fix
+- **Tier**: Full (S) — R1 → R2 → R3 → R4 (3 reviewers parallel) → R5 → R6 → R7
+  - *Tier upgraded from Fast Track to Full because palette changes affect 1 of 14 themes and need careful regression coverage across surfaces (group headers, dialogs, picker swatches, drift indicators).*
+- **Status**: Backlog filed; awaiting R1 launch
+- **Wave**: 0 (parallel to B-100/102/103; touches `shared/themes.css` only)
+- **Feature Context**: Solarized-light theme baseline contrast is sub-AA (`--text-primary` `#586e75` vs `--bg-secondary` `#eee8d5` = 4.392:1). B-104 worked around this by setting `--group-header-tint-amount: 0%` for solarized-light; B-105 fixes the underlying palette so future tinted-surface features can ship without 0% overrides.
+- **Dependencies**: B-037 ✅ (theme system)
+- **R1 proposed**: (a) darken `--text-primary` to ~`#475158` OR (b) lighten `--bg-secondary` to ~`#f5f1e3`; (c) verify chosen fix doesn't break selection/picker/dialog surfaces; (d) once landed, `--group-header-tint-amount: 0%` override on solarized-light can be removed (B-106 verifies)
+- **Files (expected)**: `shared/themes.css` (solarized-light block — single token change); `docs/design/45-b-037-themes.md` (one-line palette correction note in As Built); `tests/b105-solarized-light-contrast.test.js` (new, ≥ 4 tests asserting computed AA contrast across multiple surfaces); `docs/UAT_B-105.md` (new, ≥ 3 cases)
+- **Risk flags**: Solarized canonical palette purity — fixing the contrast may deviate from the published Solarized hex values. R1 must lock whether to (1) deviate slightly from Solarized canonical to gain AA OR (2) ship a new "Solarized Light (high contrast)" variant theme. Recommend (1) for simplicity (single Solarized canonical user is unlikely to spot a `~4 unit` luminance shift; AA accessibility is a stronger product value).
+
+### [B-106] Group header tint brightness bump
+- **Tier**: Fast Track (XS) — R1 → R3 → R4 (code + security parallel)
+  - *Fast Track per CLAUDE.md tier rules: XS pure-CSS change. R2 + R5 + R6 + R7 skipped per Fast Track DoD.*
+- **Status**: Backlog filed; awaiting R1 launch
+- **Wave**: 1 (depends on B-105 — must land AFTER B-105 removes solarized-light 0% override; otherwise solarized-light silently absorbs the brighter default with no visual effect)
+- **Feature Context**: Product-owner feedback after v1.28.0: group header tints are "a bit too dark, would like them a little brighter." Current default is 12%; bump to ~16-20% for more vivid identity at a glance.
+- **Dependencies**: B-104 ✅ (`--group-header-tint-amount` per-theme escape hatch shipped); **B-105 (must land first in this sprint)**
+- **R1 proposed**: bump default from 12% → 18% (R1 picks 16%/18%/20%); re-verify WCAG AA spot-check matrix; if any theme drops below 4.5:1 at the new default, set per-theme override using existing variable; verify solarized-light renders correctly at the new bright default after B-105 lands
+- **Files (expected)**: `shared/themes.css` (single declaration in `:root` — bump default percentage); potentially a per-theme override block if any non-solarized theme drops below AA at the new default; `tests/b104-group-colors.test.js` (extend T3+T4 OR add T10 asserting new default value); `docs/design/47-b-104-themed-group-colors.md` (§47.5 spot-check matrix update)
+- **Risk flags**: WCAG AA regression risk on themes that were borderline at 12%. R4 [security/qa-reviewer] must re-spot-check the 20-row matrix at the new percentage. **R1 to lock**: exact percentage (recommend 18%); whether to rename `--group-header-tint-amount` (recommend no — minimize churn).
+
+---
+
+## Wave Plan
+
+```
+Wave 0 (4 items in parallel — independent surfaces)
+  ├── B-100 R1 → R2 → R3 → R4 → R5 → R6 → R7              [Full M, sidepanel UX]
+  ├── B-102 R1 → R2 → R3 → R4 → R5 → R6 → R7              [Full M, broadcast/SW]
+  ├── B-103 R1 → R2 → R3 → R4 → R5 → R6 → R7              [Full S, promote handler]
+  └── B-105 R1 → R2 → R3 → R4 → R5 → R6 → R7              [Full S, themes.css palette]
+
+Wave 1 (depends on B-105 done)
+  └── B-106 R1 → R3 → R4 (code + security parallel)        [Fast Track XS, tint bump]
+
+Sprint Close
+  Gate 4 → Gate 7 retrospective → [release-manager] v1.29.0 → archive (release/v2 only; no main merge)
+```
+
+**P-1 / P-2 / P-3 compliance**:
+- P-1 ✅ — zero L/XL items
+- P-2 ✅ — S/XS items (B-103, B-105, B-106) run alongside any active item
+- P-3 ✅ — exactly two M items (B-100, B-102) — at the P-3 limit; no third M
+
+**Parallel opportunities**:
+- Wave 0: 4 items × 3 parallel R4 reviewers = up to 12 reviewer agents simultaneously after R3 completes for each
+- B-100 + B-102 R3 run in parallel (different files: sidepanel UX vs SW broadcast)
+- B-103 R3 + B-105 R3 run in parallel with the above (background handler + themes CSS)
+
+**File-conflict matrix**:
+- `sidepanel/sidepanel.js`: B-100 (Delete handler) vs B-102 (broadcast receiver) vs B-103 (promote sender) — three items touch this file but different functions/sections. Risk: low; merge cleanly at line-section granularity.
+- `background/messages/storage-handlers.js`: B-102 (`MSG_DEMOTE_ITEM`) + B-103 (`MSG_PROMOTE_TAB`) — different cases in the same dispatch switch. Low risk.
+- `shared/themes.css`: B-105 (solarized-light block) + B-106 (default tint amount) — different sections. B-106 must follow B-105 chronologically (Wave 1) to avoid silently shipping with solarized-light still at 0%.
 
 ---
 
 ## Completed This Sprint
 
-### [B-101] Dotted drift bar in row left-edge gutter — ✅ DONE
-- **Tier**: Full (S) · **Closed**: 2026-04-26
-- **Pipeline**: R1 ✅ (locked pre-sprint brainstorm) · R2 ✅ (§48 design chapter D-1..D-5 + C-1..C-12) · R3 ✅ · R4 ✅ (3 reviewers parallel — 0 CRITICAL / 1 HIGH (test stub) / 2 MEDIUM / 7 LOW) · R5 ✅ (6 tests + 6 UAT cases + R4 HIGH/MEDIUM stub fixes in b011/b054/b048) · R6 ✅ (§48.10 As Built + D-3a live+drifted permutation extension) · R7 = inline CHANGELOG (this sprint close)
-- **Files changed**:
-  - `sidepanel/sidepanel.js` — `_createDriftedIcon` deleted; `_driftTooltipFor` helper added; `<span class="item-drift-bar">` injected as first child of `.item-row` in `buildItemRow`; `_ensureIndicators` signature extended to `(row, live, isDrifted, driftedToUrl)`; `refetchAndPatchLiveState` call site updated
-  - `sidepanel/sidepanel.css` — `.item-row { position: relative; }` added; `.item-drifted-icon` rules deleted; new `.item-drift-bar` rule
-  - `tests/b101-drift-bar.test.js` (new, 6 tests T1-T6)
-  - `tests/b011-drift.test.js` (re-pinned — inlined `_ensureIndicators` stub updated to new signature/behavior)
-  - `tests/b054-sidepanel.test.js` + `tests/b048-visual-states.test.js` (stale comments + local stubs hygiene)
-  - `docs/design/48-b-101-drift-bar.md` (new R2 chapter + R6 As Built)
-  - `docs/UAT_B-101.md` (new, 6 UAT cases)
-- **Key decisions**: D-1 sibling `<span>` (not pseudo-element) · D-2 `.item-row { position: relative }` · D-3 active+drifted side-by-side at `left: 3px` · D-3a live+drifted same geometry · D-4 row-level `aria-label` keeps "drifted" · D-5 bar visibility gates only on `_cachedDriftRecords`
-- **Test/UAT outcome**: 1,412 → 1,417 (+5 net). UAT plan authored (6 cases). Pending human walk-through.
-
-### [B-104] Themed group color system (colored headers + theme-aware palette tokens) — ✅ DONE
-- **Tier**: Full (M) · **Closed**: 2026-04-26
-- **Pipeline**: R1 ✅ ([product-manager] locked Q1-Q6 + 9 ACs) · R2 ✅ ([solution-architect] §47 design chapter D-1..D-5 + C-1..C-12 + 36-value flagship hex table) · R3 ✅ (153 `--gc-*` tokens shipped) · R4 ✅ (3 reviewers parallel — 0 CRITICAL / 3 HIGH (qa-reviewer WCAG/Ungrouped/hover) / 4 MEDIUM / 8 LOW) · R3-fix ✅ (3 HIGHs fixed pre-R5) · R5 ✅ (9 tests + 7 UAT cases) · R6 ✅ (§47.10 As Built + M-2 atom-one-dark hand-curation + M-3 D-5 contrast correction) · R7 = inline CHANGELOG
-- **Files changed**:
-  - `shared/themes.css` — 153 `--gc-*` declarations across 17 blocks (5 hand-curated + 9 algorithmic + 2 legacy aliases); `--group-header-tint-amount: 0%` override on `[data-theme="solarized-light"]`
-  - `sidepanel/sidepanel.css` — `.group-color-<slot>` swatches migrated to `var(--gc-<slot>)`; `.group-header` + `:hover` tint via `color-mix`
-  - `sidepanel/sidepanel.js` — group-header inline-style injection (gated by `GROUP_COLORS.includes(...)`); synthetic `__ungrouped__` group color → `null` (R3-fix H-2)
-  - `newtab/newtab.css` + `newtab/newtab.js` — analogous tint rule + injection (incl. R3-fix M-5 hover parity)
-  - `popup/group-jump-popup.css` — D-2 Option C `[data-color="<slot>"]` rules (9 slots)
-  - `popup/group-jump-popup.js` — `chip.dataset.color = pickerRow.color`
-  - `tests/b104-group-colors.test.js` (new, 9 tests T1-T9)
-  - `docs/design/47-b-104-themed-group-colors.md` (new R2 chapter + R6 As Built)
-  - `docs/UAT_B-104.md` (new, 7 UAT cases)
-  - `docs/SOLUTION_DESIGN.md` (TOC entry for §47)
-- **Key decisions**: D-1 hybrid 5 hand-curated + 9 algorithmic (R6 promoted atom-one-dark) · D-2 group-jump popup Option C (closes latent slate/teal/indigo bug) · D-3 tokens per `[data-theme]` block · D-4 `color-mix` Chromium 111+ baseline · D-5 single 12% recipe with `--group-header-tint-amount` per-theme escape hatch (solarized-light overrides to 0%)
-- **R3-fix applied (3 HIGHs)**: H-1 solarized-light WCAG (0% tint via `--group-header-tint-amount` override); H-2 Ungrouped slate-tint leak (synthetic group color → null); H-3 hover compound (resolved by H-1 fix automatically).
-- **R6 applied (2 MEDIUMs)**: M-2 atom-one-dark hand-curated; M-3 §47.3 D-5 + §47.5 row 19 corrected.
-- **Test/UAT outcome**: 1,417 → 1,426 (+9 net). UAT plan authored (7 cases). Pending human walk-through.
-- **Follow-up filed**: **B-105** (P2/S) — solarized-light underlying theme baseline contrast defect.
-
----
-
-## Wave Plan (executed)
-
-```
-Wave 0 (both items in parallel — independent surfaces)
-  ├── B-104 R1 ✅ → R2 ✅ → R3 ✅ → R4 ✅ → R3-fix ✅ → R5 ✅ → R6 ✅ → R7 ✅    [Full M]
-  └── B-101 R1 ✅ (pre-sprint) → R2 ✅ → R3 ✅ → R4 ✅ → R5 ✅ → R6 ✅ → R7 ✅    [Full S]
-
-Sprint Close
-  Gate 4 ✅ → Gate 7 ✅ → [release-manager] v1.28.0 → archive (release/v2 only; no main merge)
-```
-
-**P-1 / P-2 / P-3 compliance**:
-- P-1 ✅ — zero L/XL items
-- P-2 ✅ — only one S item (B-101)
-- P-3 ✅ — only one M item (B-104), max is two
-
----
-
-## Gate 7 — Sprint Retrospective (Sprint 34)
-
-### Velocity
-- Planned: 2 items / 1 M (B-104) + 1 S (B-101)
-- Completed: 2 items / 1 M + 1 S + 1 follow-up backlog item (B-105) filed from R4 surface
-- Carried over: 0
-- Test growth: 1,412 → 1,426 (+14 net, +1.0%)
-- Fix cycles: 1 R3-fix on B-104 (3 HIGH WCAG findings caught by qa-reviewer's contrast computation pre-R5)
-
-### What Went Well
-
-- **Parallel-pipeline pattern paid off**: B-101 R3 + B-104 R2 + R4 reviewers all ran simultaneously; B-104 R3 + B-101 R4 + R5 also overlapped. Two items shipped in one calendar day with full 7-round pipeline on both.
-- **R4 qa-reviewer caught the WCAG AA failure pre-R5** — contrast math computation surfaced 3 HIGHs that would have shipped silently if discovered only at human UAT (no contrast tooling assumed in UAT spec). The cost-of-late-discovery tradeoff justifies investing in contrast-math review during R4 for any tinted-surface item going forward.
-- **R2 design chapter quality stayed high under parallelism**: both §47 and §48 carried full D-decisions + C-1..C-12 + Performance + Accessibility + Rollback sections. R6 As Built sections close the loop cleanly.
-- **Follow-up backlog discipline held**: B-105 filed as the precise pre-existing defect surfaced by B-104 (not absorbed into B-104 scope creep). Workaround documented in B-104 R6.
-
-### What to Improve
-
-- **R2 contrast-math validation gap**: §47.3 D-5 mental walkthrough claimed solarized-light baseline = 7.21:1; actual was 4.392:1. The R2 [solution-architect] eyeballed it. Action item: when R2 cites a numeric WCAG contrast value, the agent MUST show the actual sRGB linear-luminance computation — not approximate.
-- **R3 deviation handling**: B-104 R3 added a hover-tint deviation (`--bg-hover` instead of `--bg-secondary`) without an inline comment marking it as intentional. Caught by code-reviewer M-1. Action item: any R3 deviation from R2 spec MUST land with an inline comment + R6 As-Built mention BEFORE R4 starts.
-- **Pre-existing defect surfacing creates surprise**: solarized-light's sub-AA baseline was a latent v1.0 defect. Surfacing it during a polish sprint cost a fix-cycle iteration. Action item: when adding a tinted-surface feature in any future sprint, R2 should include a pre-flight WCAG AA spot-check across all 14 themes' baseline (text vs. each surface bg token) — surfaces baseline issues BEFORE they cascade into the new feature.
-
-### Action Items for Next Sprint
-
-1. [scrum-master] CLAUDE.md R2 round details: add "When citing numeric WCAG contrast values, R2 MUST compute the value via the linear-luminance formula or scripted calculation — not approximate via mental walkthrough." [HIGH]
-2. [scrum-master] CLAUDE.md R3 round details: add "Any R3 implementation deviation from the R2 spec MUST land with an inline comment marking it as intentional + a corresponding R6 As-Built mention BEFORE R4 starts." [MEDIUM]
-3. [scrum-master] Triage B-105 at next sprint kickoff. Underlying theme defect — relevant to both this sprint's polish AND any future tinted-surface work. P2/S — pair with another small item. [HIGH]
-4. [scrum-master] Triage carryover bug-fix items B-100 / B-102 / B-103 (S33 follow-ups, P2/M and P2/S) — not absorbed by S34 visual-polish theme; ready for triage at S35. [HIGH]
+*(none yet — sprint not kicked off)*
 
 ---
 
@@ -121,8 +123,18 @@ Sprint Close
 
 ---
 
-## Backlog Items Filed This Sprint
+## Out of scope (explicit triage)
 
-| ID | Title | Priority | Effort | Source |
-|----|-------|----------|--------|--------|
-| B-105 | Solarized-light baseline WCAG AA contrast defect | P2 | S | B-104 R4 qa-reviewer HIGH (worked around in B-104; B-105 tracks the actual theme palette fix) |
+The following items were considered for S35 but deferred:
+
+- **B-041** (sync tab order, P2/L) — last big feature item; deserves its own dedicated sprint.
+- **B-076** (MIGRATION_STEPS hook) — passive future-work placeholder, activates when first migration step ships.
+- **B-086** (sidepanel UI/UX umbrella, P3/M) — broader umbrella; defer until S34/S35 polish work settles to assess what's still missing.
+
+---
+
+## Pre-flight reminders for kickoff
+
+When the user approves: [scrum-master] launches **4 R1 [product-manager] agents in parallel** for B-100, B-102, B-103, B-105, AND a 5th for B-106 (also R1). All five run simultaneously since R1 is pure definition (no code conflicts). Wave 1 dependency (B-106 ← B-105) is enforced at R3 — B-106 R3 cannot start until B-105 R3 is merged (or at least lands as the final hex in the same branch).
+
+Test count baseline: 1,426 (post-S34). Target post-S35: ~1,450+ depending on item-by-item test counts.

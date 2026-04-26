@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-26 · **Version:** 2.29 · **Total Items:** 105 · **Sprint 34 closed — v1.28.0 shipped to release/v2. Awaiting product-owner direction.**
+**Updated:** 2026-04-26 · **Version:** 2.30 · **Total Items:** 106 · **Sprint 35 active — Bug-fix queue + tint-brightness polish (B-100/102/103/105/106). 5 R1 agents launched in parallel.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  90% (95/105)  [0 in progress · S34 closed]
+Overall Progress    █████████████████░░░  90% (95/106)  [5 in progress · S35 active]
 ```
 
 ### Legend
@@ -122,6 +122,18 @@ Overall Progress    ██████████████████░░
 
 ---
 
+## Sprint 35 — Bug-fix queue + tint-brightness polish (active)
+
+> 0/5 done · 5 in progress · Kicked off 2026-04-26
+
+🔄 B-100 — Delete-on-live UX redesign · 🟡 · M [S35 Wave 0 — R1 in progress]
+🔄 B-102 — Cross-window demote broadcast bug · 🟡 · M [S35 Wave 0 — R1 in progress; multi-window UAT required]
+🔄 B-103 — Promote-tab duplicate bug · 🟡 · S [S35 Wave 0 — R1 in progress; claim-establishment atomicity]
+🔄 B-105 — Solarized-light baseline WCAG AA contrast fix · 🟡 · S [S35 Wave 0 — R1 in progress; themes.css palette]
+🔄 B-106 — Group header tint brightness bump · ⚪ · XS [S35 Wave 1 — R1 in progress; depends on B-105]
+
+---
+
 ## Sprint 34 — Visual polish: group color cohesion + dotted drift bar
 
 > 2/2 done · v1.28.0 shipped to release/v2 only (no main merge)
@@ -139,14 +151,9 @@ Overall Progress    ██████████████████░░
 
 ---
 
-## Pending Triage (filed from S33-S34, awaiting sprint placement)
+## Pending Triage
 
-> 4 items · all P2 · candidates for S35 or later
-
-⬜ B-100 — Delete-on-live UX: Delete should default to Close-tab when item is live · 🟡 · M [filed S33 UAT-2 user feedback]
-⬜ B-102 — Cross-window demote broadcast bug: item vanishes from non-originating windows · 🟡 · M [filed S33 UAT-13 user feedback]
-⬜ B-103 — Promote-tab duplicate bug: tab shown as both bookmark AND open-tab after promote · 🟡 · S [filed S33 UAT-13 user feedback]
-⬜ B-105 — Solarized-light theme baseline WCAG AA contrast defect (4.392:1 sub-AA before any tint) · 🟡 · S [filed S34 B-104 R4 qa-reviewer; B-104 worked around via 0% tint; B-105 fixes underlying palette]
+> 0 items · all queued items absorbed into S35.
 
 ---
 
@@ -222,7 +229,7 @@ Overall Progress    ██████████████████░░
 |--------|-------|---|
 | ✅ Done | 95 | 90% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 7 | 7% |
+| ⬜ To Do | 8 | 8% |
 | 🧊 Icebox | 3 | 3% |
 
-**To Do breakdown (7 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-100 (delete-on-live UX, P2/M · S33 follow-up), B-102 (cross-window demote bug, P2/M · S33 follow-up), B-103 (promote duplicate bug, P2/S · S33 follow-up), B-105 (solarized-light baseline WCAG AA contrast, P2/S · S34 follow-up).
+**To Do breakdown (8 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-100 (delete-on-live UX, P2/M · **S35**), B-102 (cross-window demote bug, P2/M · **S35**), B-103 (promote duplicate bug, P2/S · **S35**), B-105 (solarized-light baseline WCAG AA contrast, P2/S · **S35**), B-106 (tint brightness bump, P3/XS · **S35** new).
