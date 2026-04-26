@@ -6,6 +6,22 @@ All notable changes to Tab Junkie are documented in this file.
 
 *(nothing pending)*
 
+## [1.28.0] — 2026-04-26
+
+### Changed
+- **Group headers now tint with the group's chosen color (B-104)** — instead of just a small color chip, the entire group header bar shows a soft tint matching the group's palette pick (red/orange/yellow/green/teal/blue/purple/pink/indigo/slate). Tint reads at a glance without overwhelming the title text. Applies to side panel, new tab page, and group-jump popup.
+- **Group palette is now theme-aware (B-104)** — your "red" group now looks Dracula-red in Dracula, GitHub-red in GitHub Light, and so on across all 14 themes. Picker swatches in the create/edit dialog also re-skin per theme so what you pick is what you'll see. The 9 slot identities (red, blue, green, etc.) stay stable across themes — only the rendered hue shifts to harmonize with the active palette. Hand-curated for One Dark / Atom One Dark / Dracula / GitHub Light / System (default); algorithmically derived for the other 9 themes via `color-mix` against each theme's `--bg-secondary`.
+- **Drift indicator restyled as a dotted left-edge bar (B-101)** — replaces the 16 px warning triangle introduced in v1.27.0 with a 3 px dotted vertical bar in the row's left-edge gutter, stacked parallel to the active row's solid green border. Drift no longer competes with the audible / window-badge icons in the indicators strip. Hover the dotted bar to see the hostname tooltip ("Drifted to: github.com"). Sidepanel + standalone window only — newtab dot stays as-is.
+
+### Fixed
+- **Group-jump popup: slate, teal, and indigo color chips render correctly (B-104 D-2)** — these three slots were silently falling back to a generic avatar background due to a latent bug where the JS set the `--gj-group-color` CSS variable to a slot-name string (not a valid CSS color). Replaced with a declarative `[data-color="<slot>"]` attribute selector pattern; all 9 slots now render their theme-aware token color.
+
+### Known limitations
+- **`solarized-light` ships with no group-header tint (0%) (B-104 + new follow-up B-105)** — the `solarized-light` theme has a pre-existing baseline contrast issue where the body text vs. secondary background measures 4.39:1 (sub-AA before any tint is applied). B-104 surfaced this defect; rather than amplify it with a tint overlay, the new `--group-header-tint-amount` per-theme override sets solarized-light to 0% (group headers render at the bare baseline color — no worse than v1.27.0, no improvement either). All other 13 themes ship at the standard 12% tint. **B-105** tracks the underlying theme palette fix so future tinted-surface features can apply non-zero tints on solarized-light.
+
+### Note
+- **No reload required.** B-101 + B-104 introduce zero new pref keys, zero new manifest entries, and zero storage schema changes — you can update and use the new behavior immediately. **Tip**: if the side panel doesn't pick up the new visuals immediately after updating, hard-reload it (close + reopen the side panel) to flush the cached CSS.
+
 ## [1.27.0] — 2026-04-25
 
 ### Fixed

@@ -162,7 +162,7 @@ test('AC1: active row exposes `data-active` (non-color cue — left rail + backg
   assert.equal(row.dataset.active, 'true');
 });
 
-test('AC1: drifted row exposes `data-drifted` (non-color cue — triangle icon)', () => {
+test('AC1: drifted row exposes `data-drifted` (non-color cue — dotted left-gutter bar per B-101)', () => {
   const row = buildItemRow(
     { id: 'a', title: 'Hello' },
     { a: { live: true } },
@@ -394,28 +394,31 @@ test('regression: .item-select is the FIRST child of the row (stacking order §3
    Icon aria-hidden audit (AC7 deduplication)
    ========================================================================= */
 
-test('AC7: audible + drifted icons do NOT duplicate the row-level label when row aria-label carries the state', () => {
-  /* The real _createAudibleIcon / _createDriftedIcon set `aria-hidden="true"`
-     so AT reads the state from the row-level aria-label only. This test
-     reproduces the factories to guard the contract. */
+test('AC7: audible icon + B-101 drift bar do NOT duplicate the row-level label when row aria-label carries the state', () => {
+  /* The real `_createAudibleIcon` (sidepanel.js) sets `aria-hidden="true"`
+     so AT reads audible state from the row-level aria-label only. The
+     B-101 `.item-drift-bar` <span> (built inline in `buildItemRow`,
+     replacing the deleted `_createDriftedIcon`) follows the same pattern:
+     `aria-hidden="true"`, no per-element `aria-label`. This test
+     reproduces both shapes to guard the contract. */
   function createAudibleIcon() {
     const span = mkElem('SPAN');
     span.className = 'item-audible-icon';
     span.setAttribute('aria-hidden', 'true');
     return span;
   }
-  function createDriftedIcon() {
+  function createDriftBar() {
     const span = mkElem('SPAN');
-    span.className = 'item-drifted-icon';
+    span.className = 'item-drift-bar';
     span.setAttribute('aria-hidden', 'true');
     return span;
   }
   const audible = createAudibleIcon();
-  const drifted = createDriftedIcon();
+  const driftBar = createDriftBar();
   assert.equal(audible.getAttribute('aria-hidden'), 'true');
-  assert.equal(drifted.getAttribute('aria-hidden'), 'true');
+  assert.equal(driftBar.getAttribute('aria-hidden'), 'true');
   assert.equal(audible.getAttribute('aria-label'), null, 'no per-icon label — avoid duplicate AT announcement');
-  assert.equal(drifted.getAttribute('aria-label'), null, 'no per-icon label — avoid duplicate AT announcement');
+  assert.equal(driftBar.getAttribute('aria-label'), null, 'no per-element label — avoid duplicate AT announcement (B-101 D-4)');
 });
 
 /* =========================================================================

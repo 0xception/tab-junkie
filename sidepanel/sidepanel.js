@@ -2084,10 +2084,16 @@ function renderAll(items, groups, liveStates, driftRecords, openTabs) {
   /* Ungrouped items (W2 — uses unified buildGroupSection) */
   const ungrouped = byGroup.get(null);
   if (ungrouped && ungrouped.length) {
+    /* B-104 R4 H-2: synthetic Ungrouped group MUST NOT carry a `color` slot.
+       Per §47.5 C-9(c), the Ungrouped section has no group record → no
+       `--group-header-color` injection → header renders untinted via the
+       `transparent` fallback in the `.group-header` `color-mix` recipe.
+       The injection guard at line ~2188 (`GROUP_COLORS.includes(group.color)`)
+       evaluates `false` for `null`/`undefined` and skips the inline style. */
     const syntheticGroup = {
       id: '__ungrouped__',
       name: 'Ungrouped',
-      color: 'slate',
+      color: null,
       collapsed: collapsedGroups.has('__ungrouped__'),
     };
     /* Temporarily place ungrouped items under the synthetic id for buildGroupSection */
@@ -2179,11 +2185,15 @@ function buildGroupSection(group, byGroup, liveStates, driftRecords, isChild) {
   collapseIcon.innerHTML =
     '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-  /* Color chip */
+  /* Color chip + B-104 §47.3 D-5 full-bleed header tint. The chip is
+     retained for redundancy (small visual anchor; cleanest swatch CSS reuse).
+     The inline `--group-header-color` resolves the header's `color-mix` tint
+     via the per-theme `--gc-<slot>` cascade in `shared/themes.css`. */
   const chip = document.createElement('span');
   chip.className = 'group-color-chip';
   if (GROUP_COLORS.includes(group.color)) {
     chip.classList.add('group-color-' + group.color);
+    header.style.setProperty('--group-header-color', `var(--gc-${group.color})`);
   }
 
   /* Name */
@@ -2262,40 +2272,29 @@ function _createAudibleIcon() {
 }
 
 /**
- * B-099 §46.3 D-7 — drift indicator factory.
+ * B-101 §48.3 D-1 — compute the drift tooltip string for a `.item-drift-bar`
+ * `title` attribute. Hostname-only per B-099 D-7 / §48.7 (concise across long
+ * URLs with paths/queries; less PII leak). Falls through to "Drifted to a
+ * different URL" when the URL is missing or un-parseable.
  *
- * Two changes from B-011:
- *  1. SVG bumped from 14 → 16 px (viewport scaled in lockstep) so the icon
- *     reads as more prominent next to the green live dot, audible note, and
- *     the cross-window badge. Color stays driven by `--drifted-color` (which
- *     is defined in all 14 themes per §46.2 reality check).
- *  2. Optional `driftedToUrl` arg: when present, sets `title="Drifted to:
- *     <hostname>"` on the span — a browser-native tooltip. Hostname-only
- *     per Q3 (concise across long URLs with paths/queries; less PII leak).
- *     The row's `aria-label` (built by `buildItemRowAriaLabel`) is still the
- *     authoritative AT carrier (B-048 AC7 contract preserved); the new
- *     `title` is additive for sighted users.
+ * Used by both `buildItemRow` first-paint and `_ensureIndicators` true→true
+ * tooltip refresh — extracted to avoid duplication between the two call sites
+ * (R2 §48.3 D-1 implementation note).
  *
  * @param {string} [driftedToUrl] the absolute URL the live tab drifted to
+ * @returns {string} a tooltip string ready for `bar.title`
  */
-function _createDriftedIcon(driftedToUrl) {
-  const span = document.createElement('span');
-  span.className = 'item-drifted-icon';
-  /* B-048 AC7: see `_createAudibleIcon` — row-level `aria-label` carries
-     the drift state. Icon is visual-only for AT. */
-  span.setAttribute('aria-hidden', 'true');
-  span.innerHTML =
-    '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 1l7 13H1L8 1z" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linejoin="round"/><path d="M8 6v3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="11.5" r="0.9" fill="currentColor"/></svg>';
-  if (typeof driftedToUrl === 'string' && driftedToUrl.length > 0) {
-    let hostname = '';
-    try {
-      hostname = new URL(driftedToUrl).hostname;
-    } catch {
-      /* Fall through — fallback tooltip below covers the un-parseable case. */
-    }
-    span.title = hostname ? `Drifted to: ${hostname}` : 'Drifted to a different URL';
+function _driftTooltipFor(driftedToUrl) {
+  if (typeof driftedToUrl !== 'string' || driftedToUrl.length === 0) {
+    return 'Drifted to a different URL';
   }
-  return span;
+  let hostname = '';
+  try {
+    hostname = new URL(driftedToUrl).hostname;
+  } catch {
+    /* Fall through — un-parseable URL falls back to the generic string. */
+  }
+  return hostname ? `Drifted to: ${hostname}` : 'Drifted to a different URL';
 }
 
 /**
@@ -2363,6 +2362,23 @@ function buildItemRow(item, liveStates, driftRecords) {
     row.dataset.windowId = String(live.windowId);
   }
 
+  /* B-101 §48.3 D-1: drift bar is a sibling <span> injected as the FIRST
+     child of the row so it occupies the absolutely-positioned left gutter
+     (resolves against `.item-row { position: relative; }` per D-2). The bar
+     is always present in the DOM; its `hidden` attribute toggles visibility
+     when drift state changes (avoids DOM creation/removal on rapid drift
+     cycles). `aria-hidden="true"` mirrors `_createAudibleIcon` — the row
+     `aria-label` carries the AT-visible drift string per B-048 AC7 (D-4). */
+  const driftBar = document.createElement('span');
+  driftBar.className = 'item-drift-bar';
+  driftBar.setAttribute('aria-hidden', 'true');
+  if (drifted) {
+    driftBar.title = _driftTooltipFor(drifted.driftedToUrl);
+  } else {
+    driftBar.hidden = true;
+  }
+  row.appendChild(driftBar);
+
   /* B-048 §31.5: prepend the checkbox affordance BEFORE any other flex child
      so it occupies the first slot visually. `_setRowSelected` keeps the
      `aria-checked` mirror in sync on every selection change.
@@ -2418,33 +2434,28 @@ function buildItemRow(item, liveStates, driftRecords) {
   textBlock.appendChild(url);
   row.appendChild(textBlock);
 
-  /* Indicators — only create when state is active */
+  /* Indicators — only create when state is active.
+     B-101 §48.3: drift no longer participates in the indicator strip; the
+     dotted bar in the row's left-edge gutter is the new drift treatment.
+     Strip contents reduce to: window badge → audible icon. */
   const needsAudible = live?.audible;
-  const needsDrifted = !!drifted;
   /* B-014: cross-window badge is needed when the claim lives in another
      window than this sidepanel. */
   const needsWindowBadge = live?.live
     && live?.windowId != null
     && (_panelWindowId == null || live.windowId !== _panelWindowId);
 
-  if (needsAudible || needsDrifted || needsWindowBadge) {
+  if (needsAudible || needsWindowBadge) {
     const indicators = document.createElement('div');
     indicators.className = 'item-indicators';
 
-    /* B-014: window badge is prepended (reads naturally as "W2 [audio] [drift]"). */
+    /* B-014: window badge is prepended (reads naturally as "W2 [audio]"). */
     if (needsWindowBadge) {
       _renderWindowBadge(indicators, live.windowId, ITEM_WINDOW_BADGE_CLASS);
     }
 
     if (needsAudible) {
       indicators.appendChild(_createAudibleIcon());
-    }
-
-    if (needsDrifted) {
-      /* B-099 D-7: pass driftedToUrl through so the icon renders the
-         "Drifted to: <hostname>" tooltip. `drifted` is the raw drift record
-         (or undefined) sourced from `driftRecords[itemId]` above. */
-      indicators.appendChild(_createDriftedIcon(drifted?.driftedToUrl));
     }
 
     row.appendChild(indicators);
@@ -3064,8 +3075,10 @@ async function refetchAndPatchLiveState() {
       delete row.dataset.windowId;
     }
 
-    /* H-8, B-011: Ensure indicator DOM nodes exist when state transitions false→true */
-    _ensureIndicators(row, live, !!drifted);
+    /* H-8, B-011: Ensure indicator DOM nodes exist when state transitions false→true.
+       B-101 §48.3: signature extended with `driftedToUrl` so the helper can flip
+       the drift bar's `title` directly without re-reading `_cachedDriftRecords`. */
+    _ensureIndicators(row, live, !!drifted, drifted?.driftedToUrl);
     /* B-014: keep the cross-window badge current on every live-state patch
        — handles tab moves between windows as well as initial badge insertion. */
     _patchItemWindowBadge(row, live);
@@ -3139,10 +3152,22 @@ async function refetchAndPatchLiveState() {
 }
 
 /**
- * Ensure audible indicator DOM node exists/is removed to match live state.
- * Covers the case where a tab becomes audible or drifted after initial render (H-8, B-011).
+ * Ensure audible indicator DOM node exists/is removed and the drift bar's
+ * visibility / tooltip match the latest live + drift state.
+ *
+ * Audible follows the H-8 / B-011 pattern: lazily create / remove the icon
+ * inside `.item-indicators` (creating the strip itself on demand and cleaning
+ * it up when empty). Drift follows the B-101 §48.3 D-1 pattern: the
+ * `.item-drift-bar` <span> is always present in the row from `buildItemRow`,
+ * so transitions are pure attribute toggles — no DOM creation, no DOM removal,
+ * no reflow. The strip-cleanup contract no longer involves drift.
+ *
+ * @param {HTMLElement} row the item row being patched
+ * @param {object} live the current live-state object for the row's itemId
+ * @param {boolean} isDrifted whether the item is currently in `_cachedDriftRecords`
+ * @param {string} [driftedToUrl] the drifted-to URL for tooltip refresh (B-101)
  */
-function _ensureIndicators(row, live, isDrifted) {
+function _ensureIndicators(row, live, isDrifted, driftedToUrl) {
   if (!row.isConnected) return;
   const needsAudible = !!live?.audible;
   let audibleIcon = row.querySelector('.item-audible-icon');
@@ -3167,48 +3192,25 @@ function _ensureIndicators(row, live, isDrifted) {
     if (indicators && indicators.children.length === 0) indicators.remove();
   }
 
-  const needsDrifted = !!isDrifted;
-  let driftedIcon = row.querySelector('.item-drifted-icon');
-  if (needsDrifted && !driftedIcon) {
-    let indicators = row.querySelector('.item-indicators');
-    if (!indicators) {
-      indicators = document.createElement('div');
-      indicators.className = 'item-indicators';
-      const actions = row.querySelector('.item-actions');
-      if (actions) {
-        row.insertBefore(indicators, actions);
-      } else {
-        row.appendChild(indicators);
-      }
+  /* B-101 §48.3 D-1 / D-5: drift bar is always present in the row DOM (added
+     by `buildItemRow`). Transitions toggle the `hidden` attribute and the
+     `title` tooltip — no DOM creation/removal. The bar's visibility gates
+     exclusively on `isDrifted` per D-5 (drift records only exist for claimed
+     items per §10.7, so no live/claim coupling is needed). */
+  const bar = row.querySelector('.item-drift-bar');
+  if (bar) {
+    if (isDrifted) {
+      const url = typeof driftedToUrl === 'string' && driftedToUrl.length > 0
+        ? driftedToUrl
+        : (row.dataset.itemId
+          ? _cachedDriftRecords[row.dataset.itemId]?.driftedToUrl
+          : undefined);
+      bar.hidden = false;
+      bar.title = _driftTooltipFor(url);
+    } else {
+      bar.hidden = true;
+      bar.removeAttribute('title');
     }
-    /* B-099 D-7: when the drift indicator is created on a live-state patch
-       (state transitioned false → true after the row was first rendered),
-       look up the drifted-to URL from the in-memory cache so the new icon
-       carries the "Drifted to: <hostname>" tooltip. The cache is the same
-       authoritative source `buildItemRow` reads at first paint. */
-    const itemId = row.dataset.itemId;
-    const driftedToUrl = itemId ? _cachedDriftRecords[itemId]?.driftedToUrl : undefined;
-    driftedIcon = _createDriftedIcon(driftedToUrl);
-    indicators.appendChild(driftedIcon);
-  } else if (needsDrifted && driftedIcon) {
-    /* B-099 M-1: tooltip refresh for true→true drift change (item drifts to
-       a new URL without the indicator being removed first). Re-derive the
-       hostname from the current cache entry so the title stays accurate. */
-    const itemId = row.dataset.itemId;
-    const driftedToUrl = itemId ? _cachedDriftRecords[itemId]?.driftedToUrl : undefined;
-    if (typeof driftedToUrl === 'string' && driftedToUrl.length > 0) {
-      let hostname = '';
-      try {
-        hostname = new URL(driftedToUrl).hostname;
-      } catch {
-        /* Fall through — use raw URL as fallback. */
-      }
-      driftedIcon.title = hostname ? `Drifted to: ${hostname}` : 'Drifted to a different URL';
-    }
-  } else if (!needsDrifted && driftedIcon) {
-    driftedIcon.remove();
-    const indicators = row.querySelector('.item-indicators');
-    if (indicators && indicators.children.length === 0) indicators.remove();
   }
 }
 

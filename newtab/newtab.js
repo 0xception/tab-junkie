@@ -39,6 +39,7 @@ import {
   MSG_GET_PREFERENCES,
 } from '../shared/messages.js';
 import { SCOPE } from '../shared/scopes.js';
+import { GROUP_COLORS } from '../shared/constants.js';
 import { buildHighlightedText } from '../shared/highlight.js';
 import { isSafeFaviconUrl } from '../shared/favicon.js';
 import { buildIndex, search, diffAndPatch } from '../sidepanel/search-index.js';
@@ -701,6 +702,13 @@ function _buildGroupSection(group, groupKey, items, isChild = false) {
   const header = document.createElement('h2');
   header.className = 'newtab-group-header';
   header.id = headerId;
+  /* B-104 §47.3 D-5: inline `--group-header-color` resolves the header's
+     `color-mix` tint via the per-theme `--gc-<slot>` cascade. The Ungrouped
+     section has no group record → no inline property → header stays untinted
+     via the `transparent` fallback in the recipe. */
+  if (group && GROUP_COLORS.includes(group.color)) {
+    header.style.setProperty('--group-header-color', `var(--gc-${group.color})`);
+  }
 
   const nameSpan = document.createElement('span');
   nameSpan.className = 'newtab-group-name';

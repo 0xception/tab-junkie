@@ -59,6 +59,16 @@
   /* B-037: SVG-encoded URL for the item-select checkmark stroke. Light themes
      keep the white stroke baseline; dark themes override below. */
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-104 §47.3 D-1: themed group-color tokens (system light = canonical hex). */
+  --gc-blue: #2563eb;
+  --gc-purple: #7c3aed;
+  --gc-teal: #0d9488;
+  --gc-red: #dc2626;
+  --gc-orange: #ea580c;
+  --gc-pink: #db2777;
+  --gc-indigo: #4f46e5;
+  --gc-yellow: #ca8a04;
+  --gc-slate: #64748b;
 }
 
 /* When the OS reports dark, `data-theme="system"` flips to a dark palette. */
@@ -99,6 +109,16 @@
        colour-encoded into the SVG so the contrast on the saturated accent
        background is ≥ AA. */
     --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%230a0f1a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    /* B-104: algorithmic mix(canonical, #22262e, 0.30). */
+    --gc-blue: #2451b2;
+    --gc-purple: #6134b4;
+    --gc-teal: #13736d;
+    --gc-red: #a42628;
+    --gc-orange: #ae4916;
+    --gc-pink: #a32761;
+    --gc-indigo: #423cae;
+    --gc-yellow: #986c11;
+    --gc-slate: #505d6f;
   }
 }
 
@@ -140,6 +160,16 @@
   --selected-bg: #ddf4ff;
   --selected-border: #0969da;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-104: hand-curated (Primer palette). */
+  --gc-blue: #0969da;
+  --gc-purple: #8250df;
+  --gc-teal: #1f7f5e;
+  --gc-red: #cf222e;
+  --gc-orange: #bc4c00;
+  --gc-pink: #bf3989;
+  --gc-indigo: #6639ba;
+  --gc-yellow: #9a6700;
+  --gc-slate: #59636e;
 }
 
 /* --- Tomorrow (light) --- */
@@ -176,6 +206,16 @@
   --selected-bg: #eaf2fb;
   --selected-border: #4271ae;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-104: algorithmic mix(canonical, #f5f5f5, 0.30). */
+  --gc-blue: #638fee;
+  --gc-purple: #a072ef;
+  --gc-teal: #53b1a9;
+  --gc-red: #e46464;
+  --gc-orange: #ed8752;
+  --gc-pink: #e3659d;
+  --gc-indigo: #817bea;
+  --gc-yellow: #d7aa4c;
+  --gc-slate: #909bab;
 }
 
 /* --- Atom One Light --- */
@@ -212,6 +252,16 @@
   --selected-bg: #e6efff;
   --selected-border: #4078f2;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-104: algorithmic mix(canonical, #f0f0f0, 0.30). */
+  --gc-blue: #628ded;
+  --gc-purple: #9f71ee;
+  --gc-teal: #51b0a7;
+  --gc-red: #e26363;
+  --gc-orange: #ec8650;
+  --gc-pink: #e1639b;
+  --gc-indigo: #7f79e8;
+  --gc-yellow: #d5a94b;
+  --gc-slate: #8e99a9;
 }
 
 /* --- Solarized Light --- */
@@ -248,6 +298,25 @@
   --selected-bg: #e3eef7;
   --selected-border: #268bd2;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-104: algorithmic mix(canonical, #eee8d5, 0.30). */
+  --gc-blue: #618be4;
+  --gc-purple: #9e6ee6;
+  --gc-teal: #50ad9f;
+  --gc-red: #e1605b;
+  --gc-orange: #eb8348;
+  --gc-pink: #e16193;
+  --gc-indigo: #7f77e0;
+  --gc-yellow: #d5a643;
+  --gc-slate: #8d97a1;
+  /* B-104 R4 H-1: solarized-light's `--text-primary` (#586e75) measures
+     only 4.39:1 against the bare `--bg-secondary` (#eee8d5) — already
+     sub-AA before any group tint is applied. Any non-zero tint pushes
+     contrast further below 4.5:1 across all 9 slots, so we suppress the
+     B-104 tint entirely on this theme and flag the underlying
+     theme-baseline defect for product-owner review. R3-fix verification:
+     all 9 slots compute to 4.39:1 at 0% tint (== untinted bg) — matches
+     pre-B-104 visual baseline; B-104 makes solarized-light no worse. */
+  --group-header-tint-amount: 0%;
 }
 
 /* =========================================================================
@@ -288,6 +357,16 @@
   --selected-bg: #0c2d6b;
   --selected-border: #2f81f7;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-104: algorithmic mix(canonical, #161b22, 0.30). */
+  --gc-blue: #214daf;
+  --gc-purple: #5d31b0;
+  --gc-teal: #107069;
+  --gc-red: #a12325;
+  --gc-orange: #aa4613;
+  --gc-pink: #a0235e;
+  --gc-indigo: #3e39aa;
+  --gc-yellow: #94690d;
+  --gc-slate: #4d596c;
 }
 
 /* --- Tomorrow Night --- */
@@ -324,6 +403,16 @@
   --selected-bg: #2a3340;
   --selected-border: #81a2be;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%231d1f21' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-104: algorithmic mix(canonical, #282a2e, 0.30). */
+  --gc-blue: #2652b2;
+  --gc-purple: #6335b4;
+  --gc-teal: #15746d;
+  --gc-red: #a62728;
+  --gc-orange: #b04a16;
+  --gc-pink: #a52861;
+  --gc-indigo: #433eae;
+  --gc-yellow: #996d11;
+  --gc-slate: #525e6f;
 }
 
 /* --- Atom One Dark --- */
@@ -360,6 +449,19 @@
   --selected-bg: #2c3a4d;
   --selected-border: #61afef;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23282c34' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-104 R6 M-2: promoted to hand-curated. atom-one-dark and one-dark share
+     --bg-secondary (#21252b) and the same Atom One Dark base palette, so the
+     two themes get identical --gc-* values. Pink reuses red, indigo reuses
+     purple — same intentional repurposing as one-dark per §47.3 D-1. */
+  --gc-blue: #61afef;
+  --gc-purple: #c678dd;
+  --gc-teal: #56b6c2;
+  --gc-red: #e06c75;
+  --gc-orange: #d19a66;
+  --gc-pink: #e06c75;
+  --gc-indigo: #c678dd;
+  --gc-yellow: #e5c07b;
+  --gc-slate: #5c6370;
 }
 
 /* --- Solarized Dark --- */
@@ -396,6 +498,16 @@
   --selected-bg: #0a3a4f;
   --selected-border: #268bd2;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23002b36' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-104: algorithmic mix(canonical, #073642, 0.30). */
+  --gc-blue: #1c56b8;
+  --gc-purple: #5939ba;
+  --gc-teal: #0b7873;
+  --gc-red: #9c2b2e;
+  --gc-orange: #a64e1c;
+  --gc-pink: #9b2c67;
+  --gc-indigo: #3941b4;
+  --gc-yellow: #8f7117;
+  --gc-slate: #486175;
 }
 
 /* --- Dracula --- */
@@ -432,6 +544,16 @@
   --selected-bg: #3b2f55;
   --selected-border: #bd93f9;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23282a36' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-104: hand-curated (Dracula palette; indigo reuses purple, blue reuses cyan). */
+  --gc-blue: #8be9fd;
+  --gc-purple: #bd93f9;
+  --gc-teal: #50fa7b;
+  --gc-red: #ff5555;
+  --gc-orange: #ffb86c;
+  --gc-pink: #ff79c6;
+  --gc-indigo: #bd93f9;
+  --gc-yellow: #f1fa8c;
+  --gc-slate: #6272a4;
 }
 
 /* --- Nord --- */
@@ -468,6 +590,16 @@
   --selected-bg: #3a4a55;
   --selected-border: #88c0d0;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%232e3440' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-104: algorithmic mix(canonical, #3b4252, 0.30). */
+  --gc-blue: #2c59bd;
+  --gc-purple: #693cbe;
+  --gc-teal: #1b7b78;
+  --gc-red: #ac2e33;
+  --gc-orange: #b55121;
+  --gc-pink: #ab2f6c;
+  --gc-indigo: #4945b9;
+  --gc-yellow: #9f741b;
+  --gc-slate: #58657a;
 }
 
 /* --- One Dark (D-2 migration target for legacy 'dark') --- */
@@ -504,6 +636,16 @@
   --selected-bg: #2c3a4d;
   --selected-border: #61afef;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23282c34' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-104: hand-curated (One Dark palette; pink reuses red, indigo reuses purple). */
+  --gc-blue: #61afef;
+  --gc-purple: #c678dd;
+  --gc-teal: #56b6c2;
+  --gc-red: #e06c75;
+  --gc-orange: #d19a66;
+  --gc-pink: #e06c75;
+  --gc-indigo: #c678dd;
+  --gc-yellow: #e5c07b;
+  --gc-slate: #5c6370;
 }
 
 /* --- Monokai --- */
@@ -540,6 +682,16 @@
   --selected-bg: #3a4023;
   --selected-border: #a6e22e;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23272822' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-104: algorithmic mix(canonical, #1e1f1a, 0.30). */
+  --gc-blue: #234fac;
+  --gc-purple: #6032ae;
+  --gc-teal: #127167;
+  --gc-red: #a32422;
+  --gc-orange: #ad4710;
+  --gc-pink: #a2255b;
+  --gc-indigo: #403aa8;
+  --gc-yellow: #966a0b;
+  --gc-slate: #4f5a69;
 }
 
 /* --- Tokyo Night --- */
@@ -576,6 +728,16 @@
   --selected-bg: #1f2b4a;
   --selected-border: #7aa2f7;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%231a1b26' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-104: algorithmic mix(canonical, #16161e, 0.30). */
+  --gc-blue: #214cae;
+  --gc-purple: #5d2faf;
+  --gc-teal: #106e68;
+  --gc-red: #a12124;
+  --gc-orange: #aa4411;
+  --gc-pink: #a0225c;
+  --gc-indigo: #3e38a9;
+  --gc-yellow: #94670c;
+  --gc-slate: #4d586a;
 }
 
 /* =========================================================================
@@ -619,6 +781,16 @@
   --selected-bg: #e6efff;
   --selected-border: #4078f2;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-104 D-1: legacy alias copies the atom-one-light gc-* token set. */
+  --gc-blue: #628ded;
+  --gc-purple: #9f71ee;
+  --gc-teal: #51b0a7;
+  --gc-red: #e26363;
+  --gc-orange: #ec8650;
+  --gc-pink: #e1639b;
+  --gc-indigo: #7f79e8;
+  --gc-yellow: #d5a94b;
+  --gc-slate: #8e99a9;
 }
 
 /* legacy 'dark' → mirrors one-dark */
@@ -655,4 +827,14 @@
   --selected-bg: #2c3a4d;
   --selected-border: #61afef;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23282c34' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-104 D-1: legacy alias copies the one-dark gc-* token set. */
+  --gc-blue: #61afef;
+  --gc-purple: #c678dd;
+  --gc-teal: #56b6c2;
+  --gc-red: #e06c75;
+  --gc-orange: #d19a66;
+  --gc-pink: #e06c75;
+  --gc-indigo: #c678dd;
+  --gc-yellow: #e5c07b;
+  --gc-slate: #5c6370;
 }

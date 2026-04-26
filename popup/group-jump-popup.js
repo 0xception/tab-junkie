@@ -33,6 +33,7 @@
  */
 
 import { MSG_GET_PREFERENCES, MSG_LIST_ITEMS, MSG_LIST_GROUPS, MSG_NAVIGATE_TO_ITEM } from '../shared/messages.js';
+import { GROUP_COLORS } from '../shared/constants.js';
 /* B-037 UAT-6: shared theme applier. Popup ignores broadcast subscriptions
    (short-lived surface; one-shot boot read is the precedent from popup.js). */
 import { applyTheme as _applyTheme } from '../shared/surface-prefs.js';
@@ -723,10 +724,16 @@ function _buildRowElement(row, index, q) {
   if (row.kind === 'group' || row.kind === 'subgroup') {
     const pickerRow = row.kind === 'group' ? row.row : _pickerRowFromGroup(row.group);
 
+    /* B-104 §47.3 D-2 (Option C): chip background resolves via the
+       declarative `[data-color="<slot>"]` selector against the per-theme
+       `--gc-<slot>` cascade. Closes the latent bug where the previous
+       `--gj-group-color` was set to the raw slot-name string (invalid CSS
+       color for slate/teal/indigo). The `GROUP_COLORS.includes` allow-list
+       guard is defensive — storage validation already enforces it. */
     const chip = document.createElement('span');
     chip.className = 'gj-color-chip';
-    if (pickerRow.color) {
-      chip.style.setProperty('--gj-group-color', pickerRow.color);
+    if (pickerRow.color && GROUP_COLORS.includes(pickerRow.color)) {
+      chip.dataset.color = pickerRow.color;
     }
     chip.setAttribute('aria-hidden', 'true');
     li.appendChild(chip);

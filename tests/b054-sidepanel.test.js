@@ -8,12 +8,16 @@
  *
  * Coverage targets:
  *  - isSafeFaviconUrl (R4 H-1 security surface)
- *  - _createAudibleIcon / _createDriftedIcon (R4 SVG factory extraction)
+ *  - _createAudibleIcon (R4 SVG factory extraction)
+ *  - _driftTooltipFor (B-101 §48.3 D-1 — replaces the deleted
+ *    `_createDriftedIcon`; drift is now communicated via the always-present
+ *    `.item-drift-bar` span built by `buildItemRow`, not a separate icon
+ *    factory)
  *  - sendMessage wrapper (null-response / error handling)
  *  - buildHighlightedText (filter highlight, uses minimal DOM shim)
  *
- * NOTE: _createAudibleIcon, _createDriftedIcon, and buildHighlightedText
- * require DOM APIs (document.createElement, createTextNode, createDocumentFragment).
+ * NOTE: _createAudibleIcon and buildHighlightedText require DOM APIs
+ * (document.createElement, createTextNode, createDocumentFragment).
  * A lightweight shim is installed before those tests. The shim is intentionally
  * minimal — it does NOT replicate a real browser DOM, only enough to verify
  * return-value structure.
@@ -100,16 +104,27 @@ function _createAudibleIcon() {
 }
 
 /* =========================================================================
-   Reproduced: _createDriftedIcon  (sidepanel.js lines 665-672)
+   Reproduced: _driftTooltipFor  (sidepanel.js ~L2281, post-B-101 §48.3 D-1)
+
+   B-101 deleted the `_createDriftedIcon` SVG factory entirely. The drift
+   indicator is now an always-present `<span class="item-drift-bar" hidden>`
+   injected by `buildItemRow` as the first child of every `.item-row`. The
+   only shared helper that survived the deletion is `_driftTooltipFor`,
+   which extracts the hostname from the drifted-to URL with a `try/catch`
+   fallback. These tests guard the helper's contract.
    ========================================================================= */
 
-function _createDriftedIcon() {
-  const span = fakeDocument.createElement('span');
-  span.className = 'item-drifted-icon';
-  span.setAttribute('aria-label', 'Tab has navigated away from its saved URL');
-  span.innerHTML =
-    '<svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1l6 11H1L7 1z" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/><path d="M7 5v3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="7" cy="10" r="0.8" fill="currentColor"/></svg>';
-  return span;
+function _driftTooltipFor(driftedToUrl) {
+  if (typeof driftedToUrl !== 'string' || driftedToUrl.length === 0) {
+    return 'Drifted to a different URL';
+  }
+  let hostname = '';
+  try {
+    hostname = new URL(driftedToUrl).hostname;
+  } catch {
+    /* fall through */
+  }
+  return hostname ? `Drifted to: ${hostname}` : 'Drifted to a different URL';
 }
 
 /* =========================================================================
@@ -266,23 +281,22 @@ test('_createAudibleIcon: innerHTML contains SVG', () => {
 });
 
 /* =========================================================================
-   Tests: _createDriftedIcon factory (R4 SVG extraction fix)
+   Tests: _driftTooltipFor (B-101 §48.3 D-1 — replaces the removed
+   `_createDriftedIcon` factory tests)
    ========================================================================= */
 
-test('_createDriftedIcon: returns span with correct className', () => {
-  const icon = _createDriftedIcon();
-  assert.equal(icon.className, 'item-drifted-icon');
+test('_driftTooltipFor: extracts hostname from a normal URL', () => {
+  assert.equal(_driftTooltipFor('https://example.com/foo/bar'), 'Drifted to: example.com');
 });
 
-test('_createDriftedIcon: has aria-label describing drift', () => {
-  const icon = _createDriftedIcon();
-  assert.equal(icon.getAttribute('aria-label'), 'Tab has navigated away from its saved URL');
+test('_driftTooltipFor: falls back to generic string when URL is missing', () => {
+  assert.equal(_driftTooltipFor(undefined), 'Drifted to a different URL');
+  assert.equal(_driftTooltipFor(''), 'Drifted to a different URL');
+  assert.equal(_driftTooltipFor(null), 'Drifted to a different URL');
 });
 
-test('_createDriftedIcon: innerHTML contains SVG', () => {
-  const icon = _createDriftedIcon();
-  assert.ok(icon.innerHTML.includes('<svg'));
-  assert.ok(icon.innerHTML.includes('</svg>'));
+test('_driftTooltipFor: falls back to generic string when URL is un-parseable', () => {
+  assert.equal(_driftTooltipFor('not-a-real-url'), 'Drifted to a different URL');
 });
 
 /* =========================================================================

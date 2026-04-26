@@ -227,6 +227,12 @@ body {
   margin-left: var(--newtab-group-indent);
 }
 
+/* B-104 §47.3 D-5: full-bleed 12% tint of `--group-header-color` over the
+   newtab's surface base `--bg-primary`. JS sets `--group-header-color:
+   var(--gc-<slot>)` inline on each `.newtab-group-header` element when
+   `group.color` is a valid slot. The `transparent` fallback degrades to an
+   untinted header for groups with no color set (and for the Ungrouped
+   section, where there is no group record). */
 .newtab-group-header {
   display: flex;
   align-items: center;
@@ -239,7 +245,15 @@ body {
   letter-spacing: 0.02em;
   text-transform: uppercase;
   border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-primary);
+  background: color-mix(in srgb, var(--group-header-color, transparent) var(--group-header-tint-amount, 12%), var(--bg-primary));
+}
+
+/* B-104 R4 M-5: hover parity with sidepanel `.group-header:hover`. Same
+   tint formula; hover blends over `--bg-hover` so the base matches the
+   hover surface state. Per-theme `--group-header-tint-amount` override
+   applies automatically. */
+.newtab-group-header:hover {
+  background: color-mix(in srgb, var(--group-header-color, transparent) var(--group-header-tint-amount, 12%), var(--bg-hover));
 }
 
 .newtab-group-name {

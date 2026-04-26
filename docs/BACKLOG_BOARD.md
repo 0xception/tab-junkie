@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-26 · **Version:** 2.28 · **Total Items:** 104 · **Sprint 34 active — Visual polish (group color cohesion + dotted drift bar). B-104 R1 + B-101 R2 launched in parallel.**
+**Updated:** 2026-04-26 · **Version:** 2.29 · **Total Items:** 105 · **Sprint 34 closed — v1.28.0 shipped to release/v2. Awaiting product-owner direction.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    █████████████████░░░  89% (93/104)  [2 in progress · S34 active]
+Overall Progress    ██████████████████░░  90% (95/105)  [0 in progress · S34 closed]
 ```
 
 ### Legend
@@ -122,12 +122,12 @@ Overall Progress    █████████████████░░░
 
 ---
 
-## Sprint 34 — Visual polish: group color cohesion + dotted drift bar (active)
+## Sprint 34 — Visual polish: group color cohesion + dotted drift bar
 
-> 0/2 done · 2 in progress · Kicked off 2026-04-26
+> 2/2 done · v1.28.0 shipped to release/v2 only (no main merge)
 
-🔄 B-104 — Themed group color system (colored headers + theme-aware 9-slot palette tokens) · 🟡 · M [S34 Wave 0 anchor — R1 in progress]
-🔄 B-101 — Dotted drift bar in row left-edge gutter (drops 16 px triangle) · ⚪ · S [S34 Wave 0 parallel — R2 in progress, R1 locked pre-sprint]
+✅ B-104 — Themed group color system (colored headers + theme-aware 9-slot palette tokens) · 🟡 · M [S34 anchor — 153 `--gc-*` tokens, 5 hand-curated + 9 algorithmic, +9 tests; B-105 follow-up filed]
+✅ B-101 — Dotted drift bar in row left-edge gutter (drops 16 px triangle) · ⚪ · S [S34 parallel — `_createDriftedIcon` deleted, `<span class="item-drift-bar">` always-present injection, +6 tests]
 
 ---
 
@@ -139,13 +139,14 @@ Overall Progress    █████████████████░░░
 
 ---
 
-## Pending Triage (filed from S33 B-099 UAT, awaiting sprint placement)
+## Pending Triage (filed from S33-S34, awaiting sprint placement)
 
-> 3 items · all P2 · candidates for S35 or later
+> 4 items · all P2 · candidates for S35 or later
 
 ⬜ B-100 — Delete-on-live UX: Delete should default to Close-tab when item is live · 🟡 · M [filed S33 UAT-2 user feedback]
 ⬜ B-102 — Cross-window demote broadcast bug: item vanishes from non-originating windows · 🟡 · M [filed S33 UAT-13 user feedback]
 ⬜ B-103 — Promote-tab duplicate bug: tab shown as both bookmark AND open-tab after promote · 🟡 · S [filed S33 UAT-13 user feedback]
+⬜ B-105 — Solarized-light theme baseline WCAG AA contrast defect (4.392:1 sub-AA before any tint) · 🟡 · S [filed S34 B-104 R4 qa-reviewer; B-104 worked around via 0% tint; B-105 fixes underlying palette]
 
 ---
 
@@ -219,9 +220,9 @@ Overall Progress    █████████████████░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 93 | 89% |
-| 🔄 In Progress | 2 | 2% |
-| ⬜ To Do | 6 | 6% |
+| ✅ Done | 95 | 90% |
+| 🔄 In Progress | 0 | 0% |
+| ⬜ To Do | 7 | 7% |
 | 🧊 Icebox | 3 | 3% |
 
-**To Do breakdown (8 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-100 (delete-on-live UX, P2/M · S33 follow-up), B-101 (dotted drift bar, P3/S · **planned for S34**), B-102 (cross-window demote bug, P2/M · S33 follow-up), B-103 (promote duplicate bug, P2/S · S33 follow-up), B-104 (themed group colors, P2/M · **planned for S34**).
+**To Do breakdown (7 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-100 (delete-on-live UX, P2/M · S33 follow-up), B-102 (cross-window demote bug, P2/M · S33 follow-up), B-103 (promote duplicate bug, P2/S · S33 follow-up), B-105 (solarized-light baseline WCAG AA contrast, P2/S · S34 follow-up).
