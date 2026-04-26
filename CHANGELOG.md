@@ -6,6 +6,26 @@ All notable changes to Tab Junkie are documented in this file.
 
 *(nothing pending)*
 
+## [1.29.0] — 2026-04-26
+
+### Changed
+- **Delete (X) on a live bookmark now CLOSES THE TAB instead of deleting the bookmark (B-100)** — pressing X on a live row now closes the tab while preserving the saved bookmark, matching the most common user intent and most-reversible action. To delete the bookmark itself (a destructive action), use the new "Delete bookmark" entry in the right-click context menu, which shows an inline toast with **Undo** (~6 s window). The X button on non-live bookmarks is unchanged (still asks for confirmation before deleting). Keyboard Delete + Backspace keys on a focused row mirror the X-button behavior.
+- **Group header tints brightened from 12% to 18% (B-106)** — group headers now show their chosen color more prominently for better at-a-glance group identity. WCAG AA contrast verified across all 14 themes; worst case is `atom-one-dark` + `yellow` at 4.78:1 (still above the 4.5:1 floor).
+- **Solarized-light theme accessibility fix (B-105)** — body text against secondary surfaces (group headers, dialogs) now clears WCAG AA contrast (4.66:1 vs 4.39:1 pre-fix). Solarized canonical `--text-primary` `#586e75` adjusted slightly to `#546a71`. Group header tint now renders at 3% (was 0% in v1.28.0) — subtle but visible.
+
+### Fixed
+- **Cross-window demote: bookmark now correctly moves to Open Tabs in ALL windows (B-102)** — previously, demoting a bookmark in one window caused it to vanish entirely from non-originating windows (instead of moving to the Open Tabs section as it does in the originating window). Root cause: `diffAndPatch` fast-path branches updated the cache but never patched the Open Tabs DOM section; only the `renderAll` fallback rebuilt it. Fix: explicit `patchOpenTabsSection` call after every fast-path cache update.
+- **Promote tab no longer leaves a duplicate row in Open Tabs (B-103)** — previously, after promoting an open tab to a saved bookmark, the original Open Tabs row would remain visible alongside the new bookmark (both showing active). Same root cause as B-102 (shared `diffAndPatch` fix). The new bookmark replaces the Open Tabs row atomically.
+- **Group-jump popup color chips: slate, teal, indigo now render correctly (B-104 R3 / shipped in v1.28.0; tracked in changelog now as part of S35 release notes)** — the latent fall-back-to-avatar-bg bug for these 3 slots was actually closed in v1.28.0 by B-104 R3 D-2; documenting here for users who didn't notice in the v1.28.0 churn.
+
+### Note
+- **No reload required.** All 5 S35 items are pure UI/UX changes — zero new pref keys, zero new manifest entries, zero storage schema changes. Update and use the new behavior immediately.
+- **Multi-window users**: B-102's cross-window demote fix should be visible immediately. If you don't see the fix taking effect on a multi-window setup, hard-reload the affected sidepanel windows (close + reopen) to flush the cached `diffAndPatch` state.
+
+### Known limitations
+- **Solarized-light: secondary text contrast (group counts, helper labels) still sub-AA at 3.636:1** — the B-105 fix focused on primary text. Secondary-text surfaces (`--text-secondary` including the `--group-count-text` badge) carry a separate pre-existing palette gap. Tracked as **B-108** for a future palette-fix sprint.
+- **Live X-button aria-label** — still announces "Delete bookmark" on live rows even though the action is now "close tab" (label-action mismatch under WCAG 2.1 SC 4.1.2). Tracked as **B-107** for a follow-up sprint.
+
 ## [1.28.0] — 2026-04-26
 
 ### Changed

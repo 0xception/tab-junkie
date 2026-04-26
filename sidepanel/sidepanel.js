@@ -3433,6 +3433,53 @@ if (windowFilterRowEl) {
 }
 
 /* =========================================================================
+   Row-delete dispatcher (B-100 R4 H-1)
+   ========================================================================= */
+
+/**
+ * Shared row-delete dispatcher used by both the X-button click handler
+ * (`[data-action="delete"]`) and the keydown `Delete` / `Backspace` branch.
+ * Centralises the AC1 (live → close tab, preserve bookmark) and AC2
+ * (non-live → modal-confirm + delete bookmark) split so future edits can't
+ * drift between the two sites. Re-reads liveness at action time per the
+ * B-026 H-1 pattern (broadcast may have flipped state between row paint and
+ * click). Live-branch silent no-op when `liveState?.live` is falsy mirrors
+ * the existing context-menu "Close tab" precedent (the row will refresh
+ * non-live on the next broadcast).
+ *
+ * @param {HTMLElement} row       the `.item-row` whose delete is being dispatched
+ * @param {string}      itemId    the item's storage ULID (`row.dataset.itemId`)
+ * @param {HTMLElement} triggerEl the focusable element to restore focus to on
+ *                                modal close (X button for click; the row
+ *                                itself for keydown)
+ */
+function _dispatchRowDelete(row, itemId, triggerEl) {
+  /* AC1: live X-button closes the tab and preserves the bookmark. No toast,
+     no confirm dialog — closing a tab is a browser-native action. */
+  if (row.dataset.live === 'true') {
+    const liveState = _cachedLiveStates[itemId];
+    if (liveState?.live && liveState.tabId != null) {
+      sendMessage(MSG_CLOSE_TABS, { tabIds: [liveState.tabId] }).catch(() => {
+        showToast('Couldn\u2019t close tab \u2014 try again');
+      });
+    }
+    return;
+  }
+  /* AC2: non-live X-button keeps the existing modal-confirm delete path
+     unchanged (still the primary destructive guard for non-live items —
+     there's no tab to close). */
+  sendMessage(MSG_GET_ITEM, { id: itemId }).then((item) => {
+    openConfirmDialog(item, () => {
+      sendMessage(MSG_DELETE_ITEM, { id: itemId }).catch(() => {
+        showToast('Couldn\u2019t delete bookmark \u2014 try again');
+      });
+    }, { triggerEl });
+  }).catch(() => {
+    showToast('Couldn\u2019t load bookmark \u2014 try again');
+  });
+}
+
+/* =========================================================================
    Event delegation
    ========================================================================= */
 
@@ -3482,21 +3529,10 @@ document.addEventListener('click', (e) => {
       return;
     }
     if (actionBtn.dataset.action === 'delete') {
-      if (row.dataset.live === 'true') {
-        sendMessage(MSG_DEMOTE_ITEM, { itemId }).catch(() => {
-          showToast('Couldn\u2019t close tab \u2014 try again');
-        });
-      } else {
-        sendMessage(MSG_GET_ITEM, { id: itemId }).then((item) => {
-          openConfirmDialog(item, () => {
-            sendMessage(MSG_DELETE_ITEM, { id: itemId }).catch(() => {
-              showToast('Couldn\u2019t delete bookmark \u2014 try again');
-            });
-          }, { triggerEl: actionBtn });
-        }).catch(() => {
-          showToast('Couldn\u2019t load bookmark \u2014 try again');
-        });
-      }
+      /* B-100 R4 H-1: delegate to the shared row-delete dispatcher so the
+         X-button click and the keydown Delete branch (below) stay in lockstep
+         on AC1 (live → close tab) and AC2 (non-live → modal + delete). */
+      _dispatchRowDelete(row, itemId, actionBtn);
       return;
     }
   }
@@ -3588,6 +3624,28 @@ document.addEventListener('keydown', (e) => {
       _selectAll();
       return;
     }
+  }
+
+  /* B-100 AC7 + R2 D-5: Delete / Backspace on a focused item row mirrors the
+     X-button behavior (live → close tab via MSG_CLOSE_TABS; non-live →
+     openConfirmDialog + MSG_DELETE_ITEM). Backspace is included as a macOS
+     synonym (Finder / Mail convention). Critical input-context guard — skip
+     when the active element is INPUT / TEXTAREA / SELECT / contenteditable
+     so that Delete inside the filter input or any open dialog field doesn't
+     inadvertently delete the focused row in the background. R4 H-1: shared
+     `_dispatchRowDelete` helper keeps the live/non-live branching aligned
+     with the X-button click handler above. */
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (document.activeElement?.isContentEditable) return;
+    const row = e.target.closest?.('.item-row');
+    if (!row) return;
+    e.preventDefault();
+    const itemId = row.dataset.itemId;
+    if (!itemId) return;
+    _dispatchRowDelete(row, itemId, row);
+    return;
   }
 
   if (e.key !== 'Enter') return;
@@ -5075,6 +5133,15 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
           _cachedLiveStates = itemsResp.liveStates || {};
           _cachedDriftRecords = itemsResp.driftRecords || {};
           _setCachedOpenTabs(itemsResp.openTabs);
+          /* B-102 + B-103: cache-update without DOM-update was the root cause
+             for cross-window demote vanishing AND promote duplicate. The
+             fast-path branches must explicitly re-render Open Tabs after the
+             cache update. Without this, removed-item demotes (B-102) and
+             promote-tab claims (B-103) leave the Open Tabs DOM stale because
+             only the renderAll fallback rebuilds the section. The call is
+             idempotent — when the DOM already matches the cache, the diff
+             loop finds zero deltas. See docs/design/50-b-102-103-open-tabs-patch.md §50.3 D-1. */
+          patchOpenTabsSection(_cachedOpenTabs);
           _searchIndex = delta.index;
           _applyWindowMapToUI();
           if (_filterQuery || _activeWindowFilter !== null) applyFilter();
@@ -5114,6 +5181,20 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
               if (!_patchSingleRow(change)) { allApplied = false; break; }
             }
             if (allApplied) {
+              /* B-102 + B-103: cache-update without DOM-update was the root cause
+                 for cross-window demote vanishing AND promote duplicate. The
+                 fast-path branches must explicitly re-render Open Tabs after the
+                 cache update. Without this, removed-item demotes (B-102) and
+                 promote-tab claims (B-103) leave the Open Tabs DOM stale because
+                 only the renderAll fallback rebuilds the section. Placed INSIDE
+                 the !hasReorder block — reorder cases correctly fall through to
+                 renderAll which already rebuilds Open Tabs. The call is
+                 idempotent — when the DOM already matches the cache, the diff
+                 loop finds zero deltas. See docs/design/50-b-102-103-open-tabs-patch.md §50.3 D-1.
+                 B-102 + B-103 R4 H-1 + M-1: placed inside if(allApplied) AND after
+                 _itemById rebuild — abort path falls through to renderAll which
+                 rebuilds Open Tabs separately. */
+              patchOpenTabsSection(_cachedOpenTabs);
               _applyWindowMapToUI();
               if (_filterQuery || _activeWindowFilter !== null) applyFilter();
               patched = true;
@@ -6131,29 +6212,72 @@ function openContextMenu(row, x, y) {
   sep2.className = 'context-menu-separator';
   contextMenuEl.appendChild(sep2);
 
-  /* Delete */
+  /* B-100 AC3: "Delete bookmark" replaces the old "Delete" entry. Visible on
+     both live and non-live rows; styled red (destructive class). Both branches
+     use a toast+Undo pattern (AC4) — the modal is reserved for the X-button
+     non-live path (AC2). */
   const deleteBtn = document.createElement('button');
   deleteBtn.className = 'context-menu-item context-menu-item--destructive';
   deleteBtn.setAttribute('role', 'menuitem');
   deleteBtn.setAttribute('tabindex', '-1');
-  deleteBtn.textContent = 'Delete';
+  deleteBtn.textContent = 'Delete bookmark';
   deleteBtn.addEventListener('click', () => {
-    /* B-026 H-1: re-read liveness at action time so the right action fires
-       regardless of state changes while the menu was open. */
+    /* B-026 H-1: re-read liveness at action time so the right SW message
+       fires regardless of state changes while the menu was open. */
     const liveNow = !!_cachedLiveStates[itemId]?.live;
-    if (liveNow) {
-      sendMessage(MSG_DEMOTE_ITEM, { itemId }).catch(() => {});
+    /* B-100 AC5 + R2 D-6: snapshot the item BEFORE delete so the Undo lambda
+       has a payload. R2 D-2: capture only the three caller-controllable
+       fields — `validateNewItem` (background/storage/items.js:32) destructures
+       only `{ title, url, groupId }`; any other passed field is silently
+       stripped. The restored bookmark gets a new ULID + bucket-end sortOrder. */
+    sendMessage(MSG_GET_ITEM, { id: itemId }).then((item) => {
+      /* B-100 R4 M-1: close the menu AFTER the null-item guard so the order
+         matches R2 §49.3 D-6 (GET → guard → close → SEND → TOAST). The
+         visible difference is negligible (~10-30 ms) but keeps the code
+         honest with the design contract. */
+      if (!item) {
+        closeContextMenu();
+        showToast('Couldn\u2019t delete bookmark \u2014 try again');
+        return;
+      }
       closeContextMenu();
-    } else {
-      sendMessage(MSG_GET_ITEM, { id: itemId }).then((item) => {
-        closeContextMenu();
-        openConfirmDialog(item, () => {
-          sendMessage(MSG_DELETE_ITEM, { id: itemId }).catch(() => {});
-        }, { triggerEl: row });
-      }).catch(() => {
-        closeContextMenu();
+      const captured = { title: item.title, url: item.url, groupId: item.groupId ?? null };
+      /* R2 D-6: fire-and-forget delete (no await), then immediately paint the
+         optimistic toast. The toast must NOT await the SW round-trip. */
+      const deleteMessage = liveNow ? MSG_DEMOTE_ITEM : MSG_DELETE_ITEM;
+      const deletePayload = liveNow ? { itemId } : { id: itemId };
+      sendMessage(deleteMessage, deletePayload).catch(() => {
+        showToast('Couldn\u2019t delete bookmark \u2014 try again');
       });
-    }
+      /* B-100 AC4: 6 s undo window (R2 D-3 — inherits B-099 D-10 default
+         instead of overriding to 5 s; perceptually identical, keeps a single
+         timing primitive across all undo-bearing toasts). */
+      showToast('Bookmark deleted', {
+        undoLabel: 'Undo',
+        onUndo: () => {
+          /* B-100 R4 H-2: if the captured group has been deleted between the
+             snapshot and the Undo click, the SW returns a StorageError with
+             `code === 'ERR_NOT_FOUND'` (background/storage/items.js:109 →
+             assertGroupExists). Fall back to `groupId: null` so the bookmark
+             lands in Ungrouped instead of being silently lost. The recovery
+             toast tells the user where it went. */
+          sendMessage(MSG_CREATE_ITEM, captured).catch((err) => {
+            if (err?.code === 'ERR_NOT_FOUND' && captured.groupId != null) {
+              sendMessage(MSG_CREATE_ITEM, { ...captured, groupId: null }).then(() => {
+                showToast('Bookmark restored to Ungrouped (original group was deleted)');
+              }).catch(() => {
+                showToast('Couldn\u2019t restore bookmark \u2014 try again');
+              });
+            } else {
+              showToast('Couldn\u2019t restore bookmark \u2014 try again');
+            }
+          });
+        },
+      });
+    }).catch(() => {
+      closeContextMenu();
+      showToast('Couldn\u2019t delete bookmark \u2014 try again');
+    });
   });
   contextMenuEl.appendChild(deleteBtn);
 

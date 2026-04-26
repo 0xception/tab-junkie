@@ -308,7 +308,9 @@ Rationale: extending `validatePrefsPatch` enum + `isPreferences` enum is a SW-mo
 | `tomorrow-night` | `#1d1f21` | `#c5c8c6` | 11.04:1 ✓ | `#81a2be` | 6.22:1 ✓ |
 | `atom-one-dark` | `#282c34` | `#abb2bf` | 8.13:1 ✓ | `#61afef` | 6.46:1 ✓ |
 | `github-light` | `#ffffff` | `#1f2328` | 16.10:1 ✓ | `#0969da` | 5.76:1 ✓ |
-| `solarized-light` | `#fdf6e3` | `#586e75` | 7.21:1 ✓ | `#268bd2` | 4.59:1 ✓ |
+| `solarized-light` | `#eee8d5` | `#546a71` | 4.66:1 ✓ (post-B-105) | `#268bd2` | 4.59:1 ✓ |
+
+> **Corrected per S35 B-105 R6** — the original `7.21:1` reading documented in this row was computed against `--bg-primary` (`#fdf6e3`), not `--bg-secondary` (`#eee8d5`). The actual `--bg-secondary` baseline contrast was **4.39:1 — sub-AA pre-fix**. Solarized-light `--text-primary` was updated from `#586e75` to `#546a71` to achieve **4.66:1 — AA**. The `--group-header-tint-amount` per-theme override moved from `0%` → `3%` (the safe ceiling for all 9 group-color slots with the new text token). See [§52 — B-105 Solarized-Light Baseline WCAG AA Contrast Fix](52-b-105-solarized-light-fix.md) for the full design.
 | `tomorrow` | `#ffffff` | `#4d4d4c` | 8.95:1 ✓ | `#4271ae` | 5.06:1 ✓ |
 | `atom-one-light` | `#fafafa` | `#383a42` | 11.41:1 ✓ | `#4078f2` | 5.10:1 ✓ |
 | `github-dark` | `#0d1117` | `#e6edf3` | 14.42:1 ✓ | `#2f81f7` | 4.95:1 ✓ |
