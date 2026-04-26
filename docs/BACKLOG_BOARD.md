@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-26 · **Version:** 2.31 · **Total Items:** 108 · **Sprint 35 closed — v1.29.0 shipped to release/v2. Awaiting product-owner direction.**
+**Updated:** 2026-04-26 · **Version:** 2.33 · **Total Items:** 115 · **Sprint 36 active — UI/UX polish bundle (9 items). Wave 0 R1 launched in parallel.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  93% (100/108)  [0 in progress · S35 closed]
+Overall Progress    █████████████████░░░  87% (100/115)  [9 in progress · S36 active]
 ```
 
 ### Legend
@@ -122,6 +122,22 @@ Overall Progress    ██████████████████░░
 
 ---
 
+## Sprint 36 — UI/UX polish bundle (planned)
+
+> 0/9 done · 0 in progress · Awaiting Gate 6 sign-off + kickoff approval
+
+🔄 B-110 — Drifted-on-non-live BUG fix (§10.7 invariant violation) · 🟡 · M [S36 Wave 0 anchor — investigation needed]
+🔄 B-107 — Live-X aria-label reactive flip (WCAG 2.1 SC 4.1.2) · ⚪ · XS [S36 Wave 0 — Fast Track]
+🔄 B-108 — Solarized-light secondary text AA fix · ⚪ · S [S36 Wave 0 — Full pipeline]
+🔄 B-112 — Remove "Tab Junkie" label from sidepanel header · ⚪ · XS [S36 Wave 0 — Fast Track]
+🔄 B-114 — Group header tint v2 (brighter on dark themes) · ⚪ · XS [S36 Wave 0 — Fast Track]
+🔄 B-115 — Group-header chevron brightening (group-tinted) · ⚪ · XS [S36 Wave 0 — Fast Track]
+🔄 B-109 — Group header text colored to match group color · ⚪ · XS [S36 Wave 1 — Fast Track]
+🔄 B-111 — Dynamic delete icon (X for live, trashcan for non-live) · ⚪ · S [S36 Wave 1 — Full pipeline; LOCKED no confirmation change]
+🔄 B-113 — Item-row drag handle on hover + checkbox in multi-select · ⚪ · S [S36 Wave 1 — Full pipeline]
+
+---
+
 ## Sprint 35 — Bug-fix queue + tint-brightness polish
 
 > 5/5 done · v1.29.0 shipped to release/v2 only (no main merge)
@@ -151,12 +167,9 @@ Overall Progress    ██████████████████░░
 
 ---
 
-## Pending Triage (filed during S35, awaiting placement)
+## Pending Triage
 
-> 2 items · both P3 · candidates for S36 or later
-
-⬜ B-107 — Live-X aria-label reactive flip (WCAG 2.1 SC 4.1.2 compliance) · ⚪ · XS [filed S35 B-100 R4 qa-reviewer M-4]
-⬜ B-108 — Solarized-light `--text-secondary` WCAG AA fix (group counts 3.636:1 sub-AA) · ⚪ · S [filed S35 B-105 R4 qa-reviewer M-1]
+> 0 items · all queued items absorbed into S36.
 
 ---
 
@@ -230,9 +243,9 @@ Overall Progress    ██████████████████░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 100 | 93% |
+| ✅ Done | 100 | 87% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 5 | 5% |
+| ⬜ To Do | 12 | 10% |
 | 🧊 Icebox | 3 | 3% |
 
-**To Do breakdown (5 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-107 (live-X aria-label flip, P3/XS · S35 follow-up), B-108 (solarized-light secondary text AA, P3/S · S35 follow-up).
+**To Do breakdown (12 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-107 (live-X aria-label, P3/XS · **S36**), B-108 (solarized-light secondary text AA, P3/S · **S36**), B-109 (group header text color, P3/XS · **S36**), B-110 (drifted-on-non-live BUG, P2/M · **S36**), B-111 (dynamic delete icon, P3/S · **S36**), B-112 (remove "Tab Junkie" label, P3/XS · **S36**), B-113 (drag handle + checkbox swap, P3/S · **S36**), B-114 (group header tint v2 brighter, P3/XS · **S36**), B-115 (group-header chevron brightening, P3/XS · **S36**).
