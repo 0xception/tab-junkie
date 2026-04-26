@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-26 · **Version:** 2.30 · **Total Items:** 106 · **Sprint 35 active — Bug-fix queue + tint-brightness polish (B-100/102/103/105/106). 5 R1 agents launched in parallel.**
+**Updated:** 2026-04-26 · **Version:** 2.31 · **Total Items:** 108 · **Sprint 35 closed — v1.29.0 shipped to release/v2. Awaiting product-owner direction.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    █████████████████░░░  90% (95/106)  [5 in progress · S35 active]
+Overall Progress    ██████████████████░░  93% (100/108)  [0 in progress · S35 closed]
 ```
 
 ### Legend
@@ -122,15 +122,15 @@ Overall Progress    █████████████████░░░
 
 ---
 
-## Sprint 35 — Bug-fix queue + tint-brightness polish (active)
+## Sprint 35 — Bug-fix queue + tint-brightness polish
 
-> 0/5 done · 5 in progress · Kicked off 2026-04-26
+> 5/5 done · v1.29.0 shipped to release/v2 only (no main merge)
 
-🔄 B-100 — Delete-on-live UX redesign · 🟡 · M [S35 Wave 0 — R1 in progress]
-🔄 B-102 — Cross-window demote broadcast bug · 🟡 · M [S35 Wave 0 — R1 in progress; multi-window UAT required]
-🔄 B-103 — Promote-tab duplicate bug · 🟡 · S [S35 Wave 0 — R1 in progress; claim-establishment atomicity]
-🔄 B-105 — Solarized-light baseline WCAG AA contrast fix · 🟡 · S [S35 Wave 0 — R1 in progress; themes.css palette]
-🔄 B-106 — Group header tint brightness bump · ⚪ · XS [S35 Wave 1 — R1 in progress; depends on B-105]
+✅ B-100 — Delete-on-live UX redesign · 🟡 · M [S35 — R3-fix 3 HIGHs; +16 tests; B-107 follow-up filed]
+✅ B-102 — Cross-window demote broadcast bug · 🟡 · M [S35 — shared §50 with B-103; +8 tests; multi-window UAT pending]
+✅ B-103 — Promote-tab duplicate bug · 🟡 · S [S35 — R3 0 LOC inherited from B-102; +6 tests]
+✅ B-105 — Solarized-light WCAG AA fix · 🟡 · S [S35 — `#546a71` text + 3% tint; +7 tests; B-108 follow-up filed]
+✅ B-106 — Group header tint brightness 12% → 18% · ⚪ · XS [S35 Fast Track Wave 1 — depends on B-105; +1 test]
 
 ---
 
@@ -151,9 +151,12 @@ Overall Progress    █████████████████░░░
 
 ---
 
-## Pending Triage
+## Pending Triage (filed during S35, awaiting placement)
 
-> 0 items · all queued items absorbed into S35.
+> 2 items · both P3 · candidates for S36 or later
+
+⬜ B-107 — Live-X aria-label reactive flip (WCAG 2.1 SC 4.1.2 compliance) · ⚪ · XS [filed S35 B-100 R4 qa-reviewer M-4]
+⬜ B-108 — Solarized-light `--text-secondary` WCAG AA fix (group counts 3.636:1 sub-AA) · ⚪ · S [filed S35 B-105 R4 qa-reviewer M-1]
 
 ---
 
@@ -227,9 +230,9 @@ Overall Progress    █████████████████░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 95 | 90% |
+| ✅ Done | 100 | 93% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 8 | 8% |
+| ⬜ To Do | 5 | 5% |
 | 🧊 Icebox | 3 | 3% |
 
-**To Do breakdown (8 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-100 (delete-on-live UX, P2/M · **S35**), B-102 (cross-window demote bug, P2/M · **S35**), B-103 (promote duplicate bug, P2/S · **S35**), B-105 (solarized-light baseline WCAG AA contrast, P2/S · **S35**), B-106 (tint brightness bump, P3/XS · **S35** new).
+**To Do breakdown (5 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-107 (live-X aria-label flip, P3/XS · S35 follow-up), B-108 (solarized-light secondary text AA, P3/S · S35 follow-up).

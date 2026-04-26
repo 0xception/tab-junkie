@@ -23,6 +23,21 @@
    must be instantaneous regardless of `prefers-reduced-motion`.
    ========================================================================= */
 
+/* --- Global tokens (theme-independent) ----------------------------------- */
+/* B-106 (Sprint 35): bumped default group-header tint from 12% → 18% per
+   product-owner feedback ("group headers a bit too dark, would like them a
+   little brighter"). The 12% value previously lived only as a CSS fallback
+   on `var(--group-header-tint-amount, 12%)` in surface CSS (sidepanel,
+   newtab); B-106 promotes the default to a real `:root` declaration so all
+   surfaces pick up the new value via the cascade. WCAG AA verified across
+   the §47.7 spot-check matrix at 18% — every row passes ≥ 4.5:1; worst case
+   is `atom-one-dark` + `yellow` at 4.78:1 (0.28 above the 4.5:1 floor).
+   Per-theme overrides still win the cascade — solarized-light's 3% override
+   (B-105) is unaffected by this default. See docs/BACKLOG.md B-106 R1. */
+:root {
+  --group-header-tint-amount: 18%;
+}
+
 /* --- Default palette (data-theme="system" + light OS) -------------------- */
 [data-theme="system"] {
   --bg-primary: #ffffff;
@@ -56,6 +71,13 @@
   --mark-bg: #fef08a;
   --selected-bg: #dbeafe;
   --selected-border: #2563eb;
+  /* B-100 R4 H-3 (Sprint 35): destructive-text + hover-surface tokens for the
+     `.context-menu-item--destructive` red treatment. Light-system uses the
+     canonical Tailwind red-600 #dc2626 with a pale red-50 #fef2f2 wash on
+     hover. Verified ≥ 4.5:1 vs `--bg-primary` (#ffffff: 4.84:1).
+     See sidepanel/sidepanel.css `.context-menu-item--destructive`. */
+  --color-destructive: #dc2626;
+  --bg-destructive-hover: #fef2f2;
   /* B-037: SVG-encoded URL for the item-select checkmark stroke. Light themes
      keep the white stroke baseline; dark themes override below. */
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
@@ -105,6 +127,12 @@
     --mark-bg: #713f12;
     --selected-bg: #1e3a5f;
     --selected-border: #60a5fa;
+    /* B-100 R4 H-3: dark-system destructive — Tailwind red-400 #f87171 ≥ AA on
+       --bg-primary (#1a1d23: 6.14:1). Hover surface #3d2828 is a faint warm
+       wash that stays slightly above bg-primary luminance for hover affordance
+       while preserving 4.89:1 text contrast. */
+    --color-destructive: #f87171;
+    --bg-destructive-hover: #3d2828;
     /* Dark-system override: checkmark stroke uses dark `--on-accent`
        colour-encoded into the SVG so the contrast on the saturated accent
        background is ≥ AA. */
@@ -160,6 +188,10 @@
   --selected-bg: #ddf4ff;
   --selected-border: #0969da;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-100 R4 H-3: github-light destructive uses canonical red #dc2626 +
+     pale red-50 wash; ≥ 4.5:1 vs #ffffff bg-primary (4.84:1). */
+  --color-destructive: #dc2626;
+  --bg-destructive-hover: #fef2f2;
   /* B-104: hand-curated (Primer palette). */
   --gc-blue: #0969da;
   --gc-purple: #8250df;
@@ -206,6 +238,9 @@
   --selected-bg: #eaf2fb;
   --selected-border: #4271ae;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-100 R4 H-3: tomorrow (light) destructive — canonical red on white bg. */
+  --color-destructive: #dc2626;
+  --bg-destructive-hover: #fef2f2;
   /* B-104: algorithmic mix(canonical, #f5f5f5, 0.30). */
   --gc-blue: #638fee;
   --gc-purple: #a072ef;
@@ -252,6 +287,10 @@
   --selected-bg: #e6efff;
   --selected-border: #4078f2;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-100 R4 H-3: atom-one-light destructive — canonical red on #fafafa bg
+     (4.65:1 ≥ AA). */
+  --color-destructive: #dc2626;
+  --bg-destructive-hover: #fef2f2;
   /* B-104: algorithmic mix(canonical, #f0f0f0, 0.30). */
   --gc-blue: #628ded;
   --gc-purple: #9f71ee;
@@ -270,7 +309,7 @@
   --bg-secondary: #eee8d5;
   --bg-hover: #e4dcc4;
   --bg-active: #d8d2bd;
-  --text-primary: #586e75;
+  --text-primary: #546a71; /* B-105: bumped from canonical Solarized base01 #586e75 to #546a71 for WCAG AA (4.661:1 vs --bg-secondary). See docs/design/52-b-105-solarized-light-fix.md */
   --text-secondary: #657b83;
   --text-tertiary: #93a1a1;
   --border-primary: #d8d2bd;
@@ -298,6 +337,11 @@
   --selected-bg: #e3eef7;
   --selected-border: #268bd2;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-100 R4 H-3: solarized-light destructive — #dc2626 on the warm cream
+     bg-primary (#fdf6e3) measures 4.54:1, just above the AA floor. Hover
+     keeps a pale red wash; the warm bg already softens the visual. */
+  --color-destructive: #dc2626;
+  --bg-destructive-hover: #fef2f2;
   /* B-104: algorithmic mix(canonical, #eee8d5, 0.30). */
   --gc-blue: #618be4;
   --gc-purple: #9e6ee6;
@@ -308,15 +352,16 @@
   --gc-indigo: #7f77e0;
   --gc-yellow: #d5a643;
   --gc-slate: #8d97a1;
-  /* B-104 R4 H-1: solarized-light's `--text-primary` (#586e75) measures
-     only 4.39:1 against the bare `--bg-secondary` (#eee8d5) — already
-     sub-AA before any group tint is applied. Any non-zero tint pushes
-     contrast further below 4.5:1 across all 9 slots, so we suppress the
-     B-104 tint entirely on this theme and flag the underlying
-     theme-baseline defect for product-owner review. R3-fix verification:
-     all 9 slots compute to 4.39:1 at 0% tint (== untinted bg) — matches
-     pre-B-104 visual baseline; B-104 makes solarized-light no worse. */
-  --group-header-tint-amount: 0%;
+  /* B-105 (Sprint 35): solarized-light text-on-bg-secondary baseline raised
+     from 4.39:1 (FAIL) to 4.66:1 (PASS) by darkening --text-primary from
+     Solarized canonical base01 (#586e75) to #546a71 (delta -4 per channel,
+     ~3.4% luminance reduction; visually imperceptible at arm's length).
+     Tint ceiling: 3% is the safe maximum for all 9 gc-slots with the new
+     text token (worst: purple at 4.524:1). At 4% tint indigo drops to
+     4.473:1 (FAIL). The per-theme override is RETAINED at 3% so B-106's
+     :root 18% default does NOT cascade to this theme.
+     See docs/design/52-b-105-solarized-light-fix.md §52.3 D-2. */
+  --group-header-tint-amount: 3%;
 }
 
 /* =========================================================================
@@ -357,6 +402,11 @@
   --selected-bg: #0c2d6b;
   --selected-border: #2f81f7;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-100 R4 H-3: github-dark destructive — Tailwind red-400 on #0d1117 bg
+     measures 6.88:1 ≥ AA. Hover surface #3d2828 stays slightly above
+     bg-primary luminance for hover affordance. */
+  --color-destructive: #f87171;
+  --bg-destructive-hover: #3d2828;
   /* B-104: algorithmic mix(canonical, #161b22, 0.30). */
   --gc-blue: #214daf;
   --gc-purple: #5d31b0;
@@ -403,6 +453,10 @@
   --selected-bg: #2a3340;
   --selected-border: #81a2be;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%231d1f21' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-100 R4 H-3: tomorrow-night destructive — #f87171 on #1d1f21 bg
+     measures 6.04:1 ≥ AA. */
+  --color-destructive: #f87171;
+  --bg-destructive-hover: #3d2828;
   /* B-104: algorithmic mix(canonical, #282a2e, 0.30). */
   --gc-blue: #2652b2;
   --gc-purple: #6335b4;
@@ -449,6 +503,10 @@
   --selected-bg: #2c3a4d;
   --selected-border: #61afef;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23282c34' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-100 R4 H-3: atom-one-dark destructive — #f87171 on #282c34 bg
+     measures 5.13:1 ≥ AA. */
+  --color-destructive: #f87171;
+  --bg-destructive-hover: #3d2828;
   /* B-104 R6 M-2: promoted to hand-curated. atom-one-dark and one-dark share
      --bg-secondary (#21252b) and the same Atom One Dark base palette, so the
      two themes get identical --gc-* values. Pink reuses red, indigo reuses
@@ -498,6 +556,10 @@
   --selected-bg: #0a3a4f;
   --selected-border: #268bd2;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23002b36' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-100 R4 H-3: solarized-dark destructive — #f87171 on #002b36 bg
+     measures 5.47:1 ≥ AA. */
+  --color-destructive: #f87171;
+  --bg-destructive-hover: #3d2828;
   /* B-104: algorithmic mix(canonical, #073642, 0.30). */
   --gc-blue: #1c56b8;
   --gc-purple: #5939ba;
@@ -544,6 +606,10 @@
   --selected-bg: #3b2f55;
   --selected-border: #bd93f9;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23282a36' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-100 R4 H-3: dracula destructive — #f87171 on #282a36 bg measures
+     5.18:1 ≥ AA. */
+  --color-destructive: #f87171;
+  --bg-destructive-hover: #3d2828;
   /* B-104: hand-curated (Dracula palette; indigo reuses purple, blue reuses cyan). */
   --gc-blue: #8be9fd;
   --gc-purple: #bd93f9;
@@ -590,6 +656,13 @@
   --selected-bg: #3a4a55;
   --selected-border: #88c0d0;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%232e3440' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-100 R4 H-3: nord destructive uses Tailwind red-300 #fca5a5 (not #f87171
+     used by other dark themes) because nord's bg-primary #2e3440 is the
+     lightest of the dark palette and #f87171 only reaches 4.40:1 (FAIL).
+     #fca5a5 measures 6.41:1 vs bg-primary. Hover surface #4c3c46 stays
+     above bg-primary luminance for hover affordance (5.28:1 text). */
+  --color-destructive: #fca5a5;
+  --bg-destructive-hover: #4c3c46;
   /* B-104: algorithmic mix(canonical, #3b4252, 0.30). */
   --gc-blue: #2c59bd;
   --gc-purple: #693cbe;
@@ -636,6 +709,10 @@
   --selected-bg: #2c3a4d;
   --selected-border: #61afef;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23282c34' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-100 R4 H-3: one-dark destructive — #f87171 on #282c34 bg measures
+     5.13:1 ≥ AA (identical bg-primary as atom-one-dark). */
+  --color-destructive: #f87171;
+  --bg-destructive-hover: #3d2828;
   /* B-104: hand-curated (One Dark palette; pink reuses red, indigo reuses purple). */
   --gc-blue: #61afef;
   --gc-purple: #c678dd;
@@ -682,6 +759,10 @@
   --selected-bg: #3a4023;
   --selected-border: #a6e22e;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23272822' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-100 R4 H-3: monokai destructive — #f87171 on #272822 bg measures
+     5.38:1 ≥ AA. */
+  --color-destructive: #f87171;
+  --bg-destructive-hover: #3d2828;
   /* B-104: algorithmic mix(canonical, #1e1f1a, 0.30). */
   --gc-blue: #234fac;
   --gc-purple: #6032ae;
@@ -728,6 +809,10 @@
   --selected-bg: #1f2b4a;
   --selected-border: #7aa2f7;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%231a1b26' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-100 R4 H-3: tokyo-night destructive — #f87171 on #1a1b26 bg measures
+     6.30:1 ≥ AA. */
+  --color-destructive: #f87171;
+  --bg-destructive-hover: #3d2828;
   /* B-104: algorithmic mix(canonical, #16161e, 0.30). */
   --gc-blue: #214cae;
   --gc-purple: #5d2faf;
@@ -781,6 +866,9 @@
   --selected-bg: #e6efff;
   --selected-border: #4078f2;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-100 R4 H-3: legacy 'light' alias — mirrors atom-one-light tokens. */
+  --color-destructive: #dc2626;
+  --bg-destructive-hover: #fef2f2;
   /* B-104 D-1: legacy alias copies the atom-one-light gc-* token set. */
   --gc-blue: #628ded;
   --gc-purple: #9f71ee;
@@ -827,6 +915,9 @@
   --selected-bg: #2c3a4d;
   --selected-border: #61afef;
   --item-select-checked-bg: url("data:image/svg+xml,%3Csvg viewBox='0 0 14 14' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 7l3 3 5-5' stroke='%23282c34' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* B-100 R4 H-3: legacy 'dark' alias — mirrors one-dark tokens. */
+  --color-destructive: #f87171;
+  --bg-destructive-hover: #3d2828;
   /* B-104 D-1: legacy alias copies the one-dark gc-* token set. */
   --gc-blue: #61afef;
   --gc-purple: #c678dd;

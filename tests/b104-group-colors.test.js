@@ -272,8 +272,16 @@ test('B-104 T6 (R4 H-2 regression): synthetic __ungrouped__ group has `color: nu
 
 /* =========================================================================
    T7 — R4 H-1 regression guard (solarized-light WCAG AA).
+   B-105 (Sprint 35) update: the original B-104 R3-fix shipped
+   `--group-header-tint-amount: 0%` on solarized-light as a workaround for a
+   sub-AA `--text-primary` baseline (#586e75 vs #eee8d5 = 4.39:1). B-105
+   raises the baseline to AA by darkening `--text-primary` to #546a71
+   (4.66:1) and re-enables a tinted header at the safe 3% ceiling (worst
+   slot: purple at 4.524:1 — still PASS). This regression guard now pins
+   the post-B-105 invariant: text-primary == #546a71 AND tint-amount == 3%.
+   See docs/design/52-b-105-solarized-light-fix.md §52.3 D-1 + D-2.
    ========================================================================= */
-test('B-104 T7 (R4 H-1 regression): shared/themes.css [data-theme="solarized-light"] block declares `--group-header-tint-amount: 0%`', () => {
+test('B-104 T7 (R4 H-1 regression, B-105-updated): shared/themes.css [data-theme="solarized-light"] declares post-B-105 AA-safe palette (text-primary #546a71 + tint-amount 3%)', () => {
   const css = readFile('shared/themes.css');
 
   /* Locate the `[data-theme="solarized-light"] { ... }` block body and
@@ -289,19 +297,30 @@ test('B-104 T7 (R4 H-1 regression): shared/themes.css [data-theme="solarized-lig
 
   assert.match(
     blockBody,
-    /--group-header-tint-amount:\s*0%/,
-    'solarized-light must declare --group-header-tint-amount: 0% (R4 H-1 baseline-contrast escape hatch)',
+    /--text-primary:\s*#546a71/i,
+    'B-105 D-1: solarized-light --text-primary must be #546a71 (4.661:1 vs --bg-secondary #eee8d5 — WCAG AA PASS)',
   );
 
-  /* Defense: confirm no other top-level [data-theme] block claims a 0%
-     tint amount — solarized-light is the only intended escape hatch in
-     R3-fix. (atom-one-dark / future themes may opt in later; the test
-     pins the current ship state to catch unintended regressions.) */
-  const allTintAmountDecls = (css.match(/--group-header-tint-amount:\s*0%/g) || []).length;
+  assert.match(
+    blockBody,
+    /--group-header-tint-amount:\s*3%/,
+    'B-105 D-2: solarized-light must declare --group-header-tint-amount: 3% (safe ceiling above the new AA-compliant text baseline)',
+  );
+
+  assert.doesNotMatch(
+    blockBody,
+    /--group-header-tint-amount:\s*0%/,
+    'B-105 D-2: the pre-B-105 0% workaround override must NOT remain on solarized-light',
+  );
+
+  /* Defense: confirm no other top-level [data-theme] block claims a 3%
+     tint amount — solarized-light is the only intended override at the
+     3% safe-ceiling carve-out post-B-105. */
+  const allThreePctDecls = (css.match(/--group-header-tint-amount:\s*3%/g) || []).length;
   assert.equal(
-    allTintAmountDecls,
+    allThreePctDecls,
     1,
-    'exactly one --group-header-tint-amount: 0% declaration ships (solarized-light only)',
+    'exactly one --group-header-tint-amount: 3% declaration ships (solarized-light only)',
   );
 });
 
@@ -357,5 +376,41 @@ test('B-104 T9 (security defense-in-depth, R4 LOW #5): popup/group-jump-popup.js
     src,
     /import\s*\{[^}]*GROUP_COLORS[^}]*\}\s*from\s*['"]\.\.\/shared\/constants\.js['"]/,
     'group-jump-popup.js must import GROUP_COLORS from ../shared/constants.js so JS allow-list + CSS [data-color] selectors stay in lockstep',
+  );
+});
+
+/* =========================================================================
+   T10 — B-106 (Sprint 35) AC1 + AC5: shared/themes.css `:root` block declares
+   the new 18% default for `--group-header-tint-amount`. Bumped from the prior
+   implicit 12% (which lived only as a CSS fallback in surface stylesheets)
+   per product-owner feedback that group headers were "a bit too dark." The
+   §47.7 spot-check matrix re-runs at 18% with worst-case `atom-one-dark` +
+   `yellow` at 4.78:1 — still WCAG AA PASS (0.28 above the 4.5:1 floor).
+   Per-theme overrides (solarized-light at 3%, B-105) still win the cascade.
+   See docs/BACKLOG.md B-106 R1.
+   ========================================================================= */
+test('B-106 T10 (AC1): shared/themes.css :root block declares --group-header-tint-amount: 18%', () => {
+  const css = readFile('shared/themes.css');
+
+  /* Locate the `:root { ... }` block and confirm it sets the new 18% default.
+     Uses a non-greedy match between `:root {` and `--group-header-tint-amount:
+     18%` so the assertion passes regardless of whether other tokens are
+     interleaved in the block in the future. */
+  assert.match(
+    css,
+    /:root\s*\{[\s\S]*?--group-header-tint-amount:\s*18%/m,
+    'shared/themes.css :root block must declare --group-header-tint-amount: 18% (B-106 default bump from 12% per product-owner feedback)',
+  );
+
+  /* Regression guard: the prior 12% default must NOT linger as a `:root`
+     declaration. The 12% value remains as a CSS fallback inside surface
+     stylesheets (sidepanel.css, newtab.css) and that is intentional — the
+     fallback is dead at runtime now that :root carries the real default,
+     but it documents the historical baseline. The `:root` declaration is
+     the single source of truth post-B-106. */
+  assert.doesNotMatch(
+    css,
+    /:root\s*\{[\s\S]*?--group-header-tint-amount:\s*12%/m,
+    'shared/themes.css :root block must NOT carry the legacy 12% value (B-106 replaces with 18%)',
   );
 });

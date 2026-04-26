@@ -365,7 +365,9 @@ No path adds a synchronous storage round-trip in the render hot path, no full-co
 
 R2 recommends the following spot-check sample for R5 [test-engineer]. The sample spans both light + dark theme axes, all 9 slots in the two most distinctive themes, plus 2 edge-case combinations:
 
-| # | Theme | Slot | `--bg-secondary` | Tinted header bg (12% color-mix approx) | Body text (`--text-primary`) | Required ratio | Expected |
+> **Updated 2026-04-26 per B-106 (Sprint 35)**: the `:root` default for `--group-header-tint-amount` was bumped from 12% → 18% per product-owner feedback. The cell values below reflect the original 12% baseline; per the B-106 R1 spot-check (`docs/BACKLOG.md` B-106 row), all 20 rows pass ≥ 4.5:1 at the new 18% default — worst case is `atom-one-dark` + `yellow` at 4.78:1 (0.28 above the floor). Solarized-light row 19 also passes at 18% post-B-105 (`#546a71` text + `#eee8d5` bg + 3% per-theme tint override). The matrix has not been re-tabulated cell-by-cell at 18% — the B-106 R1 lock + per-row PASS verification is the source of truth.
+
+| # | Theme | Slot | `--bg-secondary` | Tinted header bg (18% color-mix approx, post-B-106) | Body text (`--text-primary`) | Required ratio | Expected |
 |---|---|---|---|---|---|---|---|
 | 1 | `one-dark` | `blue` (`#61afef`) | `#21252b` | `~#262a31` | `#abb2bf` | ≥ 4.5:1 | PASS (~7.8:1) |
 | 2 | `one-dark` | `purple` (`#c678dd`) | `#21252b` | `~#272930` | `#abb2bf` | ≥ 4.5:1 | PASS (~7.7:1) |
@@ -385,7 +387,7 @@ R2 recommends the following spot-check sample for R5 [test-engineer]. The sample
 | 16 | `github-light` | `indigo` (`#6639ba`) | `#f6f8fa` | `~#e3dcf0` | `#1f2328` | ≥ 4.5:1 | PASS (~13.5:1) |
 | 17 | `github-light` | `yellow` (`#9a6700`) | `#f6f8fa` | `~#ece2cd` | `#1f2328` | ≥ 4.5:1 | PASS (~13.7:1) |
 | 18 | `github-light` | `slate` (`#59636e`) | `#f6f8fa` | `~#e6e9ed` | `#1f2328` | ≥ 4.5:1 | PASS (~13.7:1) |
-| 19 | `solarized-light` | `yellow` (algorithmic, `#d5a643`) | `#eee8d5` | `#eee8d5` (no tint — see note) | `#586e75` | ≥ 4.5:1 | **FAIL — 4.392:1 baseline (pre-existing theme defect, B-105).** B-104 ships at `--group-header-tint-amount: 0%` on solarized-light, so the rendered visual is identical to the bare untinted baseline (no AMPLIFICATION of the existing sub-AA gap). Any non-zero tint pushes the ratio lower and is therefore disallowed on this theme. Tracked separately as B-105. |
+| 19 | `solarized-light` | `yellow` (algorithmic, `#d5a643`) | `#eee8d5` | `~#ede7d4` (3% tint — post-B-105 per-theme override) | `#546a71` (post-B-105) | ≥ 4.5:1 | **PASS (~4.62:1) — corrected post-B-105 (Sprint 35).** B-105 darkened `--text-primary` from `#586e75` → `#546a71` (baseline `--bg-secondary` contrast 4.39:1 → 4.66:1), and replaced the per-theme `--group-header-tint-amount: 0%` workaround with `3%` — verified at R1 Q4 + R5 T6 as the safe ceiling for all 9 gc-slots with the new text token (worst slot at 3%: ~4.52:1; @ 4% tint indigo drops to ~4.47:1 FAIL). The override is RETAINED at 3% so B-106's `:root 18%` default does NOT cascade to this theme. See [§52 — B-105 Solarized-Light Baseline WCAG AA Contrast Fix](52-b-105-solarized-light-fix.md). |
 | 20 | `dracula` | `slate` (`#6272a4`) | `#1e1f29` | `~#252734` | `#f8f8f2` | ≥ 4.5:1 | PASS (~13.5:1) — edge case (low-saturation slot on dark theme) |
 
 **Risk-flagged algorithmic combinations** (R5 should pay extra attention):

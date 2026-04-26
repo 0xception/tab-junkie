@@ -67,3 +67,7 @@
 - [§46 — B-099 — Drift Fix (Option B + Reconcile Action) (R2 Design)](design/46-b-099-drift-fix.md)
 - [§47 — B-104 — Themed Group Color System (R2 Design)](design/47-b-104-themed-group-colors.md)
 - [§48 — B-101 — Dotted Drift Bar in Row Left-Edge Gutter (R2 Design)](design/48-b-101-drift-bar.md)
+- [§49 — B-100 — Delete-on-Live UX Redesign (R2 Design)](design/49-b-100-delete-on-live.md)
+- [§50 — B-102 + B-103 — Open Tabs Fast-Path Patch (Shared R2 Design)](design/50-b-102-103-open-tabs-patch.md)
+- [§51 — B-103 — Promote-Tab Duplicate Bug (R2 Design — Thin Pointer to §50)](design/51-b-103-promote-duplicate.md)
+- [§52 — B-105 — Solarized-Light Baseline WCAG AA Contrast Fix (R2 Design)](design/52-b-105-solarized-light-fix.md)
