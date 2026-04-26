@@ -1863,3 +1863,77 @@ When the extension is updated and a new pref key is added to `DEFAULT_PREFERENCE
 2. [scrum-master] R1 AC blocks referencing CSS custom properties (`--*` tokens) MUST include a "Token verified" checkbox listing file/line where the token is defined. R2 confirms. [MEDIUM]
 3. [technical-writer] CHANGELOG entries that touch SW-side code (tab-claims, storage-handlers, drift, tab-events) should include a "tip: hard-reload the side panel + any open new-tab tabs after updating" line under Note. Apply to v1.28.0+. [LOW]
 4. [scrum-master] Triage B-100 / B-101 / B-102 / B-103 at next sprint kickoff. B-102 (cross-window demote stale claim) is the highest-priority of the four (P2/M). [HIGH]
+
+---
+
+## Sprint 34 — Visual polish: group color cohesion + dotted drift bar (2026-04-26)
+
+**Theme:** Two-item visual-polish sprint. B-104 ships colored group headers with a 9-slot semantic palette resolved per-theme (so "red" looks Dracula-red in Dracula, GitHub-red in GitHub Light) across all 14 themes. B-101 replaces the B-099 16 px warning-triangle drift indicator with a 3 px dotted vertical bar in the row's left-edge gutter, stacked parallel to the active row's solid green border. Both items zero schema, zero new permissions, zero new message types.
+**Release:** v1.28.0 (release/v2 only — no main merge)
+**Branch:** `feature/sprint-34-visual-polish`
+**Tests:** 1,412 → 1,426 (+14 net via T1-T6 in `tests/b101-drift-bar.test.js` + T1-T9 in `tests/b104-group-colors.test.js`)
+
+### Completed Items
+
+#### [B-101] Dotted drift bar in row left-edge gutter — ✅ DONE
+- **Tier**: Full (S) · **Closed**: 2026-04-26
+- **Pipeline**: R1 ✅ (locked pre-sprint brainstorm) · R2 ✅ (§48 design chapter D-1..D-5 + C-1..C-12) · R3 ✅ · R4 ✅ (3 reviewers parallel — 0 CRITICAL / 1 HIGH (test stub) / 2 MEDIUM / 7 LOW) · R5 ✅ (6 tests + 6 UAT cases + R4 HIGH stub fix in b011-drift.test.js + b054/b048 hygiene) · R6 ✅ (§48.10 As Built + D-3a live+drifted permutation extension) · R7 ✅ (inline CHANGELOG)
+- **Files changed**:
+  - `sidepanel/sidepanel.{js,css}` — `_createDriftedIcon` deleted; `_driftTooltipFor` helper; `<span class="item-drift-bar">` injection in `buildItemRow`; `_ensureIndicators` extended; `.item-row { position: relative }` + `.item-drift-bar` rule + `.item-drifted-icon` rules deleted
+  - `tests/b101-drift-bar.test.js` (new, 6 tests)
+  - `tests/b011-drift.test.js` + `tests/b054-sidepanel.test.js` + `tests/b048-visual-states.test.js` (re-pinned/hygiene)
+  - `docs/design/48-b-101-drift-bar.md` (new R2 chapter + R6 As Built)
+  - `docs/UAT_B-101.md` (new, 6 UAT cases)
+- **Key decisions**: D-1 sibling `<span>` (pseudo-elements can't carry `title`) · D-2 `position: relative` (technically redundant with `contain: layout style` but kept for explicitness) · D-3 active+drifted side-by-side at `left: 3px` (= 6 px total gutter) · D-3a (R6) live+drifted same geometry · D-4 row-level aria-label keeps "drifted"; bar `aria-hidden="true"` · D-5 bar gates only on `_cachedDriftRecords` per §10.7 invariant
+
+#### [B-104] Themed group color system (colored headers + theme-aware palette tokens) — ✅ DONE
+- **Tier**: Full (M) · **Closed**: 2026-04-26
+- **Pipeline**: R1 ✅ ([product-manager] locked Q1-Q6 + 9 ACs) · R2 ✅ ([solution-architect] §47 design chapter D-1..D-5 + C-1..C-12 + 36-value flagship hex table) · R3 ✅ (153 `--gc-*` tokens shipped) · R4 ✅ (3 reviewers parallel — 0 CRITICAL / 3 HIGH (qa-reviewer WCAG/Ungrouped/hover) / 4 MEDIUM / 8 LOW) · R3-fix ✅ (3 HIGHs fixed pre-R5 — `--group-header-tint-amount` per-theme override variable introduced; solarized-light → 0%; synthetic ungrouped color → null; hover automatically resolved) · R5 ✅ (9 tests + 7 UAT cases) · R6 ✅ (§47.10 As Built + M-2 atom-one-dark hand-curation + M-3 D-5 contrast number correction) · R7 ✅ (inline CHANGELOG)
+- **Files changed**:
+  - `shared/themes.css` — 153 `--gc-*` declarations across 17 blocks (5 hand-curated [one-dark, atom-one-dark, dracula, github-light, system] + 9 algorithmic via sRGB `mix(canonical, --bg-secondary, 0.30)` + 2 legacy aliases); `--group-header-tint-amount: 0%` override on `[data-theme="solarized-light"]`
+  - `sidepanel/sidepanel.{js,css}` — `.group-color-<slot>` swatches → `var(--gc-<slot>)`; `.group-header` + `:hover` `color-mix` tint via `var(--group-header-tint-amount, 12%)`; group-header inline-style injection of `--group-header-color` (gated by `GROUP_COLORS.includes`); synthetic `__ungrouped__` group color → `null` (R3-fix H-2)
+  - `newtab/newtab.{js,css}` — analogous treatment (incl. R3-fix M-5 newtab hover parity)
+  - `popup/group-jump-popup.{js,css}` — D-2 Option C declarative `[data-color="<slot>"]` selectors; `chip.dataset.color = pickerRow.color` (closes latent slate/teal/indigo bug)
+  - `tests/b104-group-colors.test.js` (new, 9 tests)
+  - `docs/design/47-b-104-themed-group-colors.md` (new R2 chapter + R6 As Built)
+  - `docs/UAT_B-104.md` (new, 7 UAT cases)
+  - `docs/SOLUTION_DESIGN.md` (TOC entry for §47)
+  - `manifest.json` (1.27.0 → 1.28.0)
+- **Key decisions**: D-1 hybrid 5 hand-curated + 9 algorithmic (R6 promoted atom-one-dark from algorithmic) · D-2 group-jump popup Option C declarative `[data-color]` selectors · D-3 tokens defined per `[data-theme]` block (not `:root`) · D-4 `color-mix` Chromium 111+ (Edge stable 130+ baseline well above floor) · D-5 single 12% recipe with `--group-header-tint-amount` per-theme escape hatch
+- **R3-fix applied (3 HIGHs)**: H-1 solarized-light WCAG AA — `--group-header-tint-amount: 0%` (math: every non-zero tint fails AA on solarized-light's 4.392:1 sub-AA baseline; B-105 tracks theme defect). H-2 Ungrouped slate-tint leak — synthetic `__ungrouped__` group color set to `null`; existing `GROUP_COLORS.includes(group.color)` guard correctly prevents injection. H-3 hover compound — same per-theme variable resolves both rules.
+
+### UAT Results
+- **B-101**: 6 cases authored. Pending human walk-through.
+- **B-104**: 7 cases authored. Pending human walk-through.
+
+### Velocity
+- Planned: 2 items / 1 M (B-104) + 1 S (B-101)
+- Completed: 2 items / 1 M + 1 S + 1 follow-up filed (B-105)
+- Test growth: +14 (T1-T6 B-101 + T1-T9 B-104)
+- Fix cycles: 1 R3-fix on B-104 (3 HIGH WCAG findings caught by qa-reviewer pre-R5)
+- Carried over: 0
+
+### R4 Findings Summary
+- **B-101**: 0 CRITICAL / 1 HIGH (test stub, R5 fixed) / 2 MEDIUM / 7 LOW
+- **B-104**: 0 CRITICAL / 3 HIGH (R3-fix all) / 4 MEDIUM (M-1 doc + M-2 + M-3 + M-5 all addressed) / 8 LOW
+- **Total S34**: 0 CRITICAL / 4 HIGH (all closed) / 6 MEDIUM / 15 LOW
+- **Full dedup**: `docs/findings/sprint-34.md`
+
+### Retrospective
+
+**What Went Well:**
+- Parallel-pipeline pattern paid off: B-101 and B-104 ran R3 + R4 + R5 in interleaved parallel. Two items shipped in one calendar day.
+- R4 qa-reviewer caught B-104 WCAG AA failures via contrast math computation pre-R5 — would have shipped silently if discovered only at human UAT.
+- R2 design chapter quality stayed high under parallelism (§47 + §48 both carry full D-decisions + C-1..C-12 + Performance + Accessibility + Rollback).
+- Follow-up backlog discipline: B-105 filed as the precise pre-existing defect surfaced by B-104 (no scope creep).
+
+**What to Improve:**
+- R2 contrast-math validation gap: §47.3 D-5 mental walkthrough was off by ~3:1 ratio. R2 should compute, not approximate.
+- R3 deviation handling: B-104 R3 added a hover-tint deviation without inline comment.
+- Pre-existing defect surfacing creates surprise: solarized-light's sub-AA baseline was latent v1.0 defect. R2 should pre-flight WCAG AA on all themes for tinted-surface items.
+
+**Action Items for Next Sprint:**
+1. [scrum-master] CLAUDE.md R2: add "When citing numeric WCAG contrast values, R2 MUST compute the value via the linear-luminance formula — not approximate." [HIGH]
+2. [scrum-master] CLAUDE.md R3: add "Any R3 implementation deviation from the R2 spec MUST land with an inline comment marking it as intentional + R6 As-Built mention BEFORE R4 starts." [MEDIUM]
+3. [scrum-master] Triage B-105 at next sprint kickoff. Underlying theme defect; pair with another small item. [HIGH]
+4. [scrum-master] Triage B-100 / B-102 / B-103 (S33 follow-ups) at S35. [HIGH]

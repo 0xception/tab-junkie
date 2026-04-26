@@ -33,16 +33,20 @@ html, body {
 }
 
 /* --- Group color chips ------------------------------------------------- */
+/* B-104 §47.3 D-1/Q6: swatch + chip backgrounds resolve from the per-theme
+   `--gc-<slot>` tokens declared in `shared/themes.css` (one block per
+   `[data-theme]`). The user picks what they see in the active theme; theme
+   switches re-resolve the swatch face automatically via CSS cascade. */
 
-.group-color-blue    { background-color: #2563eb; }
-.group-color-purple  { background-color: #7c3aed; }
-.group-color-teal    { background-color: #0d9488; }
-.group-color-red     { background-color: #dc2626; }
-.group-color-orange  { background-color: #ea580c; }
-.group-color-pink    { background-color: #db2777; }
-.group-color-indigo  { background-color: #4f46e5; }
-.group-color-yellow  { background-color: #ca8a04; }
-.group-color-slate   { background-color: #64748b; }
+.group-color-blue    { background-color: var(--gc-blue); }
+.group-color-purple  { background-color: var(--gc-purple); }
+.group-color-teal    { background-color: var(--gc-teal); }
+.group-color-red     { background-color: var(--gc-red); }
+.group-color-orange  { background-color: var(--gc-orange); }
+.group-color-pink    { background-color: var(--gc-pink); }
+.group-color-indigo  { background-color: var(--gc-indigo); }
+.group-color-yellow  { background-color: var(--gc-yellow); }
+.group-color-slate   { background-color: var(--gc-slate); }
 
 .group-color-chip {
   display: inline-block;
@@ -187,6 +191,15 @@ html, body {
   padding-left: var(--group-indent);
 }
 
+/* B-104 §47.3 D-5: full-bleed tint of `--group-header-color` over
+   `--bg-secondary`. JS sets `--group-header-color: var(--gc-<slot>)` inline
+   on each `.group-header` element when `group.color` is a valid slot. The
+   `transparent` fallback degrades to an untinted header for groups with no
+   color set (or in the unlikely event a browser lacks `color-mix` support).
+   Tint amount is themeable via `--group-header-tint-amount` (R2 D-5
+   reserved escape hatch); default 12%. Hover uses `--bg-hover` (not
+   `--bg-secondary`) so the blend base matches the hover surface state;
+   D-5 recipe is otherwise identical via `--group-header-tint-amount`. */
 .group-header {
   display: flex;
   align-items: center;
@@ -195,7 +208,7 @@ html, body {
   cursor: pointer;
   user-select: none;
   border: none;
-  background: var(--bg-secondary);
+  background: color-mix(in srgb, var(--group-header-color, transparent) var(--group-header-tint-amount, 12%), var(--bg-secondary));
   color: var(--text-primary);
   width: 100%;
   text-align: left;
@@ -207,7 +220,7 @@ html, body {
 }
 
 .group-header:hover {
-  background: var(--bg-hover);
+  background: color-mix(in srgb, var(--group-header-color, transparent) var(--group-header-tint-amount, 12%), var(--bg-hover));
 }
 
 .group-header-collapse {
@@ -419,6 +432,10 @@ html, body {
 /* --- Item rows --------------------------------------------------------- */
 
 .item-row {
+  /* B-101 §48.3 D-2: positioned ancestor for the absolutely-positioned
+     `.item-drift-bar` child. Verified safe — no existing `.item-row`
+     descendants are positioned absolutely. */
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -454,10 +471,6 @@ html, body {
 }
 
 .item-row[data-audible="true"] .item-audible-icon {
-  display: inline-flex;
-}
-
-.item-row[data-drifted="true"] .item-drifted-icon {
   display: inline-flex;
 }
 
@@ -544,10 +557,25 @@ html, body {
   color: var(--audible-color);
 }
 
-.item-drifted-icon {
-  display: none;
-  align-items: center;
-  color: var(--drifted-color);
+/* --- B-101 §48.3 D-1/D-3: dotted drift bar ---------------------------- */
+/* Absolute-positioned 3 px dotted vertical bar in the row's left-edge
+   gutter, at `left: 3px` so it sits to the right of the `data-active="true"`
+   3 px solid green border-left (which lives at `left: 0`). Drift-only rows
+   show only the dotted bar against the body bg; active+drifted rows show
+   both bars side-by-side in a 6 px combined gutter. Content position is
+   never shifted by drift state because the bar is out-of-flow.
+   The HTML5 `hidden` attribute (set by buildItemRow / `_ensureIndicators`)
+   collapses the element via the UA stylesheet — no extra `[hidden]` rule
+   needed. `pointer-events: none` keeps the bar decorative; the row's click
+   handler stays canonical for activation. */
+.item-drift-bar {
+  position: absolute;
+  left: 3px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-left: 3px dotted var(--drifted-color);
+  pointer-events: none;
 }
 
 /* --- Focus indicators -------------------------------------------------- */

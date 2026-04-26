@@ -65,3 +65,5 @@
 - [§44 — B-091 — Settings Page Redesign (R2 Design)](design/44-b-091-settings-page.md)
 - [§45 — B-037 — Theme Selection (R2 Design)](design/45-b-037-themes.md)
 - [§46 — B-099 — Drift Fix (Option B + Reconcile Action) (R2 Design)](design/46-b-099-drift-fix.md)
+- [§47 — B-104 — Themed Group Color System (R2 Design)](design/47-b-104-themed-group-colors.md)
+- [§48 — B-101 — Dotted Drift Bar in Row Left-Edge Gutter (R2 Design)](design/48-b-101-drift-bar.md)

@@ -344,6 +344,10 @@ li[role="option"][aria-selected="true"] {
 
 /* =========================================================================
    §40.5.6 Group color chip .gj-color-chip
+   B-104 §47.3 D-2 (Option C): per-slot rules key off `[data-color="<slot>"]`
+   so the chip background resolves from the per-theme `--gc-<slot>` cascade.
+   The base rule's `--color-avatar-bg` fallback covers chips without a valid
+   slot attribute (defensive against malformed group data).
    ========================================================================= */
 
 .gj-color-chip {
@@ -351,7 +355,7 @@ li[role="option"][aria-selected="true"] {
   width: 12px;
   height: 12px;
   border-radius: 3px;
-  background-color: var(--gj-group-color, var(--color-avatar-bg));
+  background-color: var(--color-avatar-bg);
   flex-shrink: 0;
   overflow: hidden;
   transform: none;
@@ -359,6 +363,15 @@ li[role="option"][aria-selected="true"] {
   pointer-events: none;
   box-shadow: none;
 }
+.gj-color-chip[data-color="blue"]   { background-color: var(--gc-blue); }
+.gj-color-chip[data-color="purple"] { background-color: var(--gc-purple); }
+.gj-color-chip[data-color="teal"]   { background-color: var(--gc-teal); }
+.gj-color-chip[data-color="red"]    { background-color: var(--gc-red); }
+.gj-color-chip[data-color="orange"] { background-color: var(--gc-orange); }
+.gj-color-chip[data-color="pink"]   { background-color: var(--gc-pink); }
+.gj-color-chip[data-color="indigo"] { background-color: var(--gc-indigo); }
+.gj-color-chip[data-color="yellow"] { background-color: var(--gc-yellow); }
+.gj-color-chip[data-color="slate"]  { background-color: var(--gc-slate); }
 
 /* =========================================================================
    §40.5.7 Count badge .gj-row-count
