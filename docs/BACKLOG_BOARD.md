@@ -7,7 +7,7 @@
 ## Progress Dashboard
 
 ```
-Overall Progress    █████████████████░░░  87% (100/115)  [9 in progress · S36 active]
+Overall Progress    ██████████████████░░  92% (106/115)  [S36 Wave 0 closed · 3 Wave 1 items remain]
 ```
 
 ### Legend
@@ -124,14 +124,14 @@ Overall Progress    █████████████████░░░
 
 ## Sprint 36 — UI/UX polish bundle (planned)
 
-> 0/9 done · 0 in progress · Awaiting Gate 6 sign-off + kickoff approval
+> 6/9 done · 0 in progress · Wave 0 closed 2026-04-28 (UAT pending) · Wave 1 next
 
-🔄 B-110 — Drifted-on-non-live BUG fix (§10.7 invariant violation) · 🟡 · M [S36 Wave 0 anchor — investigation needed]
-🔄 B-107 — Live-X aria-label reactive flip (WCAG 2.1 SC 4.1.2) · ⚪ · XS [S36 Wave 0 — Fast Track]
-🔄 B-108 — Solarized-light secondary text AA fix · ⚪ · S [S36 Wave 0 — Full pipeline]
-🔄 B-112 — Remove "Tab Junkie" label from sidepanel header · ⚪ · XS [S36 Wave 0 — Fast Track]
-🔄 B-114 — Group header tint v2 (brighter on dark themes) · ⚪ · XS [S36 Wave 0 — Fast Track]
-🔄 B-115 — Group-header chevron brightening (group-tinted) · ⚪ · XS [S36 Wave 0 — Fast Track]
+✅ B-110 — Drifted-on-non-live BUG fix (§10.7 invariant violation) · 🟡 · M [S36 Wave 0 — §53 closed; UAT pending]
+✅ B-107 — Live-X aria-label reactive flip (WCAG 2.1 SC 4.1.2) · ⚪ · XS [S36 Wave 0 — Fast Track]
+✅ B-108 — Solarized-light secondary text AA fix · ⚪ · S [S36 Wave 0 — §54 closed; UAT pending]
+✅ B-112 — Remove "Tab Junkie" label from sidepanel header · ⚪ · XS [S36 Wave 0 — Fast Track]
+✅ B-114 — Group header tint v2 (brighter on dark themes) · ⚪ · XS [S36 Wave 0 — Fast Track]
+✅ B-115 — Group-header chevron brightening (group-tinted) · ⚪ · XS [S36 Wave 0 — Fast Track]
 🔄 B-109 — Group header text colored to match group color · ⚪ · XS [S36 Wave 1 — Fast Track]
 🔄 B-111 — Dynamic delete icon (X for live, trashcan for non-live) · ⚪ · S [S36 Wave 1 — Full pipeline; LOCKED no confirmation change]
 🔄 B-113 — Item-row drag handle on hover + checkbox in multi-select · ⚪ · S [S36 Wave 1 — Full pipeline]
@@ -243,9 +243,9 @@ Overall Progress    █████████████████░░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 100 | 87% |
+| ✅ Done | 106 | 92% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 12 | 10% |
+| ⬜ To Do | 6 | 5% |
 | 🧊 Icebox | 3 | 3% |
 
-**To Do breakdown (12 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-107 (live-X aria-label, P3/XS · **S36**), B-108 (solarized-light secondary text AA, P3/S · **S36**), B-109 (group header text color, P3/XS · **S36**), B-110 (drifted-on-non-live BUG, P2/M · **S36**), B-111 (dynamic delete icon, P3/S · **S36**), B-112 (remove "Tab Junkie" label, P3/XS · **S36**), B-113 (drag handle + checkbox swap, P3/S · **S36**), B-114 (group header tint v2 brighter, P3/XS · **S36**), B-115 (group-header chevron brightening, P3/XS · **S36**).
+**To Do breakdown (6 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-109 (group header text color, P3/XS · **S36 Wave 1**), B-111 (dynamic delete icon, P3/S · **S36 Wave 1**), B-113 (drag handle + checkbox swap, P3/S · **S36 Wave 1**).

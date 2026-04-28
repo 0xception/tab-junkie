@@ -11,6 +11,7 @@
 
 import { getLiveTabIndex } from './live-tab-index.js';
 import { safeNormalizeForMatch } from '../../shared/url.js';
+import { clearDrift } from './drift.js';
 
 const SESSION_KEY = 'tj:tabClaims';
 
@@ -85,6 +86,12 @@ export async function reconcileClaims(items) {
   const index = getLiveTabIndex();
   const reconciled = {};
   const claimedTabIds = new Set();
+  /* B-110 §53 (S36): track every claim that does NOT survive Phase 1
+     validation. After writeClaims succeeds, clearDrift runs for each so
+     orphan drift records cannot persist past a cold-start reconcile —
+     enforces the §10.7 invariant (drift records only exist for claimed
+     items). */
+  const evictedItemIds = [];
 
   // Phase 1: validate existing claims
   for (const [itemId, tabId] of Object.entries(storedClaims)) {
@@ -93,6 +100,8 @@ export async function reconcileClaims(items) {
     if (tabEntry && item && safeNormalizeForMatch(tabEntry.url) === safeNormalizeForMatch(item.url)) {
       reconciled[itemId] = tabId;
       claimedTabIds.add(tabId);
+    } else {
+      evictedItemIds.push(itemId);
     }
   }
 
@@ -130,6 +139,15 @@ export async function reconcileClaims(items) {
   claimsMirror = reconciled;
   await writeClaims();
   claimsReady = true;
+
+  /* B-110 §53 (S36): clear drift records paired with evicted claims.
+     `clearDrift` is a no-op when no record exists (drift.js:90-94 short-
+     circuits when itemId is absent). Best-effort: any individual failure
+     does not block reconcile completion; the next cold-start cycle will
+     retry. Run after writeClaims so claimsMirror is consistent first. */
+  if (evictedItemIds.length > 0) {
+    await Promise.allSettled(evictedItemIds.map((itemId) => clearDrift(itemId)));
+  }
 }
 
 /**

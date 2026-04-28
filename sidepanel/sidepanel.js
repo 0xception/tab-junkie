@@ -2372,7 +2372,11 @@ function buildItemRow(item, liveStates, driftRecords) {
   const driftBar = document.createElement('span');
   driftBar.className = 'item-drift-bar';
   driftBar.setAttribute('aria-hidden', 'true');
-  if (drifted) {
+  /* B-110 §53 — conjunctive invariant gate: per §10.7, drift records only
+     exist for claimed items. Defend the render path even if a stale drift
+     record leaks through from storage (defense-in-depth; symmetric with
+     `_ensureIndicators`). */
+  if (drifted && live?.live) {
     driftBar.title = _driftTooltipFor(drifted.driftedToUrl);
   } else {
     driftBar.hidden = true;
@@ -3064,6 +3068,15 @@ async function refetchAndPatchLiveState() {
 
     /* Update data attributes */
     if (live?.live) row.dataset.live = 'true'; else delete row.dataset.live;
+    /* B-107 (S36): WCAG 2.1 SC 4.1.2 name-role-value — flip the X-button's
+       aria-label to match the action that fires (B-100: live row → close tab;
+       non-live row → delete bookmark). The static initial value at
+       `buildItemRow` is "Delete bookmark" (default non-live); this patch
+       reactively updates it on every live-state transition. */
+    const deleteBtn = row.querySelector('.item-action-delete');
+    if (deleteBtn) {
+      deleteBtn.setAttribute('aria-label', live?.live ? 'Close tab' : 'Delete bookmark');
+    }
     if (live?.active) row.dataset.active = 'true'; else delete row.dataset.active;
     if (live?.audible) row.dataset.audible = 'true'; else delete row.dataset.audible;
     if (drifted) row.dataset.drifted = 'true'; else delete row.dataset.drifted;
@@ -3192,14 +3205,20 @@ function _ensureIndicators(row, live, isDrifted, driftedToUrl) {
     if (indicators && indicators.children.length === 0) indicators.remove();
   }
 
-  /* B-101 §48.3 D-1 / D-5: drift bar is always present in the row DOM (added
-     by `buildItemRow`). Transitions toggle the `hidden` attribute and the
-     `title` tooltip — no DOM creation/removal. The bar's visibility gates
-     exclusively on `isDrifted` per D-5 (drift records only exist for claimed
-     items per §10.7, so no live/claim coupling is needed). */
+  /* B-101 §48.3 D-1 / D-5 + B-110 §53 (S36): drift bar is always present in
+     the row DOM (added by `buildItemRow`). Transitions toggle the `hidden`
+     attribute and the `title` tooltip — no DOM creation/removal. Visibility
+     gates conjunctively on `isDrifted && live?.live` — defense-in-depth for
+     the §10.7 invariant (drift records only exist for claimed items). The
+     B-101 D-5 single-condition gate was correct as a STATEMENT of the
+     invariant but did not ENFORCE it; B-110 found two leak paths in claim
+     release (`reconcileClaims` cold-start eviction + `MSG_NAVIGATE_TO_ITEM`
+     AC3 stale-claim repair) where drift records survived release. The
+     source patches close the leaks; this gate is hardening that stays
+     in place permanently against future regression. */
   const bar = row.querySelector('.item-drift-bar');
   if (bar) {
-    if (isDrifted) {
+    if (isDrifted && live?.live) {
       const url = typeof driftedToUrl === 'string' && driftedToUrl.length > 0
         ? driftedToUrl
         : (row.dataset.itemId

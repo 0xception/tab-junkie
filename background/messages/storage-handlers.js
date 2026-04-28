@@ -389,9 +389,12 @@ async function dispatch(type, payload) {
         resultTabId = claimedTabId;
         opened = false;
       } else {
-        // AC3: stale claim — release it
+        // AC3: stale claim — release it (B-110 §53: paired clearDrift to
+        // honour the §10.7 invariant that drift records only exist for
+        // claimed items; clearDrift is a no-op when no record exists)
         if (claimedTabId !== null) {
           await releaseClaimByTab(claimedTabId);
+          await clearDrift(p.itemId);
         }
         // AC5: open a new tab
         const newTab = await chrome.tabs.create({ url: item.url });

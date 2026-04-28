@@ -1,6 +1,6 @@
 # Current Sprint
 
-*Sprint 36 — UI/UX polish bundle. Planned 2026-04-26. **Awaiting product-owner approval to kick off R1.***
+*Sprint 36 — UI/UX polish bundle. Planned 2026-04-26. **R1 LOCKED in BACKLOG.md for all 9 items 2026-04-26 (manual lock — pre-kickoff). Product-owner approved Wave 0 launch 2026-04-26.***
 
 Nine-item UI/UX polish-and-bugfix sprint targeting v1.30.0. Bundles 2 carryover follow-ups from S35 (B-107, B-108) + 7 items from product-owner UI review of v1.29.0 (B-109 through B-115). Heavy by item count but only 1 M (the B-110 drift bug); rest are S/XS polish. Ships to `release/v2`. No main merge — manual product-owner task.
 
@@ -12,7 +12,7 @@ Nine-item UI/UX polish-and-bugfix sprint targeting v1.30.0. Bundles 2 carryover 
 
 | # | Check | Status |
 |---|-------|--------|
-| 1 | All sprint items have passed Definition of Ready | ⏳ — all 9 items have user story + priority/effort + dependencies; ACs locked at R1 by [product-manager] |
+| 1 | All sprint items have passed Definition of Ready | ✅ — all 9 items R1 LOCKED in BACKLOG.md 2026-04-26 (manual lock — DoR items 1-4 + 7 satisfied for all 9; DoR items 5-6 satisfied at R2 for the 4 Full items B-108, B-110, B-111, B-113) |
 | 2 | Total sprint effort fits the sprint duration | ⚠️ — 1 M + 4 S + 4 XS = within P-3 limit (1 M of max 2) but heaviest sprint by item count to date. Recommend splitting if user prefers tighter scope. |
 | 3 | No unresolved blockers from S35 | ✅ |
 | 4 | `SPRINT.md` "Active Items" populated | ✅ (below) |
@@ -112,7 +112,37 @@ Sprint Close
 
 ## Completed This Sprint
 
-*(none yet — sprint not kicked off)*
+### Wave 0 — closed 2026-04-28 (UAT pending in Edge)
+
+**[B-107]** Live-X aria-label reactive flip (Fast Track XS) — done.
+- Files changed: `sidepanel/sidepanel.js` (+9 lines in `refetchAndPatchLiveState` patch loop, line 3064-3074); `tests/b107-live-x-aria.test.js` (NEW, 4 tests).
+- R4: code-reviewer PASS, security-reviewer PASS.
+
+**[B-108]** Solarized-light `--text-secondary` WCAG AA fix (Full S) — done.
+- Files changed: `shared/themes.css` (lines 313, 333 — both `--text-secondary` AND `--group-count-text` darkened `#657b83` → `#546a72` per §54.3 D-2 binding correction); `tests/b108-solarized-secondary-contrast.test.js` (NEW, 5 tests T1-T5); `docs/design/54-b-108-solarized-light-secondary-fix.md` (NEW chapter, R6 close filled); root TOC.
+- R4: code-reviewer PASS, security-reviewer PASS, qa-reviewer PASS-with-fixes (M-2 + M-3 doc fixes addressed in R6).
+- Verified contrast: 4.6553:1 vs `--bg-secondary` (above 4.5:1 floor).
+
+**[B-110]** Drift indicator on non-live bookmark bug fix (Full M, anchor) — done.
+- Files changed: `sidepanel/sidepanel.js` (conjunctive gate at first-paint line ~2375 + `_ensureIndicators` line ~3208); `background/tabs/tab-claims.js` (new `clearDrift` import + `evictedItemIds` tracker + `Promise.allSettled` batch after `writeClaims`); `background/messages/storage-handlers.js:393` (`await clearDrift(p.itemId)` after `releaseClaimByTab` in AC3 stale-claim repair); `tests/b110-drift-non-live-fix.test.js` (NEW, 8 tests T1-T8 incl. T8 aria-label asymmetry pin); `tests/b101-drift-bar.test.js` (R4 hygiene fix — inlined stubs updated to mirror post-B-110 production gate); `docs/UAT_B-110.md` (NEW, 5 UAT cases); `docs/design/53-b-110-drift-non-live-fix.md` (NEW chapter, R6 close filled); root TOC.
+- R4: code-reviewer PASS-with-fixes, security-reviewer PASS, qa-reviewer PASS-with-fixes (3 MEDIUM findings all addressed in R6).
+- Two leaks fixed: PRIMARY (`reconcileClaims` cold-start eviction) + SECONDARY (`MSG_NAVIGATE_TO_ITEM` AC3 stale-claim repair). Defense-in-depth render gate added at both render sites.
+
+**[B-112]** Remove "Tab Junkie" label from sidepanel header (Fast Track XS) — done.
+- Files changed: `sidepanel/sidepanel.html` (removed `<span class="panel-header-title">`); `sidepanel/sidepanel.css` (removed `.panel-header-title` rule); `tests/b112-header-label-removed.test.js` (NEW, 3 tests).
+- R4: code-reviewer PASS, security-reviewer PASS.
+
+**[B-114]** Brighter dark-theme group-header tint v2 (Fast Track XS) — done.
+- Files changed: `shared/themes.css` (added `--group-header-tint-amount: 20%` to 11 dark themes + the system-dark @media branch; light themes stay 18%, solarized-light stays 3%); `tests/b114-tint-v2.test.js` (NEW, 3 tests).
+- R4: code-reviewer PASS, security-reviewer PASS. WCAG AA spot-check verified worst-case (atom-one-dark + yellow) at 4.55:1 (above 4.5:1 floor).
+
+**[B-115]** Group-header chevron brightening (Fast Track XS) — done.
+- Files changed: `sidepanel/sidepanel.css` (`.group-header-collapse` `color: var(--group-header-color, var(--text-primary))`); `tests/b115-chevron-color.test.js` (NEW, 2 tests).
+- R4: code-reviewer PASS-with-fixes (M-1: `--collapse-icon` token now orphaned across 17 sites — addressed in W0-A.1 cleanup), security-reviewer PASS.
+
+**Wave 0 cleanup (W0-A.1)**: `--collapse-icon` token removed from `shared/themes.css` (17 sites: `:root` + system @media + 14 themes); `tests/b037-themes.test.js` token-list assertion updated; B-115 inline comment in `sidepanel.css` rewritten (dropped false "retained for any future consumer" claim).
+
+**Test count delta**: 1,464 (post-S35 baseline) → **1,489** (+25 across 6 wave-0 items). Zero regressions.
 
 ---
 
@@ -133,6 +163,18 @@ Sprint Close
 
 ## Pre-flight reminders for kickoff
 
-When the user approves: [scrum-master] launches **Wave 0 R1 agents in parallel** (6 R1 simultaneously: B-110, B-107, B-108, B-112, B-114, B-115). After Wave 0 R1 completes, kicks off Wave 1 R1 (3 simultaneously: B-109, B-111, B-113).
+**R1 was completed manually pre-kickoff (2026-04-26)** — all 9 items have R1 LOCKED blocks in `docs/BACKLOG.md`. Skip the formal R1 [product-manager] round; agents read R1 directly from BACKLOG.md row.
+
+**Revised Wave 0 launch (6 agents in parallel — R2 for Full items, R3 for Fast Track items):**
+- [solution-architect] R2 for **B-110** (Full M, anchor — drift bug; investigate claim-release leak paths)
+- [solution-architect] R2 for **B-108** (Full S — solarized-light secondary text; token darken recipe + regression scan)
+- [frontend-engineer] R3 for **B-107** (Fast Track XS — sidepanel.js aria-label flip)
+- [frontend-engineer] R3 for **B-112** (Fast Track XS — sidepanel.html header span removal + sidepanel.css rule deletion)
+- [frontend-engineer] R3 for **B-114** (Fast Track XS — shared/themes.css 11 dark-theme tint overrides)
+- [frontend-engineer] R3 for **B-115** (Fast Track XS — sidepanel.css `.group-header-collapse` color change)
+
+Note on file overlap: B-112 and B-115 both touch `sidepanel/sidepanel.css` but in different rule blocks (panel-header vs group-header-collapse). Edit-tool old_string targeting handles non-overlapping edits safely.
+
+After Wave 0 completes (R3 build + R4 review for Fast Track; R2 → R3 → R4 → R5 for Full items), kick off Wave 1: B-109, B-111, B-113.
 
 Test count baseline: 1,464 (post-S35). Target post-S36: ~1,490+ depending on item-by-item.

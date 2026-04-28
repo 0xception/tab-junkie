@@ -67,7 +67,6 @@
   --group-count-bg: #ecedf0;
   --group-count-text: #5f6673;
   --avatar-text: #ffffff;
-  --collapse-icon: #8a8f9a;
   --mark-bg: #fef08a;
   --selected-bg: #dbeafe;
   --selected-border: #2563eb;
@@ -123,7 +122,6 @@
     --group-count-bg: #2a2f38;
     --group-count-text: #9aa0ab;
     --avatar-text: #ffffff;
-    --collapse-icon: #6b7280;
     --mark-bg: #713f12;
     --selected-bg: #1e3a5f;
     --selected-border: #60a5fa;
@@ -147,6 +145,11 @@
     --gc-indigo: #423cae;
     --gc-yellow: #986c11;
     --gc-slate: #505d6f;
+    /* B-114 (Sprint 36): brighter dark-theme tint on the system theme's
+       dark-OS branch — see github-dark block for full WCAG AA derivation.
+       20% is the AA ceiling pinned uniformly across all 11 dark-theme
+       overrides. */
+    --group-header-tint-amount: 20%;
   }
 }
 
@@ -183,7 +186,6 @@
   --group-count-bg: #eaeef2;
   --group-count-text: #656d76;
   --avatar-text: #ffffff;
-  --collapse-icon: #8c959f;
   --mark-bg: #fff8c5;
   --selected-bg: #ddf4ff;
   --selected-border: #0969da;
@@ -233,7 +235,6 @@
   --group-count-bg: #efefef;
   --group-count-text: #8e908c;
   --avatar-text: #ffffff;
-  --collapse-icon: #a8a8a8;
   --mark-bg: #fff8c5;
   --selected-bg: #eaf2fb;
   --selected-border: #4271ae;
@@ -282,7 +283,6 @@
   --group-count-bg: #e8e8e8;
   --group-count-text: #696c77;
   --avatar-text: #ffffff;
-  --collapse-icon: #a0a1a7;
   --mark-bg: #fff3a8;
   --selected-bg: #e6efff;
   --selected-border: #4078f2;
@@ -310,7 +310,7 @@
   --bg-hover: #e4dcc4;
   --bg-active: #d8d2bd;
   --text-primary: #546a71; /* B-105: bumped from canonical Solarized base01 #586e75 to #546a71 for WCAG AA (4.661:1 vs --bg-secondary). See docs/design/52-b-105-solarized-light-fix.md */
-  --text-secondary: #657b83;
+  --text-secondary: #546a72; /* B-108: bumped from canonical Solarized base00 #657b83 to #546a72 for WCAG AA (4.655:1 vs --bg-secondary). See docs/design/54-b-108-solarized-light-secondary-fix.md */
   --text-tertiary: #93a1a1;
   --border-primary: #d8d2bd;
   --border-subtle: #eee8d5;
@@ -330,9 +330,8 @@
   --skeleton-shine: #fdf6e3;
   --empty-color: #93a1a1;
   --group-count-bg: #eee8d5;
-  --group-count-text: #657b83;
+  --group-count-text: #546a72; /* B-108: matches --text-secondary; literal hex (not var alias) per cross-theme pattern. See docs/design/54-b-108-solarized-light-secondary-fix.md */
   --avatar-text: #fdf6e3;
-  --collapse-icon: #93a1a1;
   --mark-bg: #f4e8a8;
   --selected-bg: #e3eef7;
   --selected-border: #268bd2;
@@ -397,7 +396,6 @@
   --group-count-bg: #21262d;
   --group-count-text: #8b949e;
   --avatar-text: #ffffff;
-  --collapse-icon: #6e7681;
   --mark-bg: #4d3a00;
   --selected-bg: #0c2d6b;
   --selected-border: #2f81f7;
@@ -417,6 +415,17 @@
   --gc-indigo: #3e39aa;
   --gc-yellow: #94690d;
   --gc-slate: #4d596c;
+  /* B-114 (Sprint 36): brighter group-header tint on dark themes per
+     product-owner feedback ("very dark in dark modes; want to see it
+     brighter"). 20% is the WCAG AA ceiling — at 22% the worst-case
+     spot-check cell (one-dark/atom-one-dark + yellow) drops to 4.33:1
+     (FAIL); at 21% it is 4.41:1 (FAIL); at 20% it lifts to 4.55:1
+     (PASS, +0.049 over the 4.5:1 floor). All 11 dark-theme overrides
+     are pinned to the same 20% value for a uniform brighter visual.
+     :root keeps 18% (light themes inherit unchanged); solarized-light
+     keeps its B-105 3% override (preserved). See docs/BACKLOG.md
+     B-114 R1 + docs/design/47-b-104-themed-group-colors.md §47.7. */
+  --group-header-tint-amount: 20%;
 }
 
 /* --- Tomorrow Night --- */
@@ -448,7 +457,6 @@
   --group-count-bg: #373b41;
   --group-count-text: #969896;
   --avatar-text: #ffffff;
-  --collapse-icon: #707880;
   --mark-bg: #5a4a1c;
   --selected-bg: #2a3340;
   --selected-border: #81a2be;
@@ -467,6 +475,10 @@
   --gc-indigo: #433eae;
   --gc-yellow: #996d11;
   --gc-slate: #525e6f;
+  /* B-114 (Sprint 36): brighter dark-theme tint — see github-dark block
+     for full WCAG AA derivation. 20% is the AA ceiling pinned uniformly
+     across all 11 dark-theme overrides. */
+  --group-header-tint-amount: 20%;
 }
 
 /* --- Atom One Dark --- */
@@ -498,7 +510,6 @@
   --group-count-bg: #2c313a;
   --group-count-text: #828997;
   --avatar-text: #ffffff;
-  --collapse-icon: #5c6370;
   --mark-bg: #5a4a1c;
   --selected-bg: #2c3a4d;
   --selected-border: #61afef;
@@ -520,6 +531,11 @@
   --gc-indigo: #c678dd;
   --gc-yellow: #e5c07b;
   --gc-slate: #5c6370;
+  /* B-114 (Sprint 36): brighter dark-theme tint — see github-dark block
+     for full WCAG AA derivation. atom-one-dark + yellow IS the worst-case
+     spot-check cell (4.55:1 at 20% — the AA ceiling). 20% is pinned
+     uniformly across all 11 dark-theme overrides. */
+  --group-header-tint-amount: 20%;
 }
 
 /* --- Solarized Dark --- */
@@ -551,7 +567,6 @@
   --group-count-bg: #073642;
   --group-count-text: #93a1a1;
   --avatar-text: #ffffff;
-  --collapse-icon: #586e75;
   --mark-bg: #5a4a1c;
   --selected-bg: #0a3a4f;
   --selected-border: #268bd2;
@@ -570,6 +585,10 @@
   --gc-indigo: #3941b4;
   --gc-yellow: #8f7117;
   --gc-slate: #486175;
+  /* B-114 (Sprint 36): brighter dark-theme tint — see github-dark block
+     for full WCAG AA derivation. 20% is the AA ceiling pinned uniformly
+     across all 11 dark-theme overrides. */
+  --group-header-tint-amount: 20%;
 }
 
 /* --- Dracula --- */
@@ -601,7 +620,6 @@
   --group-count-bg: #343746;
   --group-count-text: #c5c5d2;
   --avatar-text: #f8f8f2;
-  --collapse-icon: #6272a4;
   --mark-bg: #5a4a1c;
   --selected-bg: #3b2f55;
   --selected-border: #bd93f9;
@@ -620,6 +638,10 @@
   --gc-indigo: #bd93f9;
   --gc-yellow: #f1fa8c;
   --gc-slate: #6272a4;
+  /* B-114 (Sprint 36): brighter dark-theme tint — see github-dark block
+     for full WCAG AA derivation. 20% is the AA ceiling pinned uniformly
+     across all 11 dark-theme overrides. */
+  --group-header-tint-amount: 20%;
 }
 
 /* --- Nord --- */
@@ -651,7 +673,6 @@
   --group-count-bg: #3b4252;
   --group-count-text: #d8dee9;
   --avatar-text: #eceff4;
-  --collapse-icon: #a0a8b6;
   --mark-bg: #5a4a1c;
   --selected-bg: #3a4a55;
   --selected-border: #88c0d0;
@@ -673,6 +694,10 @@
   --gc-indigo: #4945b9;
   --gc-yellow: #9f741b;
   --gc-slate: #58657a;
+  /* B-114 (Sprint 36): brighter dark-theme tint — see github-dark block
+     for full WCAG AA derivation. 20% is the AA ceiling pinned uniformly
+     across all 11 dark-theme overrides. */
+  --group-header-tint-amount: 20%;
 }
 
 /* --- One Dark (D-2 migration target for legacy 'dark') --- */
@@ -704,7 +729,6 @@
   --group-count-bg: #2c313a;
   --group-count-text: #828997;
   --avatar-text: #ffffff;
-  --collapse-icon: #5c6370;
   --mark-bg: #5a4a1c;
   --selected-bg: #2c3a4d;
   --selected-border: #61afef;
@@ -723,6 +747,11 @@
   --gc-indigo: #c678dd;
   --gc-yellow: #e5c07b;
   --gc-slate: #5c6370;
+  /* B-114 (Sprint 36): brighter dark-theme tint — see github-dark block
+     for full WCAG AA derivation. one-dark + yellow IS the worst-case
+     spot-check cell (4.55:1 at 20% — the AA ceiling). 20% is pinned
+     uniformly across all 11 dark-theme overrides. */
+  --group-header-tint-amount: 20%;
 }
 
 /* --- Monokai --- */
@@ -754,7 +783,6 @@
   --group-count-bg: #3e3d32;
   --group-count-text: #cfcfc2;
   --avatar-text: #f8f8f2;
-  --collapse-icon: #75715e;
   --mark-bg: #5a4a1c;
   --selected-bg: #3a4023;
   --selected-border: #a6e22e;
@@ -773,6 +801,10 @@
   --gc-indigo: #403aa8;
   --gc-yellow: #966a0b;
   --gc-slate: #4f5a69;
+  /* B-114 (Sprint 36): brighter dark-theme tint — see github-dark block
+     for full WCAG AA derivation. 20% is the AA ceiling pinned uniformly
+     across all 11 dark-theme overrides. */
+  --group-header-tint-amount: 20%;
 }
 
 /* --- Tokyo Night --- */
@@ -804,7 +836,6 @@
   --group-count-bg: #1f2335;
   --group-count-text: #a9b1d6;
   --avatar-text: #ffffff;
-  --collapse-icon: #565f89;
   --mark-bg: #3d3416;
   --selected-bg: #1f2b4a;
   --selected-border: #7aa2f7;
@@ -823,6 +854,10 @@
   --gc-indigo: #3e38a9;
   --gc-yellow: #94670c;
   --gc-slate: #4d586a;
+  /* B-114 (Sprint 36): brighter dark-theme tint — see github-dark block
+     for full WCAG AA derivation. 20% is the AA ceiling pinned uniformly
+     across all 11 dark-theme overrides. */
+  --group-header-tint-amount: 20%;
 }
 
 /* =========================================================================
@@ -861,7 +896,6 @@
   --group-count-bg: #e8e8e8;
   --group-count-text: #696c77;
   --avatar-text: #ffffff;
-  --collapse-icon: #a0a1a7;
   --mark-bg: #fff3a8;
   --selected-bg: #e6efff;
   --selected-border: #4078f2;
@@ -910,7 +944,6 @@
   --group-count-bg: #2c313a;
   --group-count-text: #828997;
   --avatar-text: #ffffff;
-  --collapse-icon: #5c6370;
   --mark-bg: #5a4a1c;
   --selected-bg: #2c3a4d;
   --selected-border: #61afef;
@@ -928,4 +961,9 @@
   --gc-indigo: #c678dd;
   --gc-yellow: #e5c07b;
   --gc-slate: #5c6370;
+  /* B-114 (Sprint 36): legacy 'dark' alias mirrors one-dark's brighter
+     dark-theme tint at the WCAG AA ceiling — see github-dark block for
+     full derivation. 20% is pinned uniformly across all 11 dark-theme
+     overrides. */
+  --group-header-tint-amount: 20%;
 }

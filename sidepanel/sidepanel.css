@@ -229,7 +229,12 @@ html, body {
   justify-content: center;
   width: 16px;
   height: 16px;
-  color: var(--collapse-icon);
+  /* B-115: chevron consumes the group's themed color (set on parent
+     `.group-header` by B-104 as `--group-header-color: var(--gc-<slot>)`)
+     and inherits via the CSS cascade. Falls back to `--text-primary` for
+     groups without a color slot (e.g., Ungrouped) so the chevron remains
+     visible at primary text contrast. */
+  color: var(--group-header-color, var(--text-primary));
   transition: transform 0.15s ease;
   flex-shrink: 0;
 }
@@ -612,12 +617,6 @@ html, body {
   position: sticky;
   top: 0;
   z-index: 10;
-}
-
-.panel-header-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
 }
 
 .header-add-btn {
