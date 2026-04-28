@@ -2017,3 +2017,94 @@ When the extension is updated and a new pref key is added to `DEFAULT_PREFERENCE
 1. [scrum-master] CLAUDE.md R1: "When a sprint contains multiple bug-fix items, R1 [product-manager] MUST check whether items share a root cause by reading each other's repro cases. Document overlap in R1 handoff notes." [HIGH]
 2. [scrum-master] Triage B-107 + B-108 at next sprint kickoff. [MEDIUM]
 3. [scrum-master] Consider filing chrome-mock multi-context enhancement (P3/M) to close the manual UAT gap. [LOW]
+
+---
+
+## Sprint 36 — UI/UX polish bundle (2026-04-28)
+
+**Theme:** Nine-item UI/UX polish-and-bugfix sprint. 1 P2/M drift bug + 4 S items (1 WCAG fix + 1 delete-icon swap + 1 drag-handle/multi-select + 1 carryover) + 4 XS polish. Three R2 binding-correction precedents established (B-108 D-2, B-111 D-4, B-113 D-5). One pre-existing AA defect surfaced (atom-one-dark+yellow ~2.81:1 against `--text-primary` on the 20%-tinted bg) — filed as B-117 follow-up.
+**Release:** v1.30.0 (release/v2 only — no main merge)
+**Branch:** `feature/sprint-36-ui-polish`
+**Tests:** 1,464 → 1,504 (+40 across 9 items via 7 R5 rounds — T1-T4 B-107, T1-T5 B-108, T1-T8 B-110, T1-T3 B-112, T1-T3 B-114, T1-T2 B-115, T1-T4 B-109, T1-T4 B-111, T1-T7 B-113)
+
+### Completed Items
+
+#### [B-110] Drift indicator on non-live bookmark (anchor) — ✅ DONE
+- **Tier**: Full (M) · **Closed**: 2026-04-28
+- **Pipeline**: R1 ✅ · R2 ✅ (§53) · R3 ✅ · R4 ✅ (3 reviewers — 0 CRITICAL / 0 HIGH / 3 MEDIUM / 6 LOW) · R6-fix (3 MEDIUM addressed in close — b101 stub re-pinning, T8 aria-label asymmetry pin, §53.5 C-9 doc accuracy) · R5 ✅ (8 tests + 5 UAT) · R6 ✅ (§53.11) · R7 ✅
+- **Files changed**: `sidepanel/sidepanel.js` (conjunctive `isDrifted && live?.live` gate at first-paint + `_ensureIndicators`), `background/tabs/tab-claims.js` (new `evictedItemIds` tracker + `Promise.allSettled` clearDrift batch + cyclic import of `clearDrift` from `./drift.js`), `background/messages/storage-handlers.js:393` (`clearDrift` after `releaseClaimByTab` in AC3 stale-claim repair), `tests/b110-drift-non-live-fix.test.js` (8 tests T1-T8), `tests/b101-drift-bar.test.js` (post-B-110 stub re-pinning), `docs/UAT_B-110.md` (5 UAT cases), `docs/design/53-b-110-drift-non-live-fix.md`
+- **Two-layer fix shipped**: defense-in-depth render gate + source patches at TWO leak paths (`reconcileClaims` cold-start eviction PRIMARY + `MSG_NAVIGATE_TO_ITEM` AC3 stale-claim repair SECONDARY)
+- **NEW R6 precedents**: (1) two-layer-fix pattern for §10.7-style invariant violations; (2) static-source patch-site guards with coarse fallback (R4 L-5); (3) R6 stub-update obligation for inline test reproductions; (4) aria-label asymmetry pin pattern (T8)
+
+#### [B-108] Solarized-light `--text-secondary` WCAG AA fix — ✅ DONE
+- **Tier**: Full (S) · **Closed**: 2026-04-27
+- **Pipeline**: R1 ✅ · R2 ✅ (§54) · R3 ✅ · R4 ✅ (3 reviewers — 0 CRITICAL / 0 HIGH / 3 MEDIUM / 5 LOW) · R5 ✅ (5 tests + 5 UAT) · R6 ✅ (§54.10) · R7 ✅
+- **Files changed**: `shared/themes.css` (BOTH `--text-secondary` AND `--group-count-text` `#657b83` → `#546a72` per §54.3 D-2 binding correction), `tests/b108-solarized-secondary-contrast.test.js` (5 tests T1-T5 with computed WCAG AA + 9-slot tint matrix), `docs/design/54-b-108-solarized-light-secondary-fix.md`
+- **D-2 R2 binding correction**: R1 LOCKED Q3 incorrectly claimed `--group-count-text` is `var(--text-secondary)` aliased — verified false (literal hex duplicate). R3 must edit BOTH lines.
+- **Verified contrast**: `#546a72` vs `--bg-secondary #eee8d5` = 4.6553:1 (AA pass +0.155 above floor)
+- **NEW R6 precedent**: R2 binding-correction pattern (#1 of 3 this sprint)
+
+#### [B-111] Dynamic delete-icon swap (X for live, trash for non-live) — ✅ DONE
+- **Tier**: Full (S) · **Closed**: 2026-04-28
+- **Pipeline**: R1 ✅ · R2 ✅ (§55) · R3 ✅ · R4 ✅ (3 reviewers — 0 CRITICAL / 0 HIGH / 0 MEDIUM / 6 LOW) · R6-fix (3 LOWs addressed — T1 regex tightened, symmetric trash-default rule added, UAT-5 promoted to mandatory) · R5 ✅ (4 tests + 5 UAT) · R6 ✅ (§55.12) · R7 ✅
+- **Files changed**: `sidepanel/sidepanel.js` (replaced single trash `<svg>` in `.item-action-delete` with two SVGs — X icon `.icon-action-close` + trash icon `.icon-action-trash`; both `aria-hidden="true"`), `sidepanel/sidepanel.css` (4 new rules near `.item-action-delete:hover` — symmetric defaults + live-state visibility toggles), `tests/b111-dynamic-delete-icon.test.js` (4 tests T1-T4), `docs/design/55-b-111-dynamic-delete-icon.md`
+- **D-4 R2 binding correction**: R1 Q5 incorrectly claimed `buildOpenTabRow` has an `.item-action-delete` button — verified false. R3 strictly limited footprint to `buildItemRow`.
+- **Pure CSS swap**: `.item-row[data-live="true"] .item-action-delete .icon-action-close { display: inline-block; }` — zero JS in the visibility flip hot path
+- **NEW R6 precedent**: R2 binding-correction pattern (#2 of 3 this sprint)
+
+#### [B-113] Item-row drag handle on hover + checkbox in multi-select — ✅ DONE
+- **Tier**: Full (S) · **Closed**: 2026-04-28
+- **Pipeline**: R1 ✅ · R2 ✅ (§56) · R3 ✅ · R4 ✅ (3 reviewers — 0 CRITICAL / 0 HIGH / 1 MEDIUM / 8 LOW) · R6-fix (M-1 layout bug fixed — flex-overlap replacement of `position: absolute`) · R5 ✅ (7 tests + 7 UAT) · R6 ✅ (§56.12) · R7 ✅
+- **Files changed**: `sidepanel/sidepanel.js` (new `<span class="item-drag-handle">` with 6-circle SVG matching `.group-drag-handle` pattern, appended in `buildItemRow` after `.item-select`), `sidepanel/sidepanel.css` (split existing `.item-row:hover .item-select` rule clauses; new `.item-drag-handle` block with flex-overlap positioning + `prefers-reduced-motion` gate; Gmail-pattern persistent reveal), `tests/b048-visual-states.test.js` (header comment + AC6 assertion update for the b048 §31.5 AC6 contract change), `tests/b113-drag-handle-multi-select.test.js` (7 tests T1-T7), `docs/design/56-b-113-drag-handle-multi-select.md`
+- **D-5 R2 binding correction**: open-tab rows are NOT draggable — handle omitted from `buildOpenTabRow` for honest UX. T2 is the static-source guard.
+- **D-3 b048 §31.5 AC6 contract change**: existing rule split intentionally — `:focus-visible` + `[data-selected="true"]` clauses preserved together; `:hover` scoped under `#item-list.has-bulk-bar`. R3 expanded scope vs. R2 fix-scope (which only listed b048 header comment) to also update the b048 AC6 assertion test.
+- **R6 layout iteration (R4 [qa] M-1)**: original `position: absolute; left: 12px` misaligned by 3 px on `data-live="true"` rows because absolute positioning anchors to the row's padding-edge. Replaced with `flex: 0 0 18px; margin-left: -18px;` — invariant across all row states.
+- **NEW R6 precedents**: (1) R2 binding-correction pattern (#3 of 3 this sprint); (2) R3 must check pre-existing test assertions when R2 declares a contract change; (3) flex-overlap pattern for sibling-affordance overlay
+
+#### [B-107] Live-X aria-label reactive flip — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-27
+- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (code + security PASS, no findings any tier)
+- **Files changed**: `sidepanel/sidepanel.js` (~+9 LOC in `refetchAndPatchLiveState` patch loop, line 3064-3074 — `aria-label` flips between "Close tab" and "Delete bookmark" per `data-live` state), `tests/b107-live-x-aria.test.js` (4 tests)
+- **Resolves**: S35 B-100 R4 [qa-reviewer] M-4 (WCAG 2.1 SC 4.1.2 name-role-value mismatch)
+
+#### [B-112] Remove "Tab Junkie" panel-header label — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-27
+- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (code + security PASS, no findings)
+- **Files changed**: `sidepanel/sidepanel.html` (1 `<span>` removed), `sidepanel/sidepanel.css` (`.panel-header-title` rule removed), `tests/b112-header-label-removed.test.js` (3 tests)
+
+#### [B-114] Brighter dark-theme group-header tint v2 — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-27
+- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (code + security PASS — `--collapse-icon` cleanup MEDIUM addressed inline)
+- **Files changed**: `shared/themes.css` (`--group-header-tint-amount: 20%` added to 11 dark themes + system-OS-dark @media branch), `tests/b114-tint-v2.test.js` (3 tests)
+- **Pre-existing AA defect surfaced post-W1-A**: §47.7 + B-114 inline comment claimed worst-case (atom-one-dark + yellow) at 4.55:1 at 20% tint. B-109 R3 verified actual ~2.81:1 — design-doc claims inaccurate. Tracked as **B-117** follow-up.
+
+#### [B-115] Group-header chevron uses themed group color — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-27
+- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (code PASS-with-fixes — orphaned `--collapse-icon` token finding + security PASS)
+- **Files changed**: `sidepanel/sidepanel.css` (`.group-header-collapse` color → `var(--group-header-color, var(--text-primary))`), `tests/b115-chevron-color.test.js` (2 tests). **Wave 0 cleanup (W0-A.1)**: `--collapse-icon` token removed from all 17 sites in `shared/themes.css` (`:root` + system @media + 14 themes); `tests/b037-themes.test.js` token-list assertion updated.
+
+#### [B-109] Group-header text colored to match group color — ✅ DONE
+- **Tier**: Fast Track (XS — but R3 expanded scope) · **Closed**: 2026-04-28
+- **Pipeline**: R1 ✅ · R3 ✅ (Q5 escape hatch invoked) · R4 ✅ (code PASS-with-fixes — drift guard added; security PASS)
+- **Files changed**: `shared/themes.css` (new `--group-header-name-color` token at `:root` with 50% color-mix formula; per-theme override to `var(--text-primary)` in 10 failing-AA theme blocks: system, tomorrow, atom-one-light, tomorrow-night, atom-one-dark, solarized-light, solarized-dark, dracula, nord, one-dark), `sidepanel/sidepanel.css` (`.group-header-name` consumes `var(--group-header-name-color)`), `tests/b109-group-name-tint.test.js` (4 tests T1-T4 incl. AA matrix verification + override-list drift guard)
+- **R3 discovery**: 50% formula breaches WCAG AA on 10/14 themes (worst: solarized-dark+red = 2.534:1). Per R1 Q5 escape hatch, shipped per-theme overrides. Visual ships on 4 themes (github-light, github-dark, monokai, tokyo-night) + system-OS-dark.
+- **Filed B-117 follow-up** for the §47.7 matrix re-verification (pre-existing AA defect surface).
+
+### Sprint Retrospective
+
+**Velocity:** Planned 9 / Completed 9. 1M + 4S + 4XS — fully on plan. Test delta +40 (1,464 → 1,504); zero regressions.
+
+**What Went Well:**
+- Chunked execution kept the session resilient — after the prior session froze during a 6-agent parallel launch in Wave 0, breaking work into ~10-minute checkpoints survived the full sprint without freezes.
+- R2 binding-correction pattern proved value, third-time — three R1 LOCKED claims caught at R2 (B-108 D-2, B-111 D-4, B-113 D-5).
+- CSS-cascade-driven affordance swaps shipped four times (B-110 conjunctive gate, B-111 X/trash swap, B-113 drag-handle/checkbox swap, B-115 chevron themed color) — zero new JS in any swap hot path.
+
+**What to Improve:**
+- R1 LOCKED is not always trustworthy on factual claims — three R1 → R2 corrections this sprint. Future R1 should restrict claims to user-facing AC and defer code-shape claims to R2 verification, or adopt a "must verify against source" discipline at lock time.
+- R2 fix-scope tables can underspecify pre-existing test assertions that need updating (B-113 R3 had to expand scope to also update the b048 AC6 assertion). New precedent: when R2 declares a contract modification, R2 must grep for any test asserting the pre-change contract and enumerate them in the fix-scope table.
+- The §47.7 spot-check matrix has inaccurate "PASS" verdicts. Filed B-117 with explicit goal: re-verify ALL 126 cells.
+
+**Action Items for Next Sprint:**
+1. [scrum-master] Add an R1 quality gate: when R1 makes ANY claim about source code structure (line numbers, function bodies, selectors, file existence), the [product-manager] must cite the verified source location OR mark the claim "R2-VERIFY". Prevents the R1-locked-but-factually-wrong pattern. [HIGH]
+2. [solution-architect] Extend R2 §X.5 R3 fix-scope tables to include a "pre-existing test assertions to update" subsection when the chapter declares a contract change. [HIGH]
+3. [scrum-master] Triage B-117 (§47.7 matrix re-verification) in the next planning round. Pre-existing AA defect surface needs a proper audit. [MEDIUM]
