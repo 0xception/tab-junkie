@@ -2397,6 +2397,18 @@ function buildItemRow(item, liveStates, driftRecords) {
     row.setAttribute('aria-selected', 'true');
   }
 
+  /* B-113 §56 (S36 W1-C): item-row drag-handle affordance. Decorative only —
+     `aria-hidden`, `pointer-events: none` (CSS), absolutely-positioned over
+     the .item-select slot. The 6-circle SVG matches the .group-drag-handle
+     pattern at sidepanel.js:2173 for cross-surface visual cohesion.
+     Omitted from buildOpenTabRow per §56.3 D-5 (open-tab rows are not
+     draggable; honest UX). */
+  const dragHandle = document.createElement('span');
+  dragHandle.className = 'item-drag-handle';
+  dragHandle.setAttribute('aria-hidden', 'true');
+  dragHandle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="5" cy="4" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="5" cy="12" r="1.5"/><circle cx="11" cy="4" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="11" cy="12" r="1.5"/></svg>';
+  row.appendChild(dragHandle);
+
   /* B-004: favicon from live tab state, letter-avatar fallback */
   const favIconUrl = liveStates?.[item.id]?.favIconUrl;
   if (isSafeFaviconUrl(favIconUrl)) {
@@ -2478,7 +2490,14 @@ function buildItemRow(item, liveStates, driftRecords) {
   deleteBtn.className = 'item-action-btn item-action-delete';
   deleteBtn.setAttribute('aria-label', 'Delete bookmark');
   deleteBtn.dataset.action = 'delete';
-  deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2 3.5h10M5.5 3.5V2h3v1.5M5 5.5v5M9 5.5v5M3.5 3.5l.5 8h6l.5-8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  /* B-111 §55 (S36 W1-B): both icons ship at first paint; CSS attribute
+     selectors (sidepanel.css `.item-row[data-live="true"]`) toggle which
+     one renders. Trash icon shows by default (non-live row); X icon shows
+     when `data-live="true"`. Both SVGs are aria-hidden — the row +
+     button aria-label (B-107 reactive flip) is the AT name carrier. */
+  deleteBtn.innerHTML =
+    '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" class="icon-action-close"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>'
+    + '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" class="icon-action-trash"><path d="M2 3.5h10M5.5 3.5V2h3v1.5M5 5.5v5M9 5.5v5M3.5 3.5l.5 8h6l.5-8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   actions.appendChild(editBtn);
   actions.appendChild(deleteBtn);

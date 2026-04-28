@@ -36,10 +36,24 @@
    (B-105) is unaffected by this default. See docs/BACKLOG.md B-106 R1. */
 :root {
   --group-header-tint-amount: 18%;
+  /* B-109 §S36 W1-A: default group-header-name color is a 50% color-mix
+     of the group's slot color toward --text-primary. The inner-var
+     fallback `var(--group-header-color, var(--text-primary))` collapses
+     the formula to `var(--text-primary)` for groups with no slot
+     (Ungrouped). The 10 themes where the 50% formula drops below WCAG
+     AA (4.5:1) override this token to `var(--text-primary)` — see each
+     failing theme's block below. The 4 themes where AA clears
+     (github-light, github-dark, monokai, tokyo-night) inherit this
+     :root default. system-OS-dark also clears via the @media branch. */
+  --group-header-name-color: color-mix(in srgb, var(--group-header-color, var(--text-primary)) 50%, var(--text-primary));
 }
 
 /* --- Default palette (data-theme="system" + light OS) -------------------- */
 [data-theme="system"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA on system-OS-light worst
+     case (yellow ≈ 4.10:1). Override forces --text-primary; system-OS-dark
+     inherits this override too — minor tradeoff for code simplicity. */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #ffffff;
   --bg-secondary: #f5f6f8;
   --bg-hover: #ebedf0;
@@ -208,6 +222,8 @@
 
 /* --- Tomorrow (light) --- */
 [data-theme="tomorrow"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst yellow ≈ 2.87:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #ffffff;
   --bg-secondary: #f5f5f5;
   --bg-hover: #efefef;
@@ -256,6 +272,8 @@
 
 /* --- Atom One Light --- */
 [data-theme="atom-one-light"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst yellow ≈ 2.93:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #fafafa;
   --bg-secondary: #f0f0f0;
   --bg-hover: #e8e8e8;
@@ -305,6 +323,8 @@
 
 /* --- Solarized Light --- */
 [data-theme="solarized-light"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst yellow ≈ 2.59:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #fdf6e3;
   --bg-secondary: #eee8d5;
   --bg-hover: #e4dcc4;
@@ -430,6 +450,8 @@
 
 /* --- Tomorrow Night --- */
 [data-theme="tomorrow-night"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst yellow ≈ 4.08:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #1d1f21;
   --bg-secondary: #282a2e;
   --bg-hover: #373b41;
@@ -483,6 +505,8 @@
 
 /* --- Atom One Dark --- */
 [data-theme="atom-one-dark"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst yellow ≈ 3.13:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #282c34;
   --bg-secondary: #21252b;
   --bg-hover: #2c313a;
@@ -540,6 +564,8 @@
 
 /* --- Solarized Dark --- */
 [data-theme="solarized-dark"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst red ≈ 2.53:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #002b36;
   --bg-secondary: #073642;
   --bg-hover: #0d4655;
@@ -593,6 +619,8 @@
 
 /* --- Dracula --- */
 [data-theme="dracula"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst yellow ≈ 4.03:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #282a36;
   --bg-secondary: #1e1f29;
   --bg-hover: #343746;
@@ -646,6 +674,8 @@
 
 /* --- Nord --- */
 [data-theme="nord"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst yellow ≈ 4.36:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #2e3440;
   --bg-secondary: #3b4252;
   --bg-hover: #434c5e;
@@ -702,6 +732,8 @@
 
 /* --- One Dark (D-2 migration target for legacy 'dark') --- */
 [data-theme="one-dark"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst yellow ≈ 3.13:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #282c34;
   --bg-secondary: #21252b;
   --bg-hover: #2c313a;

@@ -7,7 +7,7 @@
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  92% (106/115)  [S36 Wave 0 closed · 3 Wave 1 items remain]
+Overall Progress    ██████████████████░░  94% (109/116)  [S36 closed · v1.30.0 shipped on release/v2 · +1 B-117 follow-up filed]
 ```
 
 ### Legend
@@ -124,7 +124,7 @@ Overall Progress    ██████████████████░░
 
 ## Sprint 36 — UI/UX polish bundle (planned)
 
-> 6/9 done · 0 in progress · Wave 0 closed 2026-04-28 (UAT pending) · Wave 1 next
+> 9/9 done · 0 in progress · Sprint 36 closed 2026-04-28 (all UAT pending; v1.30.0 released)
 
 ✅ B-110 — Drifted-on-non-live BUG fix (§10.7 invariant violation) · 🟡 · M [S36 Wave 0 — §53 closed; UAT pending]
 ✅ B-107 — Live-X aria-label reactive flip (WCAG 2.1 SC 4.1.2) · ⚪ · XS [S36 Wave 0 — Fast Track]
@@ -132,9 +132,9 @@ Overall Progress    ██████████████████░░
 ✅ B-112 — Remove "Tab Junkie" label from sidepanel header · ⚪ · XS [S36 Wave 0 — Fast Track]
 ✅ B-114 — Group header tint v2 (brighter on dark themes) · ⚪ · XS [S36 Wave 0 — Fast Track]
 ✅ B-115 — Group-header chevron brightening (group-tinted) · ⚪ · XS [S36 Wave 0 — Fast Track]
-🔄 B-109 — Group header text colored to match group color · ⚪ · XS [S36 Wave 1 — Fast Track]
-🔄 B-111 — Dynamic delete icon (X for live, trashcan for non-live) · ⚪ · S [S36 Wave 1 — Full pipeline; LOCKED no confirmation change]
-🔄 B-113 — Item-row drag handle on hover + checkbox in multi-select · ⚪ · S [S36 Wave 1 — Full pipeline]
+✅ B-109 — Group header text colored to match group color · ⚪ · XS [S36 Wave 1 — light themes only via per-theme override; UAT pending]
+✅ B-111 — Dynamic delete icon (X for live, trashcan for non-live) · ⚪ · S [S36 Wave 1 — §55 closed; UAT pending]
+✅ B-113 — Item-row drag handle on hover + checkbox in multi-select · ⚪ · S [S36 Wave 1 — §56 closed; UAT pending]
 
 ---
 
@@ -243,9 +243,9 @@ Overall Progress    ██████████████████░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 106 | 92% |
+| ✅ Done | 109 | 94% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 6 | 5% |
+| ⬜ To Do | 4 | 3% |
 | 🧊 Icebox | 3 | 3% |
 
-**To Do breakdown (6 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-109 (group header text color, P3/XS · **S36 Wave 1**), B-111 (dynamic delete icon, P3/S · **S36 Wave 1**), B-113 (drag handle + checkbox swap, P3/S · **S36 Wave 1**).
+**To Do breakdown (4 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-117 (§47.7 matrix re-verification, P3/S · S36 follow-up — pre-existing AA defect surfaced).

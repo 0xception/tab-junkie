@@ -144,6 +144,56 @@ Sprint Close
 
 **Test count delta**: 1,464 (post-S35 baseline) → **1,489** (+25 across 6 wave-0 items). Zero regressions.
 
+### Wave 1 — closed 2026-04-28 (UAT pending in Edge)
+
+**[B-109]** Group-header text colored to match group color (Fast Track XS) — done.
+- Files changed: `shared/themes.css` (new `--group-header-name-color` token at `:root` with 50% color-mix formula; per-theme override to `var(--text-primary)` in 10 failing-AA theme blocks: system, tomorrow, atom-one-light, tomorrow-night, atom-one-dark, solarized-light, solarized-dark, dracula, nord, one-dark); `sidepanel/sidepanel.css` (`.group-header-name` consumes `var(--group-header-name-color)`); `tests/b109-group-name-tint.test.js` (NEW, 4 tests T1-T4 incl. AA matrix verification + override-list drift guard).
+- R3 discovery: 50% formula breaches WCAG AA on 10/14 themes (worst: solarized-dark+red = 2.534:1). Per R1 Q5 escape hatch, shipped per-theme overrides forcing `var(--text-primary)`. The visual ships on 4 themes (github-light, github-dark, monokai, tokyo-night) + system-OS-dark.
+- R3 also surfaced a pre-existing AA defect (atom-one-dark+yellow has been below 4.5:1 since B-104 shipped at 12% tint). Filed as follow-up B-117 in BACKLOG.md.
+- R4: code-reviewer PASS-with-fixes, security-reviewer PASS. M-1 (override-list drift guard test) addressed in R6.
+
+**[B-111]** Dynamic delete icon (X for live, trash for non-live) (Full S) — done.
+- Files changed: `sidepanel/sidepanel.js` (replaced single trash `<svg>` with two SVGs in `.item-action-delete`; both `aria-hidden="true"`); `sidepanel/sidepanel.css` (4 new rules near `.item-action-delete:hover` — symmetric default + live-state visibility toggles); `tests/b111-dynamic-delete-icon.test.js` (NEW, 4 tests T1-T4); `docs/design/55-b-111-dynamic-delete-icon.md` (NEW chapter, R6 close filled); root TOC.
+- R2 binding correction (D-4): R1 Q5 incorrectly claimed `buildOpenTabRow` has an `.item-action-delete` button — verified false. R3 strictly limited footprint to `buildItemRow`. T7 is the static-source guard.
+- R4: code-reviewer PASS-with-fixes, security-reviewer PASS, qa-reviewer PASS-with-fixes. 3 LOWs all addressed in R6 (T1 regex tightened, symmetric trash-default rule added, UAT-5 promoted to mandatory).
+
+**[B-113]** Item-row drag handle on hover + checkbox in multi-select (Full S) — done.
+- Files changed: `sidepanel/sidepanel.js` (new `<span class="item-drag-handle">` with 6-circle SVG matching `.group-drag-handle`; appended in `buildItemRow` after `.item-select`); `sidepanel/sidepanel.css` (split existing `.item-row:hover .item-select` rule clauses; new `.item-drag-handle` block with flex-overlap positioning + `prefers-reduced-motion` gate; Gmail-pattern persistent reveal); `tests/b113-drag-handle-multi-select.test.js` (NEW, 7 tests T1-T7); `tests/b048-visual-states.test.js` (header comment + AC6 assertion update for the b048 §31.5 AC6 contract change); `docs/design/56-b-113-drag-handle-multi-select.md` (NEW chapter, R6 close filled); root TOC.
+- R2 binding correction (D-5): open-tab rows are NOT draggable (verified at `buildOpenTabRow`); handle omitted for honest UX. T2 is the static-source guard.
+- R2 binding correction (D-3): the existing `.item-row:hover .item-select` rule split intentionally — `:focus-visible` + `[data-selected="true"]` clauses preserved together; `:hover` scoped under `#item-list.has-bulk-bar`. R3 expanded scope vs. R2's fix-scope table (which only listed b048 header comment) to also update the b048 AC6 assertion test that pinned the pre-B-113 triad.
+- R4: code-reviewer PASS, security-reviewer PASS, qa-reviewer PASS-with-fixes. **M-1 was a real layout bug** — original `position: absolute; left: 12px` misaligned by 3 px on `data-live="true"` rows because absolute positioning anchors to the row's padding-edge which shifts with border-left. R6 iterated to flex-overlap (`flex: 0 0 18px; margin-left: -18px;`) — invariant across all row states.
+
+**Wave 1 test delta**: 1,489 (post-Wave-0) → **1,504** (+15 across 3 wave-1 items). Zero regressions.
+
+**Total Sprint 36 test delta**: 1,464 (post-S35) → **1,504** (+40 across 9 items).
+
+---
+
+## Sprint Retrospective — Sprint 36
+
+### Velocity
+- Planned: 9 items / 1M + 4S + 4XS effort
+- Completed: 9 items / 1M + 4S + 4XS — fully on plan
+- Carried over: 0
+- Test delta: +40 (1,464 → 1,504); zero regressions across all rounds
+
+### What Went Well
+- **Chunked execution kept the session resilient** — after the prior session froze during a 6-agent parallel launch in Wave 0, breaking work into ~10-minute checkpoints (W0-A through W0-E + W1-A, W1-B.1+W1-B.2, W1-C.1+W1-C.2) survived the full sprint without freezes. The pause-and-confirm pattern also caught real issues earlier (W1-A 50% AA failure, W1-C.2 layout misalignment).
+- **R2 binding-correction pattern proved its value, third-time** — three R1 LOCKED claims were factually wrong this sprint (B-108 D-2 token aliasing, B-111 D-4 open-tab delete buttons, B-113 D-5 open-tab draggability). Each was caught by R2 verification before R3 wasted effort. This is now a firmly-established recurring R2 quality gate.
+- **CSS-cascade-driven affordance swaps shipped four times** — B-110 (drift bar conjunctive gate), B-111 (X/trash icon swap), B-113 (drag-handle/checkbox swap), and B-115 (chevron themed color) all leveraged the existing `data-*` attribute mirroring on `.item-row`. Zero new JS in any of the swap hot paths; all reactivity is declarative.
+
+### What to Improve
+- **R1 LOCKED is not always trustworthy on factual claims** — three R1 → R2 corrections this sprint indicate that R1 [product-manager] is sometimes asserting code-shape claims (selectors, function bodies, file structure) without verifying against the source. Future R1 should restrict claims to USER-FACING contract (acceptance criteria) and defer code-shape claims to R2 verification, OR adopt a "must verify against source" discipline at lock time.
+- **R2 fix-scope tables can underspecify pre-existing test assertions that need updating** — B-113's R2 §56.5 listed only the b048 header comment update; R3 had to expand scope to also update the b048 AC6 assertion test that asserted the pre-B-113 triad-shared-block structure. New precedent: when R2 declares an "intentional contract modification," R2 must grep for any test that ASSERTS the pre-change contract and enumerate them in the fix-scope table.
+- **The §47.7 spot-check matrix has inaccurate "PASS" verdicts** — B-109 R3 discovered atom-one-dark+yellow has been below 4.5:1 since B-104 shipped at 12% tint. The §47.7 matrix and B-114 shipping notes both claim 4.78:1 / 4.55:1 — both incorrect. Filed as B-116 follow-up with explicit goal: re-verify ALL 20 cells in the §47.7 matrix at the current shipping tint amounts and correct the design-doc claims.
+
+### Action Items for Next Sprint
+- [ ] **Add an R1 quality gate**: when R1 makes ANY claim about source code structure (line numbers, function bodies, selectors, file existence), the [product-manager] must cite the verified source location OR mark the claim "R2-VERIFY". Prevents the R1-locked-but-factually-wrong pattern.
+- [ ] **Extend R2 §X.5 R3 fix-scope tables** to include a "pre-existing test assertions to update" subsection when the chapter declares a contract change. Caught after B-113 R3 had to expand scope mid-build.
+- [ ] **Triage B-117 (§47.7 matrix re-verification)** in the next planning round. Pre-existing AA defect surface needs a proper audit, not just B-109's spot-check sample.
+
+---
+
 ---
 
 ## Blockers

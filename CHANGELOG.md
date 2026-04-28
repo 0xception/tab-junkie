@@ -6,6 +6,36 @@ All notable changes to Tab Junkie are documented in this file.
 
 *(nothing pending)*
 
+## [1.30.0] — 2026-04-28
+
+Sprint 36 — UI/UX polish bundle (9 items): 1 P2/M drift bug + 1 S WCAG fix + 1 S delete-icon swap + 1 S drag-handle/multi-select + 1 XS WCAG-aware group-name tint + 4 XS polish.
+
+### Added
+- **Dynamic delete-icon swap (B-111)** — the X-button on a saved-bookmark row now reflects the action it will perform: simple X icon on a live row (click closes the tab per v1.29.0 B-100); trash icon on a non-live row (click opens the existing modal-confirm before deleting). Pure CSS swap via the existing `data-live` attribute; both icons ship in the DOM at first paint and the cascade toggles visibility per row state. The B-100 click-handler contract is preserved verbatim — no new modal on the live path; existing modal on the non-live path.
+- **Item-row drag-handle on hover (B-113)** — saved-bookmark rows now show a small 6-dot drag handle (matching the group-header drag-handle pattern) on hover when not in multi-select mode. The handle is decorative — `pointer-events: none` ensures clicks pass through to the underlying row, so B-030 v2 drag-reorder still works from anywhere. In multi-select mode, the existing `.item-select` checkbox replaces the handle (Gmail pattern: once one row is selected, all rows show their checkboxes persistently). Open Tabs section unchanged — open-tab rows are not draggable, so the handle is omitted there for honest UX. New `prefers-reduced-motion` gate on the opacity transition.
+- **Group-header text tinted toward group color (B-109)** — on themes where WCAG AA holds (`github-light`, `github-dark`, `monokai`, `tokyo-night`, and `system` on dark OS), the group-header text adopts a 50% color-mix of the group's slot color toward `--text-primary`. On the 10 themes where 50% breaches AA (worst: `solarized-dark + red` at 2.534:1), the text falls back to `--text-primary` via a per-theme `--group-header-name-color` override. Ungrouped sections inherit the same fallback automatically.
+
+### Changed
+- **Brighter dark-theme group-header tints (B-114)** — dark themes (11 themes) now use `--group-header-tint-amount: 20%` (up from 18%) for stronger group identity. Light themes stay at 18%; solarized-light stays at the B-105 3% override.
+- **Group-header chevron uses themed group color (B-115)** — the expand/collapse chevron now consumes `var(--group-header-color, var(--text-primary))`, matching the group-header tint cohesion. Ungrouped fallback to `--text-primary` preserved. The legacy `--collapse-icon` token was removed file-wide as part of this change.
+- **Sidepanel header label removed (B-112)** — the `Tab Junkie` text inside the side panel header was removed (the browser already shows the extension name in its own chrome). Header height/affordance positions unchanged.
+- **Solarized-light secondary text accessibility fix (B-108)** — `--text-secondary` and `--group-count-text` darkened from canonical `#657b83` (3.636:1 vs `--bg-secondary`, FAIL) to `#546a72` (4.655:1, PASS). Tracked from S35 B-105 deferral.
+
+### Fixed
+- **Drift indicator no longer surfaces on non-live bookmark rows (B-110)** — fixed the §10.7 invariant violation where stale drift records persisted after claim release, causing the dotted drift bar to appear on rows whose tab had been closed. Two leak paths patched: `reconcileClaims` cold-start eviction (PRIMARY — claim discarded but `clearDrift` was never called for the evicted itemId) and `MSG_NAVIGATE_TO_ITEM` AC3 stale-claim repair (SECONDARY — `releaseClaimByTab` did not pair with `clearDrift`). Both fixes ship alongside a defense-in-depth conjunctive render gate (`isDrifted && live?.live`) at both `_ensureIndicators` and the `buildItemRow` first-paint path — even if a stale record reaches the UI, the row refuses to surface it.
+- **Live X-button aria-label now flips reactively (B-107)** — the X button's `aria-label` now correctly announces "Close tab" on a live row and "Delete bookmark" on a non-live row, matching the action that fires (WCAG 2.1 SC 4.1.2 name-role-value). Previously the static initial label was always "Delete bookmark." Tracked from S35 B-100 R4 follow-up.
+
+### Architecture
+- **Three R2 binding-correction precedents established this sprint** — three R1 LOCKED claims about source code structure were factually wrong (B-108 D-2 token aliasing, B-111 D-4 open-tab delete buttons, B-113 D-5 open-tab draggability). Each was caught at R2 against the actual source. Gate 7 retrospective elevates this to a recurring R2 quality-gate pattern; future R1 tightens the discipline so source-shape claims are verified at lock time.
+- **Flex-overlap pattern for sibling-affordance overlay (B-113)** — when two affordances share the same visual slot but only one renders at a time, use `flex: 0 0 <slot-width>; margin-left: -<slot-width>;` so the second affordance overlays the first via flex flow. This is invariant to border-edge changes (which `position: absolute` is not). Avoids per-row-state empirical tuning of `left:` values.
+
+### Known limitations
+- **§47.7 group-color matrix has inaccurate "PASS" verdicts** — B-109 R3 discovered atom-one-dark+yellow has been below 4.5:1 since B-104 shipped at 12% tint (current measurement at 20%: ~2.81:1). The §47.7 footnote claims 4.78:1 / 4.55:1; both incorrect. Tracked as **B-117** for a future sprint with R0 spike scope (re-verify all 126 cells; remediate any sub-AA via `--gc-<slot>` token adjustment, per-theme `--group-header-tint-amount` override, or accepted-limitation documentation).
+- **Solarized-light visual hierarchy collapse** — post-B-108, `--text-primary` `#546a71` and `--text-secondary` `#546a72` differ by ~0.17% luminance (only the slight bluish bias distinguishes them). Documented in §54.9 Q1 as accepted tradeoff for AA compliance; future B-XXX may revisit with OKLCH-based hue-only blending.
+
+### Note
+- **No reload required.** All 9 S36 items are pure UI/UX changes — zero new pref keys, zero new manifest entries, zero storage schema changes. Update and use the new behavior immediately.
+
 ## [1.29.0] — 2026-04-26
 
 ### Changed

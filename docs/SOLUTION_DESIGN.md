@@ -73,3 +73,5 @@
 - [§52 — B-105 — Solarized-Light Baseline WCAG AA Contrast Fix (R2 Design)](design/52-b-105-solarized-light-fix.md)
 - [§53 — B-110 — Drift Indicator on Non-Live Bookmark Bug Fix (R2 + R6 Close)](design/53-b-110-drift-non-live-fix.md)
 - [§54 — B-108 — Solarized-Light `--text-secondary` WCAG AA Contrast Fix (R2 + R6 Close)](design/54-b-108-solarized-light-secondary-fix.md)
+- [§55 — B-111 — Dynamic Delete Icon (X for Live, Trash for Non-Live) (R2 + R6 Close)](design/55-b-111-dynamic-delete-icon.md)
+- [§56 — B-113 — Item-Row Drag Handle on Hover + Checkbox in Multi-Select (R2 + R6 Close)](design/56-b-113-drag-handle-multi-select.md)
