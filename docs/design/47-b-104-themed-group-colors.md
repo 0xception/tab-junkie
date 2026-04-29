@@ -359,47 +359,78 @@ No path adds a synchronous storage round-trip in the render hot path, no full-co
 
 ---
 
-## §47.7 Accessibility Plan
+## §47.7 Accessibility — WCAG AA Group-Color Matrix (post-B-117 verified)
 
-**AC5 — WCAG AA contrast spot-check matrix (R5 obligation, ~20 of 126 combinations):**
+> **Updated 2026-04-28 per B-117 (Sprint 37).** The pre-B-117 spot-check (20-of-126 cells, 12%-tint baseline) was found to contain inaccurate PASS verdicts: it claimed `atom-one-dark + yellow` at 4.78:1 / 4.55:1 PASS, but the actual computed ratio at the post-B-114 20% shipping tint was **2.806:1** (FAIL). B-117 audited all 14 themes × 9 slots = 126 cells against the actual shipping `--text-primary`, `--bg-secondary`, `--gc-<slot>`, and `--group-header-tint-amount` token values using the same WCAG 2.1 contrast helpers as `tests/b105-solarized-light-contrast.test.js:84–127`, then remediated 17 of 26 FAIL cells via per-theme tint reduction (atom-one-dark/one-dark from 20% → 7%; legacy `dark` alias from 20% → 7%; dracula from 20% → 17%) and accept-as-limitation for the remaining 9 (all solarized-dark — the canonical Solarized base0/base02 text/bg pair is 4.111:1 sub-AA at the source; modifying it would break the canonical Solarized look and is locked out by B-117 R1 AC10(b) + AC11(c)).
+>
+> **The matrix below is now derived, not authored.** It is computed at test-run time by [`tests/b117-gc-matrix-audit.test.js`](../../tests/b117-gc-matrix-audit.test.js) (137 tests, all green at S37 close) against the live `shared/themes.css` token values, with an explicit `ACCEPTED_LIMITATIONS` allow-list (R2 §57 C-7 allow-list direction; S35 B-105 monotonic-decrease precedent). Future contrast claims in this section MUST match the test output, not be edited freehand. See [§57 — B-117 Group-Color WCAG AA Matrix Audit](57-b-117-gc-matrix-audit.md) for the full audit chapter. Verdicts: **PASS** = computed ratio ≥ 4.5:1 (WCAG AA body text floor); **ACCEPTED** = listed in the test's `ACCEPTED_LIMITATIONS` allow-list with rationale (sub-AA, accept-as-limitation, surfaced to users via `docs/user-manual/themes.md` "Theme accessibility limitations" subsection).
 
-R2 recommends the following spot-check sample for R5 [test-engineer]. The sample spans both light + dark theme axes, all 9 slots in the two most distinctive themes, plus 2 edge-case combinations:
+**Tint sources used (`shared/themes.css`, post-B-117):**
+- `:root` default — `--group-header-tint-amount: 18%` (line 45) — applied to the 5 light themes
+- `solarized-light` — `3%` (B-105 override; preserved by B-117)
+- `github-dark`, `tomorrow-night`, `nord`, `monokai`, `tokyo-night`, `solarized-dark`, `system`-dark-OS branch — `20%` (B-114 baseline)
+- `atom-one-dark`, `one-dark`, legacy `[data-theme="dark"]` alias — `7%` (**B-117**, dropped from 20%)
+- `dracula` — `17%` (**B-117**, dropped from 20%)
 
-> **Updated 2026-04-26 per B-106 (Sprint 35)**: the `:root` default for `--group-header-tint-amount` was bumped from 12% → 18% per product-owner feedback. The cell values below reflect the original 12% baseline; per the B-106 R1 spot-check (`docs/BACKLOG.md` B-106 row), all 20 rows pass ≥ 4.5:1 at the new 18% default — worst case is `atom-one-dark` + `yellow` at 4.78:1 (0.28 above the floor). Solarized-light row 19 also passes at 18% post-B-105 (`#546a71` text + `#eee8d5` bg + 3% per-theme tint override). The matrix has not been re-tabulated cell-by-cell at 18% — the B-106 R1 lock + per-row PASS verification is the source of truth.
+**Summary: 117 PASS / 9 ACCEPTED out of 126 (WCAG AA + documented limitation).** Pre-B-117 baseline: 100 PASS / 26 FAIL.
 
-| # | Theme | Slot | `--bg-secondary` | Tinted header bg (18% color-mix approx, post-B-106) | Body text (`--text-primary`) | Required ratio | Expected |
-|---|---|---|---|---|---|---|---|
-| 1 | `one-dark` | `blue` (`#61afef`) | `#21252b` | `~#262a31` | `#abb2bf` | ≥ 4.5:1 | PASS (~7.8:1) |
-| 2 | `one-dark` | `purple` (`#c678dd`) | `#21252b` | `~#272930` | `#abb2bf` | ≥ 4.5:1 | PASS (~7.7:1) |
-| 3 | `one-dark` | `teal` (`#56b6c2`) | `#21252b` | `~#262a31` | `#abb2bf` | ≥ 4.5:1 | PASS (~7.8:1) |
-| 4 | `one-dark` | `red` (`#e06c75`) | `#21252b` | `~#272a31` | `#abb2bf` | ≥ 4.5:1 | PASS (~7.7:1) |
-| 5 | `one-dark` | `orange` (`#d19a66`) | `#21252b` | `~#272a30` | `#abb2bf` | ≥ 4.5:1 | PASS (~7.7:1) |
-| 6 | `one-dark` | `pink` (`#e06c75`) | `#21252b` | `~#272a31` | `#abb2bf` | ≥ 4.5:1 | PASS (~7.7:1) |
-| 7 | `one-dark` | `indigo` (`#c678dd`) | `#21252b` | `~#272930` | `#abb2bf` | ≥ 4.5:1 | PASS (~7.7:1) |
-| 8 | `one-dark` | `yellow` (`#e5c07b`) | `#21252b` | `~#272a30` | `#abb2bf` | ≥ 4.5:1 | PASS (~7.6:1) |
-| 9 | `one-dark` | `slate` (`#5c6370`) | `#21252b` | `~#23272d` | `#abb2bf` | ≥ 4.5:1 | PASS (~7.9:1) |
-| 10 | `github-light` | `blue` (`#0969da`) | `#f6f8fa` | `~#dde9fa` | `#1f2328` | ≥ 4.5:1 | PASS (~14:1) |
-| 11 | `github-light` | `purple` (`#8250df`) | `#f6f8fa` | `~#e6dffa` | `#1f2328` | ≥ 4.5:1 | PASS (~13.6:1) |
-| 12 | `github-light` | `teal` (`#1f7f5e`) | `#f6f8fa` | `~#deeae5` | `#1f2328` | ≥ 4.5:1 | PASS (~14.1:1) |
-| 13 | `github-light` | `red` (`#cf222e`) | `#f6f8fa` | `~#f3dee0` | `#1f2328` | ≥ 4.5:1 | PASS (~13.5:1) |
-| 14 | `github-light` | `orange` (`#bc4c00`) | `#f6f8fa` | `~#efe1d5` | `#1f2328` | ≥ 4.5:1 | PASS (~13.7:1) |
-| 15 | `github-light` | `pink` (`#bf3989`) | `#f6f8fa` | `~#f0dde7` | `#1f2328` | ≥ 4.5:1 | PASS (~13.6:1) |
-| 16 | `github-light` | `indigo` (`#6639ba`) | `#f6f8fa` | `~#e3dcf0` | `#1f2328` | ≥ 4.5:1 | PASS (~13.5:1) |
-| 17 | `github-light` | `yellow` (`#9a6700`) | `#f6f8fa` | `~#ece2cd` | `#1f2328` | ≥ 4.5:1 | PASS (~13.7:1) |
-| 18 | `github-light` | `slate` (`#59636e`) | `#f6f8fa` | `~#e6e9ed` | `#1f2328` | ≥ 4.5:1 | PASS (~13.7:1) |
-| 19 | `solarized-light` | `yellow` (algorithmic, `#d5a643`) | `#eee8d5` | `~#ede7d4` (3% tint — post-B-105 per-theme override) | `#546a71` (post-B-105) | ≥ 4.5:1 | **PASS (~4.62:1) — corrected post-B-105 (Sprint 35).** B-105 darkened `--text-primary` from `#586e75` → `#546a71` (baseline `--bg-secondary` contrast 4.39:1 → 4.66:1), and replaced the per-theme `--group-header-tint-amount: 0%` workaround with `3%` — verified at R1 Q4 + R5 T6 as the safe ceiling for all 9 gc-slots with the new text token (worst slot at 3%: ~4.52:1; @ 4% tint indigo drops to ~4.47:1 FAIL). The override is RETAINED at 3% so B-106's `:root 18%` default does NOT cascade to this theme. See [§52 — B-105 Solarized-Light Baseline WCAG AA Contrast Fix](52-b-105-solarized-light-fix.md). |
-| 20 | `dracula` | `slate` (`#6272a4`) | `#1e1f29` | `~#252734` | `#f8f8f2` | ≥ 4.5:1 | PASS (~13.5:1) — edge case (low-saturation slot on dark theme) |
+### §47.7.1 — Light themes (5 × 9 = 45 cells, all PASS at 18% tint, except solarized-light at 3%)
 
-**Risk-flagged algorithmic combinations** (R5 should pay extra attention):
-- `solarized-light` + `yellow` (warm-on-warm — least contrast headroom)
-- `monokai` + `green-leaning` slots (Monokai's accent is yellow-green; `--gc-teal` may visually conflict)
-- `nord` + `purple` (Nord's accent is icy blue-grey; warm purple may look out-of-palette)
-- `tokyo-night` + `slate` (Tokyo Night's bg is a deep navy; muted slate may visually disappear)
+Computed worst-slot ratio per theme; every cell in each row clears 4.5:1.
 
-If R5 finds ANY combination below 4.5:1 body-text ratio, the fix path is:
-1. R3 [frontend-engineer] adjusts the offending `--gc-<slot>` value (push saturation/lightness in OKLCH space until contrast clears).
-2. R3 reruns the algorithmic recipe if the underlying canonical needs adjustment.
-3. R5 re-verifies the spot-check.
+| Theme | Tint | Worst slot | Worst ratio | Verdict (all 9 slots) |
+|-------|------|-----------|-------------|---------|
+| `system` (light-OS) | 18% | indigo | 13.296:1 | PASS |
+| `github-light` | 18% | indigo | 12.529:1 | PASS |
+| `tomorrow` | 18% | indigo | 6.797:1 | PASS |
+| `atom-one-light` | 18% | indigo | 8.699:1 | PASS |
+| `solarized-light` | 3% | red / pink (tied) | 4.564:1 | PASS |
+
+`solarized-light` margin: 0.064 above the 4.5:1 floor at the worst slot — verified safe ceiling (4% tint drops indigo to ~4.47:1 FAIL; the B-105 R1 Q4 + B-117 §57.2.1 audit pinned 3% as the highest tint that clears AA on every slot with the post-B-105 `#546a71` text token).
+
+### §47.7.2 — Dark themes (9 × 9 = 81 cells)
+
+| Theme | Tint | Status | Worst slot | Worst ratio |
+|-------|------|--------|-----------|-------------|
+| `github-dark` | 20% | PASS (all 9) | yellow | 9.749:1 |
+| `tomorrow-night` | 20% | PASS (all 9) | yellow | 5.970:1 |
+| `atom-one-dark` | **7% (B-117)** | PASS (all 9) | yellow | 4.639:1 |
+| `solarized-dark` | 20% | **ACCEPTED (all 9 — see §47.7.4)** | yellow | 3.012:1 |
+| `dracula` | **17% (B-117)** | PASS (all 9) | yellow | 4.619:1 |
+| `nord` | 20% | PASS (all 9) | yellow | 6.837:1 |
+| `one-dark` | **7% (B-117)** | PASS (all 9) | yellow | 4.639:1 |
+| `monokai` | 20% | PASS (all 9) | yellow | 10.445:1 |
+| `tokyo-night` | 20% | PASS (all 9) | yellow | 7.370:1 |
+
+`atom-one-dark` and `one-dark` share `--bg-secondary` (`#21252b`) and the canonical Atom One Dark base palette (per §47.10 As-Built M-2), so their 9 slot hex values are identical and their 7% tint produces an identical 9-cell ratio set. The legacy `[data-theme="dark"]` alias mirrors `one-dark` per `shared/themes.css:986+` and is pinned to the same 7% tint by B-117 §57.4.3 + the `tests/b117-gc-matrix-audit.test.js` "legacy dark alias mirrors one-dark" R5 gap-fill guard.
+
+### §47.7.3 — system-dark-OS branch (informational, 15th row, NOT in the 126-cell count)
+
+The `@media (prefers-color-scheme: dark)` branch of the `system` theme runs at `--group-header-tint-amount: 20%` and is uniformly PASS — worst slot yellow at 8.695:1. R1 specifies "14 canonical themes × 9 slots = 126" with `system` as one row (the static-load default = light-OS branch); the dark-OS branch is computed and pinned by `tests/b117-gc-matrix-audit.test.js` (see "system-dark-OS branch declares --group-header-tint-amount: 20%" guard) but does not change the 126 count.
+
+### §47.7.4 — Accept-as-limitation cells (9, all `solarized-dark`)
+
+| Theme | Slot | Slot hex | Tinted bg | Text-primary | Computed ratio | Allow-list floor |
+|---|---|---|---|---|---|---|
+| `solarized-dark` | blue | `#1c56b8` | `#0d3e68` | `#839496` | 3.484 | 3.4 |
+| `solarized-dark` | purple | `#5939ba` | `#283769` | `#839496` | 3.608 | 3.5 |
+| `solarized-dark` | teal | `#0b7873` | `#08494f` | `#839496` | 3.199 | 3.1 |
+| `solarized-dark` | red | `#9c2b2e` | `#4a343f` | `#839496` | 3.582 | 3.5 |
+| `solarized-dark` | orange | `#a64e1c` | `#4f3c3c` | `#839496` | 3.249 | 3.2 |
+| `solarized-dark` | pink | `#9b2c67` | `#49344b` | `#839496` | 3.540 | 3.5 |
+| `solarized-dark` | indigo | `#3941b4` | `#193867` | `#839496` | 3.684 | 3.6 |
+| `solarized-dark` | yellow | `#8f7117` | `#43473c` | `#839496` | 3.012 | 3.0 |
+| `solarized-dark` | slate | `#486175` | `#20414f` | `#839496` | 3.440 | 3.4 |
+
+**Why pathway (c) accept-as-limitation:** the canonical Solarized base0/base02 text/bg pair (`#839496` on `#073642`) is 4.111:1 — sub-AA before any tint is applied. At the theoretical maximum slot value (`#000000`), tinted contrast caps at 4.446:1; at 0% tint, contrast = baseline 4.111:1; no combination of slot hex + tint ever reaches 4.5. The only fix path requires modifying `--text-primary` and/or `--bg-secondary`, which B-117 R1 AC10(b) + AC11(c) explicitly disallow ("preserve canonical Solarized look"). The 9 cells are surfaced to users via the new "Theme accessibility limitations" subsection in `docs/user-manual/themes.md` (B-117 R7 [technical-writer]).
+
+**Stale-allow-list guard:** `tests/b117-gc-matrix-audit.test.js` asserts that every accept-as-limitation cell stays BOTH ≥ its allow-list floor AND < 4.5 — if a future palette change accidentally pushes one above AA, the maintainer is forced to remove the entry from the allow-list and update the user-manual subsection. Catches stale allow-list bloat.
+
+### §47.7.5 — Drift prevention
+
+The 126-cell matrix + the 11 supporting guards (R5 helper-sanity tests + R5 gap-fill drift guards for the legacy alias's tint mirror, the legacy alias's slot-palette mirror, and the canonical 9-slot token-name set) are mechanically enforced by `tests/b117-gc-matrix-audit.test.js`. Future B-104-class palette work — adding a theme, renaming a slot, retuning a `--gc-<slot>` token, adjusting a per-theme `--group-header-tint-amount` — MUST run this suite. A token-rename will surface as a single targeted failure (the "slot-token name drift guard") rather than a 126-failure cascade. A theme-block tint-amount removal will surface via the "every dark theme declares its own tint" guard. See [§57 — B-117 Group-Color WCAG AA Matrix Audit](57-b-117-gc-matrix-audit.md) §57.5 + §57.12 for the full audit chapter and as-built deviations.
+
+**Risk-flagged combinations historically (informational, all now PASS or ACCEPTED post-B-117):** `solarized-light` + `yellow` (warm-on-warm, narrowest headroom — now 4.564:1 PASS); `monokai` + green-leaning slots (now 10.445:1 PASS); `nord` + `purple` (now 6.837:1 PASS); `tokyo-night` + `slate` (now 7.370:1 PASS).
 
 **AC11(c) — Reduced motion neutrality:** B-104 introduces no CSS transitions on group header bg / color tokens. Theme switch and group color change are instantaneous repaints. AC11(c) PASS.
 

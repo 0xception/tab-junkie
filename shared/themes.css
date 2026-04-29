@@ -29,11 +29,18 @@
    little brighter"). The 12% value previously lived only as a CSS fallback
    on `var(--group-header-tint-amount, 12%)` in surface CSS (sidepanel,
    newtab); B-106 promotes the default to a real `:root` declaration so all
-   surfaces pick up the new value via the cascade. WCAG AA verified across
-   the §47.7 spot-check matrix at 18% — every row passes ≥ 4.5:1; worst case
-   is `atom-one-dark` + `yellow` at 4.78:1 (0.28 above the 4.5:1 floor).
-   Per-theme overrides still win the cascade — solarized-light's 3% override
-   (B-105) is unaffected by this default. See docs/BACKLOG.md B-106 R1. */
+   surfaces pick up the new value via the cascade. The 18% default applies
+   to the 5 light themes (system-light, github-light, tomorrow, atom-one-light,
+   atom-one-dark and atom-one-light); WCAG AA verified across the full 14×9
+   matrix in B-117 — every light-theme cell at 18% passes ≥ 4.5:1 (worst:
+   solarized-light/red at 4.564:1 with its B-105 3% override). Dark themes
+   override below: most pin to 20% (B-114), but atom-one-dark/one-dark/legacy
+   `dark` use 7% and dracula uses 17% (B-117 — the AA ceiling for those
+   palettes; the prior shipping 20% on those four was sub-AA). solarized-dark
+   keeps 20% but is documented in `docs/user-manual/themes.md` as an
+   accepted limitation (its canonical base0/base02 text/bg pair is 4.111:1
+   at the source). See docs/design/57-b-117-gc-matrix-audit.md for the full
+   126-cell audit. */
 :root {
   --group-header-tint-amount: 18%;
   /* B-109 §S36 W1-A: default group-header-name color is a 50% color-mix
@@ -435,16 +442,26 @@
   --gc-indigo: #3e39aa;
   --gc-yellow: #94690d;
   --gc-slate: #4d596c;
-  /* B-114 (Sprint 36): brighter group-header tint on dark themes per
-     product-owner feedback ("very dark in dark modes; want to see it
-     brighter"). 20% is the WCAG AA ceiling — at 22% the worst-case
-     spot-check cell (one-dark/atom-one-dark + yellow) drops to 4.33:1
-     (FAIL); at 21% it is 4.41:1 (FAIL); at 20% it lifts to 4.55:1
-     (PASS, +0.049 over the 4.5:1 floor). All 11 dark-theme overrides
-     are pinned to the same 20% value for a uniform brighter visual.
-     :root keeps 18% (light themes inherit unchanged); solarized-light
-     keeps its B-105 3% override (preserved). See docs/BACKLOG.md
-     B-114 R1 + docs/design/47-b-104-themed-group-colors.md §47.7. */
+  /* B-114 (Sprint 36) + B-117 (Sprint 37): brighter group-header tint on
+     dark themes per product-owner feedback ("very dark in dark modes; want
+     to see it brighter"). B-117's 14×9 matrix audit re-verified the WCAG AA
+     ceiling per theme:
+       - github-dark, tomorrow-night, nord, monokai, tokyo-night, and the
+         system-dark-OS branch: 20% (worst case tomorrow-night/yellow at
+         5.970:1).
+       - atom-one-dark, one-dark, legacy `dark` alias: 7% (B-117 §57.3.1 —
+         the prior B-114 20% was sub-AA; atom-one-dark/yellow was 2.806:1
+         at 20%; 7% is the highest tint that clears 4.5:1 for all 9 slots,
+         worst yellow at 4.639:1).
+       - dracula: 17% (B-117 §57.3.3 — yellow #f1fa8c was 4.119:1 at 20%;
+         17% is the highest tint that clears AA, yellow at 4.619:1).
+       - solarized-dark: 20% retained, but ALL 9 slots are sub-AA at any
+         tint (canonical base0/base02 text/bg is 4.111:1 at the source);
+         documented as an accepted limitation in docs/user-manual/themes.md
+         and pinned by tests/b117-gc-matrix-audit.test.js.
+     :root keeps 18% (light themes inherit unchanged); solarized-light keeps
+     its B-105 3% override (preserved). See docs/BACKLOG.md B-114 R1 and
+     docs/design/57-b-117-gc-matrix-audit.md §57. */
   --group-header-tint-amount: 20%;
 }
 
@@ -555,11 +572,17 @@
   --gc-indigo: #c678dd;
   --gc-yellow: #e5c07b;
   --gc-slate: #5c6370;
-  /* B-114 (Sprint 36): brighter dark-theme tint — see github-dark block
-     for full WCAG AA derivation. atom-one-dark + yellow IS the worst-case
-     spot-check cell (4.55:1 at 20% — the AA ceiling). 20% is pinned
-     uniformly across all 11 dark-theme overrides. */
-  --group-header-tint-amount: 20%;
+  /* B-117 (Sprint 37) — supersedes B-114 on this theme: atom-one-dark + 8
+     of 9 slots fail WCAG AA at 20% (worst yellow #e5c07b at 2.806:1 — the
+     B-114 inline comment's prior "4.55:1 PASS" claim was an unverified
+     manual estimate). 7% is the highest tint that clears 4.5:1 for all 9
+     slots: worst non-yellow is teal at 5.232:1; yellow lands at 4.639:1
+     (margin 0.139 over the floor). Pathway (b) chosen over slot-token
+     darkening because the canonical Atom One Dark palette identity contract
+     from B-104 §47.3 D-1 ("atom-one-dark and one-dark share --bg-secondary
+     and the same Atom One Dark base palette") forbids per-slot deviation.
+     See docs/design/57-b-117-gc-matrix-audit.md §57.3.1. */
+  --group-header-tint-amount: 7%;
 }
 
 /* --- Solarized Dark --- */
@@ -666,10 +689,14 @@
   --gc-indigo: #bd93f9;
   --gc-yellow: #f1fa8c;
   --gc-slate: #6272a4;
-  /* B-114 (Sprint 36): brighter dark-theme tint — see github-dark block
-     for full WCAG AA derivation. 20% is the AA ceiling pinned uniformly
-     across all 11 dark-theme overrides. */
-  --group-header-tint-amount: 20%;
+  /* B-117 (Sprint 37) — supersedes B-114 on this theme: dracula yellow
+     #f1fa8c fails WCAG AA at 20% (4.119:1). 17% is the highest tint that
+     clears 4.5:1 for all 9 slots: yellow at 4.619:1; all other slots
+     well above AA (blue 5.408, teal 5.357, slate 10.824). Pathway (b)
+     chosen over slot-token darkening — Dracula's #f1fa8c is the official
+     spec yellow and modifying it would break the canonical Dracula look.
+     See docs/design/57-b-117-gc-matrix-audit.md §57.3.3. */
+  --group-header-tint-amount: 17%;
 }
 
 /* --- Nord --- */
@@ -779,11 +806,14 @@
   --gc-indigo: #c678dd;
   --gc-yellow: #e5c07b;
   --gc-slate: #5c6370;
-  /* B-114 (Sprint 36): brighter dark-theme tint — see github-dark block
-     for full WCAG AA derivation. one-dark + yellow IS the worst-case
-     spot-check cell (4.55:1 at 20% — the AA ceiling). 20% is pinned
-     uniformly across all 11 dark-theme overrides. */
-  --group-header-tint-amount: 20%;
+  /* B-117 (Sprint 37) — supersedes B-114 on this theme: one-dark shares
+     the atom-one-dark palette (per B-104 §47.3 D-1) so it inherits the
+     same AA ceiling; 8 of 9 slots fail at 20% (worst yellow at 2.806:1).
+     7% is the highest tint that clears 4.5:1 for all 9 slots — see
+     atom-one-dark block above for the full per-slot table. Pathway (b)
+     chosen over slot-token darkening to preserve the canonical-palette
+     contract. See docs/design/57-b-117-gc-matrix-audit.md §57.3.1. */
+  --group-header-tint-amount: 7%;
 }
 
 /* --- Monokai --- */
@@ -993,9 +1023,10 @@
   --gc-indigo: #c678dd;
   --gc-yellow: #e5c07b;
   --gc-slate: #5c6370;
-  /* B-114 (Sprint 36): legacy 'dark' alias mirrors one-dark's brighter
-     dark-theme tint at the WCAG AA ceiling — see github-dark block for
-     full derivation. 20% is pinned uniformly across all 11 dark-theme
-     overrides. */
-  --group-header-tint-amount: 20%;
+  /* B-117 (Sprint 37) — supersedes B-114 on this alias: legacy 'dark'
+     mirrors the one-dark palette and so inherits the same 7% AA ceiling
+     (the prior 20% was sub-AA — atom-one-dark/yellow at 2.806:1 was the
+     worst cell). See atom-one-dark block above and
+     docs/design/57-b-117-gc-matrix-audit.md §57.3.1. */
+  --group-header-tint-amount: 7%;
 }

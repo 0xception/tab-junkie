@@ -6,6 +6,24 @@ All notable changes to Tab Junkie are documented in this file.
 
 *(nothing pending)*
 
+## [1.31.0] — 2026-04-28
+
+Sprint 37 — Polish + process close-out (3 items): 1 M WCAG AA matrix audit + 2 XS CLAUDE.md process gates.
+
+### Improved
+- **Group-header color contrast on Atom One Dark, One Dark, and Dracula (B-117)** — group-header tint adjusted from 20% to 7% on Atom One Dark and One Dark (both share a palette where the canonical colors could not reach 4.5:1 at 20%), and from 20% to 17% on Dracula (yellow slot was 4.119:1 at 20%; 17% clears all 9 slots). All other themes are unchanged. Visual palette identity is preserved on all three themes.
+
+### Documented
+- **Solarized Dark theme accessibility limitations (B-117)** — group-header colors in Solarized Dark fall below WCAG AA on all 9 group-color slots. This is an inherent property of the canonical Solarized Dark base text/background pair (4.111:1 at the source — below AA before any tinting), so no tint or slot adjustment can reach 4.5:1 without breaking the canonical theme identity. All 9 slots with their measured contrast ratios are now listed in `docs/user-manual/themes.md` under "Theme accessibility limitations". Users who require WCAG AA contrast on group headers should use Solarized Light, GitHub Dark, Tomorrow Night, Nord, Monokai, or Tokyo Night.
+
+### Internal
+- **126-cell WCAG AA contrast matrix test (B-117)** — new `tests/b117-gc-matrix-audit.test.js` enforces the full 14-theme × 9-slot contrast matrix at build time (137 tests, 136 ms). Failing cells that use accepted-limitation pathway are tracked in an explicit `ACCEPTED_LIMITATIONS` allow-list with monotonic-decrease floor guards; if a future change accidentally darkens an accepted slot further, the test catches it. Zero regressions against the 1,504-test baseline.
+- **R1 source-citation gate (B-118)** — CLAUDE.md now requires every R1 source-code structural claim to cite a `file:line` reference or be marked `R2-VERIFY`. Prevents factual errors in ACs from propagating to R3 build scope (three R1 binding-correction precedents surfaced in Sprint 36 retro).
+- **R2 fix-scope test-assertion enumeration (B-119)** — CLAUDE.md R2 chapters that declare a CSS-token or contract change must now enumerate pre-existing test-file assertions against the old value (not just stale prose strings). Closes the §57.9 enumeration miss that caused `tests/b114-tint-v2.test.js` T1 to fail mid-B-117 R3.
+
+### Note
+- **No reload required.** All Sprint 37 changes are CSS-token adjustments and process documentation — zero new pref keys, zero new manifest entries, zero storage schema changes. Update and use the new behavior immediately.
+
 ## [1.30.0] — 2026-04-28
 
 Sprint 36 — UI/UX polish bundle (9 items): 1 P2/M drift bug + 1 S WCAG fix + 1 S delete-icon swap + 1 S drag-handle/multi-select + 1 XS WCAG-aware group-name tint + 4 XS polish.

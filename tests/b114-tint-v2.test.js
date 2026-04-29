@@ -97,25 +97,42 @@ function extractBlock(css, selectorRegex) {
    T1 — AC1: every dark-theme selector ships `--group-header-tint-amount: 20%`
    ========================================================================= */
 
-test('B-114 T1 (AC1): each of the 11 dark-theme selectors declares `--group-header-tint-amount: 20%`', () => {
+test('B-114 T1 (AC1, post-B-117): each of the 11 dark-theme selectors declares its expected `--group-header-tint-amount` value', () => {
   const css = readFile('shared/themes.css');
 
-  /* The 9 standalone dark-theme palette blocks + the legacy 'dark' alias.
-     Each is a top-level `[data-theme="<slug>"] { … }` block. */
-  const standaloneDarkSelectors = [
-    'github-dark',
-    'tomorrow-night',
-    'atom-one-dark',
-    'solarized-dark',
-    'dracula',
-    'nord',
-    'one-dark',
-    'monokai',
-    'tokyo-night',
-    'dark', /* legacy alias — mirrors atom-one-dark/one-dark */
-  ];
+  /* B-117 (Sprint 37) re-tuned 4 of the 11 B-114 `20%` dark-theme tints to
+     pull dim-foreground swatches above the §47.7 4.5:1 floor. The other 7
+     dark themes still ship at the original B-114 `20%` value. The structural
+     invariant under test by THIS file is unchanged: every dark-theme palette
+     block declares EXACTLY ONE `--group-header-tint-amount` override. The
+     PER-THEME VALUE matrix (which value, and why) is owned by
+     `tests/b117-gc-matrix-audit.test.js` so this file stays focused on the
+     B-114 dark-theme override-presence contract.
 
-  for (const slug of standaloneDarkSelectors) {
+     Expected post-B-117 distribution (see B-117 §57.3 + shared/themes.css
+     citations):
+       - 20% (7 themes, B-114 default):
+           github-dark, tomorrow-night, solarized-dark, nord, monokai,
+           tokyo-night, system dark-OS @media branch
+       - 17% (1 theme, B-117 re-tune):
+           dracula
+       -  7% (3 themes, B-117 re-tune):
+           atom-one-dark, one-dark, legacy `dark` alias
+   */
+  const expectedTintByTheme = {
+    'github-dark':     '20%',
+    'tomorrow-night':  '20%',
+    'atom-one-dark':    '7%', /* B-117 re-tune */
+    'solarized-dark':  '20%',
+    'dracula':         '17%', /* B-117 re-tune */
+    'nord':            '20%',
+    'one-dark':         '7%', /* B-117 re-tune */
+    'monokai':         '20%',
+    'tokyo-night':     '20%',
+    'dark':             '7%', /* legacy alias mirrors one-dark; B-117 re-tune */
+  };
+
+  for (const [slug, expectedValue] of Object.entries(expectedTintByTheme)) {
     /* Anchor the match at start-of-line to avoid grabbing the dark-OS
        branch inside the @media block (which is indented and prefixed by
        whitespace, never at column 0). */
@@ -125,16 +142,23 @@ test('B-114 T1 (AC1): each of the 11 dark-theme selectors declares `--group-head
       block !== null,
       `[data-theme="${slug}"] palette block must exist in shared/themes.css`,
     );
+    /* Per-theme value pin — escapes the % via a literal in the regex string
+       (no special-char escape needed; `%` is not a regex metacharacter). */
+    const valueRegex = new RegExp(
+      `--group-header-tint-amount:\\s*${expectedValue}`,
+    );
     assert.match(
       block,
-      /--group-header-tint-amount:\s*20%/,
-      `[data-theme="${slug}"] must declare --group-header-tint-amount: 20% per B-114 AC1`,
+      valueRegex,
+      `[data-theme="${slug}"] must declare --group-header-tint-amount: ${expectedValue} (B-114 AC1 + B-117 §57.3 re-tune for atom-one-dark/one-dark/dark/dracula)`,
     );
   }
 
   /* The 11th override: the system theme's dark-OS branch lives inside
      `@media (prefers-color-scheme: dark) { [data-theme="system"] { … } }`.
-     We extract the @media block first, then the nested system selector. */
+     The system dark-OS branch was NOT re-tuned by B-117 — it remains at the
+     B-114 `20%` baseline. We extract the @media block first, then the
+     nested system selector. */
   const mediaBlock = extractBlock(
     css,
     /@media\s*\(prefers-color-scheme:\s*dark\)\s*/,
@@ -154,17 +178,40 @@ test('B-114 T1 (AC1): each of the 11 dark-theme selectors declares `--group-head
   assert.match(
     systemDarkBlock,
     /--group-header-tint-amount:\s*20%/,
-    'system dark-OS @media branch must declare --group-header-tint-amount: 20% per B-114 AC1 (11th override)',
+    'system dark-OS @media branch must declare --group-header-tint-amount: 20% (B-114 AC1, 11th override; B-117 did NOT re-tune the system dark-OS branch)',
   );
 
-  /* Cross-check: total count of `--group-header-tint-amount: 20%`
-     declarations in the file is exactly 11 — one per dark-theme override.
-     Catches accidental duplication or a missing/extra block. */
-  const allTwentyPctDecls = (css.match(/--group-header-tint-amount:\s*20%/g) || []).length;
+  /* Cross-check: total count of `--group-header-tint-amount` declarations
+     across all 11 dark-theme override blocks is still exactly 11 — one per
+     dark-theme override (the B-114 structural invariant). The values are
+     mixed post-B-117 (20% × 7, 17% × 1, 7% × 3) so we count each value
+     bucket separately and assert the bucket sum equals 11.
+
+     Note: this count covers ONLY dark-theme overrides. The :root baseline
+     `18%` (T2) and solarized-light `3%` (T3) are excluded by the `20|17|7`
+     value alternation — neither matches. */
+  const twentyPctCount = (css.match(/--group-header-tint-amount:\s*20%/g) || []).length;
+  const seventeenPctCount = (css.match(/--group-header-tint-amount:\s*17%/g) || []).length;
+  const sevenPctCount = (css.match(/--group-header-tint-amount:\s*7%/g) || []).length;
   assert.equal(
-    allTwentyPctDecls,
+    twentyPctCount,
+    7,
+    'exactly 7 --group-header-tint-amount: 20% declarations must ship (B-114 default for 6 standalone dark themes + system dark-OS branch; B-117 lowered the other 4)',
+  );
+  assert.equal(
+    seventeenPctCount,
+    1,
+    'exactly 1 --group-header-tint-amount: 17% declaration must ship (dracula only, B-117 re-tune)',
+  );
+  assert.equal(
+    sevenPctCount,
+    3,
+    'exactly 3 --group-header-tint-amount: 7% declarations must ship (atom-one-dark, one-dark, legacy `dark` alias — B-117 re-tune)',
+  );
+  assert.equal(
+    twentyPctCount + seventeenPctCount + sevenPctCount,
     11,
-    'exactly 11 --group-header-tint-amount: 20% declarations must ship (one per dark-theme override)',
+    'the 3 post-B-117 dark-theme tint buckets (20% × 7 + 17% × 1 + 7% × 3) must sum to exactly 11 — the B-114 structural invariant (one tint override per dark-theme palette block) is preserved',
   );
 });
 

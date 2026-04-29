@@ -75,3 +75,4 @@
 - [§54 — B-108 — Solarized-Light `--text-secondary` WCAG AA Contrast Fix (R2 + R6 Close)](design/54-b-108-solarized-light-secondary-fix.md)
 - [§55 — B-111 — Dynamic Delete Icon (X for Live, Trash for Non-Live) (R2 + R6 Close)](design/55-b-111-dynamic-delete-icon.md)
 - [§56 — B-113 — Item-Row Drag Handle on Hover + Checkbox in Multi-Select (R2 + R6 Close)](design/56-b-113-drag-handle-multi-select.md)
+- [§57 — B-117 — Group-Color WCAG AA Matrix Audit (R2 Design)](design/57-b-117-gc-matrix-audit.md)

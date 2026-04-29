@@ -45,6 +45,34 @@ Follows your operating system's dark/light preference automatically. If you swit
 
 ---
 
+## Theme accessibility limitations
+
+Tab Junkie verifies WCAG AA contrast (4.5:1 minimum) on group-header tints across all 14 themes and all 9 group-color slots. Most themes pass on every slot. One theme cannot reach the AA threshold on any slot — no tint adjustment or palette change can fix it without breaking the theme's canonical look:
+
+### Solarized Dark
+
+Solarized Dark's canonical base-text / base-background pair (`#839496` on `#073642`) measures **4.111:1** — already below the 4.5:1 AA floor before any group-color tint is applied. Because the base contrast is below AA at the source, no tint amount or slot-color adjustment can lift the tinted group headers to 4.5:1 (the theoretical maximum reachable contrast at any tint is 4.446:1 — still a miss). Modifying the base text or background colors would break the canonical Solarized Dark identity and is out of scope.
+
+The measured contrast ratios for each group-color slot in Solarized Dark at the shipping 20% tint are:
+
+| Group color slot | Measured contrast ratio |
+|------------------|------------------------|
+| blue | 3.484:1 |
+| purple | 3.608:1 |
+| teal | 3.199:1 |
+| red | 3.582:1 |
+| orange | 3.249:1 |
+| pink | 3.540:1 |
+| indigo | 3.684:1 |
+| yellow | 3.012:1 |
+| slate | 3.440:1 |
+
+These values are enforced as monotonic-decrease floors in `tests/b117-gc-matrix-audit.test.js` — if a future change accidentally darkens a slot further, the test will catch it.
+
+**If you need WCAG AA contrast on group headers**, use one of these themes — all meet 4.5:1 on every group-color slot: Solarized Light, GitHub Dark, Tomorrow Night, Nord, Monokai, or Tokyo Night.
+
+---
+
 ## First-time setup note
 
 After updating Tab Junkie to v1.26.0 (which introduced the theme system), please disable and re-enable the extension at `edge://extensions` (or `chrome://extensions`). This flushes the service worker module cache and ensures the theme validator loads the full 14-slug enum. Without this step you may see "Could not save" errors when selecting a theme.

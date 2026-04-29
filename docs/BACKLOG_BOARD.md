@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-26 · **Version:** 2.33 · **Total Items:** 115 · **Sprint 36 active — UI/UX polish bundle (9 items). Wave 0 R1 launched in parallel.**
+**Updated:** 2026-04-28 · **Version:** 2.35 · **Total Items:** 119 · **Sprint 37 closed — 3/3 items shipped (v1.31.0 prepared on `release/v2`; release-manager + tag pending; UAT for B-117 carried forward). +1 B-120 follow-up filed.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  94% (109/116)  [S36 closed · v1.30.0 shipped on release/v2 · +1 B-117 follow-up filed]
+Overall Progress    ██████████████████░░  94% (112/119)  [S37 closed · v1.31.0 prepared on release/v2 · B-117 + B-118 + B-119 done · +1 B-120 follow-up filed]
 ```
 
 ### Legend
@@ -119,6 +119,16 @@ Overall Progress    ██████████████████░░
 ✅ B-085 — Add C-10 "Off-screen rect feasibility" to R2 Correctness Checklist · 🟠 · XS [S25 — v1.19.0]
 ⬜ B-086 — Sidepanel UI/UX design pass (post-feature-freeze polish) · ⚪ · M [filed S25 post-UAT; scheduled post-feature-parity]
 ✅ B-087 — Add C-11 "Popup-lifecycle message ordering" to R2 Correctness Checklist · 🟠 · XS [S27 Wave 1 — S26 retro HIGH action closed]
+
+---
+
+## Sprint 37 — Polish + process close-out (closed)
+
+> 3/3 done · 0 in progress · Sprint 37 closed 2026-04-28 (v1.31.0 release pending; UAT for B-117 carried forward; +1 B-120 follow-up filed mid-sprint)
+
+✅ B-117 — §47.7 group-color WCAG AA matrix re-verification (anchor) · ⚪ · M [S37 — Full · §57 closed; UAT pending; +137 net tests; B-120 follow-up filed]
+✅ B-118 — R1 source-citation gate (CLAUDE.md edit) · ⚪ · XS [S37 — Fast Track · CLAUDE.md:347-357]
+✅ B-119 — R2 fix-scope test-assertion subsection (CLAUDE.md edit) · ⚪ · XS [S37 — Fast Track · CLAUDE.md:378-386]
 
 ---
 
@@ -237,15 +247,15 @@ Overall Progress    ██████████████████░░
 | 🔴 P0 Critical | 14 | 15% |
 | 🟠 P1 High | 34 | 37% |
 | 🟡 P2 Medium | 20 | 22% |
-| ⚪ P3 Nice-to-have | 8 | 8% |
+| ⚪ P3 Nice-to-have | 11 | 9% |
 
 ## Status Summary
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 109 | 94% |
+| ✅ Done | 112 | 94% |
 | 🔄 In Progress | 0 | 0% |
 | ⬜ To Do | 4 | 3% |
 | 🧊 Icebox | 3 | 3% |
 
-**To Do breakdown (4 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-117 (§47.7 matrix re-verification, P3/S · S36 follow-up — pre-existing AA defect surfaced).
+**To Do breakdown (4 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-120 (stale-test-docblock prose, P3/XS · S37 follow-up · depends on B-117 close).
