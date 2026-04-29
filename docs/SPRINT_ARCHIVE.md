@@ -2108,3 +2108,67 @@ When the extension is updated and a new pref key is added to `DEFAULT_PREFERENCE
 1. [scrum-master] Add an R1 quality gate: when R1 makes ANY claim about source code structure (line numbers, function bodies, selectors, file existence), the [product-manager] must cite the verified source location OR mark the claim "R2-VERIFY". Prevents the R1-locked-but-factually-wrong pattern. [HIGH]
 2. [solution-architect] Extend R2 §X.5 R3 fix-scope tables to include a "pre-existing test assertions to update" subsection when the chapter declares a contract change. [HIGH]
 3. [scrum-master] Triage B-117 (§47.7 matrix re-verification) in the next planning round. Pre-existing AA defect surface needs a proper audit. [MEDIUM]
+
+---
+
+## Sprint 37 — Polish + process close-out (2026-04-28)
+
+**Theme:** Three-item polish + process close-out sprint. 1 M WCAG AA group-color matrix re-verification (B-117) + 2 XS CLAUDE.md process gates (B-118 source-citation gate, B-119 fix-scope test-assertion enumeration). Zero regressions. B-120 filed mid-sprint as stale-prose follow-up. Sprint 36 retro HIGH action items #1 and #2 both closed.
+**Release:** v1.31.0 (release/v2 only — no main merge)
+**Branch:** `feature/sprint-36-ui-polish`
+**Tests:** 1,504 → 1,641 (+137 net — 137 new in `tests/b117-gc-matrix-audit.test.js` + T1 redesign in `tests/b114-tint-v2.test.js`)
+
+### Completed Items
+
+#### [B-117] §47.7 group-color WCAG AA matrix re-verification — ✅ DONE
+- **Tier**: Full (M) · **Closed**: 2026-04-28
+- **Pipeline**: R1 ✅ · R2 ✅ (§57) · R3 ✅ · R4 ✅ (3 reviewers — 0 CRITICAL / 0 HIGH / 1 MEDIUM / 4 LOW) · R5 ✅ (137 tests + UAT plan filed) · R6 ✅ (§47.7 updated + §57.12 As-Built) · R7 ✅ (user-manual + CHANGELOG)
+- **Files changed**:
+  - `shared/themes.css` — atom-one-dark + one-dark tint 20%→7%; dracula tint 20%→17%; comment-block corrections at B-114 inline + `:root` block
+  - `tests/b117-gc-matrix-audit.test.js` (NEW) — 137 tests: 126 cells, 9 AAL tuples, 3 drift guards; 136 ms runtime
+  - `tests/b114-tint-v2.test.js` — T1 redesigned table-driven (`expectedTintByTheme` map)
+  - `docs/design/57-b-117-gc-matrix-audit.md` (NEW chapter; §57.12 As-Built appended at R6)
+  - `docs/design/47-b-104-themed-group-colors.md` §47.7 — replaced with post-B-117 verified matrix
+  - `docs/SOLUTION_DESIGN.md` — TOC entry for §57
+  - `docs/user-manual/themes.md` — "Theme accessibility limitations" subsection (Solarized Dark 9-cell measurement table)
+  - `CHANGELOG.md` — v1.31.0 entry (B-117 section)
+  - `docs/UAT_B-117.md` (NEW) — 10 UAT cases for product-owner Edge run
+- **Mid-flight scope adjustments**:
+  - §57.9 sentinel-grep gate triggered at R3 entry → 2 stale-prose files deferred to **B-120** (filed); 2 non-factual hits resolved inline
+  - `tests/b114-tint-v2.test.js` T1 brought in-scope per AC11(g) operational clarification ([scrum-master]) — active structural assertion of `--group-header-tint-amount`, not stale prose
+- **R6 precedents established**: (1) AC11(g) "test-file lock" must distinguish stale prose vs active assertions of changed invariants; (2) B-119 contract-change definition must include CSS-token invariants asserted in test files (retro action item for S38)
+- **UAT status**: UAT-1..UAT-10 pending product-owner Edge run (`docs/UAT_B-117.md`). Carried forward per S35/S36 pattern. Not blocking sprint close.
+
+#### [B-118] R1 source-citation gate (CLAUDE.md edit) — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-28
+- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (bundled with B-119; 0/0/0/1 LOW cosmetic deferred)
+- **Files changed**: `CLAUDE.md` — new "Source-citation gate" mandatory subsection in Round 1: Definition (lines 347–357)
+- **Closes**: Sprint 36 Gate 7 retro action item #1 (R1 LOCKED source-shape claims must cite `file:line` or be marked `R2-VERIFY`)
+- **Self-applied immediately**: B-117 R1, B-118 R1, B-119 R1 all cited `file:line` references. Zero R2 binding-correction surprises this sprint (vs. three in S36).
+
+#### [B-119] R2 fix-scope test-assertion enumeration (CLAUDE.md edit) — ✅ DONE
+- **Tier**: Fast Track (XS) · **Closed**: 2026-04-28
+- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (bundled with B-118)
+- **Files changed**: `CLAUDE.md` — new "Fix-scope test-assertion enumeration" mandatory subsection in Round 2: Architecture (lines 378–386)
+- **Closes**: Sprint 36 Gate 7 retro action item #2 (R2 contract-change chapters must enumerate pre-existing test-file assertions against old value)
+- **Load-bearing miss surfaced**: B-119 R2 contract-change definition was too narrow (DOM/ARIA/message/selector only) — missed `tests/b114-tint-v2.test.js` T1 structural assertion on `--group-header-tint-amount`. R3 hit a mid-build test failure. S38 retro action item #1 expands the definition to include CSS-token invariants.
+
+### Sprint Retrospective
+
+**Velocity:** Planned 3 / Completed 3. M + XS + XS — fully on plan. Test delta +137 (1,504 → 1,641); zero regressions. Items filed mid-sprint: 1 (B-120, stale-prose follow-up, P3/XS, deferred).
+
+**What Went Well:**
+- Pipeline parallelization scaled cleanly: 3 R1 agents in parallel · B-117 R2 in parallel with B-118+B-119 R3 bundle · 3 R4 reviewers in parallel · sprint completed in a single session.
+- §57.9 sentinel-grep gate caught a real issue at R3 entry: 2 stale-prose comment files identified for follow-up (B-120 filed inline). Gate's STOP-and-escalate semantics worked as designed.
+- Self-applied source-citation gate (B-118) was operationally usable from the moment it was R1-LOCKED: all three R1 runs cited `file:line`. Zero R2 binding-correction surprises vs. three in S36.
+- B-117 R2 quantitative work (126-cell computation in Node) replaced opinion with evidence: pre-B-117 §47.7 PASS verdicts at 4.78:1 / 4.55:1 were inaccurate (atom-one-dark+yellow actually 2.806:1 at 20% tint). The new matrix test makes future drift impossible.
+
+**What to Improve:**
+- B-119 R2 contract-change definition was too narrow — missed the `tests/b114-tint-v2.test.js` T1 active structural assertion of `--group-header-tint-amount`. R3 hit a mid-build test failure that should have been caught at R2. The fix-scope-test-assertion subsection must be expanded for S38 to explicitly include CSS-token invariants.
+- R1 AC11(g) "test-file lock" was too coarse: locking out "B-104, B-106, B-114 test files" prevented R3 from updating active assertions of B-117's changed invariant. Mid-R3 operational clarification required. Future R1 templates must distinguish stale prose (lock-out) vs active assertions of the changed invariant (always in-scope).
+- §57.9 sentinel-grep gate was over-eager for prose-only matches: 4 hits, only 2 factually concerning. Future gates should triage active-assertion vs prose in-loop before escalating.
+
+**Action Items for Next Sprint (S38):**
+1. **[product-manager] / [solution-architect]**: Amend CLAUDE.md B-119 "Fix-scope test-assertion enumeration" subsection to explicitly include CSS-token invariants asserted in test files. File as P2/XS CLAUDE.md edit. [HIGH]
+2. **[product-manager]**: Amend CLAUDE.md R1 AC template to distinguish "active assertions of changed invariant" (always in-scope) vs "stale prose comments" (out-of-scope, file as follow-up). File as P3/XS. [MEDIUM]
+3. **[scrum-master]**: When R3 sentinel-grep gate triggers, agent should triage in-loop (active vs prose) before halting and escalating. Update agent-prompt templates. [LOW]
