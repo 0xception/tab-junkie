@@ -229,7 +229,12 @@ html, body {
   justify-content: center;
   width: 16px;
   height: 16px;
-  color: var(--collapse-icon);
+  /* B-115: chevron consumes the group's themed color (set on parent
+     `.group-header` by B-104 as `--group-header-color: var(--gc-<slot>)`)
+     and inherits via the CSS cascade. Falls back to `--text-primary` for
+     groups without a color slot (e.g., Ungrouped) so the chevron remains
+     visible at primary text contrast. */
+  color: var(--group-header-color, var(--text-primary));
   transition: transform 0.15s ease;
   flex-shrink: 0;
 }
@@ -244,6 +249,13 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* B-109 §S36 W1-A: consume the per-theme `--group-header-name-color`
+     token (declared at `:root` in shared/themes.css with a 50% color-mix
+     formula; per-theme blocks for the 10 themes where 50% breaches AA
+     override the token to `var(--text-primary)`). Per the B-037 contract,
+     theme-specific selectors live in shared/themes.css; this surface CSS
+     only consumes the resolved token. */
+  color: var(--group-header-name-color);
 }
 
 .group-header-count {
@@ -612,12 +624,6 @@ html, body {
   position: sticky;
   top: 0;
   z-index: 10;
-}
-
-.panel-header-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
 }
 
 .header-add-btn {
@@ -1150,6 +1156,27 @@ mark {
   color: #dc2626;
 }
 
+/* B-111 §55 (S36 W1-B): dynamic delete-icon visibility via the `data-live`
+   attribute selector on the row. Both SVGs ship inside `.item-action-delete`
+   at first paint (see sidepanel.js buildItemRow); CSS toggles which one
+   renders based on row state. The MSG_LIST_ITEMS patch loop is the sole
+   driver of `data-live` mutations; the cascade handles the visibility flip
+   without any JS in the icon-swap hot path. */
+.item-action-delete .icon-action-close {
+  display: none;
+}
+/* B-111 R4 [qa]/[code] L-1+L-2: explicit symmetric trash default — keeps the
+   rule pair self-documenting and resilient to a future global SVG reset. */
+.item-action-delete .icon-action-trash {
+  display: inline-block;
+}
+.item-row[data-live="true"] .item-action-delete .icon-action-close {
+  display: inline-block;
+}
+.item-row[data-live="true"] .item-action-delete .icon-action-trash {
+  display: none;
+}
+
 /* --- Group inline empty state (B-049) ---------------------------------- */
 
 .group-items-empty {
@@ -1395,13 +1422,68 @@ mark {
   outline-offset: 1px;
 }
 
-/* Reveal the checkbox on hover, on keyboard focus, or when persistent
-   (selected). The keyboard handler lives on the row; the child is
-   tabindex="-1" (non-tab-stop) — see §31.5 option (d) decision. */
-.item-row:hover .item-select,
+/* B-048 §31.5 (pre-B-113): reveal the checkbox on hover, on keyboard focus,
+   or when persistent (selected).
+   B-113 §56 D-3 (S36 W1-C): the `:hover` clause is INTENTIONALLY scoped
+   under `#item-list.has-bulk-bar` so the checkbox only reveals on hover
+   when multi-select is already active; outside multi-select, hover reveals
+   the .item-drag-handle instead (see new rules below). The `:focus-visible`
+   and `[data-selected="true"]` clauses are PRESERVED unchanged. The
+   intentional contract change is documented in tests/b048-visual-states.test.js
+   header (lines 18-19) and design chapter §56.3 D-3. */
 .item-row:focus-visible .item-select,
 .item-row[data-selected="true"] .item-select {
   visibility: visible;
+}
+#item-list.has-bulk-bar .item-row:hover .item-select {
+  visibility: visible;
+}
+/* B-113 §56 (S36 W1-C): once multi-select is active (any row selected),
+   ALL row checkboxes show persistently (Gmail pattern). The cascade
+   driver is the `has-bulk-bar` class added by `_updateBulkBar` when
+   `_selection.size > 0`; removed when empty. No JS in the visibility
+   flip path — pure CSS attribute-class cascade. */
+#item-list.has-bulk-bar .item-row .item-select {
+  visibility: visible;
+}
+
+/* B-113 §56 (S36 W1-C): item-row drag-handle. Sized as a flex child
+   matching the .item-select slot (`flex: 0 0 18px`) but with
+   `margin-left: -18px` so it overlays the previous (checkbox) flex slot
+   without consuming additional layout space (B-048 §31.5 AC6 no-reflow
+   guarantee preserved — the only flex-basis cost in the row is the
+   checkbox's 18 px). Inner SVG (14 px) is centered via inline-flex.
+   This flex-overlap approach (R4 [qa] M-1 fix; W1-C.2 R3 iteration)
+   replaces the original `position: absolute; left: 12px` design which
+   misaligned by 3 px on `data-live="true"` and `data-active="true"`
+   rows because absolute-positioning anchors to the row's padding-edge
+   which shifts when border-left is added. The flex-overlap approach
+   is invariant across all row states because flex content alignment
+   only depends on flex sizing (no padding-edge dependency).
+   `pointer-events: none` ensures clicks pass through to the row,
+   preserving B-030's drag-from-anywhere contract. */
+.item-drag-handle {
+  flex: 0 0 18px;
+  margin-left: -18px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.item-row:hover .item-drag-handle {
+  opacity: 1;
+}
+#item-list.has-bulk-bar .item-row:hover .item-drag-handle {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .item-drag-handle {
+    transition: none;
+  }
 }
 
 /* Checked state: filled background + embedded checkmark SVG.

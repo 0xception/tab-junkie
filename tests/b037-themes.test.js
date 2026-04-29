@@ -876,7 +876,7 @@ test('B-098 AC3: shared/themes.css contains a [data-theme="tokyo-night"] palette
     '--audible-color', '--drifted-color', '--danger',
     '--skeleton-base', '--skeleton-shine', '--empty-color',
     '--group-count-bg', '--group-count-text', '--avatar-text',
-    '--collapse-icon', '--mark-bg', '--selected-bg', '--selected-border',
+    '--mark-bg', '--selected-bg', '--selected-border',
     '--item-select-checked-bg',
   ]) {
     assert.ok(block.includes(token),

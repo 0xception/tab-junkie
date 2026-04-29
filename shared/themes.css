@@ -29,17 +29,38 @@
    little brighter"). The 12% value previously lived only as a CSS fallback
    on `var(--group-header-tint-amount, 12%)` in surface CSS (sidepanel,
    newtab); B-106 promotes the default to a real `:root` declaration so all
-   surfaces pick up the new value via the cascade. WCAG AA verified across
-   the §47.7 spot-check matrix at 18% — every row passes ≥ 4.5:1; worst case
-   is `atom-one-dark` + `yellow` at 4.78:1 (0.28 above the 4.5:1 floor).
-   Per-theme overrides still win the cascade — solarized-light's 3% override
-   (B-105) is unaffected by this default. See docs/BACKLOG.md B-106 R1. */
+   surfaces pick up the new value via the cascade. The 18% default applies
+   to the 5 light themes (system-light, github-light, tomorrow, atom-one-light,
+   atom-one-dark and atom-one-light); WCAG AA verified across the full 14×9
+   matrix in B-117 — every light-theme cell at 18% passes ≥ 4.5:1 (worst:
+   solarized-light/red at 4.564:1 with its B-105 3% override). Dark themes
+   override below: most pin to 20% (B-114), but atom-one-dark/one-dark/legacy
+   `dark` use 7% and dracula uses 17% (B-117 — the AA ceiling for those
+   palettes; the prior shipping 20% on those four was sub-AA). solarized-dark
+   keeps 20% but is documented in `docs/user-manual/themes.md` as an
+   accepted limitation (its canonical base0/base02 text/bg pair is 4.111:1
+   at the source). See docs/design/57-b-117-gc-matrix-audit.md for the full
+   126-cell audit. */
 :root {
   --group-header-tint-amount: 18%;
+  /* B-109 §S36 W1-A: default group-header-name color is a 50% color-mix
+     of the group's slot color toward --text-primary. The inner-var
+     fallback `var(--group-header-color, var(--text-primary))` collapses
+     the formula to `var(--text-primary)` for groups with no slot
+     (Ungrouped). The 10 themes where the 50% formula drops below WCAG
+     AA (4.5:1) override this token to `var(--text-primary)` — see each
+     failing theme's block below. The 4 themes where AA clears
+     (github-light, github-dark, monokai, tokyo-night) inherit this
+     :root default. system-OS-dark also clears via the @media branch. */
+  --group-header-name-color: color-mix(in srgb, var(--group-header-color, var(--text-primary)) 50%, var(--text-primary));
 }
 
 /* --- Default palette (data-theme="system" + light OS) -------------------- */
 [data-theme="system"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA on system-OS-light worst
+     case (yellow ≈ 4.10:1). Override forces --text-primary; system-OS-dark
+     inherits this override too — minor tradeoff for code simplicity. */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #ffffff;
   --bg-secondary: #f5f6f8;
   --bg-hover: #ebedf0;
@@ -67,7 +88,6 @@
   --group-count-bg: #ecedf0;
   --group-count-text: #5f6673;
   --avatar-text: #ffffff;
-  --collapse-icon: #8a8f9a;
   --mark-bg: #fef08a;
   --selected-bg: #dbeafe;
   --selected-border: #2563eb;
@@ -123,7 +143,6 @@
     --group-count-bg: #2a2f38;
     --group-count-text: #9aa0ab;
     --avatar-text: #ffffff;
-    --collapse-icon: #6b7280;
     --mark-bg: #713f12;
     --selected-bg: #1e3a5f;
     --selected-border: #60a5fa;
@@ -147,6 +166,11 @@
     --gc-indigo: #423cae;
     --gc-yellow: #986c11;
     --gc-slate: #505d6f;
+    /* B-114 (Sprint 36): brighter dark-theme tint on the system theme's
+       dark-OS branch — see github-dark block for full WCAG AA derivation.
+       20% is the AA ceiling pinned uniformly across all 11 dark-theme
+       overrides. */
+    --group-header-tint-amount: 20%;
   }
 }
 
@@ -183,7 +207,6 @@
   --group-count-bg: #eaeef2;
   --group-count-text: #656d76;
   --avatar-text: #ffffff;
-  --collapse-icon: #8c959f;
   --mark-bg: #fff8c5;
   --selected-bg: #ddf4ff;
   --selected-border: #0969da;
@@ -206,6 +229,8 @@
 
 /* --- Tomorrow (light) --- */
 [data-theme="tomorrow"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst yellow ≈ 2.87:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #ffffff;
   --bg-secondary: #f5f5f5;
   --bg-hover: #efefef;
@@ -233,7 +258,6 @@
   --group-count-bg: #efefef;
   --group-count-text: #8e908c;
   --avatar-text: #ffffff;
-  --collapse-icon: #a8a8a8;
   --mark-bg: #fff8c5;
   --selected-bg: #eaf2fb;
   --selected-border: #4271ae;
@@ -255,6 +279,8 @@
 
 /* --- Atom One Light --- */
 [data-theme="atom-one-light"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst yellow ≈ 2.93:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #fafafa;
   --bg-secondary: #f0f0f0;
   --bg-hover: #e8e8e8;
@@ -282,7 +308,6 @@
   --group-count-bg: #e8e8e8;
   --group-count-text: #696c77;
   --avatar-text: #ffffff;
-  --collapse-icon: #a0a1a7;
   --mark-bg: #fff3a8;
   --selected-bg: #e6efff;
   --selected-border: #4078f2;
@@ -305,12 +330,14 @@
 
 /* --- Solarized Light --- */
 [data-theme="solarized-light"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst yellow ≈ 2.59:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #fdf6e3;
   --bg-secondary: #eee8d5;
   --bg-hover: #e4dcc4;
   --bg-active: #d8d2bd;
   --text-primary: #546a71; /* B-105: bumped from canonical Solarized base01 #586e75 to #546a71 for WCAG AA (4.661:1 vs --bg-secondary). See docs/design/52-b-105-solarized-light-fix.md */
-  --text-secondary: #657b83;
+  --text-secondary: #546a72; /* B-108: bumped from canonical Solarized base00 #657b83 to #546a72 for WCAG AA (4.655:1 vs --bg-secondary). See docs/design/54-b-108-solarized-light-secondary-fix.md */
   --text-tertiary: #93a1a1;
   --border-primary: #d8d2bd;
   --border-subtle: #eee8d5;
@@ -330,9 +357,8 @@
   --skeleton-shine: #fdf6e3;
   --empty-color: #93a1a1;
   --group-count-bg: #eee8d5;
-  --group-count-text: #657b83;
+  --group-count-text: #546a72; /* B-108: matches --text-secondary; literal hex (not var alias) per cross-theme pattern. See docs/design/54-b-108-solarized-light-secondary-fix.md */
   --avatar-text: #fdf6e3;
-  --collapse-icon: #93a1a1;
   --mark-bg: #f4e8a8;
   --selected-bg: #e3eef7;
   --selected-border: #268bd2;
@@ -397,7 +423,6 @@
   --group-count-bg: #21262d;
   --group-count-text: #8b949e;
   --avatar-text: #ffffff;
-  --collapse-icon: #6e7681;
   --mark-bg: #4d3a00;
   --selected-bg: #0c2d6b;
   --selected-border: #2f81f7;
@@ -417,10 +442,33 @@
   --gc-indigo: #3e39aa;
   --gc-yellow: #94690d;
   --gc-slate: #4d596c;
+  /* B-114 (Sprint 36) + B-117 (Sprint 37): brighter group-header tint on
+     dark themes per product-owner feedback ("very dark in dark modes; want
+     to see it brighter"). B-117's 14×9 matrix audit re-verified the WCAG AA
+     ceiling per theme:
+       - github-dark, tomorrow-night, nord, monokai, tokyo-night, and the
+         system-dark-OS branch: 20% (worst case tomorrow-night/yellow at
+         5.970:1).
+       - atom-one-dark, one-dark, legacy `dark` alias: 7% (B-117 §57.3.1 —
+         the prior B-114 20% was sub-AA; atom-one-dark/yellow was 2.806:1
+         at 20%; 7% is the highest tint that clears 4.5:1 for all 9 slots,
+         worst yellow at 4.639:1).
+       - dracula: 17% (B-117 §57.3.3 — yellow #f1fa8c was 4.119:1 at 20%;
+         17% is the highest tint that clears AA, yellow at 4.619:1).
+       - solarized-dark: 20% retained, but ALL 9 slots are sub-AA at any
+         tint (canonical base0/base02 text/bg is 4.111:1 at the source);
+         documented as an accepted limitation in docs/user-manual/themes.md
+         and pinned by tests/b117-gc-matrix-audit.test.js.
+     :root keeps 18% (light themes inherit unchanged); solarized-light keeps
+     its B-105 3% override (preserved). See docs/BACKLOG.md B-114 R1 and
+     docs/design/57-b-117-gc-matrix-audit.md §57. */
+  --group-header-tint-amount: 20%;
 }
 
 /* --- Tomorrow Night --- */
 [data-theme="tomorrow-night"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst yellow ≈ 4.08:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #1d1f21;
   --bg-secondary: #282a2e;
   --bg-hover: #373b41;
@@ -448,7 +496,6 @@
   --group-count-bg: #373b41;
   --group-count-text: #969896;
   --avatar-text: #ffffff;
-  --collapse-icon: #707880;
   --mark-bg: #5a4a1c;
   --selected-bg: #2a3340;
   --selected-border: #81a2be;
@@ -467,10 +514,16 @@
   --gc-indigo: #433eae;
   --gc-yellow: #996d11;
   --gc-slate: #525e6f;
+  /* B-114 (Sprint 36): brighter dark-theme tint — see github-dark block
+     for full WCAG AA derivation. 20% is the AA ceiling pinned uniformly
+     across all 11 dark-theme overrides. */
+  --group-header-tint-amount: 20%;
 }
 
 /* --- Atom One Dark --- */
 [data-theme="atom-one-dark"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst yellow ≈ 3.13:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #282c34;
   --bg-secondary: #21252b;
   --bg-hover: #2c313a;
@@ -498,7 +551,6 @@
   --group-count-bg: #2c313a;
   --group-count-text: #828997;
   --avatar-text: #ffffff;
-  --collapse-icon: #5c6370;
   --mark-bg: #5a4a1c;
   --selected-bg: #2c3a4d;
   --selected-border: #61afef;
@@ -520,10 +572,23 @@
   --gc-indigo: #c678dd;
   --gc-yellow: #e5c07b;
   --gc-slate: #5c6370;
+  /* B-117 (Sprint 37) — supersedes B-114 on this theme: atom-one-dark + 8
+     of 9 slots fail WCAG AA at 20% (worst yellow #e5c07b at 2.806:1 — the
+     B-114 inline comment's prior "4.55:1 PASS" claim was an unverified
+     manual estimate). 7% is the highest tint that clears 4.5:1 for all 9
+     slots: worst non-yellow is teal at 5.232:1; yellow lands at 4.639:1
+     (margin 0.139 over the floor). Pathway (b) chosen over slot-token
+     darkening because the canonical Atom One Dark palette identity contract
+     from B-104 §47.3 D-1 ("atom-one-dark and one-dark share --bg-secondary
+     and the same Atom One Dark base palette") forbids per-slot deviation.
+     See docs/design/57-b-117-gc-matrix-audit.md §57.3.1. */
+  --group-header-tint-amount: 7%;
 }
 
 /* --- Solarized Dark --- */
 [data-theme="solarized-dark"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst red ≈ 2.53:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #002b36;
   --bg-secondary: #073642;
   --bg-hover: #0d4655;
@@ -551,7 +616,6 @@
   --group-count-bg: #073642;
   --group-count-text: #93a1a1;
   --avatar-text: #ffffff;
-  --collapse-icon: #586e75;
   --mark-bg: #5a4a1c;
   --selected-bg: #0a3a4f;
   --selected-border: #268bd2;
@@ -570,10 +634,16 @@
   --gc-indigo: #3941b4;
   --gc-yellow: #8f7117;
   --gc-slate: #486175;
+  /* B-114 (Sprint 36): brighter dark-theme tint — see github-dark block
+     for full WCAG AA derivation. 20% is the AA ceiling pinned uniformly
+     across all 11 dark-theme overrides. */
+  --group-header-tint-amount: 20%;
 }
 
 /* --- Dracula --- */
 [data-theme="dracula"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst yellow ≈ 4.03:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #282a36;
   --bg-secondary: #1e1f29;
   --bg-hover: #343746;
@@ -601,7 +671,6 @@
   --group-count-bg: #343746;
   --group-count-text: #c5c5d2;
   --avatar-text: #f8f8f2;
-  --collapse-icon: #6272a4;
   --mark-bg: #5a4a1c;
   --selected-bg: #3b2f55;
   --selected-border: #bd93f9;
@@ -620,10 +689,20 @@
   --gc-indigo: #bd93f9;
   --gc-yellow: #f1fa8c;
   --gc-slate: #6272a4;
+  /* B-117 (Sprint 37) — supersedes B-114 on this theme: dracula yellow
+     #f1fa8c fails WCAG AA at 20% (4.119:1). 17% is the highest tint that
+     clears 4.5:1 for all 9 slots: yellow at 4.619:1; all other slots
+     well above AA (blue 5.408, teal 5.357, slate 10.824). Pathway (b)
+     chosen over slot-token darkening — Dracula's #f1fa8c is the official
+     spec yellow and modifying it would break the canonical Dracula look.
+     See docs/design/57-b-117-gc-matrix-audit.md §57.3.3. */
+  --group-header-tint-amount: 17%;
 }
 
 /* --- Nord --- */
 [data-theme="nord"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst yellow ≈ 4.36:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #2e3440;
   --bg-secondary: #3b4252;
   --bg-hover: #434c5e;
@@ -651,7 +730,6 @@
   --group-count-bg: #3b4252;
   --group-count-text: #d8dee9;
   --avatar-text: #eceff4;
-  --collapse-icon: #a0a8b6;
   --mark-bg: #5a4a1c;
   --selected-bg: #3a4a55;
   --selected-border: #88c0d0;
@@ -673,10 +751,16 @@
   --gc-indigo: #4945b9;
   --gc-yellow: #9f741b;
   --gc-slate: #58657a;
+  /* B-114 (Sprint 36): brighter dark-theme tint — see github-dark block
+     for full WCAG AA derivation. 20% is the AA ceiling pinned uniformly
+     across all 11 dark-theme overrides. */
+  --group-header-tint-amount: 20%;
 }
 
 /* --- One Dark (D-2 migration target for legacy 'dark') --- */
 [data-theme="one-dark"] {
+  /* B-109 §S36 W1-A: 50% formula drops below AA (worst yellow ≈ 3.13:1). */
+  --group-header-name-color: var(--text-primary);
   --bg-primary: #282c34;
   --bg-secondary: #21252b;
   --bg-hover: #2c313a;
@@ -704,7 +788,6 @@
   --group-count-bg: #2c313a;
   --group-count-text: #828997;
   --avatar-text: #ffffff;
-  --collapse-icon: #5c6370;
   --mark-bg: #5a4a1c;
   --selected-bg: #2c3a4d;
   --selected-border: #61afef;
@@ -723,6 +806,14 @@
   --gc-indigo: #c678dd;
   --gc-yellow: #e5c07b;
   --gc-slate: #5c6370;
+  /* B-117 (Sprint 37) — supersedes B-114 on this theme: one-dark shares
+     the atom-one-dark palette (per B-104 §47.3 D-1) so it inherits the
+     same AA ceiling; 8 of 9 slots fail at 20% (worst yellow at 2.806:1).
+     7% is the highest tint that clears 4.5:1 for all 9 slots — see
+     atom-one-dark block above for the full per-slot table. Pathway (b)
+     chosen over slot-token darkening to preserve the canonical-palette
+     contract. See docs/design/57-b-117-gc-matrix-audit.md §57.3.1. */
+  --group-header-tint-amount: 7%;
 }
 
 /* --- Monokai --- */
@@ -754,7 +845,6 @@
   --group-count-bg: #3e3d32;
   --group-count-text: #cfcfc2;
   --avatar-text: #f8f8f2;
-  --collapse-icon: #75715e;
   --mark-bg: #5a4a1c;
   --selected-bg: #3a4023;
   --selected-border: #a6e22e;
@@ -773,6 +863,10 @@
   --gc-indigo: #403aa8;
   --gc-yellow: #966a0b;
   --gc-slate: #4f5a69;
+  /* B-114 (Sprint 36): brighter dark-theme tint — see github-dark block
+     for full WCAG AA derivation. 20% is the AA ceiling pinned uniformly
+     across all 11 dark-theme overrides. */
+  --group-header-tint-amount: 20%;
 }
 
 /* --- Tokyo Night --- */
@@ -804,7 +898,6 @@
   --group-count-bg: #1f2335;
   --group-count-text: #a9b1d6;
   --avatar-text: #ffffff;
-  --collapse-icon: #565f89;
   --mark-bg: #3d3416;
   --selected-bg: #1f2b4a;
   --selected-border: #7aa2f7;
@@ -823,6 +916,10 @@
   --gc-indigo: #3e38a9;
   --gc-yellow: #94670c;
   --gc-slate: #4d586a;
+  /* B-114 (Sprint 36): brighter dark-theme tint — see github-dark block
+     for full WCAG AA derivation. 20% is the AA ceiling pinned uniformly
+     across all 11 dark-theme overrides. */
+  --group-header-tint-amount: 20%;
 }
 
 /* =========================================================================
@@ -861,7 +958,6 @@
   --group-count-bg: #e8e8e8;
   --group-count-text: #696c77;
   --avatar-text: #ffffff;
-  --collapse-icon: #a0a1a7;
   --mark-bg: #fff3a8;
   --selected-bg: #e6efff;
   --selected-border: #4078f2;
@@ -910,7 +1006,6 @@
   --group-count-bg: #2c313a;
   --group-count-text: #828997;
   --avatar-text: #ffffff;
-  --collapse-icon: #5c6370;
   --mark-bg: #5a4a1c;
   --selected-bg: #2c3a4d;
   --selected-border: #61afef;
@@ -928,4 +1023,10 @@
   --gc-indigo: #c678dd;
   --gc-yellow: #e5c07b;
   --gc-slate: #5c6370;
+  /* B-117 (Sprint 37) — supersedes B-114 on this alias: legacy 'dark'
+     mirrors the one-dark palette and so inherits the same 7% AA ceiling
+     (the prior 20% was sub-AA — atom-one-dark/yellow at 2.806:1 was the
+     worst cell). See atom-one-dark block above and
+     docs/design/57-b-117-gc-matrix-audit.md §57.3.1. */
+  --group-header-tint-amount: 7%;
 }

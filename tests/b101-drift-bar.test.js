@@ -115,7 +115,10 @@ function _ensureIndicators(row, live, isDrifted, driftedToUrl) {
   /* Audible branch omitted — these tests cover only the drift-bar paths. */
   const bar = row.querySelector('.item-drift-bar');
   if (bar) {
-    if (isDrifted) {
+    /* B-110 §53 (S36): conjunctive invariant — drift records only exist for
+       claimed items (§10.7); the gate refuses to surface a stale record
+       on a non-live row. Stub kept in lockstep with sidepanel.js:3217. */
+    if (isDrifted && live?.live) {
       const url = typeof driftedToUrl === 'string' && driftedToUrl.length > 0
         ? driftedToUrl
         : (row.dataset.itemId
@@ -136,13 +139,16 @@ function buildItemRow(item, liveStates, driftRecords) {
   row.className = 'item-row';
   row.dataset.itemId = item.id;
 
+  const live = liveStates?.[item.id];
   const drifted = driftRecords?.[item.id];
 
   /* B-101 §48.3 D-1: drift bar is the FIRST child. Always present. */
   const driftBar = createElement('span');
   driftBar.className = 'item-drift-bar';
   driftBar.setAttribute('aria-hidden', 'true');
-  if (drifted) {
+  /* B-110 §53 (S36): same conjunctive gate as `_ensureIndicators` — stub
+     mirrors sidepanel.js:2380 first-paint path. */
+  if (drifted && live?.live) {
     driftBar.title = _driftTooltipFor(drifted.driftedToUrl);
   } else {
     driftBar.hidden = true;
@@ -179,11 +185,13 @@ test('B-101 T1: _ensureIndicators(isDrifted=true) flips bar.hidden=false and set
 test('B-101 T2: _ensureIndicators(isDrifted=false) flips bar.hidden=true and removes title attribute', () => {
   const row = buildItemRow(
     { id: 'item-t2' },
-    {},
+    /* B-110 §53 (S36): conjunctive gate requires live=true to surface the
+       drift bar at first paint. */
+    { 'item-t2': { live: true } },
     { 'item-t2': { itemId: 'item-t2', driftedToUrl: 'https://example.com/x', detectedAt: 1 } },
   );
   const bar = row.querySelector('.item-drift-bar');
-  /* First-paint state: drifted, so bar visible and titled. */
+  /* First-paint state: drifted + live, so bar visible and titled. */
   assert.equal(bar.hidden, false, 'sanity — bar visible at first paint when drifted');
   assert.equal(bar.title, 'Drifted to: example.com');
 
@@ -200,10 +208,13 @@ test('B-101 T2: _ensureIndicators(isDrifted=false) flips bar.hidden=true and rem
    ========================================================================= */
 test('B-101 T3: buildItemRow(itemWithDrift) injects .item-drift-bar as first child with hidden=false + title set', () => {
   const item = { id: 'item-t3' };
+  /* B-110 §53 (S36): conjunctive gate requires live=true to surface the
+     drift bar — pre-B-110 this passed `{}` for liveStates. */
+  const liveStates = { 'item-t3': { live: true } };
   const driftRecords = {
     'item-t3': { itemId: 'item-t3', driftedToUrl: 'https://docs.example.org/page', detectedAt: 1 },
   };
-  const row = buildItemRow(item, {}, driftRecords);
+  const row = buildItemRow(item, liveStates, driftRecords);
 
   /* AC1 + D-1 invariant: bar is the FIRST child of the row. */
   const first = row.children[0];

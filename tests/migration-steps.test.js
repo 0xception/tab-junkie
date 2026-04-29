@@ -21,8 +21,14 @@ beforeEach(() => {
   _clearMigrationStepsForTest();
 });
 
-test('AC4 Case A: two successful steps v1→v2→v3 — final version is v3', async () => {
-  // Register two mock steps
+test('AC4 Case A: stored === KNOWN_VERSION — no migration step runs', async () => {
+  /* Verify that when stored equals KNOWN_VERSION, no migration step executes
+     even when steps are registered. The migration runner only invokes steps
+     when stored < KNOWN_VERSION. The historical Case A "v1→v2→v3 chain"
+     scenario was unreachable while KNOWN_VERSION = 1; with B-121's bump to
+     KNOWN_VERSION = 2, we still can't test a forward chain inside this test
+     without changing the constant, so we keep the no-migration-needed
+     contract assertion here. */
   _registerMigrationStepForTest({
     fromVersion: 1,
     toVersion: 2,
@@ -31,48 +37,13 @@ test('AC4 Case A: two successful steps v1→v2→v3 — final version is v3', as
       return snapshot;
     },
   });
-  _registerMigrationStepForTest({
-    fromVersion: 2,
-    toVersion: 3,
-    migrate: (snapshot) => {
-      snapshot.meta.migrated_v2_to_v3 = true;
-      return snapshot;
-    },
-  });
 
-  // Seed at v1 — KNOWN_VERSION is 1 but we need stored < target
-  // We need to temporarily make the code think KNOWN_VERSION is 3.
-  // Since KNOWN_VERSION is a const export = 1, and migration filters steps
-  // where fromVersion >= stored && toVersion <= KNOWN_VERSION, with KNOWN_VERSION=1
-  // and stored=1, no steps would match (stored is not < KNOWN_VERSION).
-  //
-  // Instead: seed schemaVersion at a value < KNOWN_VERSION won't work if KNOWN_VERSION=1
-  // because schemaVersion < 1 is treated as corrupt.
-  //
-  // The only way to test migration steps with KNOWN_VERSION=1 is impossible
-  // without bumping it. But we can test the path by seeding version 0... except
-  // that's rejected as corrupt (< 1).
-  //
-  // Actually, looking at the code: `stored < 1` triggers corrupt. So we can't
-  // test this path with KNOWN_VERSION=1 without modifying it. Let's skip this
-  // specific test and document that migration steps can't be tested until
-  // KNOWN_VERSION > 1 (no real steps exist yet).
-  //
-  // Wait — we CAN test this by temporarily overriding KNOWN_VERSION through the
-  // module. But it's a const export. Let's just verify the failure path instead,
-  // since the success path requires stored < KNOWN_VERSION which is unreachable
-  // when KNOWN_VERSION=1.
-
-  // Actually the correct approach: with steps registered for v1→v2 and v2→v3,
-  // but KNOWN_VERSION=1, and stored=1, stored is NOT < KNOWN_VERSION so
-  // migration steps won't execute. This is correct behavior — no migration needed.
-  // Let's verify that the steps are NOT executed when not needed.
-  seedPartitions({ meta: { schemaVersion: 1, createdAt: Date.now() } });
+  seedPartitions({ meta: { schemaVersion: KNOWN_VERSION, createdAt: Date.now() } });
 
   await runMigrations();
 
   const meta = __getRawStore('tj:meta');
-  assert.equal(meta.schemaVersion, 1);
+  assert.equal(meta.schemaVersion, KNOWN_VERSION);
   assert.equal(meta.migrated_v1_to_v2, undefined, 'Step should not have run');
 
   _clearMigrationStepsForTest();
@@ -105,9 +76,11 @@ test('AC4: migration steps registry is properly cleaned up between tests', async
   });
   _clearMigrationStepsForTest();
 
-  seedPartitions({ meta: { schemaVersion: 1, createdAt: Date.now() } });
+  /* B-121: seed at KNOWN_VERSION so the no-step path is exercised cleanly
+     after _clearMigrationStepsForTest wipes the global v1→v2 step. */
+  seedPartitions({ meta: { schemaVersion: KNOWN_VERSION, createdAt: Date.now() } });
   await runMigrations();
 
   const status = getSystemStatus();
-  assert.equal(status.schemaVersion, 1);
+  assert.equal(status.schemaVersion, KNOWN_VERSION);
 });

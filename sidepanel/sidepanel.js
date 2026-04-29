@@ -248,6 +248,29 @@ function _setCachedOpenTabs(next) {
 }
 
 /* =========================================================================
+   B-121 — Floating-members cache. Mirrors `_cachedOpenTabs` shape: a
+   defensive-copied object plus a tabId → descriptor lookup so the live-only
+   row patch path can re-apply attributes without scanning the full map.
+   Populated by renderAll and refetchAndPatchLiveState from the enriched
+   MSG_LIST_ITEMS response (`floatingMembers`). Callers MUST use
+   `_setCachedFloatingMembers()` to keep both in sync.
+   ========================================================================= */
+let _cachedFloatingMembers = {};
+let _cachedFloatingMemberByTabId = new Map();
+function _setCachedFloatingMembers(next) {
+  _cachedFloatingMembers = (next && typeof next === 'object' && !Array.isArray(next))
+    ? next
+    : {};
+  _cachedFloatingMemberByTabId = new Map();
+  for (const arr of Object.values(_cachedFloatingMembers)) {
+    if (!Array.isArray(arr)) continue;
+    for (const m of arr) {
+      if (m && typeof m.tabId === 'number') _cachedFloatingMemberByTabId.set(m.tabId, m);
+    }
+  }
+}
+
+/* =========================================================================
    B-014 — Window ordinal map, panel window identity, and window filter state.
    All three are UI-lifetime only — re-initialised on panel reload. The
    ordinal map is refreshed from every MSG_LIST_ITEMS response; the panel
@@ -1356,7 +1379,7 @@ async function _handleFormSubmit(e) {
       .then(([itemsResp, groups]) => {
         /* B-014: keep the ordinal map fresh on fallback re-renders too. */
         _setWindowOrdinalMap(itemsResp.windowMap || {});
-        renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
+        renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs, itemsResp.floatingMembers);
         _applyWindowMapToUI();
       })
       .catch(() => {});
@@ -1805,6 +1828,24 @@ function _setRowSelected(row, selected) {
       const openTabItem = { title: tab.title || tab.url || 'Untitled tab' };
       const openTabLive = { live: true, active: !!tab.active, audible: !!tab.audible };
       row.setAttribute('aria-label', buildItemRowAriaLabel(openTabItem, openTabLive, false, selected));
+    } else {
+      /* B-121 R4 qa-reviewer H-1: floating-tab rows (`data-floating="true"`)
+         carry `data-tab-id` but are NOT in `_cachedOpenTabsById` (AC5
+         excludes them from the Open-Tabs list by design). Fall back to
+         `_cachedFloatingMemberByTabId` so the aria-label "(selected)"
+         suffix is announced to screen readers (WCAG 2.1 SC 4.1.2). */
+      const floatingMember = _cachedFloatingMemberByTabId.get(tabId);
+      if (floatingMember) {
+        const floatingItem = {
+          title: floatingMember.title || floatingMember.url || 'Untitled tab',
+        };
+        const floatingLive = {
+          live: true,
+          active: !!floatingMember.active,
+          audible: !!floatingMember.audible,
+        };
+        row.setAttribute('aria-label', buildItemRowAriaLabel(floatingItem, floatingLive, false, selected));
+      }
     }
   }
 }
@@ -2011,7 +2052,7 @@ function _reapplySelection() {
    Rendering
    ========================================================================= */
 
-function renderAll(items, groups, liveStates, driftRecords, openTabs) {
+function renderAll(items, groups, liveStates, driftRecords, openTabs, floatingMembers) {
   /* Cache data for filter (B-021) */
   _cachedItems = items;
   _cachedItemsGen += 1;
@@ -2020,12 +2061,17 @@ function renderAll(items, groups, liveStates, driftRecords, openTabs) {
   _cachedLiveStates = liveStates || {};
   _cachedDriftRecords = driftRecords || {};
   _setCachedOpenTabs(openTabs);
+  /* B-121 §60.6.1(d): cache the floating-members map alongside open tabs.
+     `floatingMembers` is OPTIONAL on the response (pre-S38 callers omit
+     it) — `_setCachedFloatingMembers` defensively coerces undefined → {}. */
+  _setCachedFloatingMembers(floatingMembers);
   _itemById = new Map(items.map((it) => [it.id, it]));
 
   /* B-055 AC4: the empty state only shows when NOTHING qualifies — no saved
-     items, no groups, AND no open tabs. If open tabs exist we still need the
-     list container visible so the section can mount. */
-  if (!items.length && !groups.length && _cachedOpenTabs.length === 0) {
+     items, no groups, AND no open tabs (and no floating-tab synthetic rows
+     either, B-121). */
+  if (!items.length && !groups.length && _cachedOpenTabs.length === 0
+      && _cachedFloatingMemberByTabId.size === 0) {
     skeletonEl.hidden = true;
     emptyStateEl.hidden = false;
     errorStateEl.hidden = true;
@@ -2066,14 +2112,16 @@ function renderAll(items, groups, liveStates, driftRecords, openTabs) {
 
   /* Render root groups (B6 — child groups nested inside parent's itemsContainer) */
   for (const group of rootGroups) {
-    const section = buildGroupSection(group, byGroup, liveStates, driftRecords, false);
+    const floatingForGroup = _cachedFloatingMembers[group.id] || [];
+    const section = buildGroupSection(group, byGroup, liveStates, driftRecords, false, floatingForGroup);
 
     /* Nest child groups inside parent's .group-items container */
     const children = childGroupsByParent.get(group.id);
     if (children) {
       const parentItems = section.querySelector('.group-items');
       for (const child of children) {
-        const childSection = buildGroupSection(child, byGroup, liveStates, driftRecords, true);
+        const childFloating = _cachedFloatingMembers[child.id] || [];
+        const childSection = buildGroupSection(child, byGroup, liveStates, driftRecords, true, childFloating);
         parentItems.appendChild(childSection);
       }
     }
@@ -2098,7 +2146,10 @@ function renderAll(items, groups, liveStates, driftRecords, openTabs) {
     };
     /* Temporarily place ungrouped items under the synthetic id for buildGroupSection */
     byGroup.set('__ungrouped__', ungrouped);
-    const section = buildGroupSection(syntheticGroup, byGroup, liveStates, driftRecords, false);
+    /* B-121: ungrouped section never carries floating members — opener-chain
+       inheritance always resolves to a parent saved item with a non-null
+       groupId. Pass an empty array for parity with the grouped path. */
+    const section = buildGroupSection(syntheticGroup, byGroup, liveStates, driftRecords, false, []);
     fragment.appendChild(section);
   }
 
@@ -2145,14 +2196,18 @@ function renderAll(items, groups, liveStates, driftRecords, openTabs) {
 
 /* --- Group section (W2 — unified, handles both real + ungrouped) ------- */
 
-function buildGroupSection(group, byGroup, liveStates, driftRecords, isChild) {
+function buildGroupSection(group, byGroup, liveStates, driftRecords, isChild, floatingMembersForGroup) {
   const section = document.createElement('div');
   section.className = 'group-section' + (isChild ? ' group-section--child' : '');
   section.setAttribute('role', 'listitem');
+  section.dataset.groupId = group.id;
 
   const groupItems = byGroup.get(group.id) || [];
   const collapsed = collapsedGroups.has(group.id);
-  section.dataset.itemCount = groupItems.length;
+  /* B-121: include floating members in the row count so the header badge
+     reflects total visible rows (saved + synthetic). */
+  const floatingArr = Array.isArray(floatingMembersForGroup) ? floatingMembersForGroup : [];
+  section.dataset.itemCount = groupItems.length + floatingArr.length;
 
   /* Header */
   const header = document.createElement('div');
@@ -2201,10 +2256,10 @@ function buildGroupSection(group, byGroup, liveStates, driftRecords, isChild) {
   name.className = 'group-header-name';
   name.textContent = group.name;
 
-  /* Count */
+  /* Count — saved items plus floating-tab synthetic rows (B-121). */
   const count = document.createElement('span');
   count.className = 'group-header-count';
-  count.textContent = String(groupItems.length);
+  count.textContent = String(groupItems.length + floatingArr.length);
 
   header.appendChild(collapseIcon);
   header.appendChild(chip);
@@ -2222,8 +2277,17 @@ function buildGroupSection(group, byGroup, liveStates, driftRecords, isChild) {
     itemsContainer.appendChild(buildItemRow(item, liveStates, driftRecords));
   }
 
-  /* B-049: Inline empty state for groups with zero items */
-  if (groupItems.length === 0 && !_filterQuery) {
+  /* B-121 §60.5.1: synthetic floating-tab rows render after the saved-item
+     rows and BEFORE the inline empty-state fallback / nested child group
+     sections. Ungrouped section never has floating members. */
+  for (const member of floatingArr) {
+    itemsContainer.appendChild(buildFloatingTabRow(member));
+  }
+
+  /* B-049: Inline empty state for groups with zero items.
+     B-121: a group with floating members but zero saved items is NOT empty —
+     skip the empty-state placeholder when synthetic rows exist. */
+  if (groupItems.length === 0 && floatingArr.length === 0 && !_filterQuery) {
     const emptyEl = document.createElement('div');
     emptyEl.className = 'group-items-empty';
     emptyEl.setAttribute('role', 'status');
@@ -2372,7 +2436,11 @@ function buildItemRow(item, liveStates, driftRecords) {
   const driftBar = document.createElement('span');
   driftBar.className = 'item-drift-bar';
   driftBar.setAttribute('aria-hidden', 'true');
-  if (drifted) {
+  /* B-110 §53 — conjunctive invariant gate: per §10.7, drift records only
+     exist for claimed items. Defend the render path even if a stale drift
+     record leaks through from storage (defense-in-depth; symmetric with
+     `_ensureIndicators`). */
+  if (drifted && live?.live) {
     driftBar.title = _driftTooltipFor(drifted.driftedToUrl);
   } else {
     driftBar.hidden = true;
@@ -2392,6 +2460,18 @@ function buildItemRow(item, liveStates, driftRecords) {
     row.dataset.selected = 'true';
     row.setAttribute('aria-selected', 'true');
   }
+
+  /* B-113 §56 (S36 W1-C): item-row drag-handle affordance. Decorative only —
+     `aria-hidden`, `pointer-events: none` (CSS), absolutely-positioned over
+     the .item-select slot. The 6-circle SVG matches the .group-drag-handle
+     pattern at sidepanel.js:2173 for cross-surface visual cohesion.
+     Omitted from buildOpenTabRow per §56.3 D-5 (open-tab rows are not
+     draggable; honest UX). */
+  const dragHandle = document.createElement('span');
+  dragHandle.className = 'item-drag-handle';
+  dragHandle.setAttribute('aria-hidden', 'true');
+  dragHandle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="5" cy="4" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="5" cy="12" r="1.5"/><circle cx="11" cy="4" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="11" cy="12" r="1.5"/></svg>';
+  row.appendChild(dragHandle);
 
   /* B-004: favicon from live tab state, letter-avatar fallback */
   const favIconUrl = liveStates?.[item.id]?.favIconUrl;
@@ -2474,7 +2554,14 @@ function buildItemRow(item, liveStates, driftRecords) {
   deleteBtn.className = 'item-action-btn item-action-delete';
   deleteBtn.setAttribute('aria-label', 'Delete bookmark');
   deleteBtn.dataset.action = 'delete';
-  deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2 3.5h10M5.5 3.5V2h3v1.5M5 5.5v5M9 5.5v5M3.5 3.5l.5 8h6l.5-8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  /* B-111 §55 (S36 W1-B): both icons ship at first paint; CSS attribute
+     selectors (sidepanel.css `.item-row[data-live="true"]`) toggle which
+     one renders. Trash icon shows by default (non-live row); X icon shows
+     when `data-live="true"`. Both SVGs are aria-hidden — the row +
+     button aria-label (B-107 reactive flip) is the AT name carrier. */
+  deleteBtn.innerHTML =
+    '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" class="icon-action-close"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>'
+    + '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" class="icon-action-trash"><path d="M2 3.5h10M5.5 3.5V2h3v1.5M5 5.5v5M9 5.5v5M3.5 3.5l.5 8h6l.5-8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   actions.appendChild(editBtn);
   actions.appendChild(deleteBtn);
@@ -2768,6 +2855,176 @@ function buildOpenTabRow(tab /* , { multiWindow } */) {
 }
 
 /**
+ * B-121 §60.5.3: build a synthetic floating-tab row.
+ *
+ * Structurally identical to buildOpenTabRow with two additions:
+ *   - `data-floating="true"`: selector hook for the runtime patch loop.
+ *   - `data-parent-item-id="<itemId>"`: identifies the parent saved item.
+ *
+ * Visual treatment matches a live-claimed open-tab row exactly (Q5 LOCKED:
+ * no italic / no muted text / no special bar). Visual distinction is
+ * deferred to B-124. The X-button + MSG_CLOSE_TABS path is reused via the
+ * `[data-tab-id]` selector; nothing extra is wired in this builder.
+ */
+function buildFloatingTabRow(member) {
+  const row = buildOpenTabRow({
+    tabId: member.tabId,
+    windowId: member.windowId,
+    title: member.title || '',
+    url: member.url || '',
+    favIconUrl: member.favIconUrl || null,
+    audible: !!member.audible,
+    active: !!member.active,
+    tabIndex: typeof member.tabIndex === 'number' ? member.tabIndex : 0,
+  });
+  /* B-121 §60.5.4: data attributes that distinguish synthetic rows from
+     Open-Tabs rows. data-live-only is already set by buildOpenTabRow. */
+  row.dataset.floating = 'true';
+  if (typeof member.parentItemId === 'string' && member.parentItemId.length > 0) {
+    row.dataset.parentItemId = member.parentItemId;
+  }
+  return row;
+}
+
+/**
+ * B-121 §60.6.1(c): targeted DOM diff for floating-tab synthetic rows.
+ *
+ * Mirrors patchOpenTabsSection: index existing `[data-floating="true"]`
+ * rows by tabId across all group sections, walk the new map, insert new
+ * rows / patch existing ones / drop stale ones. Synthetic rows always
+ * mount inside the parent group's `.group-items` container, AFTER the
+ * last saved-item row (data-item-id) and BEFORE the first nested
+ * `.group-section--child` so the visual hierarchy reads top-down.
+ */
+function patchFloatingMembersSections(nextFloatingMembers) {
+  const next = (nextFloatingMembers && typeof nextFloatingMembers === 'object'
+                && !Array.isArray(nextFloatingMembers))
+    ? nextFloatingMembers
+    : {};
+
+  /* Index existing synthetic rows by tabId so we can patch in-place
+     instead of churning DOM nodes when the only change is a URL/title. */
+  const existing = new Map();
+  for (const row of itemListEl.querySelectorAll('[data-floating="true"]')) {
+    const tabId = Number(row.dataset.tabId);
+    if (!Number.isNaN(tabId)) existing.set(tabId, row);
+  }
+
+  /* Build the union of every tabId in the next map for fast set-membership. */
+  const nextTabIds = new Set();
+  for (const arr of Object.values(next)) {
+    if (!Array.isArray(arr)) continue;
+    for (const m of arr) {
+      if (m && typeof m.tabId === 'number') nextTabIds.add(m.tabId);
+    }
+  }
+
+  /* Drop synthetic rows whose tabId no longer qualifies. */
+  for (const [tabId, row] of existing) {
+    if (!nextTabIds.has(tabId)) {
+      row.remove();
+      existing.delete(tabId);
+    }
+  }
+
+  /* Per-group reconciliation: ensure each section's `.group-items`
+     contains the right floating rows in the right order. */
+  for (const [groupId, members] of Object.entries(next)) {
+    if (!Array.isArray(members) || members.length === 0) continue;
+    const section = itemListEl.querySelector(
+      `.group-section[data-group-id="${CSS.escape(String(groupId))}"]`,
+    );
+    if (!section) continue;
+    const itemsContainer = section.querySelector('.group-items');
+    if (!itemsContainer) continue;
+
+    /* B-121 R4 code-reviewer M-1: capture the insertion anchor ONCE before
+       the members loop. The anchor is the first child that is NEITHER a
+       saved-item row NOR an existing floating row — typically a nested
+       child group section or the empty-state placeholder. Synthetic rows
+       go AFTER all saved-item rows but BEFORE child group sections.
+       Re-evaluating the anchor inside the loop reversed sort order: after
+       inserting member[0], the next iteration's anchor became member[0],
+       so member[1] was inserted BEFORE member[0]. Capturing the static
+       (non-floating) anchor up front keeps insertBefore(row, anchor)
+       consistently appending in members[] order. */
+    let staticAnchor = null;
+    for (const child of itemsContainer.children) {
+      if (child.matches?.('.item-row[data-item-id]:not([data-floating])')) continue;
+      if (child.matches?.('.item-row[data-floating="true"]')) continue;
+      staticAnchor = child;
+      break;
+    }
+
+    /* B-121: when a group transitions from N→0 saved items + ≥1 floating
+       member, the inline empty-state may be present from a prior render —
+       remove it so the synthetic rows are not visually overshadowed. The
+       removal must happen AFTER the staticAnchor capture so we don't pick
+       up an empty-state element that is about to be removed; if the empty
+       was selected as the anchor, fall back to null (append). */
+    const emptyEl = itemsContainer.querySelector('.group-items-empty');
+    if (emptyEl) {
+      if (staticAnchor === emptyEl) staticAnchor = null;
+      emptyEl.remove();
+    }
+
+    for (let i = 0; i < members.length; i++) {
+      const member = members[i];
+      let row = existing.get(member.tabId);
+      if (row) {
+        /* Patch in-place — reuse the open-tab row patcher for parity. */
+        _patchOpenTabRow(row, {
+          tabId: member.tabId,
+          windowId: member.windowId,
+          title: member.title || '',
+          url: member.url || '',
+          favIconUrl: member.favIconUrl || null,
+          audible: !!member.audible,
+          active: !!member.active,
+        });
+        row.dataset.floating = 'true';
+        if (typeof member.parentItemId === 'string' && member.parentItemId.length > 0) {
+          row.dataset.parentItemId = member.parentItemId;
+        }
+      } else {
+        row = buildFloatingTabRow(member);
+        existing.set(member.tabId, row);
+      }
+      /* Earlier inserts accumulate in correct order relative to the
+         static anchor (insertBefore with a null anchor appends). */
+      if (row.parentNode !== itemsContainer
+          || row.nextSibling !== staticAnchor) {
+        itemsContainer.insertBefore(row, staticAnchor);
+      }
+    }
+
+    /* Update the header count to reflect saved-rows + floating-rows. */
+    const savedCount = itemsContainer.querySelectorAll(
+      '.item-row[data-item-id]:not([data-floating])',
+    ).length;
+    const countBadge = section.querySelector('.group-header-count');
+    if (countBadge) countBadge.textContent = String(savedCount + members.length);
+    if (section.dataset) section.dataset.itemCount = String(savedCount + members.length);
+  }
+
+  /* For groups that USED to have floating members but no longer do, drop
+     header count back to the saved-row count. */
+  for (const section of itemListEl.querySelectorAll('.group-section[data-group-id]')) {
+    const gid = section.dataset.groupId;
+    if (!gid) continue;
+    if (next[gid] && next[gid].length > 0) continue;
+    const itemsContainer = section.querySelector('.group-items');
+    if (!itemsContainer) continue;
+    const savedCount = itemsContainer.querySelectorAll(
+      '.item-row[data-item-id]:not([data-floating])',
+    ).length;
+    const countBadge = section.querySelector('.group-header-count');
+    if (countBadge) countBadge.textContent = String(savedCount);
+    if (section.dataset) section.dataset.itemCount = String(savedCount);
+  }
+}
+
+/**
  * Build the Open Tabs section — always mounted (AC4).
  * Uses a <section> for the region role (AC15).
  * B-055 H-2 fix: the parent `#item-list` carries `role="list"`, whose children
@@ -3026,6 +3283,11 @@ async function refetchAndPatchLiveState() {
   _cachedDriftRecords = driftRecords;
   /* B-055: keep the Open Tabs cache in sync and apply a targeted DOM diff. */
   _setCachedOpenTabs(itemsResp.openTabs);
+  /* B-121 §60.6.1(c): keep the floating-members cache in sync. The diff
+     below patches synthetic rows per-group so the renderer sees the same
+     members the cache holds. Treat undefined identically to {} so pre-S38
+     SW responses (no floatingMembers key) don't drop existing rows. */
+  _setCachedFloatingMembers(itemsResp.floatingMembers);
   /* B-014: every MSG_LIST_ITEMS carries the current ordinal map. Refresh
      before patching rows so the badge helper resolves ordinals against the
      freshest data. Also refresh `_panelWindowId` to self-heal detached-panel
@@ -3043,7 +3305,7 @@ async function refetchAndPatchLiveState() {
   if (needsFullRender) {
     try {
       const groupsResp = await sendMessage(MSG_LIST_GROUPS);
-      renderAll(itemsResp.items, groupsResp, liveStates, driftRecords, _cachedOpenTabs);
+      renderAll(itemsResp.items, groupsResp, liveStates, driftRecords, _cachedOpenTabs, _cachedFloatingMembers);
       _applyWindowMapToUI();
     } catch (err) {
       console.warn('[tab-junkie] full-render fallback failed', err);
@@ -3052,6 +3314,10 @@ async function refetchAndPatchLiveState() {
   }
 
   patchOpenTabsSection(_cachedOpenTabs);
+  /* B-121: targeted floating-row diff after open-tabs but before the
+     saved-item patch loop — saved-row patches use a `:not([data-floating])`
+     guard so the synthetic rows are immune to that loop. */
+  patchFloatingMembersSections(_cachedFloatingMembers);
 
   /* B-055: saved-item rows only — skip `[data-live-only]` (Open Tabs rows live
      in `_cachedOpenTabs` and are patched separately by `patchOpenTabsSection`). */
@@ -3064,6 +3330,15 @@ async function refetchAndPatchLiveState() {
 
     /* Update data attributes */
     if (live?.live) row.dataset.live = 'true'; else delete row.dataset.live;
+    /* B-107 (S36): WCAG 2.1 SC 4.1.2 name-role-value — flip the X-button's
+       aria-label to match the action that fires (B-100: live row → close tab;
+       non-live row → delete bookmark). The static initial value at
+       `buildItemRow` is "Delete bookmark" (default non-live); this patch
+       reactively updates it on every live-state transition. */
+    const deleteBtn = row.querySelector('.item-action-delete');
+    if (deleteBtn) {
+      deleteBtn.setAttribute('aria-label', live?.live ? 'Close tab' : 'Delete bookmark');
+    }
     if (live?.active) row.dataset.active = 'true'; else delete row.dataset.active;
     if (live?.audible) row.dataset.audible = 'true'; else delete row.dataset.audible;
     if (drifted) row.dataset.drifted = 'true'; else delete row.dataset.drifted;
@@ -3192,14 +3467,20 @@ function _ensureIndicators(row, live, isDrifted, driftedToUrl) {
     if (indicators && indicators.children.length === 0) indicators.remove();
   }
 
-  /* B-101 §48.3 D-1 / D-5: drift bar is always present in the row DOM (added
-     by `buildItemRow`). Transitions toggle the `hidden` attribute and the
-     `title` tooltip — no DOM creation/removal. The bar's visibility gates
-     exclusively on `isDrifted` per D-5 (drift records only exist for claimed
-     items per §10.7, so no live/claim coupling is needed). */
+  /* B-101 §48.3 D-1 / D-5 + B-110 §53 (S36): drift bar is always present in
+     the row DOM (added by `buildItemRow`). Transitions toggle the `hidden`
+     attribute and the `title` tooltip — no DOM creation/removal. Visibility
+     gates conjunctively on `isDrifted && live?.live` — defense-in-depth for
+     the §10.7 invariant (drift records only exist for claimed items). The
+     B-101 D-5 single-condition gate was correct as a STATEMENT of the
+     invariant but did not ENFORCE it; B-110 found two leak paths in claim
+     release (`reconcileClaims` cold-start eviction + `MSG_NAVIGATE_TO_ITEM`
+     AC3 stale-claim repair) where drift records survived release. The
+     source patches close the leaks; this gate is hardening that stays
+     in place permanently against future regression. */
   const bar = row.querySelector('.item-drift-bar');
   if (bar) {
-    if (isDrifted) {
+    if (isDrifted && live?.live) {
       const url = typeof driftedToUrl === 'string' && driftedToUrl.length > 0
         ? driftedToUrl
         : (row.dataset.itemId
@@ -4258,7 +4539,7 @@ itemListEl.addEventListener('drop', async (e) => {
       ]);
       _setWindowOrdinalMap(itemsResp.windowMap || {});
       renderAll(itemsResp.items, groups, itemsResp.liveStates,
-        itemsResp.driftRecords, itemsResp.openTabs);
+        itemsResp.driftRecords, itemsResp.openTabs, itemsResp.floatingMembers);
       _applyWindowMapToUI();
 
       /* D-4: fire-and-forget collapsed=false patch on the NEST target.
@@ -4282,7 +4563,7 @@ itemListEl.addEventListener('drop', async (e) => {
         .then(([itemsResp, groups]) => {
           _setWindowOrdinalMap(itemsResp.windowMap || {});
           renderAll(itemsResp.items, groups, itemsResp.liveStates,
-            itemsResp.driftRecords, itemsResp.openTabs);
+            itemsResp.driftRecords, itemsResp.openTabs, itemsResp.floatingMembers);
           _applyWindowMapToUI();
         })
         .catch(() => {});
@@ -4328,7 +4609,7 @@ itemListEl.addEventListener('dragend', () => {
       .then(([itemsResp, groups]) => {
         /* B-014 */
         _setWindowOrdinalMap(itemsResp.windowMap || {});
-        renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
+        renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs, itemsResp.floatingMembers);
         _applyWindowMapToUI();
       })
       .catch(() => {});
@@ -4688,7 +4969,7 @@ async function _commitReorderAndRender(updates, opts = {}) {
     ]);
     _setWindowOrdinalMap(itemsResp.windowMap || {});
     renderAll(itemsResp.items, groups, itemsResp.liveStates,
-      itemsResp.driftRecords, itemsResp.openTabs);
+      itemsResp.driftRecords, itemsResp.openTabs, itemsResp.floatingMembers);
     _applyWindowMapToUI();
     /* B-025 M-1 fix — clear selection after successful multi-drop (UAT-8).
        Only on multi-drops: single-item drags do not touch _selection, so
@@ -4706,7 +4987,7 @@ async function _commitReorderAndRender(updates, opts = {}) {
       .then(([itemsResp, groups]) => {
         _setWindowOrdinalMap(itemsResp.windowMap || {});
         renderAll(itemsResp.items, groups, itemsResp.liveStates,
-          itemsResp.driftRecords, itemsResp.openTabs);
+          itemsResp.driftRecords, itemsResp.openTabs, itemsResp.floatingMembers);
         _applyWindowMapToUI();
       })
       .catch(() => {});
@@ -5071,12 +5352,14 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
          the freshest windowId data. */
       _cachedLiveStates = itemsResp.liveStates || {};
       _setCachedOpenTabs(itemsResp.openTabs);
+      _setCachedFloatingMembers(itemsResp.floatingMembers);
       /* B-014 M-3: refresh Open Tabs DOM (specifically `data-window-id`
          attributes) BEFORE `_applyWindowMapToUI` so the badge pass reads the
          up-to-date values. Without this, the badge pass can render stale
          ordinals when a tab moves between windows and the windowMap
          broadcast arrives before the liveState broadcast. */
       patchOpenTabsSection(_cachedOpenTabs);
+      patchFloatingMembersSections(_cachedFloatingMembers);
       _applyWindowMapToUI();
       /* B-014 UAT: re-apply filter so a window-filtered view stays in sync
          after the map changes (e.g., the filtered window closed, or a tab
@@ -5133,6 +5416,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
           _cachedLiveStates = itemsResp.liveStates || {};
           _cachedDriftRecords = itemsResp.driftRecords || {};
           _setCachedOpenTabs(itemsResp.openTabs);
+          _setCachedFloatingMembers(itemsResp.floatingMembers);
           /* B-102 + B-103: cache-update without DOM-update was the root cause
              for cross-window demote vanishing AND promote duplicate. The
              fast-path branches must explicitly re-render Open Tabs after the
@@ -5142,6 +5426,10 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
              idempotent — when the DOM already matches the cache, the diff
              loop finds zero deltas. See docs/design/50-b-102-103-open-tabs-patch.md §50.3 D-1. */
           patchOpenTabsSection(_cachedOpenTabs);
+          /* B-121: keep floating-tab synthetic rows current on items-scope
+             fast paths too — the parent group may have just gained or lost
+             a saved sibling. */
+          patchFloatingMembersSections(_cachedFloatingMembers);
           _searchIndex = delta.index;
           _applyWindowMapToUI();
           if (_filterQuery || _activeWindowFilter !== null) applyFilter();
@@ -5170,6 +5458,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
             _cachedLiveStates = itemsResp.liveStates || {};
             _cachedDriftRecords = itemsResp.driftRecords || {};
             _setCachedOpenTabs(itemsResp.openTabs);
+            _setCachedFloatingMembers(itemsResp.floatingMembers);
             _itemById = new Map(itemsResp.items.map((it) => [it.id, it]));
             _searchIndex = delta.index;
 
@@ -5195,6 +5484,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
                  _itemById rebuild — abort path falls through to renderAll which
                  rebuilds Open Tabs separately. */
               patchOpenTabsSection(_cachedOpenTabs);
+              patchFloatingMembersSections(_cachedFloatingMembers);
               _applyWindowMapToUI();
               if (_filterQuery || _activeWindowFilter !== null) applyFilter();
               patched = true;
@@ -5206,7 +5496,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       }
 
       if (!patched) {
-        renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
+        renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs, itemsResp.floatingMembers);
         _applyWindowMapToUI();
       }
 
@@ -6430,7 +6720,7 @@ document.addEventListener('DOMContentLoaded', async () => {
        so the initial DOM carries correct badges + filter row. */
     _setWindowOrdinalMap(itemsResp.windowMap || {});
     _refreshPanelWindowId();
-    renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs);
+    renderAll(itemsResp.items, groups, itemsResp.liveStates, itemsResp.driftRecords, itemsResp.openTabs, itemsResp.floatingMembers);
     _applyWindowMapToUI();
   } catch {
     /* B5 — Show error state instead of empty state on init failure */

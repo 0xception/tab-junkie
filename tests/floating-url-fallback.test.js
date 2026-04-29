@@ -1,6 +1,10 @@
 /**
- * floating-url-fallback.test.js — AC9
- * URL fallback when position fails; unresolved retained.
+ * floating-url-fallback.test.js — AC9 (B-121 §60.4 contract update)
+ * URL fallback when position fails. Post-S38 contract:
+ *   - reassociateFloatingGroups DOES NOT write claims.
+ *   - Records whose URL-matched tab is unclaimed are retained.
+ *   - Records whose URL-matched tab is already claimed are pruned.
+ *   - Records with no matching tab are retained (AC9).
  */
 import './_setup.js';
 import { test, beforeEach } from 'node:test';
@@ -16,14 +20,13 @@ beforeEach(() => {
   __resetTabClaims();
 });
 
-test('AC9: URL fallback when position does not match', async () => {
+test('AC9: URL fallback resolves when position fails — record retained (unclaimed)', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-fall', itemId: 'g-fall', windowId: 99, tabIndex: 0, url: 'https://fallback.com/page', savedAt: 1000 },
+      { floatingTabId: 'ft-fall', groupId: 'g-fall', parentItemId: 'p-fall', windowId: 99, tabIndex: 0, url: 'https://fallback.com/page', savedAt: 1000 },
     ],
   });
 
-  // No tab at window 99, but tab with matching URL exists
   __setMockTabs([
     { id: 50, url: 'https://fallback.com/page', windowId: 2, active: false, audible: false, index: 3 },
   ]);
@@ -31,14 +34,16 @@ test('AC9: URL fallback when position does not match', async () => {
 
   await reassociateFloatingGroups(getLiveTabIndex(), {});
 
-  const claims = getClaimsMirror();
-  assert.equal(claims['g-fall'], 50, 'Should fall back to URL match when position fails');
+  /* No claim written. Record retained for runtime render. */
+  assert.equal(Object.keys(getClaimsMirror()).length, 0);
+  const raw = __getRawStore('tj:floatingGroups');
+  assert.equal(raw.length, 1);
 });
 
-test('AC9: URL fallback uses normalized comparison', async () => {
+test('AC9: URL fallback uses normalized comparison (record retained)', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-norm', itemId: 'g-norm', windowId: 99, tabIndex: 0, url: 'https://Example.COM/path', savedAt: 1000 },
+      { floatingTabId: 'ft-norm', groupId: 'g-norm', parentItemId: 'p-norm', windowId: 99, tabIndex: 0, url: 'https://Example.COM/path', savedAt: 1000 },
     ],
   });
 
@@ -49,15 +54,16 @@ test('AC9: URL fallback uses normalized comparison', async () => {
 
   await reassociateFloatingGroups(getLiveTabIndex(), {});
 
-  const claims = getClaimsMirror();
-  assert.equal(claims['g-norm'], 60, 'URL fallback should match after normalization');
+  assert.equal(Object.keys(getClaimsMirror()).length, 0);
+  const raw = __getRawStore('tj:floatingGroups');
+  assert.equal(raw.length, 1);
 });
 
-test('AC9: unresolved records remain in tj:floatingGroups', async () => {
+test('AC9: unmatched record remains in tj:floatingGroups', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-resolved', itemId: 'g-resolved', windowId: 1, tabIndex: 0, url: 'https://found.com', savedAt: 1000 },
-      { groupId: 'g-unresolved', itemId: 'g-unresolved', windowId: 99, tabIndex: 99, url: 'https://missing.com', savedAt: 2000 },
+      { floatingTabId: 'ft-r', groupId: 'g-resolved', parentItemId: 'p-resolved', windowId: 1, tabIndex: 0, url: 'https://found.com', savedAt: 1000 },
+      { floatingTabId: 'ft-u', groupId: 'g-unresolved', parentItemId: 'p-unresolved', windowId: 99, tabIndex: 99, url: 'https://missing.com', savedAt: 2000 },
     ],
   });
 
@@ -69,16 +75,15 @@ test('AC9: unresolved records remain in tj:floatingGroups', async () => {
 
   await reassociateFloatingGroups(getLiveTabIndex(), {});
 
+  /* Both records retained: ft-r matched-unclaimed; ft-u unmatched. */
   const raw = __getRawStore('tj:floatingGroups');
-  assert.ok(Array.isArray(raw), 'Should still be an array');
-  assert.equal(raw.length, 1, 'Only unresolved record should remain');
-  assert.equal(raw[0].groupId, 'g-unresolved', 'Unresolved record should be retained');
+  assert.equal(raw.length, 2);
 });
 
-test('AC9: no match at all — record fully retained', async () => {
+test('AC9: no match at all — record retained for next restart', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-orphan', itemId: 'g-orphan', windowId: 5, tabIndex: 5, url: 'https://gone.com', savedAt: 1000 },
+      { floatingTabId: 'ft-orphan', groupId: 'g-orphan', parentItemId: 'p-orphan', windowId: 5, tabIndex: 5, url: 'https://gone.com', savedAt: 1000 },
     ],
   });
 
@@ -89,10 +94,7 @@ test('AC9: no match at all — record fully retained', async () => {
 
   await reassociateFloatingGroups(getLiveTabIndex(), {});
 
-  const claims = getClaimsMirror();
-  assert.equal(Object.keys(claims).length, 0, 'No claim should be established');
-
+  assert.equal(Object.keys(getClaimsMirror()).length, 0);
   const raw = __getRawStore('tj:floatingGroups');
-  assert.equal(raw.length, 1, 'Unresolved record should remain');
-  assert.equal(raw[0].groupId, 'g-orphan');
+  assert.equal(raw.length, 1);
 });

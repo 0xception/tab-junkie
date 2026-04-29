@@ -240,6 +240,19 @@ export const MSG_STATE_CHANGED = 'tj/stateChanged';
  */
 
 /**
+ * @typedef {Object} FloatingMember
+ * @property {number} tabId         Browser-assigned tab id (ephemeral).
+ * @property {number} windowId      Browser-assigned window id (ephemeral).
+ * @property {number} tabIndex      Position in the window's tab strip.
+ * @property {string} url           Tab URL — untrusted; render via textContent.
+ * @property {string} parentItemId  The saved item the floating tab inherits from.
+ * @property {string} title         Tab title — untrusted; render via textContent.
+ * @property {string|null} favIconUrl  Tab favicon URL or null.
+ * @property {boolean} audible      Audio indicator for the tab.
+ * @property {boolean} active       True when this is the focused tab in its window.
+ */
+
+/**
  * @typedef {Object} ListItemsResponse
  * @property {Array<Object>} items        The stored items (optionally filtered by groupId)
  * @property {Record<string, {live: boolean, active: boolean, audible: boolean, favIconUrl: string|null, tabId?: number, windowId?: number}>} liveStates
@@ -265,6 +278,13 @@ export const MSG_STATE_CHANGED = 'tj/stateChanged';
  *   of SW suspend/resume). Never null/undefined. Callers MUST treat
  *   rawWindowIds as ephemeral (not stable across browser restart) and never
  *   persist either key or value. Ordinals are UI-only.
+ * @property {Record<string, FloatingMember[]>} [floatingMembers]
+ *   B-121 — per-group runtime list of opener-chain-spawned tabs that have a
+ *   tj:floatingGroups record but are not yet claimed by any saved item.
+ *   Key = parent bookmark's groupId. Empty/missing key = no floating members
+ *   for that group. The whole field is OPTIONAL on the response: pre-S38
+ *   callers see `undefined`; post-S38 callers see a (possibly empty) Record.
+ *   Renderers MUST treat `undefined` identically to `{}` (no floating members).
  */
 
 /**

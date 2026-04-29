@@ -280,11 +280,13 @@ test('B-099 T5: MSG_UPDATE_ITEM { patch: { title } } does NOT clear drift (AC7 r
 
 /* =========================================================================
    T6 — buildOpenTabs() excludes a drifted-but-claimed tab (AC4 regression)
+       + B-121 §60.7 exclusion: floating-group-member tabs are also excluded
    ========================================================================= */
-test('B-099 T6: buildOpenTabs() excludes a tab claimed by a drifted item (AC4)', async () => {
+test('B-099 T6: buildOpenTabs() excludes drifted-claimed tabs AND floating-member tabs (B-121)', async () => {
   __setMockTabs([
     { id: 15, url: 'https://saved.example/t', windowId: 1, active: false, audible: false, index: 0, title: 'Saved' },
     { id: 16, url: 'https://untracked.example/u', windowId: 1, active: false, audible: false, index: 1, title: 'Untracked' },
+    { id: 17, url: 'https://floating-child.example/f', windowId: 1, active: false, audible: false, index: 2, title: 'Floating child' },
   ]);
   await buildLiveTabIndex();
 
@@ -299,12 +301,21 @@ test('B-099 T6: buildOpenTabs() excludes a tab claimed by a drifted item (AC4)',
   const claims = __getSessionStore('tj:tabClaims');
   assert.equal(claims['item-6'], 15, 'Claim preserved under drift');
 
-  const openTabs = buildOpenTabs();
-  // The drifted tab must NOT appear in Open Tabs (B-055 filter still works).
-  const tabIds = openTabs.map((t) => t.tabId);
+  /* B-121 §60.7: buildOpenTabs accepts a Set<number> of tabIds resolved as
+     floating-group members and excludes them. Default-empty Set keeps the
+     legacy no-arg behaviour. Exercise both signatures. */
+  const openTabsLegacy = buildOpenTabs();
+  let tabIds = openTabsLegacy.map((t) => t.tabId);
   assert.ok(!tabIds.includes(15), 'Drifted-but-claimed tab must not appear in Open Tabs');
-  // The genuinely untracked tab MUST appear.
-  assert.ok(tabIds.includes(16), 'Untracked tab still appears in Open Tabs');
+  assert.ok(tabIds.includes(16), 'Untracked tab still appears in Open Tabs (no-arg path)');
+  assert.ok(tabIds.includes(17), 'Floating-member candidate appears in Open Tabs (no-arg path)');
+
+  const floatingTabIds = new Set([17]);
+  const openTabsExcl = buildOpenTabs(floatingTabIds);
+  tabIds = openTabsExcl.map((t) => t.tabId);
+  assert.ok(!tabIds.includes(15), 'Drifted-but-claimed tab still excluded');
+  assert.ok(tabIds.includes(16), 'Untracked tab still appears');
+  assert.ok(!tabIds.includes(17), 'Floating-member tab excluded by floatingTabIds set');
 });
 
 /* =========================================================================

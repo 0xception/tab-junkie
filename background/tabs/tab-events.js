@@ -17,7 +17,7 @@ import {
   removeTabsByWindow,
   getLiveTabIndex,
 } from './live-tab-index.js';
-import { releaseClaimByTab, reevaluateTab, isClaimsReady, getClaimsMirror } from './tab-claims.js';
+import { releaseClaimByTab, reevaluateTab, isClaimsReady, getClaimsMirror, markInherited, pruneInherited } from './tab-claims.js';
 import { detectDriftForTab, clearDrift } from './drift.js';
 import { listItems } from '../storage/items.js';
 import { broadcast, SCOPE } from '../broadcast.js';
@@ -155,12 +155,25 @@ export function registerTabEventListeners(readyPromise) {
             const liveWindowId = liveEntry.windowId ?? tab.windowId;
             await appendFloatingGroup({
               groupId: result.groupId,
-              itemId: result.itemId,
+              parentItemId: result.itemId,
               windowId: liveWindowId,
               tabIndex: typeof liveIndex === 'number' ? liveIndex : 0,
               url: liveUrl,
               savedAt: Date.now(),
             });
+            // B-125 (§59.3): mark the inherited tab so reevaluateTab will
+            // skip the auto-claim branch. Placed strictly AFTER the
+            // appendFloatingGroup await resolves — if the write throws,
+            // control transfers to the catch and the marker is not set
+            // (C-9(ii) fallback: tab is auto-claim eligible).
+            // B-125 R4 [security-reviewer] M-1: there is a narrow race
+            // window between the appendFloatingGroup write and this mark
+            // call. The 100 ms reevaluateTab debounce in onUpdated provides
+            // adequate margin for chrome.storage.session writes (sub-ms in
+            // practice). Do NOT lower that debounce without revisiting this
+            // coupling — a faster reevaluateTab path would re-introduce
+            // B-125 under storage-write contention.
+            markInherited(tab.id);
             // H-6: remove requireClaimsReady so broadcast always fires
             broadcast(SCOPE.LIVE_STATE, 'tab/opener-inherited');
           }
@@ -194,6 +207,9 @@ export function registerTabEventListeners(readyPromise) {
    */
   chrome.tabs.onRemoved.addListener((tabId) => {
     pruneOpener(tabId);
+    // B-125 (§59.3): symmetric with pruneOpener — drop the inheritance
+    // marker so a recycled tabId cannot inherit a stale skip-auto-claim gate.
+    pruneInherited(tabId);
     if (reevalTimers.has(tabId)) {
       clearTimeout(reevalTimers.get(tabId));
       reevalTimers.delete(tabId);
@@ -264,6 +280,10 @@ export function registerTabEventListeners(readyPromise) {
         clearTimeout(reevalTimers.get(tabId));
         reevalTimers.delete(tabId);
       }
+      // B-125 (§59.5): cascade-prune the inheritance marker for every tab
+      // closed by the window-removal event. Symmetric with the per-tab
+      // onRemoved handler above.
+      pruneInherited(tabId);
     }
 
     /* B-014: drop the ordinal mapping regardless of claims readiness. The

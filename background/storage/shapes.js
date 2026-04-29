@@ -93,7 +93,12 @@ export function defaultShape(partition) {
     case PARTITION_PREFS:
       return { ...DEFAULT_PREFERENCES };
     case PARTITION_META:
-      return { schemaVersion: 1, createdAt: Date.now() };
+      /* B-121 §60.4.7 — fresh installs seed at v2 directly so no migration
+         step runs on first boot. `migration.js` KNOWN_VERSION = 2. Hardcoded
+         literal (not imported from migration.js) to keep the storage layer
+         independent of the migration runner — bumping this when KNOWN_VERSION
+         bumps is a deliberate, paired change. */
+      return { schemaVersion: 2, createdAt: Date.now() };
     case PARTITION_DRIFT:
       return {};
     case PARTITION_FLOATING_GROUPS:
@@ -218,13 +223,25 @@ export function assertShape(partitionOrKey, value) {
         throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition}`);
       }
       for (const entry of value) {
-        // itemId is validated on write (appendFloatingGroup / saveFloatingGroups)
-        // but treated as optional here for backward compatibility with records
-        // written before B-013 shipped.
+        // Required fields. parentItemId / itemId / floatingTabId are
+        // validated as strings *if* present per B-121 §60.4.6; the
+        // appendFloatingGroup / saveFloatingGroups write paths require
+        // either parentItemId or legacy itemId before storing a record,
+        // so reads tolerate either field for backward compatibility with
+        // pre-S38 records.
         if (!entry || typeof entry !== 'object'
           || !isString(entry.groupId) || !isNumber(entry.windowId)
           || !isNumber(entry.tabIndex) || !isString(entry.url)
           || !isNumber(entry.savedAt)) {
+          throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition}`);
+        }
+        if ('floatingTabId' in entry && typeof entry.floatingTabId !== 'string') {
+          throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition}`);
+        }
+        if ('parentItemId' in entry && typeof entry.parentItemId !== 'string') {
+          throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition}`);
+        }
+        if ('itemId' in entry && typeof entry.itemId !== 'string') {
           throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition}`);
         }
       }

@@ -344,6 +344,17 @@ Affected test files: `tests/foo.test.js` (line N), `tests/bar.test.js` (line N),
 
 If no existing test references the moved element's selectors, state "No existing test files reference these selectors." Sprint 30 B-093 is the precedent — selector-reference scope was underestimated at R1, requiring mid-R3 grep work.
 
+**Source-citation gate (mandatory subsection in every R1 AC block making source-code claims)**
+
+Any R1 factual claim about source code structure (line numbers, function bodies, selectors, file existence, JS-injected vs CSS-only behavior, CSS aliases vs literal duplicates, ARIA contracts, message shapes, etc.) MUST cite the verified source location in the form `file:line` OR be marked `R2-VERIFY`. R1 LOCKED is gated on every such claim being one or the other.
+
+The Sprint 36 R2 binding-correction trio is the blocking precedent:
+- B-108 D-2 — `--group-count-text` claimed as `var(--text-secondary)` alias, was a literal hex duplicate
+- B-111 D-4 — `buildOpenTabRow` claimed to have `.item-action-delete`, did not
+- B-113 D-5 — open-tab rows claimed draggable, were not
+
+Three R1-LOCKED claims found incorrect at R2. The gate prevents this class of failure by requiring R1 authors to cite or defer.
+
 ### Round 2: Architecture
 - [solution-architect]: Evaluate feature against the existing architecture — read the chapter(s) relevant to the item under `docs/design/NN-*.md` (full chapter list is in the root index `docs/SOLUTION_DESIGN.md`). Do NOT read the root index as a substitute for the chapter content.
 - Produce: storage schema changes, message contracts, event flow, component structure, drift-detection impact.
@@ -363,6 +374,17 @@ If no existing test references the moved element's selectors, state "No existing
 | C-10 | Off-screen rect feasibility | If the design uses off-screen positioning + a browser snapshot/measurement API (e.g., `setDragImage`, `canvas.toDataURL` of an off-screen element), verify the element has a real computed rect at snapshot time before proceeding. Document the reflow / positioning strategy explicitly (e.g., `position: fixed` + `translate(-100%, -100%)` instead of `top: -9999px`; force reflow via `void el.offsetHeight` before the snapshot if required). The Sprint 24 B-025 UAT-8 failure mode — `-9999px` positioning caused zero-dim `getBoundingClientRect` → `setDragImage` snapshot produced a broken/blank ghost in Edge — is the blocking precedent. |
 | C-11 | Popup-lifecycle message ordering | For extension-popup surfaces that trigger focus changes (`chrome.tabs.update({active:true})`, `chrome.windows.update({focused:true})`, `chrome.sidePanel.open({windowId})`, or any API that transfers browser focus away from the popup), all SW-side state-mutation messages MUST be queued via `chrome.runtime.sendMessage()` BEFORE the focus-shifting API call. Awaiting after the shift is a race: the popup's JS context tears down the moment focus leaves the browser window, and any post-shift `await sendMessage` is dropped without SW-side delivery. Fire-and-forget (`chrome.runtime.sendMessage(…).catch(() => {})`) before the navigate is the correct pattern — native runtime delivery survives popup teardown. The Sprint 26 B-022 UAT-4 D-UAT-3 failure mode — `MSG_RECENCY_ADD` awaited after `chrome.tabs.update({active:true})`, popup closed mid-await, recency never persisted in `tj:recency` — is the blocking precedent. Note: `chrome-mock` does not model focus-shift teardown, so integration tests will not reproduce this race; it is a UAT-only signal class. |
 | C-12 | Manifest declaration runtime-mutability | If the feature's enable/disable behavior depends on a `manifest.json` declaration (e.g., `chrome_url_overrides`, `action`, `side_panel`, `devtools_page`), R2 MUST verify whether the declaration is mutable at runtime. If mutable (e.g., the extension can programmatically toggle the behavior without a manifest change): document exactly what the runtime "OFF" path looks like. If NOT mutable (the browser enforces the declaration for the lifetime of the installation): R2 MUST explicitly enumerate every available "OFF" behavior (redirect, placeholder page, disabled-state UI, uninstall prompt), confirm none deliver the product-owner's intent for an "OFF" state, and surface this constraint to [product-manager] for a product decision BEFORE R3 begins. The Sprint 29 B-039 drop is the blocking precedent — `chrome_url_overrides.newtab` cannot be removed at runtime; neither `about:blank` redirect nor an in-place disabled-state page delivered browser-default new-tab behavior; the toggle was dropped entirely and the newtab page shipped always-on. |
+
+**Fix-scope test-assertion enumeration (mandatory subsection in every R2 chapter declaring a contract change)**
+
+When R2 declares a contract modification (DOM structure, ARIA contract, message shape, CSS class semantics, selector contract, **CSS-token invariants asserted in test files (regex-pin tests on `shared/themes.css`, structural assertions on `--<token>` values, count-of-N assertions on token declarations)**, etc.), the chapter's fix-scope table MUST include a "pre-existing test assertions to update" enumeration listing every test `file:line` that asserts the pre-change contract. R3 cannot start until this enumeration is present and verified by [solution-architect].
+
+Format:
+`tests/foo.test.js:NN — asserts <pre-change contract>; update to <post-change contract>`
+
+Two blocking precedents:
+- **Sprint 36 B-113 D-3** — the b048 §31.5 AC6 contract-split. R2 fix-scope listed only the b048 header comment, missing the AC6 assertion test, forcing R3 mid-build scope expansion.
+- **Sprint 37 B-117 R3 b114 T1 escalation** — B-117 R3 hit a mid-build test failure at `tests/b114-tint-v2.test.js:100` because R2 §57.8 fix-scope enumerated only DOM-style contracts, missing the CSS-token regex assertion of `--group-header-tint-amount: 20%` that B-117 was changing. The CSS-token-invariant addition above is the direct response to this precedent.
 
 ### Round 3: Build (Frontend)
 - [frontend-engineer]: UI code, service worker code, storage layer, message handlers, components.

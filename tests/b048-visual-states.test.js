@@ -16,7 +16,15 @@
  *   AC1 — grayscale distinction: every state has a non-color cue (attribute / icon / DOM)
  *   AC2 — coexistence: all five flags can co-apply to one row; cues don't occlude each other
  *   AC6 — hover-reveal: `.item-select` CSS visibility depends on :hover / :focus-visible /
- *         [data-selected="true"] — we assert on the CSS selector set that governs visibility
+ *         [data-selected="true"] — we assert on the CSS selector set that governs visibility.
+ *         B-113 (S36 W1-C) INTENTIONALLY MODIFIED this contract: the `:hover` clause is
+ *         now scoped under `#item-list.has-bulk-bar` (visible on hover ONLY when multi-
+ *         select is active); outside multi-select, hover reveals `.item-drag-handle`
+ *         instead. The `:focus-visible` and `[data-selected="true"]` clauses are
+ *         PRESERVED unchanged. Tests in this file assert structural invariants
+ *         (role/aria-checked/tabindex/slot-existence) NOT visibility-on-hover, so they
+ *         continue to pass post-B-113. See docs/design/56-b-113-drag-handle-multi-select.md
+ *         §56.3 D-3 for the contract change rationale.
  *   AC7 — screen-reader label concat: deterministic order `active → live → drifted → audible → selected`
  *   AC8 — patch-path preserves aria-label rebuild (spy before/after state change)
  *   §31.5 — `.item-select` role="checkbox" / aria-checked / tabindex="-1" invariants
@@ -579,7 +587,7 @@ test('AC5: `.item-row[data-selected="true"]` uses `box-shadow: inset` (not `outl
 test('AC6: `.item-select` reveal selector triad exists (:hover, :focus-visible, [data-selected="true"])', () => {
   assert.ok(
     CSS_SRC.includes('.item-row:hover .item-select'),
-    'hover branch of the reveal triad must exist',
+    'hover branch of the reveal triad must exist (B-113: now scoped under #item-list.has-bulk-bar)',
   );
   assert.ok(
     CSS_SRC.includes('.item-row:focus-visible .item-select'),
@@ -589,10 +597,24 @@ test('AC6: `.item-select` reveal selector triad exists (:hover, :focus-visible, 
     CSS_SRC.includes('.item-row[data-selected="true"] .item-select'),
     'persistent (selected) branch of the reveal triad must exist',
   );
-  /* The three selectors must all land on the same declaration block — grep for
-     the full selector list followed by `visibility: visible`. */
-  const re = /\.item-row:hover \.item-select,\s*\n\s*\.item-row:focus-visible \.item-select,\s*\n\s*\.item-row\[data-selected="true"\] \.item-select\s*\{\s*\n\s*visibility:\s*visible/;
-  assert.ok(re.test(CSS_SRC), 'the three reveal selectors must share one `visibility: visible` declaration');
+  /* B-113 §56 D-3 (S36 W1-C) intentionally split the original 3-selector
+     block. POST-B-113 contract:
+       - :focus-visible + [data-selected="true"] share ONE block (always-on
+         reveal, both clauses preserved verbatim).
+       - :hover is now scoped under `#item-list.has-bulk-bar` (multi-select-
+         only reveal); outside multi-select, hover reveals .item-drag-handle
+         instead.
+     This test pins the post-B-113 selector shapes. */
+  const focusSelectedPair = /\.item-row:focus-visible \.item-select,\s*\n\s*\.item-row\[data-selected="true"\] \.item-select\s*\{\s*\n\s*visibility:\s*visible/;
+  assert.ok(
+    focusSelectedPair.test(CSS_SRC),
+    'B-113 D-3: :focus-visible + [data-selected="true"] clauses must share one `visibility: visible` block',
+  );
+  const multiSelectHover = /#item-list\.has-bulk-bar \.item-row:hover \.item-select\s*\{\s*\n\s*visibility:\s*visible/;
+  assert.ok(
+    multiSelectHover.test(CSS_SRC),
+    'B-113 D-3: hover clause must be scoped under #item-list.has-bulk-bar',
+  );
 });
 
 test('AC6: `.item-select` layout slot is always reserved (flex: 0 0 18px — no-reflow guarantee)', () => {

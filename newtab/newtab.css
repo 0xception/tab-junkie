@@ -428,6 +428,38 @@ body {
   align-items: center;
 }
 
+/* --- Floating-tab close affordance (B-121) ----------------------------- */
+
+.newtab-floating-close {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  margin-left: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #888);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.newtab-floating-close:hover,
+.newtab-floating-close:focus-visible {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.06));
+  color: var(--text-primary, #222);
+  outline: none;
+}
+
+.newtab-floating-close:focus-visible {
+  outline: 2px solid var(--focus-ring, #5a8dee);
+  outline-offset: 1px;
+}
+
 /* --- Skeleton ---------------------------------------------------------- */
 
 .newtab-skeleton-group {

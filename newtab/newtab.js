@@ -37,6 +37,7 @@ import {
   MSG_NAVIGATE_TO_ITEM,
   MSG_STATE_CHANGED,
   MSG_GET_PREFERENCES,
+  MSG_CLOSE_TABS,
 } from '../shared/messages.js';
 import { SCOPE } from '../shared/scopes.js';
 import { GROUP_COLORS } from '../shared/constants.js';
@@ -75,6 +76,9 @@ let _groups = [];
 let _liveStates = {};
 /** Per-item drift record map. */
 let _driftRecords = {};
+/** B-121 — per-group floating-tab synthetic-row descriptors. Optional on the
+    response (pre-S38) — defensively coerced to {} on read. */
+let _floatingMembers = {};
 /** Frozen B-052 index over saved items. */
 let _index = null;
 /** Current filter query (raw; trimmed at use). */
@@ -149,6 +153,13 @@ async function boot() {
       : {};
     _driftRecords = itemsResp && typeof itemsResp.driftRecords === 'object' && itemsResp.driftRecords
       ? itemsResp.driftRecords
+      : {};
+    /* B-121: floating-members map keyed by parent groupId. Optional — pre-S38
+       SW responses omit the field entirely; coerce to {} so the renderer
+       always has a stable shape. */
+    _floatingMembers = itemsResp && typeof itemsResp.floatingMembers === 'object'
+        && !Array.isArray(itemsResp.floatingMembers) && itemsResp.floatingMembers
+      ? itemsResp.floatingMembers
       : {};
     _groups = Array.isArray(groupsResp) ? groupsResp : [];
     /* B-092: hydrate the dense-layout body class from prefs. The prefs
@@ -361,11 +372,36 @@ function _onDocumentKeyDown(event) {
    ========================================================================= */
 
 function _onGridClick(event) {
+  /* B-121 R4 code-reviewer H-1: floating-row close-button intercept.
+     A click on `[data-action="close-floating"]` (the X button on a
+     synthetic row) dispatches MSG_CLOSE_TABS for the parent row's tabId
+     and stops propagation so the tab-activation path does not also fire. */
+  const closeTarget = event.target?.closest?.('[data-action="close-floating"]');
+  if (closeTarget) {
+    event.preventDefault();
+    event.stopPropagation();
+    const closeRow = closeTarget.closest('.newtab-item-row');
+    const tabIdAttr = closeRow?.dataset?.tabId;
+    const tabId = tabIdAttr ? Number(tabIdAttr) : NaN;
+    if (Number.isFinite(tabId)) _closeFloatingTab(tabId);
+    return;
+  }
+
   const row = _resolveItemRow(event.target);
   if (!row) return;
   const itemId = row.dataset.itemId;
-  if (!itemId) return;
-  _activateItem(itemId);
+  if (itemId) {
+    _activateItem(itemId);
+    return;
+  }
+  /* B-121 R4 code-reviewer H-1: synthetic floating-tab rows carry only
+     `data-tab-id` (no `data-item-id`). Activating one focuses the live
+     tab — same UX as clicking an Open-Tabs row in the sidepanel. */
+  const tabIdAttr = row.dataset.tabId;
+  if (tabIdAttr) {
+    const tabId = Number(tabIdAttr);
+    if (Number.isFinite(tabId)) _activateFloatingTab(tabId);
+  }
 }
 
 function _onGridKeyDown(event) {
@@ -373,9 +409,21 @@ function _onGridKeyDown(event) {
   const row = _resolveItemRow(event.target);
   if (!row) return;
   const itemId = row.dataset.itemId;
-  if (!itemId) return;
-  event.preventDefault();
-  _activateItem(itemId);
+  if (itemId) {
+    event.preventDefault();
+    _activateItem(itemId);
+    return;
+  }
+  /* B-121 R4 code-reviewer H-1: ENTER/SPACE on a floating row activates
+     the live tab. Matches Open-Tabs row behavior for parity. */
+  const tabIdAttr = row.dataset.tabId;
+  if (tabIdAttr) {
+    const tabId = Number(tabIdAttr);
+    if (Number.isFinite(tabId)) {
+      event.preventDefault();
+      _activateFloatingTab(tabId);
+    }
+  }
 }
 
 function _resolveItemRow(target) {
@@ -404,6 +452,70 @@ function _activateItem(itemId) {
   } catch {
     /* chrome.runtime.sendMessage synchronous throw — SW uninstalled mid-session,
        extension context invalidated. Silent degrade; user retries. */
+  }
+}
+
+/**
+ * B-121 R4 code-reviewer H-1: activate a floating tab from the newtab grid.
+ *
+ * The synthetic row carries only `data-tab-id` (no `data-item-id`), so we
+ * use the tabId-only variant of MSG_NAVIGATE_TO_ITEM which performs a pure
+ * tab focus (chrome.tabs.update + chrome.windows.update) without a storage
+ * mutation. The SW handler also enriches the row with `windowId` because
+ * the variant requires both. Fire-and-forget per the C-11 critical-path
+ * pattern documented at the top of this file.
+ */
+function _activateFloatingTab(tabId) {
+  /* Resolve windowId from the cached floating-member entry in _floatingMembers
+     so we can pass the tabId-only navigate variant to the SW. The SW handler
+     requires windowId alongside tabId — without it, the dispatch fails with
+     ERR_VALIDATION (storage-handlers.js MSG_NAVIGATE_TO_ITEM). */
+  let windowId = null;
+  for (const arr of Object.values(_floatingMembers || {})) {
+    if (!Array.isArray(arr)) continue;
+    for (const m of arr) {
+      if (m && m.tabId === tabId) {
+        windowId = typeof m.windowId === 'number' ? m.windowId : null;
+        break;
+      }
+    }
+    if (windowId !== null) break;
+  }
+  if (windowId === null) return;
+  try {
+    const p = chrome.runtime.sendMessage({
+      type: MSG_NAVIGATE_TO_ITEM,
+      payload: { tabId, windowId },
+    });
+    if (p && typeof p.catch === 'function') {
+      p.catch(() => { /* silent degrade. */ });
+    }
+  } catch {
+    /* SW uninstalled mid-session; silent degrade. */
+  }
+}
+
+/**
+ * B-121 R4 code-reviewer H-1: close a floating tab from the newtab grid.
+ *
+ * Closing a single tab is reversible (Ctrl+Shift+T reopens), so it does
+ * NOT need the destructive-action confirmation modal that bookmark
+ * deletion requires. This matches the sidepanel X-button-on-live-row
+ * affordance (B-100) which closes without confirmation. Fire-and-forget
+ * per the C-11 critical-path pattern; the broadcast-driven re-render
+ * picks up the row removal from the SW's tabs.onRemoved handler.
+ */
+function _closeFloatingTab(tabId) {
+  try {
+    const p = chrome.runtime.sendMessage({
+      type: MSG_CLOSE_TABS,
+      payload: { tabIds: [tabId] },
+    });
+    if (p && typeof p.catch === 'function') {
+      p.catch(() => { /* silent degrade. */ });
+    }
+  } catch {
+    /* SW uninstalled mid-session; silent degrade. */
   }
 }
 
@@ -495,6 +607,10 @@ async function _refetchAndRender() {
     _driftRecords = itemsResp && typeof itemsResp.driftRecords === 'object' && itemsResp.driftRecords
       ? itemsResp.driftRecords
       : {};
+    _floatingMembers = itemsResp && typeof itemsResp.floatingMembers === 'object'
+        && !Array.isArray(itemsResp.floatingMembers) && itemsResp.floatingMembers
+      ? itemsResp.floatingMembers
+      : {};
     _groups = Array.isArray(groupsResp) ? groupsResp : [];
 
     /* §34.7: diffAndPatch keeps the index in lockstep without a rebuild when
@@ -528,8 +644,26 @@ async function _refetchAndPatchLiveState() {
   const nextDrift = itemsResp && typeof itemsResp.driftRecords === 'object' && itemsResp.driftRecords
     ? itemsResp.driftRecords
     : {};
+  const nextFloating = itemsResp && typeof itemsResp.floatingMembers === 'object'
+      && !Array.isArray(itemsResp.floatingMembers) && itemsResp.floatingMembers
+    ? itemsResp.floatingMembers
+    : {};
   _liveStates = nextLive;
   _driftRecords = nextDrift;
+
+  /* B-121 §60.6.2(e): if the floating-member set changed (parent gained or
+     lost a synthetic-row child, or a member's URL/title changed), fall back
+     to a full grid rebuild — the newtab DOM is small enough that this is
+     cheaper than per-row diffing inside group sections. JSON.stringify on
+     a typically-empty map is sub-millisecond. */
+  const floatingChanged = JSON.stringify(_floatingMembers) !== JSON.stringify(nextFloating);
+  _floatingMembers = nextFloating;
+  if (floatingChanged) {
+    _renderGrid();
+    _applyFilter();
+    return;
+  }
+
   /* Patch per-row indicator classes without rebuilding the grid. */
   for (const [id, row] of _rowByItemId) {
     _applyRowLiveState(row, id);
@@ -572,7 +706,15 @@ function _renderGrid() {
   _groupSectionByGroupId = new Map();
   _rowsByGroupId = new Map();
 
-  if (_items.length === 0) {
+  /* B-121 §60.6.2: count of synthetic floating-tab rows across all groups.
+     A page with zero saved items but ≥1 floating member should NOT show the
+     zero-state — render the group(s) with their synthetic rows instead. */
+  let floatingTotal = 0;
+  for (const arr of Object.values(_floatingMembers || {})) {
+    if (Array.isArray(arr)) floatingTotal += arr.length;
+  }
+
+  if (_items.length === 0 && floatingTotal === 0) {
     _renderZeroItemsEmptyState();
     return;
   }
@@ -591,7 +733,11 @@ function _renderGrid() {
   for (const entry of orderedGroupIds) {
     const groupId = entry.id;
     const groupItems = groupedItems.get(groupId) || [];
-    if (groupItems.length === 0) continue;
+    /* B-121: render the section if it has saved items OR floating members. */
+    const floatingForGroup = (_floatingMembers && Array.isArray(_floatingMembers[groupId]))
+      ? _floatingMembers[groupId]
+      : [];
+    if (groupItems.length === 0 && floatingForGroup.length === 0) continue;
     const group = groupId === UNGROUPED_KEY ? null : _groupById(groupId);
     const section = _buildGroupSection(group, groupId, groupItems, entry.isChild);
     frag.appendChild(section);
@@ -666,16 +812,26 @@ function _orderedGroupIds(groups, groupedItems) {
     }
   }
 
+  /* B-121 §60.6.2: a group qualifies for render iff it has saved items OR
+     floating-tab synthetic-row members. */
+  const hasContent = (gid) => {
+    if (groupedItems.has(gid)) return true;
+    if (_floatingMembers && Array.isArray(_floatingMembers[gid]) && _floatingMembers[gid].length > 0) {
+      return true;
+    }
+    return false;
+  };
+
   const out = [];
   for (const root of roots) {
     const rootId = String(root.id);
-    if (groupedItems.has(rootId)) {
+    if (hasContent(rootId)) {
       out.push({ id: rootId, isChild: false });
     }
     const kids = childrenByParent.get(rootId) || [];
     for (const child of kids) {
       const cid = String(child.id);
-      if (groupedItems.has(cid)) {
+      if (hasContent(cid)) {
         out.push({ id: cid, isChild: true });
       }
     }
@@ -698,6 +854,9 @@ function _buildGroupSection(group, groupKey, items, isChild = false) {
   section.className = isChild ? 'newtab-group newtab-group--child' : 'newtab-group';
   const headerId = `newtab-group-header-${_escapeForId(groupKey)}`;
   section.setAttribute('aria-labelledby', headerId);
+  /* B-121 §60.5.4 parity: surface the groupId so the runtime patch path
+     can target this section by selector. */
+  section.dataset.groupId = String(groupKey);
 
   const header = document.createElement('h2');
   header.className = 'newtab-group-header';
@@ -710,6 +869,14 @@ function _buildGroupSection(group, groupKey, items, isChild = false) {
     header.style.setProperty('--group-header-color', `var(--gc-${group.color})`);
   }
 
+  /* B-121: surface synthetic rows below the saved-item rows. Pulled from
+     the module-level cache for the current groupId; empty for the
+     Ungrouped section since opener-chain inheritance always resolves to a
+     parent with a non-null groupId. */
+  const floatingForGroup = (groupKey && _floatingMembers && Array.isArray(_floatingMembers[groupKey]))
+    ? _floatingMembers[groupKey]
+    : [];
+
   const nameSpan = document.createElement('span');
   nameSpan.className = 'newtab-group-name';
   nameSpan.textContent = group ? (group.name || 'Untitled group') : 'Ungrouped';
@@ -717,10 +884,11 @@ function _buildGroupSection(group, groupKey, items, isChild = false) {
 
   const countSpan = document.createElement('span');
   countSpan.className = 'newtab-group-count';
-  countSpan.textContent = String(items.length);
+  const totalCount = items.length + floatingForGroup.length;
+  countSpan.textContent = String(totalCount);
   /* MEDIUM QA-3 R4 fix: screen readers announce "Work, 5 items" instead of
      "Work, 5" — the visible badge stays compact while SR users get the unit. */
-  countSpan.setAttribute('aria-label', `${items.length} items`);
+  countSpan.setAttribute('aria-label', `${totalCount} items`);
   header.appendChild(countSpan);
 
   section.appendChild(header);
@@ -740,10 +908,125 @@ function _buildGroupSection(group, groupKey, items, isChild = false) {
     groupRows.push(row);
   }
 
+  /* B-121 §60.6.2(c): synthetic floating-tab rows render after the saved
+     items so the visual order is (saved → floating). The X-button +
+     MSG_CLOSE_TABS wiring is delegated to `_onGridClick` (intercepts
+     `data-action="close-floating"` clicks and dispatches MSG_CLOSE_TABS).
+     ENTER/SPACE on the row activates the live tab via the tabId-only
+     MSG_NAVIGATE_TO_ITEM variant, matching the sidepanel Open-Tabs row
+     keyboard affordance. */
+  for (const member of floatingForGroup) {
+    const row = _buildFloatingTabRow(member);
+    list.appendChild(row);
+    groupRows.push(row);
+  }
+
   section.appendChild(list);
   _groupSectionByGroupId.set(groupKey, section);
   _rowsByGroupId.set(groupKey, groupRows);
   return section;
+}
+
+/**
+ * B-121 §60.6.2(c): build a synthetic floating-tab row for the newtab grid.
+ *
+ * Mirrors `_buildItemRow` for visual parity (favicon, text block, indicator
+ * dots) but identifies the row via `data-tab-id` + `data-floating="true"`
+ * instead of `data-item-id`. Tab title and URL are untrusted —
+ * `buildHighlightedText` performs textContent-only insertion at the
+ * fragment level, preserving the existing XSS posture of the newtab page.
+ */
+function _buildFloatingTabRow(member) {
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'newtab-item-row';
+  row.dataset.tabId = String(member.tabId);
+  row.dataset.floating = 'true';
+  if (typeof member.parentItemId === 'string' && member.parentItemId.length > 0) {
+    row.dataset.parentItemId = member.parentItemId;
+  }
+  row.dataset.live = 'true';
+  if (member.active) row.dataset.active = 'true';
+  if (member.audible) row.dataset.audible = 'true';
+
+  /* Favicon (or letter-avatar fallback). */
+  const favIconUrl = isSafeFaviconUrl(member.favIconUrl) ? member.favIconUrl : null;
+  if (favIconUrl) {
+    const img = document.createElement('img');
+    img.className = 'newtab-item-favicon';
+    img.alt = '';
+    img.src = favIconUrl;
+    img.addEventListener('error', () => {
+      const avatar = _buildAvatar({ title: member.title || member.url || '?' });
+      img.replaceWith(avatar);
+    });
+    row.appendChild(img);
+  } else {
+    row.appendChild(_buildAvatar({ title: member.title || member.url || '?' }));
+  }
+
+  const textBlock = document.createElement('span');
+  textBlock.className = 'newtab-item-text';
+  const titleEl = document.createElement('span');
+  titleEl.className = 'newtab-item-title';
+  /* No filter highlighting on synthetic rows (the filter index covers
+     saved items only — B-121 keeps that invariant). textContent-only. */
+  titleEl.textContent = member.title || member.url || 'Untitled tab';
+  const urlEl = document.createElement('span');
+  urlEl.className = 'newtab-item-url';
+  urlEl.textContent = member.url || '';
+  textBlock.appendChild(titleEl);
+  textBlock.appendChild(urlEl);
+  row.appendChild(textBlock);
+
+  /* Indicator dots: live (always) + active + audible. */
+  const wrap = document.createElement('span');
+  wrap.className = 'newtab-item-indicators';
+  if (member.active) {
+    const dot = document.createElement('span');
+    dot.className = 'newtab-indicator-dot newtab-indicator-active';
+    dot.setAttribute('aria-hidden', 'true');
+    wrap.appendChild(dot);
+  } else {
+    const dot = document.createElement('span');
+    dot.className = 'newtab-indicator-dot newtab-indicator-live';
+    dot.setAttribute('aria-hidden', 'true');
+    wrap.appendChild(dot);
+  }
+  if (member.audible) {
+    const audible = document.createElement('span');
+    audible.className = 'newtab-indicator-audible';
+    audible.setAttribute('aria-label', 'Playing audio');
+    audible.textContent = '♪';
+    wrap.appendChild(audible);
+  }
+  row.appendChild(wrap);
+
+  /* B-121 R4 code-reviewer H-1: explicit close affordance on every
+     floating row, matching AC6 (parity with sidepanel X-button on
+     live rows). The button is a real <button> nested inside the row
+     <button> — modern browsers permit this for keyboard-reachable
+     interactive descendants; we additionally stop propagation in
+     `_onGridClick` so the parent row's activate path does not also
+     fire when the close button is clicked. */
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'newtab-floating-close';
+  closeBtn.dataset.action = 'close-floating';
+  closeBtn.setAttribute('aria-label', `Close tab: ${member.title || member.url || 'Untitled tab'}`);
+  closeBtn.textContent = '×';
+  row.appendChild(closeBtn);
+
+  /* aria-label: include "currently open" so screen readers carry the
+     live-state cue. */
+  const titleText = member.title || member.url || 'Untitled tab';
+  const states = ['currently open'];
+  if (member.active) states[0] = 'active tab';
+  if (member.audible) states.push('playing audio');
+  const base = [titleText, member.url || ''].filter((s) => s.length > 0).join(' — ');
+  row.setAttribute('aria-label', `${base} (${states.join(', ')})`);
+
+  return row;
 }
 
 function _buildItemRow(item, loweredQuery) {

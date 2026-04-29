@@ -57,10 +57,10 @@ test('AC1: walkOpenerChain returns groupId and itemId for a grouped claimed ance
   assert.equal(result.itemId, 'item-1');
 });
 
-test('AC1: appendFloatingGroup writes entry with correct groupId and itemId', async () => {
+test('AC1: appendFloatingGroup writes entry with correct groupId and parentItemId (B-121 schema v2)', async () => {
   const entry = {
     groupId: 'group-A',
-    itemId: 'item-1',
+    parentItemId: 'item-1',
     windowId: 1,
     tabIndex: 2,
     url: 'https://example.com/new',
@@ -71,9 +71,15 @@ test('AC1: appendFloatingGroup writes entry with correct groupId and itemId', as
   const records = await readPartition(PARTITION_FLOATING_GROUPS);
   assert.equal(records.length, 1);
   assert.equal(records[0].groupId, 'group-A');
-  assert.equal(records[0].itemId, 'item-1');
+  assert.equal(records[0].parentItemId, 'item-1');
   assert.equal(records[0].windowId, 1);
   assert.equal(records[0].tabIndex, 2);
+  /* B-121 §60.4: appendFloatingGroup auto-stamps a synthetic floatingTabId
+     (ulid). The storage identity is decoupled from the parent itemId so
+     the cold-start re-association path cannot overwrite the parent's
+     claim (§58.4(i) defect). */
+  assert.equal(typeof records[0].floatingTabId, 'string');
+  assert.ok(records[0].floatingTabId.length > 0);
 });
 
 // ── AC2: hop limit ────────────────────────────────────────────────────────────
@@ -222,10 +228,10 @@ test('AC8: recordOpener is a no-op when map is at MAX_OPENER_MAP_ENTRIES (512)',
 
 // ── AC9: appendFloatingGroup validation ──────────────────────────────────────
 
-test('AC9: appendFloatingGroup rejects entry missing itemId', async () => {
+test('AC9: appendFloatingGroup rejects entry missing parentItemId / itemId', async () => {
   await appendFloatingGroup({
     groupId: 'g-1',
-    // itemId intentionally omitted
+    // parentItemId intentionally omitted
     windowId: 1,
     tabIndex: 0,
     url: 'https://example.com',
@@ -233,13 +239,13 @@ test('AC9: appendFloatingGroup rejects entry missing itemId', async () => {
   });
 
   const records = await readPartition(PARTITION_FLOATING_GROUPS);
-  assert.equal(records.length, 0, 'entry without itemId should be rejected');
+  assert.equal(records.length, 0, 'entry without parentItemId/itemId should be rejected');
 });
 
-test('AC9: appendFloatingGroup rejects entry with empty itemId', async () => {
+test('AC9: appendFloatingGroup rejects entry with empty parentItemId', async () => {
   await appendFloatingGroup({
     groupId: 'g-1',
-    itemId: '',
+    parentItemId: '',
     windowId: 1,
     tabIndex: 0,
     url: 'https://example.com',
@@ -247,13 +253,13 @@ test('AC9: appendFloatingGroup rejects entry with empty itemId', async () => {
   });
 
   const records = await readPartition(PARTITION_FLOATING_GROUPS);
-  assert.equal(records.length, 0, 'entry with empty itemId should be rejected');
+  assert.equal(records.length, 0, 'entry with empty parentItemId should be rejected');
 });
 
 test('AC9: appendFloatingGroup rejects entry missing savedAt', async () => {
   await appendFloatingGroup({
     groupId: 'g-1',
-    itemId: 'item-1',
+    parentItemId: 'item-1',
     windowId: 1,
     tabIndex: 0,
     url: 'https://example.com',
@@ -267,7 +273,7 @@ test('AC9: appendFloatingGroup rejects entry missing savedAt', async () => {
 test('AC9: appendFloatingGroup rejects entry with non-finite savedAt', async () => {
   await appendFloatingGroup({
     groupId: 'g-1',
-    itemId: 'item-1',
+    parentItemId: 'item-1',
     windowId: 1,
     tabIndex: 0,
     url: 'https://example.com',
@@ -298,7 +304,7 @@ test('AC10: no floating-group written if tab is removed from LiveTabIndex before
     // Would normally call appendFloatingGroup here
     await appendFloatingGroup({
       groupId: 'group-A',
-      itemId: 'item-1',
+      parentItemId: 'item-1',
       windowId: liveEntry.windowId,
       tabIndex: liveEntry.index ?? 0,
       url: liveEntry.url,

@@ -2,9 +2,79 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
-## [Unreleased]
+## [1.32.0] — 2026-04-29
 
-*(nothing pending)*
+Sprint 38 — Bug-fix anchor sprint (4 items): 2 P0/P1 anchors (B-125 + B-121, merged R0 spike) + 2 XS internal/dev-only Fast Track items.
+
+### Fixed
+- **Tab claim ownership jump on URL navigation (B-125, P0)** — opener-chain-spawned tabs are now gated against the auto-claim branch in `reevaluateTab`. New tabs inheriting their group from a bookmarked parent no longer steal the claim of a coincidentally URL-matching saved item. Repro: opening a SharePoint bookmark and clicking an in-page link to a Workday URL no longer creates duplicate "Home - Workday" rows in the sidepanel. Closes the B-099 D-3 contract gap. Implemented as an `inheritedTabs: Set<number>` ephemeral SW-memory marker, populated after `appendFloatingGroup` resolves and pruned on `tab.onRemoved` + `windows.onRemoved` cascade. Zero schema/contract/manifest impact.
+- **Floating-tab runtime render pipeline (B-121, P1)** — opener-chain-inherited tabs now appear as live rows under their parent bookmark's group section across all three rendering surfaces (sidepanel, standalone, newtab). The tab is excluded from the Open Tabs section while the floating-group record is alive. Closes the B-013 + B-018 design gap where `tj:floatingGroups` had no runtime visibility (latent feature gap since original B-013). New `MSG_LIST_ITEMS` response field `floatingMembers: Record<groupId, Array<FloatingMember>>` (optional, additive); synthetic `[data-floating="true"]` rows render directly under each parent group section. Cascade-prune on `MSG_DELETE_ITEM` + `MSG_BULK_DELETE_ITEMS` + `MSG_DELETE_GROUP`. Newtab gains a close button + ENTER/SPACE keyboard activation. ARIA fallback for floating-row selection.
+- **Floating-group parent-itemId-reuse defect (B-121 §60.4)** — `tj:floatingGroups` records gain a synthetic `floatingTabId` (ulid) as their storage identity, decoupling them from the parent bookmark's id. Cold-start re-association no longer overwrites the parent's claim under any circumstances. The legacy field name `itemId` has been renamed to `parentItemId` for clarity; both forms are tolerated on read. Storage-schema migration is non-destructive — pre-S38 records continue to work via the read-side compatibility shim.
+
+### Internal / process
+- **Stale test docblock prose corrected (B-120, dev-only)** — `tests/b114-tint-v2.test.js` and `tests/b104-group-colors.test.js` docblock prose updated to reflect post-B-117 contrast values (the pre-B-117 "4.55:1 PASS" / "4.78:1 worst-case" claims are no longer accurate after Sprint 37's tint adjustments). Zero assertion changes; docblock prose only. Test-file maintenance — no user-visible impact.
+- **B-119 contract definition expanded for CSS-token invariants (B-126, dev-only)** — `CLAUDE.md` "Fix-scope test-assertion enumeration" subsection extended to require R2 chapters declaring contract changes to enumerate **CSS-token invariants** (regex-pin tests on `shared/themes.css`, structural assertions on `--<token>` values, count-of-N assertions on token declarations) in addition to the previously-listed DOM/ARIA/message/selector contracts. Adds Sprint 37 R3 b114 T1 escalation as the second blocking precedent. Closes Sprint 37 retro HIGH action item #1.
+
+### Architecture
+- **Schema migration `tj:floatingGroups` v1 → v2 (lazy, non-destructive)** — `KNOWN_VERSION` bumped 1 → 2 with a no-op migration step. Legacy v1 records (with `itemId` only) are read transparently via a read-side compatibility shim; new writes stamp `floatingTabId` + `parentItemId`. No data rewrite on update. Per CLAUDE.md C-1, an extension toggle OFF → ON cycle is required after this update to flush the service-worker module cache (see "Note" below).
+- **Message contract `MSG_LIST_ITEMS` extended (additive, optional field)** — response payload gains an optional `floatingMembers: Record<groupId, Array<{tabId, url, windowId, tabIndex, parentItemId, floatingTabId}>>` field. Existing consumers ignoring the field continue to function without change. Typed in `shared/messages.js`.
+- **Manifest permissions** — unchanged. **Manifest entries** — unchanged.
+
+### Note
+- **Schema bump v1 → v2 — extension toggle required.** After updating to this build, toggle the extension OFF then ON in your browser's extensions page (or fully restart the browser) to ensure the service-worker module cache is flushed. Without the toggle the new floating-tab runtime render path may not activate until the next browser restart. Pre-S38 `tj:floatingGroups` records remain readable; the new write path stamps `floatingTabId` and `parentItemId` going forward.
+
+### Quality
+- **Tests**: 1,641 → **1,663 passing** (+22 net — 5 B-125 + 13 B-121 + 1 floating-shape + 3 fix-round adds). Zero regressions.
+- **Build**: `./build.sh` clean (348 K zip, 87 files, exit 0).
+- **R4 findings**: B-125 + B-120 + B-126 PROCEED clean (0 CRITICAL / 0 HIGH). B-121: 1 CRITICAL + 4 HIGH + 3 MEDIUM all resolved in fix-and-reproceed; zero open at sprint close.
+
+## [1.31.0] — 2026-04-28
+
+Sprint 37 — Polish + process close-out (3 items): 1 M WCAG AA matrix audit + 2 XS CLAUDE.md process gates.
+
+### Improved
+- **Group-header color contrast on Atom One Dark, One Dark, and Dracula (B-117)** — group-header tint adjusted from 20% to 7% on Atom One Dark and One Dark (both share a palette where the canonical colors could not reach 4.5:1 at 20%), and from 20% to 17% on Dracula (yellow slot was 4.119:1 at 20%; 17% clears all 9 slots). All other themes are unchanged. Visual palette identity is preserved on all three themes.
+
+### Documented
+- **Solarized Dark theme accessibility limitations (B-117)** — group-header colors in Solarized Dark fall below WCAG AA on all 9 group-color slots. This is an inherent property of the canonical Solarized Dark base text/background pair (4.111:1 at the source — below AA before any tinting), so no tint or slot adjustment can reach 4.5:1 without breaking the canonical theme identity. All 9 slots with their measured contrast ratios are now listed in `docs/user-manual/themes.md` under "Theme accessibility limitations". Users who require WCAG AA contrast on group headers should use Solarized Light, GitHub Dark, Tomorrow Night, Nord, Monokai, or Tokyo Night.
+
+### Internal
+- **126-cell WCAG AA contrast matrix test (B-117)** — new `tests/b117-gc-matrix-audit.test.js` enforces the full 14-theme × 9-slot contrast matrix at build time (137 tests, 136 ms). Failing cells that use accepted-limitation pathway are tracked in an explicit `ACCEPTED_LIMITATIONS` allow-list with monotonic-decrease floor guards; if a future change accidentally darkens an accepted slot further, the test catches it. Zero regressions against the 1,504-test baseline.
+- **R1 source-citation gate (B-118)** — CLAUDE.md now requires every R1 source-code structural claim to cite a `file:line` reference or be marked `R2-VERIFY`. Prevents factual errors in ACs from propagating to R3 build scope (three R1 binding-correction precedents surfaced in Sprint 36 retro).
+- **R2 fix-scope test-assertion enumeration (B-119)** — CLAUDE.md R2 chapters that declare a CSS-token or contract change must now enumerate pre-existing test-file assertions against the old value (not just stale prose strings). Closes the §57.9 enumeration miss that caused `tests/b114-tint-v2.test.js` T1 to fail mid-B-117 R3.
+
+### Note
+- **No reload required.** All Sprint 37 changes are CSS-token adjustments and process documentation — zero new pref keys, zero new manifest entries, zero storage schema changes. Update and use the new behavior immediately.
+
+## [1.30.0] — 2026-04-28
+
+Sprint 36 — UI/UX polish bundle (9 items): 1 P2/M drift bug + 1 S WCAG fix + 1 S delete-icon swap + 1 S drag-handle/multi-select + 1 XS WCAG-aware group-name tint + 4 XS polish.
+
+### Added
+- **Dynamic delete-icon swap (B-111)** — the X-button on a saved-bookmark row now reflects the action it will perform: simple X icon on a live row (click closes the tab per v1.29.0 B-100); trash icon on a non-live row (click opens the existing modal-confirm before deleting). Pure CSS swap via the existing `data-live` attribute; both icons ship in the DOM at first paint and the cascade toggles visibility per row state. The B-100 click-handler contract is preserved verbatim — no new modal on the live path; existing modal on the non-live path.
+- **Item-row drag-handle on hover (B-113)** — saved-bookmark rows now show a small 6-dot drag handle (matching the group-header drag-handle pattern) on hover when not in multi-select mode. The handle is decorative — `pointer-events: none` ensures clicks pass through to the underlying row, so B-030 v2 drag-reorder still works from anywhere. In multi-select mode, the existing `.item-select` checkbox replaces the handle (Gmail pattern: once one row is selected, all rows show their checkboxes persistently). Open Tabs section unchanged — open-tab rows are not draggable, so the handle is omitted there for honest UX. New `prefers-reduced-motion` gate on the opacity transition.
+- **Group-header text tinted toward group color (B-109)** — on themes where WCAG AA holds (`github-light`, `github-dark`, `monokai`, `tokyo-night`, and `system` on dark OS), the group-header text adopts a 50% color-mix of the group's slot color toward `--text-primary`. On the 10 themes where 50% breaches AA (worst: `solarized-dark + red` at 2.534:1), the text falls back to `--text-primary` via a per-theme `--group-header-name-color` override. Ungrouped sections inherit the same fallback automatically.
+
+### Changed
+- **Brighter dark-theme group-header tints (B-114)** — dark themes (11 themes) now use `--group-header-tint-amount: 20%` (up from 18%) for stronger group identity. Light themes stay at 18%; solarized-light stays at the B-105 3% override.
+- **Group-header chevron uses themed group color (B-115)** — the expand/collapse chevron now consumes `var(--group-header-color, var(--text-primary))`, matching the group-header tint cohesion. Ungrouped fallback to `--text-primary` preserved. The legacy `--collapse-icon` token was removed file-wide as part of this change.
+- **Sidepanel header label removed (B-112)** — the `Tab Junkie` text inside the side panel header was removed (the browser already shows the extension name in its own chrome). Header height/affordance positions unchanged.
+- **Solarized-light secondary text accessibility fix (B-108)** — `--text-secondary` and `--group-count-text` darkened from canonical `#657b83` (3.636:1 vs `--bg-secondary`, FAIL) to `#546a72` (4.655:1, PASS). Tracked from S35 B-105 deferral.
+
+### Fixed
+- **Drift indicator no longer surfaces on non-live bookmark rows (B-110)** — fixed the §10.7 invariant violation where stale drift records persisted after claim release, causing the dotted drift bar to appear on rows whose tab had been closed. Two leak paths patched: `reconcileClaims` cold-start eviction (PRIMARY — claim discarded but `clearDrift` was never called for the evicted itemId) and `MSG_NAVIGATE_TO_ITEM` AC3 stale-claim repair (SECONDARY — `releaseClaimByTab` did not pair with `clearDrift`). Both fixes ship alongside a defense-in-depth conjunctive render gate (`isDrifted && live?.live`) at both `_ensureIndicators` and the `buildItemRow` first-paint path — even if a stale record reaches the UI, the row refuses to surface it.
+- **Live X-button aria-label now flips reactively (B-107)** — the X button's `aria-label` now correctly announces "Close tab" on a live row and "Delete bookmark" on a non-live row, matching the action that fires (WCAG 2.1 SC 4.1.2 name-role-value). Previously the static initial label was always "Delete bookmark." Tracked from S35 B-100 R4 follow-up.
+
+### Architecture
+- **Three R2 binding-correction precedents established this sprint** — three R1 LOCKED claims about source code structure were factually wrong (B-108 D-2 token aliasing, B-111 D-4 open-tab delete buttons, B-113 D-5 open-tab draggability). Each was caught at R2 against the actual source. Gate 7 retrospective elevates this to a recurring R2 quality-gate pattern; future R1 tightens the discipline so source-shape claims are verified at lock time.
+- **Flex-overlap pattern for sibling-affordance overlay (B-113)** — when two affordances share the same visual slot but only one renders at a time, use `flex: 0 0 <slot-width>; margin-left: -<slot-width>;` so the second affordance overlays the first via flex flow. This is invariant to border-edge changes (which `position: absolute` is not). Avoids per-row-state empirical tuning of `left:` values.
+
+### Known limitations
+- **§47.7 group-color matrix has inaccurate "PASS" verdicts** — B-109 R3 discovered atom-one-dark+yellow has been below 4.5:1 since B-104 shipped at 12% tint (current measurement at 20%: ~2.81:1). The §47.7 footnote claims 4.78:1 / 4.55:1; both incorrect. Tracked as **B-117** for a future sprint with R0 spike scope (re-verify all 126 cells; remediate any sub-AA via `--gc-<slot>` token adjustment, per-theme `--group-header-tint-amount` override, or accepted-limitation documentation).
+- **Solarized-light visual hierarchy collapse** — post-B-108, `--text-primary` `#546a71` and `--text-secondary` `#546a72` differ by ~0.17% luminance (only the slight bluish bias distinguishes them). Documented in §54.9 Q1 as accepted tradeoff for AA compliance; future B-XXX may revisit with OKLCH-based hue-only blending.
+
+### Note
+- **No reload required.** All 9 S36 items are pure UI/UX changes — zero new pref keys, zero new manifest entries, zero storage schema changes. Update and use the new behavior immediately.
 
 ## [1.29.0] — 2026-04-26
 

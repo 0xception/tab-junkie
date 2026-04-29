@@ -55,7 +55,7 @@ async function demoteItem(itemId) {
     if (tabEntry) {
       await saveFloatingGroups([{
         groupId: item.groupId,
-        itemId,
+        parentItemId: itemId,
         windowId: tabEntry.windowId,
         tabIndex: tabEntry.index,
         url: tabEntry.url,

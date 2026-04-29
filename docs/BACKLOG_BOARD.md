@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-26 · **Version:** 2.31 · **Total Items:** 108 · **Sprint 35 closed — v1.29.0 shipped to release/v2. Awaiting product-owner direction.**
+**Updated:** 2026-04-29 · **Version:** 2.38 · **Total Items:** 125 · **Sprint 38 closed 2026-04-29 — 4 items shipped: B-125 (P0/M) claim-jump fix + B-121 (P1/M) floating-tab render + B-120 + B-126 (XS Fast Track). v1.32.0 release pending. PR #41 (v1.31.0) still open against release/v2.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  93% (100/108)  [0 in progress · S35 closed]
+Overall Progress    ██████████████████░░  93% (116/125)  [S38 closed 2026-04-29 · v1.32.0 release pending · 0 in-progress]
 ```
 
 ### Legend
@@ -122,6 +122,43 @@ Overall Progress    ██████████████████░░
 
 ---
 
+## Sprint 38 — Bug-fix anchor sprint (closed)
+
+> 4/4 done · 0 in progress · Sprint 38 closed 2026-04-29 (v1.32.0 release pending; UAT for B-125 + B-121 deferred to product owner; carried-forward UAT from S36+S37 still open)
+
+✅ B-125 — Tab claim ownership jump on URL navigation (anchor #1) · 🔴 · M [S38 — Spike-First · `inheritedTabs` Set + reevaluateTab gate · 5 new tests]
+✅ B-121 — Floating tab opener-chain inheritance regression (anchor #2) · 🟠 · M [S38 — Spike-First · `floatingMembers` on `MSG_LIST_ITEMS` · schema v1→v2 lazy-migration · 13 new tests · 1 CRIT + 4 HIGH fix-and-reproceed clean]
+✅ B-120 — Stale-test-docblock prose corrections · ⚪ · XS [S38 — Fast Track · b114 + b104 docblocks corrected to post-B-117 values]
+✅ B-126 — Expand B-119 contract for CSS-token invariants (CLAUDE.md edit) · 🟡 · XS [S38 — Fast Track · S37 retro HIGH action #1 closed]
+
+---
+
+## Sprint 37 — Polish + process close-out (closed)
+
+> 3/3 done · 0 in progress · Sprint 37 closed 2026-04-28 (v1.31.0 release pending; UAT for B-117 carried forward; +1 B-120 follow-up filed mid-sprint)
+
+✅ B-117 — §47.7 group-color WCAG AA matrix re-verification (anchor) · ⚪ · M [S37 — Full · §57 closed; UAT pending; +137 net tests; B-120 follow-up filed]
+✅ B-118 — R1 source-citation gate (CLAUDE.md edit) · ⚪ · XS [S37 — Fast Track · CLAUDE.md:347-357]
+✅ B-119 — R2 fix-scope test-assertion subsection (CLAUDE.md edit) · ⚪ · XS [S37 — Fast Track · CLAUDE.md:378-386]
+
+---
+
+## Sprint 36 — UI/UX polish bundle (planned)
+
+> 9/9 done · 0 in progress · Sprint 36 closed 2026-04-28 (all UAT pending; v1.30.0 released)
+
+✅ B-110 — Drifted-on-non-live BUG fix (§10.7 invariant violation) · 🟡 · M [S36 Wave 0 — §53 closed; UAT pending]
+✅ B-107 — Live-X aria-label reactive flip (WCAG 2.1 SC 4.1.2) · ⚪ · XS [S36 Wave 0 — Fast Track]
+✅ B-108 — Solarized-light secondary text AA fix · ⚪ · S [S36 Wave 0 — §54 closed; UAT pending]
+✅ B-112 — Remove "Tab Junkie" label from sidepanel header · ⚪ · XS [S36 Wave 0 — Fast Track]
+✅ B-114 — Group header tint v2 (brighter on dark themes) · ⚪ · XS [S36 Wave 0 — Fast Track]
+✅ B-115 — Group-header chevron brightening (group-tinted) · ⚪ · XS [S36 Wave 0 — Fast Track]
+✅ B-109 — Group header text colored to match group color · ⚪ · XS [S36 Wave 1 — light themes only via per-theme override; UAT pending]
+✅ B-111 — Dynamic delete icon (X for live, trashcan for non-live) · ⚪ · S [S36 Wave 1 — §55 closed; UAT pending]
+✅ B-113 — Item-row drag handle on hover + checkbox in multi-select · ⚪ · S [S36 Wave 1 — §56 closed; UAT pending]
+
+---
+
 ## Sprint 35 — Bug-fix queue + tint-brightness polish
 
 > 5/5 done · v1.29.0 shipped to release/v2 only (no main merge)
@@ -151,12 +188,9 @@ Overall Progress    ██████████████████░░
 
 ---
 
-## Pending Triage (filed during S35, awaiting placement)
+## Pending Triage
 
-> 2 items · both P3 · candidates for S36 or later
-
-⬜ B-107 — Live-X aria-label reactive flip (WCAG 2.1 SC 4.1.2 compliance) · ⚪ · XS [filed S35 B-100 R4 qa-reviewer M-4]
-⬜ B-108 — Solarized-light `--text-secondary` WCAG AA fix (group counts 3.636:1 sub-AA) · ⚪ · S [filed S35 B-105 R4 qa-reviewer M-1]
+> 0 items · all queued items absorbed into S36.
 
 ---
 
@@ -221,18 +255,22 @@ Overall Progress    ██████████████████░░
 
 | Priority | Count | % |
 |----------|-------|---|
-| 🔴 P0 Critical | 14 | 15% |
-| 🟠 P1 High | 34 | 37% |
-| 🟡 P2 Medium | 20 | 22% |
-| ⚪ P3 Nice-to-have | 8 | 8% |
+| 🔴 P0 Critical | 15 | 12% |
+| 🟠 P1 High | 35 | 28% |
+| 🟡 P2 Medium | 22 | 18% |
+| ⚪ P3 Nice-to-have | 13 | 10% |
 
 ## Status Summary
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 100 | 93% |
+| ✅ Done | 116 | 93% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 5 | 5% |
-| 🧊 Icebox | 3 | 3% |
+| ⬜ To Do | 6 | 5% |
+| 🧊 Icebox | 3 | 2% |
 
-**To Do breakdown (5 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-107 (live-X aria-label flip, P3/XS · S35 follow-up), B-108 (solarized-light secondary text AA, P3/S · S35 follow-up).
+**In Progress breakdown**: _none — Sprint 38 closed 2026-04-29._
+
+**To Do breakdown (6 items, S39+ candidates)**:
+- **🟡 P2 (3)**: B-041 (sync tab order, L · pre-S33), B-076 (MIGRATION_STEPS hook, S · pre-S33), B-122 (sub-group drag-to-root, S · S37 follow-up)
+- **⚪ P3 (3)**: B-086 (sidepanel UI/UX umbrella, M · pre-S33), B-123 (item-row alignment, XS · S37 follow-up), B-124 (floating-tab visual distinction, S · S37 follow-up · design Q&A at R1 · depends on B-121)

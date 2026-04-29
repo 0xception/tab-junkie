@@ -11,6 +11,7 @@
 
 import { getLiveTabIndex } from './live-tab-index.js';
 import { safeNormalizeForMatch } from '../../shared/url.js';
+import { clearDrift } from './drift.js';
 
 const SESSION_KEY = 'tj:tabClaims';
 
@@ -19,6 +20,43 @@ let claimsMirror = {};
 
 /** @type {boolean} H3: flips to true after reconcileClaims completes */
 let claimsReady = false;
+
+/** @type {Set<number>} B-125 (§59.3): opener-chain-inherited tabs that must NOT
+ *  auto-claim a URL-matching saved bookmark. Populated by markInherited (called
+ *  from tab-events.js after appendFloatingGroup resolves successfully). Pruned
+ *  by pruneInherited (called from tab-events.js onRemoved). Ephemeral —
+ *  empty on SW cold start; cold-start re-association via tj:floatingGroups is
+ *  the recovery path. */
+const inheritedTabs = new Set();
+
+/**
+ * B-125: mark a tab as opener-chain-inherited so reevaluateTab will skip
+ * the auto-claim branch for it. Called from tab-events.js after
+ * appendFloatingGroup resolves.
+ * @param {number} tabId
+ */
+export function markInherited(tabId) {
+  inheritedTabs.add(tabId);
+}
+
+/**
+ * B-125: query whether a tab has been marked as opener-chain-inherited.
+ * O(1) Set lookup. Used inside reevaluateTab.
+ * @param {number} tabId
+ * @returns {boolean}
+ */
+export function isInherited(tabId) {
+  return inheritedTabs.has(tabId);
+}
+
+/**
+ * B-125: drop the inheritance marker for a tab. Called from tab-events.js
+ * on chrome.tabs.onRemoved (and inside the windows.onRemoved per-tab loop).
+ * @param {number} tabId
+ */
+export function pruneInherited(tabId) {
+  inheritedTabs.delete(tabId);
+}
 
 /**
  * Returns whether claims have been reconciled at least once.
@@ -43,6 +81,10 @@ export function getClaimsMirror() {
 export function __resetTabClaims() {
   claimsMirror = {};
   claimsReady = false;
+  // B-125 (§59.2.4): clear the inheritance marker set so test-reset symmetry
+  // matches claimsMirror. Every existing test that calls __resetTabClaims
+  // automatically picks this up — no per-test-file change required.
+  inheritedTabs.clear();
 }
 
 /**
@@ -85,6 +127,12 @@ export async function reconcileClaims(items) {
   const index = getLiveTabIndex();
   const reconciled = {};
   const claimedTabIds = new Set();
+  /* B-110 §53 (S36): track every claim that does NOT survive Phase 1
+     validation. After writeClaims succeeds, clearDrift runs for each so
+     orphan drift records cannot persist past a cold-start reconcile —
+     enforces the §10.7 invariant (drift records only exist for claimed
+     items). */
+  const evictedItemIds = [];
 
   // Phase 1: validate existing claims
   for (const [itemId, tabId] of Object.entries(storedClaims)) {
@@ -93,6 +141,8 @@ export async function reconcileClaims(items) {
     if (tabEntry && item && safeNormalizeForMatch(tabEntry.url) === safeNormalizeForMatch(item.url)) {
       reconciled[itemId] = tabId;
       claimedTabIds.add(tabId);
+    } else {
+      evictedItemIds.push(itemId);
     }
   }
 
@@ -130,6 +180,15 @@ export async function reconcileClaims(items) {
   claimsMirror = reconciled;
   await writeClaims();
   claimsReady = true;
+
+  /* B-110 §53 (S36): clear drift records paired with evicted claims.
+     `clearDrift` is a no-op when no record exists (drift.js:90-94 short-
+     circuits when itemId is absent). Best-effort: any individual failure
+     does not block reconcile completion; the next cold-start cycle will
+     retry. Run after writeClaims so claimsMirror is consistent first. */
+  if (evictedItemIds.length > 0) {
+    await Promise.allSettled(evictedItemIds.map((itemId) => clearDrift(itemId)));
+  }
 }
 
 /**
@@ -184,6 +243,13 @@ export async function reevaluateTab(tabId, newUrl, items) {
     // user explicitly demotes the original or closes the tab.
     const alreadyClaimed = Object.values(claimsMirror).includes(tabId);
     if (!alreadyClaimed) {
+      // B-125 (§59.3): an opener-chain-inherited tab must NOT auto-claim a
+      // URL-matching saved bookmark — the inheritance marker says the tab is
+      // already "spoken for" by the parent group. Gate sits inside the
+      // !alreadyClaimed branch so the existing short-circuit is unaffected.
+      if (inheritedTabs.has(tabId)) {
+        return;
+      }
       // Find unclaimed items matching this URL, sorted by sortOrder
       const candidates = items
         .filter((it) => safeNormalizeForMatch(it.url) === normalizedNew && !(it.id in claimsMirror))

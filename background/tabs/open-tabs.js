@@ -16,21 +16,22 @@ import { getClaimsMirror, isClaimsReady } from './tab-claims.js';
 /**
  * Build the `openTabs` array for the enriched MSG_LIST_ITEMS response.
  *
- * Exclusion predicate (AC1): a live tab `t` qualifies iff
- *   (a) t.tabId ∈ liveTabIndex                        — trivially true by iteration source
- *   (b) t.tabId ∉ Object.values(claimsMirror)         — not claimed by any saved item
- * Floating-group resolution (c in AC1) is already reflected in `claimsMirror`
- * because `reassociateFloatingGroups` → `claimTabForItem` writes the tabId
- * into the mirror BEFORE `pruneResolvedFloatingGroups` removes the record.
+ * Exclusion predicate (B-121 §60.7): a live tab `t` qualifies iff
+ *   (a) t.tabId ∈ liveTabIndex                       — trivially true by iteration source
+ *   (b) t.tabId ∉ Object.values(claimsMirror)        — not claimed by any saved item
+ *   (c) t.tabId ∉ floatingTabIds                     — not a runtime floating-group member
  *
  * Cold-start safety (C-3): if claims have not been reconciled yet, return
  * `[]` rather than leak every saved bookmark's live tab into the section.
  *
  * Sort (AC9): (windowId asc, tabIndex asc) — stable, deterministic.
  *
+ * @param {Set<number>} [floatingTabIds] tabIds resolved as floating-group
+ *   members by buildFloatingMembers. Default-empty preserves the legacy
+ *   no-arg signature for tests / callers that do not need the exclusion.
  * @returns {import('../../shared/messages.js').OpenTab[]}
  */
-export function buildOpenTabs() {
+export function buildOpenTabs(floatingTabIds = new Set()) {
   if (!isClaimsReady()) return [];
 
   const index = getLiveTabIndex();
@@ -39,6 +40,7 @@ export function buildOpenTabs() {
   const tabs = [];
   for (const [tabId, entry] of index) {
     if (claimedTabIds.has(tabId)) continue;
+    if (floatingTabIds.has(tabId)) continue;
     tabs.push({
       tabId,
       windowId: entry.windowId,
