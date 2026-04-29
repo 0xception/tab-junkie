@@ -51,8 +51,20 @@ const KNOWN_LEGACY_KEYS = ['junkie_bookmarks', 'junkie_groups', 'junkie_pinned_t
 /**
  * The schema version this codebase understands. Bump when adding migration
  * steps. Migration registry entries define how to get from version N to N+1.
+ *
+ * v2 (B-121 §60.4.7) — `tj:floatingGroups` records gain a synthetic
+ * `floatingTabId` (ulid) and rename the legacy `itemId` field to
+ * `parentItemId`. The on-disk migration is a no-op governance bump because
+ * the read-side is fully bidirectional: `getParentItemId()` resolves either
+ * field, the validator tolerates either shape, and `appendFloatingGroup`
+ * stamps the new shape on every fresh write. Existing legacy records remain
+ * readable indefinitely and naturally drain to v2 shape as the user opens /
+ * closes opener-chain-inherited tabs. Picking the no-op step over a forced
+ * one-shot rewrite keeps the transaction bounded to PARTITION_META (matching
+ * the F3 scaffold limitation) and avoids touching live floating-group data
+ * during the cold-start window.
  */
-export const KNOWN_VERSION = 1;
+export const KNOWN_VERSION = 2;
 
 /**
  * Ordered array of migration steps. Each step upgrades the schema from
@@ -67,7 +79,18 @@ export const KNOWN_VERSION = 1;
  */
 
 /** @type {MigrationStep[]} */
-const MIGRATION_STEPS = [];
+const MIGRATION_STEPS = [
+  /* B-121 §60.4.7 — v1 → v2 governance bump. No-op migrate: the read-side
+     compatibility shim (getParentItemId + assertShape tolerance) already
+     handles legacy `itemId` records, so we advance the schemaVersion stamp
+     without touching `tj:floatingGroups` data. New writes stamp the v2 shape
+     via appendFloatingGroup. */
+  {
+    fromVersion: 1,
+    toVersion: 2,
+    migrate: (snapshot) => snapshot,
+  },
+];
 
 /* B-022 §39.3 D-3 — `tj:recency` partition, introduced in Sprint 26.
  * No MigrationStep is required because the partition is additive:

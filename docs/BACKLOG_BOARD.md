@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-28 · **Version:** 2.35 · **Total Items:** 119 · **Sprint 37 closed — 3/3 items shipped (v1.31.0 prepared on `release/v2`; release-manager + tag pending; UAT for B-117 carried forward). +1 B-120 follow-up filed.**
+**Updated:** 2026-04-29 · **Version:** 2.38 · **Total Items:** 125 · **Sprint 38 closed 2026-04-29 — 4 items shipped: B-125 (P0/M) claim-jump fix + B-121 (P1/M) floating-tab render + B-120 + B-126 (XS Fast Track). v1.32.0 release pending. PR #41 (v1.31.0) still open against release/v2.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  94% (112/119)  [S37 closed · v1.31.0 prepared on release/v2 · B-117 + B-118 + B-119 done · +1 B-120 follow-up filed]
+Overall Progress    ██████████████████░░  93% (116/125)  [S38 closed 2026-04-29 · v1.32.0 release pending · 0 in-progress]
 ```
 
 ### Legend
@@ -119,6 +119,17 @@ Overall Progress    ██████████████████░░
 ✅ B-085 — Add C-10 "Off-screen rect feasibility" to R2 Correctness Checklist · 🟠 · XS [S25 — v1.19.0]
 ⬜ B-086 — Sidepanel UI/UX design pass (post-feature-freeze polish) · ⚪ · M [filed S25 post-UAT; scheduled post-feature-parity]
 ✅ B-087 — Add C-11 "Popup-lifecycle message ordering" to R2 Correctness Checklist · 🟠 · XS [S27 Wave 1 — S26 retro HIGH action closed]
+
+---
+
+## Sprint 38 — Bug-fix anchor sprint (closed)
+
+> 4/4 done · 0 in progress · Sprint 38 closed 2026-04-29 (v1.32.0 release pending; UAT for B-125 + B-121 deferred to product owner; carried-forward UAT from S36+S37 still open)
+
+✅ B-125 — Tab claim ownership jump on URL navigation (anchor #1) · 🔴 · M [S38 — Spike-First · `inheritedTabs` Set + reevaluateTab gate · 5 new tests]
+✅ B-121 — Floating tab opener-chain inheritance regression (anchor #2) · 🟠 · M [S38 — Spike-First · `floatingMembers` on `MSG_LIST_ITEMS` · schema v1→v2 lazy-migration · 13 new tests · 1 CRIT + 4 HIGH fix-and-reproceed clean]
+✅ B-120 — Stale-test-docblock prose corrections · ⚪ · XS [S38 — Fast Track · b114 + b104 docblocks corrected to post-B-117 values]
+✅ B-126 — Expand B-119 contract for CSS-token invariants (CLAUDE.md edit) · 🟡 · XS [S38 — Fast Track · S37 retro HIGH action #1 closed]
 
 ---
 
@@ -244,18 +255,22 @@ Overall Progress    ██████████████████░░
 
 | Priority | Count | % |
 |----------|-------|---|
-| 🔴 P0 Critical | 14 | 15% |
-| 🟠 P1 High | 34 | 37% |
-| 🟡 P2 Medium | 20 | 22% |
-| ⚪ P3 Nice-to-have | 11 | 9% |
+| 🔴 P0 Critical | 15 | 12% |
+| 🟠 P1 High | 35 | 28% |
+| 🟡 P2 Medium | 22 | 18% |
+| ⚪ P3 Nice-to-have | 13 | 10% |
 
 ## Status Summary
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 112 | 94% |
+| ✅ Done | 116 | 93% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 4 | 3% |
-| 🧊 Icebox | 3 | 3% |
+| ⬜ To Do | 6 | 5% |
+| 🧊 Icebox | 3 | 2% |
 
-**To Do breakdown (4 items)**: B-041 (sync tab order, P2/L · pre-S33), B-076 (MIGRATION_STEPS hook, P2/S · pre-S33), B-086 (sidepanel UI/UX design pass, P3/M · pre-S33 umbrella), B-120 (stale-test-docblock prose, P3/XS · S37 follow-up · depends on B-117 close).
+**In Progress breakdown**: _none — Sprint 38 closed 2026-04-29._
+
+**To Do breakdown (6 items, S39+ candidates)**:
+- **🟡 P2 (3)**: B-041 (sync tab order, L · pre-S33), B-076 (MIGRATION_STEPS hook, S · pre-S33), B-122 (sub-group drag-to-root, S · S37 follow-up)
+- **⚪ P3 (3)**: B-086 (sidepanel UI/UX umbrella, M · pre-S33), B-123 (item-row alignment, XS · S37 follow-up), B-124 (floating-tab visual distinction, S · S37 follow-up · design Q&A at R1 · depends on B-121)

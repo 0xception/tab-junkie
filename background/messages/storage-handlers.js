@@ -93,7 +93,8 @@ import { getSystemStatus, isSafeMode, KNOWN_VERSION } from '../storage/migration
 import { buildLiveStates, getDriftRecords } from '../tabs/index.js';
 import { getClaimsMirror, getItemIdForTab, claimTabForItem, releaseClaimByTab } from '../tabs/tab-claims.js';
 import { clearDrift } from '../tabs/drift.js';
-import { saveFloatingGroups } from '../tabs/floating-groups.js';
+import { saveFloatingGroups, pruneFloatingGroupsByParentItemId } from '../tabs/floating-groups.js';
+import { buildFloatingMembers, collectFloatingTabIds } from '../tabs/floating-members.js';
 import { getLiveTabIndex } from '../tabs/live-tab-index.js';
 import { buildOpenTabs } from '../tabs/open-tabs.js';
 /* B-014 */
@@ -198,24 +199,55 @@ async function dispatch(type, payload) {
     }
     case MSG_DELETE_ITEM:
       await deleteItem(p.id);
+      /* B-121 §60.8 (ii): cascade-prune any floating-group record whose
+         parent saved item is the one being deleted. Best-effort — if this
+         fails the next MSG_LIST_ITEMS dispatch will skip the orphan record
+         (parent missing) so the UI never stays wrong, just slightly stale
+         in storage. */
+      try {
+        await pruneFloatingGroupsByParentItemId(p.id);
+      } catch (err) {
+        console.warn('[tab-junkie] pruneFloatingGroupsByParentItemId failed', err);
+      }
       return null;
     case MSG_LIST_ITEMS: {
       const items = await listItems('groupId' in p ? { groupId: p.groupId } : undefined);
       const liveStates = buildLiveStates(items);
       const driftRecords = await getDriftRecords();
-      // B-055: enriched response includes every live tab not claimed by a saved item.
-      const openTabs = buildOpenTabs();
+      /* B-121 §60.3 / §60.7: build the floating-member map BEFORE
+         buildOpenTabs so the latter can exclude tabs already surfaced as
+         synthetic rows under their parent's group. The whole field is
+         always-present on post-S38 responses (possibly empty `{}`) so
+         renderers can rely on `itemsResp.floatingMembers || {}`. */
+      const floatingMembers = await buildFloatingMembers(items);
+      const floatingTabIds = collectFloatingTabIds(floatingMembers);
+      const openTabs = buildOpenTabs(floatingTabIds);
       /* B-014: every MSG_LIST_ITEMS response carries the current window
          ordinal map (rawWindowId string → ordinal). Empty object `{}` when no
          windows are open. Never null/undefined — defensive copy from
          window-ordinals.js. */
       const windowMap = getWindowMap();
-      return { items, liveStates, driftRecords, openTabs, windowMap };
+      return { items, liveStates, driftRecords, openTabs, windowMap, floatingMembers };
     }
     case MSG_BULK_CREATE_ITEMS:
       return bulkCreateItems(p.inputs);
-    case MSG_BULK_DELETE_ITEMS:
-      return bulkDeleteItems(p.ids);
+    case MSG_BULK_DELETE_ITEMS: {
+      const result = await bulkDeleteItems(p.ids);
+      /* B-121 R4 security M-1: cascade-prune any floating-group record
+         whose parent saved item was bulk-deleted. Mirrors the per-item
+         MSG_DELETE_ITEM cascade (line 207-211). Best-effort per id —
+         failures fall back to the lazy buildFloatingMembers skip path. */
+      if (Array.isArray(p.ids)) {
+        for (const id of p.ids) {
+          try {
+            await pruneFloatingGroupsByParentItemId(id);
+          } catch (err) {
+            console.warn('[tab-junkie] pruneFloatingGroupsByParentItemId failed (bulk-delete cascade)', err);
+          }
+        }
+      }
+      return result;
+    }
     case MSG_BULK_UPDATE_ITEMS:
       return bulkUpdateItems(p.ids, p.patch);
     case MSG_BULK_REORDER_ITEMS:
@@ -226,9 +258,32 @@ async function dispatch(type, payload) {
       return createGroup(p);
     case MSG_UPDATE_GROUP:
       return updateGroup(p.id, p.patch);
-    case MSG_DELETE_GROUP:
+    case MSG_DELETE_GROUP: {
+      /* B-121 R4 security M-2: cascade-prune floating-group records for
+         every saved item that lived in the deleted group. We capture the
+         affected itemIds BEFORE deleteGroup runs so the listItems read
+         still sees the original membership. After deleteGroup succeeds we
+         iterate the captured ids and prune their floating-group records
+         best-effort (matching the MSG_DELETE_ITEM pattern). */
+      let affectedItemIds = [];
+      try {
+        const groupItems = await listItems({ groupId: p.id });
+        affectedItemIds = (Array.isArray(groupItems) ? groupItems : [])
+          .map((it) => it && it.id)
+          .filter((id) => typeof id === 'string' && id.length > 0);
+      } catch (err) {
+        console.warn('[tab-junkie] listItems failed during MSG_DELETE_GROUP cascade snapshot', err);
+      }
       await deleteGroup(p.id);
+      for (const id of affectedItemIds) {
+        try {
+          await pruneFloatingGroupsByParentItemId(id);
+        } catch (err) {
+          console.warn('[tab-junkie] pruneFloatingGroupsByParentItemId failed (delete-group cascade)', err);
+        }
+      }
       return null;
+    }
     case MSG_LIST_GROUPS:
       return listGroups();
     case MSG_GET_GROUP:
@@ -315,9 +370,15 @@ async function dispatch(type, payload) {
         const index = getLiveTabIndex();
         const tabEntry = index.get(tabId);
         if (tabEntry) {
+          /* B-121 §60.4: floating-group records use `parentItemId`. The
+             demoted item is the parent of any future opener-chain children
+             spawned from this tab; the saveFloatingGroups path does NOT
+             auto-stamp `floatingTabId` (that is appendFloatingGroup's job)
+             so the record persists in legacy form, which the read-side
+             validators tolerate. */
           await saveFloatingGroups([{
             groupId: item.groupId,
-            itemId: p.itemId,
+            parentItemId: p.itemId,
             windowId: tabEntry.windowId,
             tabIndex: tabEntry.index,
             url: tabEntry.url,

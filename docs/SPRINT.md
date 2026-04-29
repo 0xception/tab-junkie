@@ -1,56 +1,125 @@
 # Current Sprint
 
-**Sprint 37 closed 2026-04-28 — v1.31.0 prepared on `release/v2` (release-manager run pending). All 3 items pipeline-complete; product-owner UAT for B-117 carried forward.**
+**Sprint 38 — Bug-fix anchor sprint (planned 2026-04-28)**
 
-The Sprint 37 retrospective and per-item close notes will be archived to `docs/SPRINT_ARCHIVE.md` once `[release-manager]` completes the version bump + build + tag.
+Four-item sprint: 2 P0/P1 regressions (shared R0 spike) + 1 retro process polish + 1 unblocked S37 follow-up cleanup.
+
+- **Branch**: `feature/sprint-38-bugfix` (off `release/v2` — pending PR #41 merge)
+- **Target version**: v1.32.0 (release/v2 only — no main merge per established pattern)
+- **Test baseline at kickoff**: 1,641/1,641
+- **Anchors**: B-125 (P0/M Spike-First) + B-121 (P1/M Spike-First) — **merged R0 spike** investigates the shared tab-claims/opener-chain/drift subsystem
+- **Wave 1 (parallel with anchors)**: B-120 + B-126 (both Fast Track XS, independent)
 
 ---
 
 ## Active Items
 
-*None — sprint closed.*
+### [B-125] Tab claim ownership jump on URL navigation (P0 — anchor #1)
+- **Tier**: Spike-First (R0 + Full M)
+- **Status**: R0 ✅ → R1 ✅ → R2 ✅ → R3 ✅ → R4 ✅ → R5 ✅ (UAT plan at `docs/UAT_B-125.md` — 8 cases) → R6 ✅ (§59.10 As-Built appended; zero schema/contract/manifest impact confirmed) → **DONE per Full tier** (R7 skipped — internal SW-memory change, no user-visible UI)
+- **Assigned To**: closed
+- **R0 finding**: NOT a B-099 release-path regression. Root cause: `tab-claims.js:193-219` `reevaluateTab` auto-claim branch fires for opener-chain-spawned new tabs, stealing them from their intended floating-group inheritance. Confidence: 75%.
+- **R1 lock**: Q1 mechanism = `inheritedTabs: Set<number>` ephemeral SW-memory marker, populated after `appendFloatingGroup` resolves; `reevaluateTab` checks `inheritedTabs.has(tabId)` and skips if present; pruned on `tab.onRemoved`. Q2 B-099 release-path guard — call-site count must remain at exactly 4 post-fix. Q3 user-initiated tabs still auto-claim. Q4 OOS — no storage/message/manifest/UI changes.
+- **R2-VERIFY for [solution-architect]**: (1) `opener-chain.js` exact line offsets for `openerMap` + `walkOpenerChain`; (2) `releaseClaimByTab` 4 call sites confirmed (`tab-events.js:202` + `tab-events.js:280` + `storage-handlers.js:331` + `storage-handlers.js:396`); (3) which module owns `inheritedTabs` (tab-claims.js vs tab-events.js); (4) `__resetTabClaims` (or equivalent) must also reset `inheritedTabs`.
+- **R3 estimate**: ~50 LOC across 2-3 files. No storage schema or message contract change.
+- **Sequencing**: B-125 R3 lands BEFORE B-121 R3 to satisfy B-121 AC8(iv) cleanly.
+- **Repro context**: open `https://xcelenergy.sharepoint.com/` (claimed by bookmark "The Source") → click in-page link to a Workday URL → observe two duplicate "Home - Workday" rows in sidepanel + a new tab opens each time
+- **Initial hypothesis surface (R0 to validate or refute)**:
+  - (a) B-099 Option B regression — `chrome.tabs.onUpdated` URL-change handler releasing original claim instead of marking drifted
+  - (b) Opener-chain race — `tab-events.js:140-171` `recordOpener` + `appendFloatingGroup` firing on the SAME tab as the URL change → double-handling
+  - (c) Erroneous `releaseClaimByTab` call on URL-change instead of tab-removal
+  - (d) URL normalization mismatch causing claim re-assignment
+  - (e) Multi-window or duplicate-URL disambiguation regression (B-102/B-103 territory)
+  - (f) `target="_blank"` link spawning new tab independently — original tab's claim breaking simultaneously due to a separate code path
+  - (g) `MSG_LIST_ITEMS` post-broadcast filter regression causing duplicate row rendering
+- **Handoff Notes for R0 [solution-architect]**: investigate the entire `background/tabs/` subsystem holistically (this spike serves both B-125 and B-121); produce a feasibility doc enumerating ALL causes for both bugs + per-cause smoke-repro + which cause is actually firing in production. R0 output decides whether B-125 and B-121 share a fix (one R3) or need separate fixes (two R3 parallel runs).
+- **Files Changed**: TBD by R3
+- **Parallel Opportunity**: R0 merged with B-121
+
+### [B-121] Floating tab opener-chain inheritance regression (P1 — anchor #2)
+- **Tier**: Spike-First (R0 + Full M)
+- **Status**: R0 ✅ → R1 ✅ → R2 ✅ → R3 ✅ → R4 ✅ (FIX-AND-REPROCEED resolved — see SPRINT.md history) → R5 ✅ (UAT plan at `docs/UAT_B-121.md` — 15 cases) → R6 ✅ (§60.14 As-Built appended; schema v1→v2 + `MSG_LIST_ITEMS.floatingMembers` field + 0 manifest changes confirmed; rollback plan documented) → **DONE per Full tier**
+- **Assigned To**: closed
+- **R3 fix-scope size**: ~1,050 LOC across 18 files (11 source + 7 test). NEW files: `background/tabs/floating-members.js`, `tests/b121-floating-group-render.test.js`. Complexity: MEDIUM-HIGH.
+- **C-correctness flags from R2**: C-1 (schema v1→v2 bump — CHANGELOG must include SW module-cache flush note), C-2 (`floatingMembers` typedef + `FloatingMember` typedef in `shared/messages.js`, OPTIONAL on response), C-3 (cold-start safe — `reassociateFloatingGroups` no longer overwrites `claimsMirror`), C-4 (parentItemId stability), C-9 (4 empty states documented).
+- **B-119+B-126 enumeration**: 7 test files require updates (b099 line 284, b013 lines 60-77, b018 lines 65-70/96-97/195-199 + new ~372, floating-shape lines 20-90 field rename, floating-multi seeds, floating-position seeds, demote-item lines 161/186; b036-newtab 10 sites are optional padding only).
+- **R0 finding**: NOT a broadcast-scope regression. Root cause: NO runtime render path for `tj:floatingGroups`. The "appears under parent group" UX was never fully wired in original B-013 — latent feature gap. Confidence: 90%.
+- **R1 lock**: Q1 — `floatingMembers: Record<groupId, Array<{tabId, url, windowId, tabIndex}>>` added to `MSG_LIST_ITEMS`. Q2 — synthetic `.item-row` rows directly under parent group. Q3 — all 3 surfaces (sidepanel + newtab + standalone). Q4 — R2 redesigns `appendFloatingGroup` schema to prevent parent-claim overwrite (3 options for R2 to pick from). Q5 — B-124 visual distinction OUT of scope. Q6 — OOS list locked.
+- **R2-VERIFY for [solution-architect]** (9 markers): floatingMembers array-item shape; sidepanel.js + newtab.js + standalone exact line numbers; whether other test files pin old MSG_LIST_ITEMS shape; b018 lines for claim-state assertions; `tj:floatingGroups` schema version bump (depends on Q4 choice); B-021/B-052 perf budgets exact numbers; (one stray marker about tokyo-night/system tints carried from a B-117 template — disregard).
+- **R3 fix-scope at R2 must include B-119 enumeration**:
+  - `tests/b099-drift-fix.test.js:284` (T6) — `buildOpenTabs()` exclusion update
+  - `tests/b013-opener-chain.test.js` AC1/AC9 — assert runtime visibility (floatingMembers + openTabs exclusion)
+  - `tests/b018-persistence.test.js` — assert parent's claim NOT overwritten post-reassociation (Q4/AC7 fix)
+- **Sequencing**: B-121 R3 starts AFTER B-125 R3 lands (cleanest for AC8(iv)). R2 can run in parallel (design only).
+- **Files Changed**: TBD by R3.
+- **Repro context**: any new-tab gesture from a bookmarked page (Ctrl+click, middle-click, shift+click, "open in new tab", "open in new window") fails to inherit the bookmark's group; new tab appears in Open Tabs section instead of under the bookmark. All surfaces affected (sidepanel, standalone, newtab page).
+- **Top suspect (R0 to validate)**: `background/tabs/tab-events.js:165` broadcasts `SCOPE.LIVE_STATE` after `appendFloatingGroup`, but per B-010 AC8, `liveState` only patches `data-live`/`data-active`/`data-audible` attrs on existing rows — does NOT trigger structural re-render. The new tab needs to MOVE from Open Tabs into its parent group, which requires `items` or `openTabs` scope.
+- **Other R0 candidates**: see backlog row B-121 (a)–(f) — sidepanel render code ignoring floating-group resolution, newtab/standalone never wired floating-groups, opener-chain hop-limit, double-claim race
+- **Handoff Notes**: same merged R0 spike as B-125; both items investigated together
+- **Files Changed**: TBD by R3
+- **Parallel Opportunity**: R0 merged with B-125
+
+### [B-120] Stale-test-docblock prose corrections (Wave 1)
+- **Tier**: Fast Track (XS)
+- **Status**: R1 ✅ → R3 ✅ → R4 ✅ (PROCEED — 0 findings any tier; numerical accuracy + cross-references verified) → **DONE per Fast Track tier**
+- **Files Changed**: `tests/b114-tint-v2.test.js` lines 4-13, `tests/b104-group-colors.test.js` lines 382-396 (docblock prose only — zero assertion changes)
+- **Feature Context**: stale prose in `tests/b114-tint-v2.test.js:8-13` and `tests/b104-group-colors.test.js:382-391` — both reference now-incorrect pre-B-117 contrast values ("4.55:1 PASS" / "4.78:1 worst-case"). Update to post-B-117 values from §57.2 matrix.
+- **Handoff Notes**: ACs already drafted in BACKLOG.md row; R1 [product-manager] should validate/lock per the B-118 source-citation gate
+- **Files Changed**: 2 test files (docblock comments only — zero assertion changes)
+- **Parallel Opportunity**: R3 build can run parallel with B-121/B-125 anchors (different files) and with B-126
+
+### [B-126] Expand B-119 contract definition for CSS-token invariants (retro action — Wave 1)
+- **Tier**: Fast Track (XS)
+- **Status**: R1 ✅ → R3 ✅ → R4 ✅ (PROCEED — 0 findings; bundled review with B-120) → **DONE per Fast Track tier**
+- **Files Changed**: `CLAUDE.md` lines 378-388 (Fix-scope test-assertion enumeration subsection expanded)
+- **Feature Context**: S37 retrospective HIGH action item #1 — the B-119 contract just shipped this sprint had a definition gap (DOM/ARIA/message/selector only) that missed `tests/b114-tint-v2.test.js` T1's CSS-token invariant assertion, forcing mid-R3 scope expansion. Amend CLAUDE.md to expand the contract-change definition.
+- **Handoff Notes**: ACs already drafted in BACKLOG.md row; matches B-118/B-119 precedent. R1 [product-manager] validates and locks.
+- **Files Changed**: `CLAUDE.md` (R2 Architecture section only)
+- **Parallel Opportunity**: R3 build can run parallel with B-120 + B-121/B-125 anchors
 
 ---
 
 ## Completed This Sprint
 
-### [B-117] §47.7 group-color WCAG AA matrix re-verification — ✅ DONE
-- **Tier**: Full (M) · **Closed**: 2026-04-28
-- **Pipeline**: R1 ✅ · R2 ✅ (§57) · R3 ✅ · R4 ✅ (3 reviewers — 0 CRIT / 0 HIGH / 1 MEDIUM / 4 LOW) · R5 ✅ (1,641 tests, +3 gap-fill, UAT plan) · R6 ✅ (§47.7 + §57.12) · R7 ✅ (user-manual + CHANGELOG)
-- **Files changed**:
-  - `shared/themes.css` — 4 tint-amount edits (atom-one-dark/one-dark/legacy `dark` 20%→7%, dracula 20%→17%) + comment-block corrections at B-114 inline (lines 438–448) + `:root` block
-  - `tests/b117-gc-matrix-audit.test.js` (NEW) — 137 tests covering 126 cells + 9 AAL tuples + 3 drift guards; 136 ms runtime
-  - `tests/b114-tint-v2.test.js` — T1 redesigned to table-driven `expectedTintByTheme` map
-  - `docs/design/57-b-117-gc-matrix-audit.md` (NEW chapter at R2; §57.12 As-Built appended at R6)
-  - `docs/design/47-b-104-themed-group-colors.md` §47.7 — replaced with post-B-117 verified matrix
-  - `docs/SOLUTION_DESIGN.md` — TOC entry for §57
-  - `docs/user-manual/themes.md` — new "Theme accessibility limitations" subsection (9 solarized-dark cells)
-  - `CHANGELOG.md` — v1.31.0 entry
-  - `docs/UAT_B-117.md` (NEW) — 10 UAT cases for product-owner Edge run
-- **Mid-flight scope adjustments**: §57.9 sentinel-grep gate triggered → 2 stale-prose deferred to **B-120** (filed); b114 T1 active assertion pulled into B-117 scope per [scrum-master] AC11(g) operational clarification
-- **R6 precedents established**: (1) AC11(g) "test-file lock" must distinguish stale prose vs active assertions of changed invariants; (2) B-119 contract-change definition needs to include CSS-token invariants asserted in test files (next-sprint retro action)
+| Item | Tier | LOC | Tests | Notes |
+|------|------|-----|-------|-------|
+| **B-125** Tab claim ownership jump | Spike-First (R0 + Full M) | 63 src | +5 (T1–T5) | `inheritedTabs: Set<number>` ephemeral SW marker; `markInherited`/`isInherited`/`pruneInherited`; reevaluateTab gate inside `!alreadyClaimed` branch; symmetric prune in `tabs.onRemoved` + `windows.onRemoved` cascade. Zero schema/contract/manifest impact. Files: `background/tabs/tab-claims.js`, `background/tabs/tab-events.js`, `tests/b125-claim-jump-fix.test.js`. R6 As-Built at `docs/design/59-b-125-claim-jump-fix.md` §59.10. UAT plan at `docs/UAT_B-125.md` (8 cases). |
+| **B-121** Floating tab opener-chain render | Spike-First (R0 + Full M) | ~1,800 src+test | +13 (T-121-A..O minus deferred letters) | `floatingMembers` field on `MSG_LIST_ITEMS`; synthetic `[data-floating="true"]` rows under parent group sections in sidepanel + newtab; schema v1→v2 lazy migration (`KNOWN_VERSION` 1→2 + no-op step + `defaultShape` seed); cascade prune for `MSG_DELETE_ITEM` + `MSG_BULK_DELETE_ITEMS` + `MSG_DELETE_GROUP`; `buildOpenTabs(floatingTabIds)` exclusion; newtab close button + ENTER/SPACE keyboard activation; ARIA fallback for floating-row selection. R4 outcome: 1 CRIT + 4 HIGH + 3 MEDIUM all resolved in fix-and-reproceed. R6 As-Built at `docs/design/60-b-121-floating-tab-render.md` §60.14. UAT plan at `docs/UAT_B-121.md` (15 cases). |
+| **B-120** Stale test docblock prose | Fast Track XS | 0 src | 0 (docblock-only) | `tests/b114-tint-v2.test.js` + `tests/b104-group-colors.test.js` docblock prose corrected to post-B-117 contrast values. Zero assertion changes. R4 PROCEED clean. |
+| **B-126** Expand B-119 for CSS-token invariants | Fast Track XS | 0 src (CLAUDE.md only) | 0 | `CLAUDE.md` Fix-scope test-assertion enumeration subsection extended to include CSS-token invariants. Sprint 37 R3 b114 T1 escalation added as 2nd blocking precedent. R4 PROCEED clean. |
 
-### [B-118] R1 source-citation gate (CLAUDE.md edit) — ✅ DONE
-- **Tier**: Fast Track (XS) · **Closed**: 2026-04-28
-- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (0/0/0/1 LOW cosmetic — backtick vs fenced block, deferred)
-- **Files changed**: `CLAUDE.md` lines 347-357 (new "Source-citation gate" mandatory subsection in Round 1: Definition)
-
-### [B-119] R2 fix-scope test-assertion subsection (CLAUDE.md edit) — ✅ DONE
-- **Tier**: Fast Track (XS) · **Closed**: 2026-04-28
-- **Pipeline**: R1 ✅ · R3 ✅ · R4 ✅ (bundled with B-118)
-- **Files changed**: `CLAUDE.md` lines 378-386 (new "Fix-scope test-assertion enumeration" mandatory subsection in Round 2: Architecture)
+**Sprint totals**: 4/4 items shipped · **1,663/1,663 tests passing** (1,641 baseline + 22 net adds: 5 B-125 + 13 B-121 + 1 floating-shape + 3 fix-round adds) · `./build.sh` exit 0 · `tab-junkie.zip` 348 KB / 87 files.
 
 ---
 
-## Pending UAT (Sprint 37 + carried from Sprint 36)
+## Sprint Retrospective — Sprint 38
 
-Product-owner manual UAT in Edge. Not blocking sprint close per established pattern (S35/S36 carried UAT forward).
+### Velocity
+- **Planned**: 4 items / 2×M (Spike-First) + 2×XS (Fast Track) = ~6 effort units
+- **Completed**: 4 items / same scope
+- **Carried over**: 0
 
-**Sprint 37:**
-- **B-117** UAT-1..UAT-10 pending (`docs/UAT_B-117.md`) — particularly UAT-2/-3/-4 visual-UX checks for atom-one-dark/one-dark/dracula at the new tint values
+### What Went Well
+- **Merged R0 spike** (B-125 + B-121) was the right call — one solution-architect investigation produced two refuted hypotheses + two correct root causes in a single pass. Saved an estimated 1.5× agent-hours vs two separate spikes. The pattern is reusable for any future "two related bugs in the same subsystem" trio.
+- **B-118 source-citation gate** (shipped S37) had its first real-world test this sprint and worked. R1 across all 4 items cited `file:line` against verified sources; zero R2 binding-correction surprises (vs S36's three-correction trio that motivated the gate).
+- **B-126 enumeration expansion** caught and prevented at least one mid-R3 scope-explosion: the B-121 R3 fix-scope subsection covered the CSS-token-invariant test-file impact at R2-time, allowing R3 to update all 7 enumerated test files atomically with no mid-build expansion.
 
-**Sprint 36 carry-forward:**
-- B-107, B-108, B-109, B-110, B-111, B-112, B-113, B-114, B-115 — all UAT pending in v1.30.0; should be cleared before any future v2 → main merge
+### What to Improve
+- **R3 under-scoped the newtab close-button affordance** (B-121 H-1 from code-reviewer + qa). R2 §60.6.2(c) AC6 was clear; R3 deferred with a "future enhancement" comment. The R4 fix-and-reproceed cycle caught it but cost ~30 min of additional review + fix loop. Lesson: when R3 sees a "future enhancement" temptation, the right action is to STOP and escalate to scrum-master, not silently defer past R4.
+- **`KNOWN_VERSION` bump was missed at R3** (B-121 CRIT C-1). R2 §60.4.7 was unambiguous; R3 chose lazy migration (correct for data) but skipped the version bump (incorrect — governance, not data). Lesson: schema-version increments are independent of data-rewrite strategy. R2 designs should split these into two checkbox items so R3 can't conflate them.
+- **Cascade-prune asymmetry** between single-delete and bulk/group-delete (security M-1 + M-2) was a pure oversight in R3. The lazy fallback in `buildFloatingMembers` masked the gap until [security-reviewer] flagged it. Lesson: when adding a cascade for one entry-point of a multi-entry-point write surface, R2 fix-scope should enumerate ALL entry-points; R3 should grep for siblings before claiming the cascade is complete.
+
+### Action Items for Next Sprint
+- [ ] **HIGH (process)**: When R3 considers a "future enhancement" deferral on an AC-locked behavior, require an explicit STOP-and-escalate to scrum-master (not a silent in-code comment). File as a CLAUDE.md edit P3/XS for S39.
+- [ ] **MEDIUM (process)**: R2 design template — split schema-version-bump and data-migration-strategy into two separate checkbox items so R3 cannot conflate them. File as a CLAUDE.md edit P3/XS for S39.
+- [ ] **MEDIUM (process)**: When R2 fix-scope adds a cascade-prune to one delete entry-point, R3 must grep for sibling delete entry-points (`MSG_DELETE_*`, `bulkDelete*`, etc.) and verify cascade parity before claiming complete. File as a CLAUDE.md edit P3/XS for S39.
+
+### Lessons captured for future reference
+- **Pattern proven**: Merged R0 spike for two related-subsystem bugs (B-125 + B-121).
+- **Pattern proven**: B-118 source-citation gate prevents R2 binding-correction class of failures.
+- **Pattern proven**: B-119 + B-126 fix-scope enumeration extends to CSS-token + storage-schema contracts.
+- **New pattern (S38)**: Cascade-prune sibling-grep gate (action item above).
+- **New pattern (S38)**: Schema-version-bump-vs-data-migration split (action item above).
 
 ---
 
@@ -60,71 +129,70 @@ Product-owner manual UAT in Edge. Not blocking sprint close per established patt
 
 ---
 
-## Gate 4 — Release Checklist (verification)
+## Pipeline Plan
 
-- ✅ All R4 review findings resolved — 0 CRITICAL / 0 HIGH across all items; 1 MEDIUM addressed in UAT plan; 5 LOW deferred (B-120 + cosmetic + retro notes)
-- ✅ All R5 automated tests passing — 1,641/1,641; 136 ms perf for new B-117 file (under 200 ms AC)
-- ⚠️ UAT sign-off carried forward to product-owner Edge run — non-blocking per S35/S36 pattern
-- ✅ No open blockers in `SPRINT.md`
-- ✅ Relevant chapter updated — `docs/design/47-b-104-themed-group-colors.md` §47.7 + new `docs/design/57-b-117-gc-matrix-audit.md` (R2 + R6 As-Built); root `docs/SOLUTION_DESIGN.md` TOC extended (verified at R6)
-- ✅ `manifest.json` permissions reviewed — zero new permissions; `git diff manifest.json` empty
-- ✅ `./build.sh` produces clean package — 336K zip, 86 files, exit 0
-- ✅ Rollback plan documented — single-line `git revert <r3-commit>` (atomic) per §57.12.7
-- ✅ README/STORE_LISTING reviewed by [technical-writer] — no changes needed (B-117 is internal a11y polish; B-118/119 are dev-process)
-- ⚠️ `BACKLOG.md` updated — pending [scrum-master] post-close edit (B-117/B-118/B-119 → `done`)
-- ⚠️ `BACKLOG_BOARD.md` updated — pending [scrum-master] post-close edit (✅ marks + status summary refresh)
-- ✅ `SPRINT.md` "Completed This Sprint" section reflects all finished items (this section)
-- ⚠️ `SPRINT_ARCHIVE.md` updated — pending [scrum-master] post-release-manager archive
+**Wave 0 (parallel R0 + R1)**:
+- [solution-architect] R0 merged spike for B-125 + B-121 (single agent investigates `background/tabs/` subsystem holistically)
+- [product-manager] R1 for B-120 (parallel — independent)
+- [product-manager] R1 for B-126 (parallel — independent)
 
-**Gate 4 status: PASS-WITH-PENDING** (the ⚠️ items are mechanical post-close edits that complete during the close-out sequence, not blockers).
+**Anchor path (B-125 + B-121)**:
+- R0 ([solution-architect] merged spike) → R1 ([product-manager] per item, possibly merged if R0 finds shared root cause) → R2 ([solution-architect]) → R3 ([frontend-engineer], possibly bundled if shared fix) → R4 (3 reviewers parallel) → fix CRIT/HIGH → R5 ([test-engineer] tests + UAT plans) → R6 → R7 (conditional)
 
----
+**Wave 1 path (B-120 + B-126, both Fast Track XS)**:
+- R1 → R3 → R4 (code + security parallel — qa skipped per Fast Track) → run existing test suite → done
+- B-120 + B-126 R3 can be bundled (single agent edits both surfaces — `tests/*.test.js` docblocks + `CLAUDE.md` R2) for atomicity, or run as separate agents
 
-## Gate 7 — Sprint Retrospective
-
-### Velocity
-- **Planned**: 3 items / M + XS + XS effort
-- **Completed**: 3 items / M + XS + XS — fully on plan
-- **Carried over**: 0 items
-- **Test delta**: 1,504 → 1,641 (+137 net) · Zero regressions
-- **Items filed mid-sprint**: 1 (B-120 — stale-test-docblock prose, P3/XS, depends on B-117 close, deferred to future Fast Track sprint)
-
-### What Went Well
-- **Pipeline parallelization scaled cleanly**: 3 R1 agents in parallel · B-117 R2 in parallel with B-118+B-119 R3 bundle · 3 R4 reviewers in parallel · sprint completed in a single session.
-- **§57.9 sentinel-grep gate caught a real issue at R3 entry**: 2 stale-prose comment files identified for follow-up (B-120 filed inline). The gate's STOP-and-escalate semantics worked as designed — better to halt for triage than to silently ship inaccurate documentation.
-- **Self-applied source-citation gate (B-118) was operationally usable from the moment it was R1-LOCKED**: B-117 R1, B-118 R1, B-119 R1 all cited `file:line` against `CLAUDE.md` and `tests/b105-...` / `shared/themes.css`. Zero R2 binding-correction surprises this sprint (a meaningful improvement over S36's three R2 binding corrections).
-- **B-117 R2 quantitative work (126-cell computation in Node) replaced opinion with evidence**: pre-B-117 §47.7 PASS verdicts at 4.78:1 / 4.55:1 turned out to be inaccurate (atom-one-dark/yellow actually 2.806:1 at 20% tint). The new `tests/b117-gc-matrix-audit.test.js` makes this drift-impossible going forward.
-
-### What to Improve
-- **B-119 R2 contract-change definition was too narrow** (DOM/ARIA/message/selector only) — missed the `tests/b114-tint-v2.test.js` T1 active structural assertion of the `--group-header-tint-amount` invariant. R3 hit a mid-build test failure that should have been caught at R2. The CLAUDE.md fix-scope-test-assertion subsection should be expanded next sprint to explicitly include "structural assertions on CSS token values, regex pins on `shared/themes.css` declarations, and any test file that pins a const-value invariant the item is changing." — **B-119 self-application miss; high-value lesson.**
-- **R1 AC11(g) "test-file lock" was too coarse**: locking out "B-104, B-106, B-114 test files" prevented R3 from updating active assertions of B-117's changed invariant. Mid-R3 operational clarification was issued, but R1 templates should distinguish stale prose (lock-out, defer to follow-up) vs active assertions of the invariant being changed (always in-scope).
-- **§57.9 sentinel-grep gate trigger was over-eager for prose-only matches**: stopped R3 for 4 hits, only 2 of which had any factual concern (the other 2 were coincidental or still-correct). Future gates of this kind should triage by "is this an active assertion or stale comment prose" before STOP-and-escalate, ideally inside the agent without pinging [scrum-master].
-
-### Action Items for Next Sprint (S38)
-1. **[product-manager] / [solution-architect]**: amend CLAUDE.md `### Round 2: Architecture` "Fix-scope test-assertion enumeration" subsection (the B-119 contract just shipped this sprint!) to explicitly include CSS-token invariants asserted in test files (regex-pin tests on `shared/themes.css`, `expect-token-eq` patterns, etc.). File as a P2/XS CLAUDE.md edit follow-up. **HIGH** priority — this was the load-bearing miss this sprint.
-2. **[product-manager]**: amend CLAUDE.md R1 AC template to distinguish "active assertions of the invariant being changed" (always in-scope) vs "stale prose comments mentioning prior values" (out-of-scope, file as follow-up item). File as P3/XS CLAUDE.md edit follow-up. **MEDIUM** priority.
-3. **[scrum-master]**: when an R3 sentinel-grep gate triggers, the agent should triage in-loop (active vs prose) before halting and escalating. Update agent-prompt templates accordingly. **LOW** priority — process polish.
+**Sprint close**:
+- Gate 4 release checklist → Gate 7 retrospective → [release-manager] for v1.32.0 (cut tag on `release/v2`, skip `gh release create` per pattern)
 
 ---
 
-## Backlog (next sprint candidates)
+## Pending UAT (Sprint 36 + Sprint 37 — carry-forward tracking)
 
-User to triage usability/features/bugs before tab-syncing path. Pending list:
+Product-owner manual UAT in Edge for v1.30.0 + v1.31.0. Not blocking S38 close per established pattern, but should be cleared before any v2 → main merge.
 
-- **B-041** (sync tab order, P2/L · pre-S33) — last big v2 feature; deserves its own sprint
-- **B-076** (MIGRATION_STEPS hook, P2/S · pre-S33) — passive future-work placeholder
+**Sprint 36 (v1.30.0)**: B-107, B-108, B-109, B-110, B-111, B-112, B-113, B-114, B-115 — all UAT pending
+**Sprint 37 (v1.31.0)**: B-117 UAT-1..UAT-10 pending (`docs/UAT_B-117.md`)
+**Sprint 38 anchors will add**: B-125 + B-121 will need UAT plans authored at R5
+
+---
+
+## Backlog (S39+ candidates)
+
+After S38 close — pending product-owner triage:
+
+- **B-122** (sub-group drag-to-root, P2/S · S37 follow-up · feature gap)
+- **B-041** (sync tab order, P2/L · pre-S33) — last big v2 feature
+- **B-076** (MIGRATION_STEPS hook, P2/S · pre-S33) — passive placeholder
 - **B-086** (sidepanel UI/UX umbrella, P3/M · pre-S33)
-- **B-120** (NEW — stale-test-docblock prose, P3/XS · S37 follow-up · depends on B-117 close)
-- **NEW from S37 retro**: 2-3 CLAUDE.md edit follow-ups (B-119 contract expansion, AC11(g) refinement, gate-triage prompts) — TO BE FILED before next sprint kickoff
-- **User-flagged**: "a few other usability/features/bugs to address before tab syncing" — TO BE FILED by user
+- **B-123** (item-row alignment, P3/XS · S37 follow-up)
+- **B-124** (floating-tab visual distinction, P3/S · S37 follow-up · design Q&A required at R1; depends on B-121 close)
+- **R-2 / R-3** (S37 retro action items 2 & 3 — to be filed as B-127/B-128 if/when sprint capacity exists)
 
 ---
 
-## Pre-flight reminders for next sprint kickoff
+## Pre-flight reminders for S38 kickoff
 
-When the product-owner approves Sprint 38:
-- [scrum-master] performs Gate 6 (Sprint Readiness) verification including the **deps-resolved check** (Gate 6 item 6) for any items depending on B-117 close (e.g., B-120)
-- [product-manager] writes/refines R1 — **with the now-shipped source-citation gate (B-118): every R1 source-code claim must cite `file:line` or be marked `R2-VERIFY`**
-- [solution-architect] R2 chapters MUST include the now-shipped "Fix-scope test-assertion enumeration" subsection (B-119) — and apply the S37 retrospective action item #1 expanding the definition to include CSS-token invariants asserted in test files
+When the product-owner says "proceed":
+- [scrum-master] launches the merged R0 [solution-architect] spike for B-125 + B-121 + B-120 R1 + B-126 R1 — **3 agents in parallel** (single message)
+- [product-manager] applies the **B-118 source-citation gate** (shipped S37): every R1 source-code claim must cite `file:line` or be marked `R2-VERIFY`
+- [solution-architect] R2 chapter for B-125 / B-121 MUST include the **B-119 fix-scope test-assertion enumeration** subsection — and per **B-126 (in this sprint)**, that enumeration covers CSS-token invariants too once B-126 ships
 
-Test count baseline post-S37: **1,641** (post-v1.31.0 release — pending release-manager run).
+---
+
+## Gate 6 — Sprint Readiness Verification
+
+- ✅ Total sprint effort fits — 2×M + 2×XS = manageable; merged R0 spike reduces total agent-hours vs two separate spikes
+- ✅ No unresolved blockers from S37 (closed; PR #41 open against `release/v2`)
+- ✅ Deps-resolved check:
+  - **B-125** deps: B-001c ✅, B-001d ✅, B-010 ✅, B-099 ✅, B-100 ✅, B-102 ✅, B-103 ✅ (all done)
+  - **B-121** deps: B-013 ✅, B-018 ✅, B-055 ✅, B-099 ✅ (all done)
+  - **B-120** deps: B-117 ✅ (closed in S37, now unblocked)
+  - **B-126** deps: B-119 ✅ (shipped S37)
+- ✅ All sprint items in BACKLOG.md as `in-progress` / `Sprint 38`
+- ✅ SPRINT.md "Active Items" populated (this section)
+- ⚠️ B-125 + B-121 R1 ACs need refinement post-R0 spike — current backlog entries are R0-spike-scope outlines (this is BY DESIGN for Spike-First tier)
+- ⚠️ B-120 + B-126 R1 ACs are drafted in BACKLOG.md but R1 [product-manager] should still validate per the source-citation gate they're applying
+
+**Gate 6 status: PASS** (with R0/R1 refinement notes; no blocking gaps).

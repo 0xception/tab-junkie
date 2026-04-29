@@ -4,6 +4,56 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.32.0 — Bug-fix Anchor Sprint (2026-04-29)
+
+**Tagged on `feature/sprint-36-ui-polish` — pending PR #41 merge to release/v2 + v2 merge to main. Tag: `v1.32.0`.**
+
+Sprint 38: 4-item bug-fix anchor sprint. 2 P0/P1 anchors (B-125 + B-121) sharing a merged R0 spike + 2 XS internal/dev-only Fast Track items (B-120 + B-126). All items pipeline-complete; product-owner B-125 + B-121 UAT carried forward per S35/S36/S37 pattern.
+
+### What's new (user-visible)
+
+- **Tab claim ownership jump fixed (B-125, P0)** — opening a bookmarked page and clicking an in-page link to a different URL no longer creates duplicate rows in the sidepanel. The new tab now correctly appears under its parent bookmark's group section as a floating member, and the parent bookmark retains its claim. Originally surfaced as the SharePoint → Workday duplicate-row repro; root cause was the `reevaluateTab` auto-claim branch firing on opener-chain-spawned tabs.
+- **Floating-tab runtime render path activated (B-121, P1)** — any new-tab gesture from a bookmarked page (Ctrl+click, middle-click, shift+click, "open in new tab", "open in new window") now correctly inherits the bookmark's group: the new tab appears as a live row directly under the parent bookmark's group section, instead of appearing in the Open Tabs section. All three surfaces (sidepanel, standalone, newtab) render the inherited rows. Newtab additionally gets a close button + keyboard (ENTER/SPACE) activation on floating rows.
+
+### Internal / process
+
+- **Test docblock prose corrections (B-120)** — `tests/b114-tint-v2.test.js` and `tests/b104-group-colors.test.js` docblocks updated to reflect post-B-117 contrast values. Test-file maintenance only; no assertions touched, no runtime code, no user-visible impact.
+- **B-119 contract expanded for CSS-token invariants (B-126)** — `CLAUDE.md` Fix-scope test-assertion enumeration subsection extended to cover CSS-token regex assertions / structural assertions / count-of-N assertions on tokens declared in `shared/themes.css`. Closes Sprint 37 retro HIGH action item #1; adds Sprint 37 R3 b114 T1 escalation as the second blocking precedent.
+
+### Architecture
+
+- **Schema migration `tj:floatingGroups` v1 → v2 (lazy, non-destructive)** — `KNOWN_VERSION` bumped 1 → 2 with a no-op migration step. Legacy v1 records (with `itemId` only) are read transparently via a read-side compatibility shim; new writes stamp synthetic `floatingTabId` (ulid) + `parentItemId` (renamed from `itemId`) for clarity. No data rewrite on update; lazy migration on next write. Documented in `docs/design/60-b-121-floating-tab-render.md` §60.14 As-Built.
+- **Message contract `MSG_LIST_ITEMS` extended (additive, optional)** — response payload gains an optional `floatingMembers: Record<groupId, Array<FloatingMember>>` field. Existing consumers ignoring the field continue to function without change. `FloatingMember` typedef added to `shared/messages.js`.
+- **`MSG_DELETE_ITEM` / `MSG_BULK_DELETE_ITEMS` / `MSG_DELETE_GROUP` cascade-prune** — all three delete paths now cascade-prune their corresponding `tj:floatingGroups` entries. Symmetry restored after the security review caught a single-delete-only oversight.
+- **`inheritedTabs` ephemeral SW-memory marker** — new `Set<number>` in `tab-claims.js` populated after `appendFloatingGroup` and pruned on `tab.onRemoved` + `windows.onRemoved` cascade. Documented in `docs/design/59-b-125-claim-jump-fix.md` §59.10 As-Built.
+
+### Quality
+
+- **Tests**: 1,641 → **1,663 passing** (+22 net — 5 B-125 + 13 B-121 + 1 floating-shape + 3 fix-round adds). Zero regressions.
+- **Build**: `./build.sh` clean (348 K zip, 87 files, exit 0).
+- **R4 findings**: B-125 + B-120 + B-126 PROCEED clean (0 CRITICAL / 0 HIGH). B-121: 1 CRITICAL (`KNOWN_VERSION` skip) + 4 HIGH (cascade asymmetry, newtab close affordance, etc.) + 3 MEDIUM, all resolved in fix-and-reproceed; zero open at sprint close.
+- **Storage schema**: `tj:floatingGroups` v1 → v2 (lazy, non-destructive). **Permissions**: unchanged. **Manifest entries**: unchanged.
+
+### Mid-flight scope adjustments
+
+- **B-121 R3 deferred newtab close affordance** silently in-code, then caught by R4 `[code-reviewer]` + `[qa-reviewer]` H-1 finding. Fix-and-reproceed cycle (~30 min) added the close button + keyboard activation in scope. Sprint retrospective flagged "future enhancement" silent deferrals as a process gap; CLAUDE.md edit filed for S39.
+- **B-121 R3 missed `KNOWN_VERSION` schema-version bump** — R3 chose lazy data migration (correct) but skipped the version bump (incorrect — governance, not data). Caught by `[security-reviewer]` C-1 finding. Sprint retrospective flagged schema-version-bump-vs-data-migration conflation; CLAUDE.md edit filed for S39.
+- **Cascade-prune asymmetry** between single-delete and bulk/group-delete paths caught by security M-1 + M-2. Sprint retrospective flagged sibling-grep gate for cascade-prune additions; CLAUDE.md edit filed for S39.
+
+### Pending UAT
+
+- **B-125 UAT-1..UAT-8 pending** (`docs/UAT_B-125.md`).
+- **B-121 UAT-1..UAT-15 pending** (`docs/UAT_B-121.md`).
+- **Carried forward**: S36 (B-107..B-115) + S37 (B-117 UAT-1..UAT-10) — should clear before any v2 → main merge. Not blocking S38 close per established pattern.
+
+### Rollback
+
+- **Code-only revert**: single atomic `git revert <release-commit-sha>` reverses the v1.32.0 release commit. `git tag -d v1.32.0` deletes the local tag (if not yet pushed).
+- **Schema rollback (B-121)**: a downgrade from v1.32.0 → v1.31.0 will re-encounter v2 records in the `tj:floatingGroups` storage partition. Per the lazy-migration design (§60.14), v1.31.0 cannot read the new `parentItemId` / `floatingTabId` fields and would skip those records (treating them as missing-itemId). **Recommended downgrade procedure**: extension toggle OFF before downgrade → clear `tj:floatingGroups` partition manually via DevTools console (`chrome.storage.session.set({'tj:floatingGroups': []})`) → install the older version → toggle back ON. The session partition rebuilds from runtime as new opener-chain inheritance events fire, so no user-visible state is lost beyond pending floating-group records.
+- **GitHub Release**: skipped per product-owner direction (tag `v1.32.0` + zip exist for manual publish later).
+
+---
+
 ## v1.31.0 — WCAG AA Matrix Audit + Process Gates (2026-04-28)
 
 **Tagged on `release/v2` — pending v2 merge to main. Tag: `v1.31.0`.**

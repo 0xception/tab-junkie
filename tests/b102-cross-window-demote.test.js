@@ -80,6 +80,7 @@ import { buildOpenTabs } from '../background/tabs/open-tabs.js';
 import { registerStorageHandlers } from '../background/messages/storage-handlers.js';
 import {
   runMigrations,
+  KNOWN_VERSION,
   _resetMigrationStateForTest,
   _clearMigrationStepsForTest,
 } from '../background/storage/migration.js';
@@ -427,7 +428,7 @@ test('B-102 T1 (AC1): MSG_DEMOTE_ITEM dispatch produces SCOPE.ITEMS broadcast wi
     createdAt: 1,
     updatedAt: 1,
   };
-  seedPartitions({ items: [item], meta: { schemaVersion: 1 } });
+  seedPartitions({ items: [item], meta: { schemaVersion: KNOWN_VERSION } });
   await bootstrapHandlers();
 
   __setMockTabs([

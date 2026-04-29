@@ -2,9 +2,31 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
-## [Unreleased]
+## [1.32.0] — 2026-04-29
 
-*(nothing pending)*
+Sprint 38 — Bug-fix anchor sprint (4 items): 2 P0/P1 anchors (B-125 + B-121, merged R0 spike) + 2 XS internal/dev-only Fast Track items.
+
+### Fixed
+- **Tab claim ownership jump on URL navigation (B-125, P0)** — opener-chain-spawned tabs are now gated against the auto-claim branch in `reevaluateTab`. New tabs inheriting their group from a bookmarked parent no longer steal the claim of a coincidentally URL-matching saved item. Repro: opening a SharePoint bookmark and clicking an in-page link to a Workday URL no longer creates duplicate "Home - Workday" rows in the sidepanel. Closes the B-099 D-3 contract gap. Implemented as an `inheritedTabs: Set<number>` ephemeral SW-memory marker, populated after `appendFloatingGroup` resolves and pruned on `tab.onRemoved` + `windows.onRemoved` cascade. Zero schema/contract/manifest impact.
+- **Floating-tab runtime render pipeline (B-121, P1)** — opener-chain-inherited tabs now appear as live rows under their parent bookmark's group section across all three rendering surfaces (sidepanel, standalone, newtab). The tab is excluded from the Open Tabs section while the floating-group record is alive. Closes the B-013 + B-018 design gap where `tj:floatingGroups` had no runtime visibility (latent feature gap since original B-013). New `MSG_LIST_ITEMS` response field `floatingMembers: Record<groupId, Array<FloatingMember>>` (optional, additive); synthetic `[data-floating="true"]` rows render directly under each parent group section. Cascade-prune on `MSG_DELETE_ITEM` + `MSG_BULK_DELETE_ITEMS` + `MSG_DELETE_GROUP`. Newtab gains a close button + ENTER/SPACE keyboard activation. ARIA fallback for floating-row selection.
+- **Floating-group parent-itemId-reuse defect (B-121 §60.4)** — `tj:floatingGroups` records gain a synthetic `floatingTabId` (ulid) as their storage identity, decoupling them from the parent bookmark's id. Cold-start re-association no longer overwrites the parent's claim under any circumstances. The legacy field name `itemId` has been renamed to `parentItemId` for clarity; both forms are tolerated on read. Storage-schema migration is non-destructive — pre-S38 records continue to work via the read-side compatibility shim.
+
+### Internal / process
+- **Stale test docblock prose corrected (B-120, dev-only)** — `tests/b114-tint-v2.test.js` and `tests/b104-group-colors.test.js` docblock prose updated to reflect post-B-117 contrast values (the pre-B-117 "4.55:1 PASS" / "4.78:1 worst-case" claims are no longer accurate after Sprint 37's tint adjustments). Zero assertion changes; docblock prose only. Test-file maintenance — no user-visible impact.
+- **B-119 contract definition expanded for CSS-token invariants (B-126, dev-only)** — `CLAUDE.md` "Fix-scope test-assertion enumeration" subsection extended to require R2 chapters declaring contract changes to enumerate **CSS-token invariants** (regex-pin tests on `shared/themes.css`, structural assertions on `--<token>` values, count-of-N assertions on token declarations) in addition to the previously-listed DOM/ARIA/message/selector contracts. Adds Sprint 37 R3 b114 T1 escalation as the second blocking precedent. Closes Sprint 37 retro HIGH action item #1.
+
+### Architecture
+- **Schema migration `tj:floatingGroups` v1 → v2 (lazy, non-destructive)** — `KNOWN_VERSION` bumped 1 → 2 with a no-op migration step. Legacy v1 records (with `itemId` only) are read transparently via a read-side compatibility shim; new writes stamp `floatingTabId` + `parentItemId`. No data rewrite on update. Per CLAUDE.md C-1, an extension toggle OFF → ON cycle is required after this update to flush the service-worker module cache (see "Note" below).
+- **Message contract `MSG_LIST_ITEMS` extended (additive, optional field)** — response payload gains an optional `floatingMembers: Record<groupId, Array<{tabId, url, windowId, tabIndex, parentItemId, floatingTabId}>>` field. Existing consumers ignoring the field continue to function without change. Typed in `shared/messages.js`.
+- **Manifest permissions** — unchanged. **Manifest entries** — unchanged.
+
+### Note
+- **Schema bump v1 → v2 — extension toggle required.** After updating to this build, toggle the extension OFF then ON in your browser's extensions page (or fully restart the browser) to ensure the service-worker module cache is flushed. Without the toggle the new floating-tab runtime render path may not activate until the next browser restart. Pre-S38 `tj:floatingGroups` records remain readable; the new write path stamps `floatingTabId` and `parentItemId` going forward.
+
+### Quality
+- **Tests**: 1,641 → **1,663 passing** (+22 net — 5 B-125 + 13 B-121 + 1 floating-shape + 3 fix-round adds). Zero regressions.
+- **Build**: `./build.sh` clean (348 K zip, 87 files, exit 0).
+- **R4 findings**: B-125 + B-120 + B-126 PROCEED clean (0 CRITICAL / 0 HIGH). B-121: 1 CRITICAL + 4 HIGH + 3 MEDIUM all resolved in fix-and-reproceed; zero open at sprint close.
 
 ## [1.31.0] — 2026-04-28
 

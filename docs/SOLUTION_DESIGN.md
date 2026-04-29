@@ -76,3 +76,6 @@
 - [§55 — B-111 — Dynamic Delete Icon (X for Live, Trash for Non-Live) (R2 + R6 Close)](design/55-b-111-dynamic-delete-icon.md)
 - [§56 — B-113 — Item-Row Drag Handle on Hover + Checkbox in Multi-Select (R2 + R6 Close)](design/56-b-113-drag-handle-multi-select.md)
 - [§57 — B-117 — Group-Color WCAG AA Matrix Audit (R2 Design)](design/57-b-117-gc-matrix-audit.md)
+- [§58 — B-125 + B-121 R0 Spike (Tab-claims / Opener-chain / Floating-groups Pipeline)](design/58-b-125-b-121-r0-spike.md)
+- [§59 — B-125 — Claim-Jump Fix (R2 Design)](design/59-b-125-claim-jump-fix.md)
+- [§60 — B-121 — Floating-Tab Runtime Render Pipeline (R2 Architecture)](design/60-b-121-floating-tab-render.md)

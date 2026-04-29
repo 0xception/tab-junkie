@@ -383,11 +383,16 @@ test('B-104 T9 (security defense-in-depth, R4 LOW #5): popup/group-jump-popup.js
    T10 — B-106 (Sprint 35) AC1 + AC5: shared/themes.css `:root` block declares
    the new 18% default for `--group-header-tint-amount`. Bumped from the prior
    implicit 12% (which lived only as a CSS fallback in surface stylesheets)
-   per product-owner feedback that group headers were "a bit too dark." The
-   §47.7 spot-check matrix re-runs at 18% with worst-case `atom-one-dark` +
-   `yellow` at 4.78:1 — still WCAG AA PASS (0.28 above the 4.5:1 floor).
-   Per-theme overrides (solarized-light at 3%, B-105) still win the cascade.
-   See docs/BACKLOG.md B-106 R1.
+   per product-owner feedback that group headers were "a bit too dark."
+   Note: B-117 (Sprint 37) §57.2.3 later audited the dark-theme override
+   independently of this `:root` 18% baseline. At the original 20% B-114
+   dark-theme override, the worst-case `atom-one-dark` + `yellow` cell
+   measured 2.806:1 (FAIL, per §57.2.3 row 8); B-117 §57.3.1 reduced the
+   dark-theme override to 7%, which resolves the same cell to 4.639:1
+   (PASS, WCAG AA). The light-theme `:root` 18% baseline asserted by this
+   T10 is unchanged by B-117; per-theme overrides (solarized-light at 3%,
+   B-105; dark themes at 7%, B-117) still win the cascade.
+   See docs/BACKLOG.md B-106 R1, B-117 §57.2.3, B-117 §57.3.1.
    ========================================================================= */
 test('B-106 T10 (AC1): shared/themes.css :root block declares --group-header-tint-amount: 18%', () => {
   const css = readFile('shared/themes.css');

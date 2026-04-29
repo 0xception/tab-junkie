@@ -377,12 +377,14 @@ Three R1-LOCKED claims found incorrect at R2. The gate prevents this class of fa
 
 **Fix-scope test-assertion enumeration (mandatory subsection in every R2 chapter declaring a contract change)**
 
-When R2 declares a contract modification (DOM structure, ARIA contract, message shape, CSS class semantics, selector contract, etc.), the chapter's fix-scope table MUST include a "pre-existing test assertions to update" enumeration listing every test `file:line` that asserts the pre-change contract. R3 cannot start until this enumeration is present and verified by [solution-architect].
+When R2 declares a contract modification (DOM structure, ARIA contract, message shape, CSS class semantics, selector contract, **CSS-token invariants asserted in test files (regex-pin tests on `shared/themes.css`, structural assertions on `--<token>` values, count-of-N assertions on token declarations)**, etc.), the chapter's fix-scope table MUST include a "pre-existing test assertions to update" enumeration listing every test `file:line` that asserts the pre-change contract. R3 cannot start until this enumeration is present and verified by [solution-architect].
 
 Format:
 `tests/foo.test.js:NN — asserts <pre-change contract>; update to <post-change contract>`
 
-The Sprint 36 B-113 D-3 b048 §31.5 AC6 contract-split is the blocking precedent — R2 fix-scope listed only the b048 header comment, missing the AC6 assertion test, forcing R3 mid-build scope expansion.
+Two blocking precedents:
+- **Sprint 36 B-113 D-3** — the b048 §31.5 AC6 contract-split. R2 fix-scope listed only the b048 header comment, missing the AC6 assertion test, forcing R3 mid-build scope expansion.
+- **Sprint 37 B-117 R3 b114 T1 escalation** — B-117 R3 hit a mid-build test failure at `tests/b114-tint-v2.test.js:100` because R2 §57.8 fix-scope enumerated only DOM-style contracts, missing the CSS-token regex assertion of `--group-header-tint-amount: 20%` that B-117 was changing. The CSS-token-invariant addition above is the direct response to this precedent.
 
 ### Round 3: Build (Frontend)
 - [frontend-engineer]: UI code, service worker code, storage layer, message handlers, components.

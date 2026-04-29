@@ -2,15 +2,17 @@
  * b114-tint-v2.test.js — Sprint 36 / B-114 R5 (AC5)
  *
  * B-114 brightens the group-header tint on every dark theme by adding a
- * per-theme `--group-header-tint-amount: 20%` override to each of the 11
+ * per-theme `--group-header-tint-amount` override to each of the 11
  * dark-theme palette blocks in `shared/themes.css`. Light themes (and the
  * `:root` baseline) keep `18%`. solarized-light keeps its B-105 `3%`
- * override. R3 settled on `20%` (not the originally proposed `22%`) per
- * AC4: at 22% the worst-case §47.7 spot-check cell (atom-one-dark/one-dark
- * + yellow) drops to 4.33:1 (FAIL); at 21% it is 4.41:1 (FAIL); at 20% it
- * lifts to 4.55:1 (PASS, +0.049 over the 4.5:1 floor). 20% is the largest
- * value that PASSES every algorithmic cell in the §47.7 matrix — the same
- * "choose the largest passing value" precedent established by S35 B-105.
+ * override. R3 originally settled on `20%` per AC4's "choose the largest
+ * passing value" precedent (the same heuristic established by S35 B-105),
+ * but Sprint 37 B-117 §57.3.1 reduced the dark-theme override to `7%`
+ * after the §57.2.3 audit found the original 20% setting actually FAILed
+ * the worst-case `atom-one-dark` + `yellow` cell at 2.806:1. At 7% (post-
+ * B-117 §57.3.1) it resolves to 4.639:1 (PASS, +0.139 above the 4.5:1
+ * floor) — the largest value that PASSES every algorithmic cell in the
+ * post-B-117 §57.3.1 matrix.
  *
  * Coverage map (≥ 3 tests per AC5):
  *

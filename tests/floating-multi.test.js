@@ -1,13 +1,16 @@
 /**
- * floating-multi.test.js — AC11
- * Multiple tabs same group re-associate independently.
+ * floating-multi.test.js — AC11 (B-121 §60.4 contract update)
+ * Multiple floating-group records: each evaluated independently by
+ * reassociateFloatingGroups. Post-S38 the function does NOT write
+ * claims — instead, matched-and-claimed records are pruned and
+ * matched-and-unclaimed records remain in storage for runtime render.
  */
 import './_setup.js';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { __resetMock, __setMockTabs, seedPartitions } from './chrome-mock.js';
+import { __resetMock, __setMockTabs, __getRawStore, seedPartitions } from './chrome-mock.js';
 import { buildLiveTabIndex, __resetLiveTabIndex, getLiveTabIndex } from '../background/tabs/live-tab-index.js';
-import { __resetTabClaims, getClaimsMirror } from '../background/tabs/tab-claims.js';
+import { __resetTabClaims, getClaimsMirror, reconcileClaims } from '../background/tabs/tab-claims.js';
 import { reassociateFloatingGroups } from '../background/tabs/floating-groups.js';
 
 beforeEach(() => {
@@ -16,11 +19,11 @@ beforeEach(() => {
   __resetTabClaims();
 });
 
-test('AC11: two records with same groupId but different positions both re-associate', async () => {
+test('AC11: multiple matched-unclaimed records are all retained', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-shared', itemId: 'g-shared', windowId: 1, tabIndex: 0, url: 'https://a.com', savedAt: 1000 },
-      { groupId: 'g-shared-2', itemId: 'g-shared-2', windowId: 1, tabIndex: 1, url: 'https://b.com', savedAt: 1000 },
+      { floatingTabId: 'ft-a', groupId: 'g-shared', parentItemId: 'p-a', windowId: 1, tabIndex: 0, url: 'https://a.com', savedAt: 1000 },
+      { floatingTabId: 'ft-b', groupId: 'g-shared', parentItemId: 'p-b', windowId: 1, tabIndex: 1, url: 'https://b.com', savedAt: 1000 },
     ],
   });
 
@@ -32,38 +35,50 @@ test('AC11: two records with same groupId but different positions both re-associ
 
   await reassociateFloatingGroups(getLiveTabIndex(), {});
 
-  const claims = getClaimsMirror();
-  assert.equal(claims['g-shared'], 10, 'First record should claim tab 10');
-  assert.equal(claims['g-shared-2'], 20, 'Second record should claim tab 20');
+  /* Post-S38: reassociate writes NO claims. Both records remain in
+     storage; runtime path (buildFloatingMembers) surfaces them. */
+  assert.equal(Object.keys(getClaimsMirror()).length, 0);
+  const raw = __getRawStore('tj:floatingGroups');
+  assert.equal(raw.length, 2, 'Both matched-unclaimed records retained');
 });
 
-test('AC11: position match for one does not prevent URL fallback for another', async () => {
+test('AC11: matched-and-claimed records pruned independently from matched-unclaimed', async () => {
+  // Two records — one parent (item-X) is already claimed by
+  // reconcileClaims via URL match; the other (item-Y) is unclaimed.
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-pos', itemId: 'g-pos', windowId: 1, tabIndex: 0, url: 'https://pos.com', savedAt: 1000 },
-      { groupId: 'g-url', itemId: 'g-url', windowId: 99, tabIndex: 99, url: 'https://url-match.com', savedAt: 2000 },
+      { floatingTabId: 'ft-x', groupId: 'g-1', parentItemId: 'item-X', windowId: 1, tabIndex: 0, url: 'https://x.com', savedAt: 1000 },
+      { floatingTabId: 'ft-y', groupId: 'g-1', parentItemId: 'item-Y', windowId: 1, tabIndex: 1, url: 'https://y.com', savedAt: 2000 },
     ],
   });
 
   __setMockTabs([
-    { id: 100, url: 'https://anything.com', windowId: 1, active: false, audible: false, index: 0 },
-    { id: 200, url: 'https://url-match.com', windowId: 2, active: false, audible: false, index: 5 },
+    { id: 100, url: 'https://x.com', windowId: 1, active: false, audible: false, index: 0 },
+    { id: 200, url: 'https://y.com', windowId: 1, active: false, audible: false, index: 1 },
   ]);
   await buildLiveTabIndex();
 
-  await reassociateFloatingGroups(getLiveTabIndex(), {});
+  /* Establish a claim on tab 100 (the X record's matched tab) — simulates
+     a parent that was reconciled by URL match before reassociate ran. */
+  await reconcileClaims([{ id: 'someClaimedItem', url: 'https://x.com', sortOrder: 0 }]);
+  const claimsBefore = getClaimsMirror();
+  assert.equal(claimsBefore['someClaimedItem'], 100);
 
-  const claims = getClaimsMirror();
-  assert.equal(claims['g-pos'], 100, 'First record should match by position');
-  assert.equal(claims['g-url'], 200, 'Second record should fall back to URL match');
+  await reassociateFloatingGroups(getLiveTabIndex(), getClaimsMirror());
+
+  const raw = __getRawStore('tj:floatingGroups');
+  /* The X record's matched tab is claimed → pruned.
+     The Y record's matched tab is unclaimed → retained. */
+  assert.equal(raw.length, 1);
+  assert.equal(raw[0].floatingTabId, 'ft-y');
 });
 
-test('AC11: three floating records — all independently matched', async () => {
+test('AC11: three records with distinct windows + URLs all retained', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-1', itemId: 'g-1', windowId: 1, tabIndex: 0, url: 'https://one.com', savedAt: 1000 },
-      { groupId: 'g-2', itemId: 'g-2', windowId: 1, tabIndex: 1, url: 'https://two.com', savedAt: 1000 },
-      { groupId: 'g-3', itemId: 'g-3', windowId: 1, tabIndex: 2, url: 'https://three.com', savedAt: 1000 },
+      { floatingTabId: 'ft-1', groupId: 'g-1', parentItemId: 'p-1', windowId: 1, tabIndex: 0, url: 'https://one.com', savedAt: 1000 },
+      { floatingTabId: 'ft-2', groupId: 'g-2', parentItemId: 'p-2', windowId: 1, tabIndex: 1, url: 'https://two.com', savedAt: 1000 },
+      { floatingTabId: 'ft-3', groupId: 'g-3', parentItemId: 'p-3', windowId: 1, tabIndex: 2, url: 'https://three.com', savedAt: 1000 },
     ],
   });
 
@@ -76,8 +91,8 @@ test('AC11: three floating records — all independently matched', async () => {
 
   await reassociateFloatingGroups(getLiveTabIndex(), {});
 
-  const claims = getClaimsMirror();
-  assert.equal(claims['g-1'], 10);
-  assert.equal(claims['g-2'], 20);
-  assert.equal(claims['g-3'], 30);
+  /* No claims written. All three records retained for runtime render. */
+  assert.equal(Object.keys(getClaimsMirror()).length, 0);
+  const raw = __getRawStore('tj:floatingGroups');
+  assert.equal(raw.length, 3);
 });

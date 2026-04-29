@@ -1,6 +1,8 @@
 /**
- * floating-session-wipe.test.js — AC12
- * storage.session wipe doesn't affect tj:floatingGroups.
+ * floating-session-wipe.test.js — AC12 (B-121 §60.4 contract update)
+ * storage.session wipe must not lose tj:floatingGroups records.
+ * Post-S38: reassociateFloatingGroups does NOT write claims; records
+ * remain in storage for runtime render.
  */
 import './_setup.js';
 import { test, beforeEach } from 'node:test';
@@ -17,70 +19,57 @@ beforeEach(() => {
 });
 
 test('AC12: storage.session wipe does not lose floating-group records', async () => {
-  // Seed floating groups in storage.local
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-survive', itemId: 'g-survive', windowId: 1, tabIndex: 0, url: 'https://survive.com', savedAt: 1000 },
+      { floatingTabId: 'ft-survive', groupId: 'g-survive', parentItemId: 'p-survive', windowId: 1, tabIndex: 0, url: 'https://survive.com', savedAt: 1000 },
     ],
   });
 
-  // Simulate browser restart: wipe storage.session
   await chrome.storage.session.clear();
 
-  // Verify floating groups still in storage.local
   const raw = __getRawStore('tj:floatingGroups');
-  assert.ok(Array.isArray(raw), 'tj:floatingGroups should still exist in storage.local');
+  assert.ok(Array.isArray(raw));
   assert.equal(raw.length, 1);
   assert.equal(raw[0].groupId, 'g-survive');
 });
 
-test('AC12: re-association works after session wipe + cold start', async () => {
+test('AC12: cold-start replay preserves matched-unclaimed records', async () => {
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-cold', itemId: 'g-cold', windowId: 1, tabIndex: 0, url: 'https://cold.com', savedAt: 1000 },
+      { floatingTabId: 'ft-cold', groupId: 'g-cold', parentItemId: 'p-cold', windowId: 1, tabIndex: 0, url: 'https://cold.com', savedAt: 1000 },
     ],
   });
 
-  // Simulate browser restart: wipe session, reset in-memory state
   await chrome.storage.session.clear();
   __resetLiveTabIndex();
   __resetTabClaims();
 
-  // Rebuild live tab index (cold start)
   __setMockTabs([
     { id: 5, url: 'https://cold.com', windowId: 1, active: false, audible: false, index: 0 },
   ]);
   await buildLiveTabIndex();
 
-  // Run re-association
   await reassociateFloatingGroups(getLiveTabIndex(), {});
 
-  const claims = getClaimsMirror();
-  assert.equal(claims['g-cold'], 5, 'Re-association should work after session wipe');
-
-  // Verify floating groups in storage.local were pruned (resolved)
+  /* Post-S38: no claim written. Record retained for runtime render. */
+  assert.equal(Object.keys(getClaimsMirror()).length, 0);
   const raw = __getRawStore('tj:floatingGroups');
-  assert.ok(Array.isArray(raw));
-  assert.equal(raw.length, 0, 'Resolved record should be pruned');
+  assert.equal(raw.length, 1);
 });
 
-test('AC12: session wipe clears tab claims but floating groups remain', async () => {
-  // Seed both: tab claims in session, floating groups in local
+test('AC12: session wipe clears tab claims; floating-group records survive in local', async () => {
   await chrome.storage.session.set({ 'tj:tabClaims': { 'item-1': 10 } });
   seedPartitions({
     floatingGroups: [
-      { groupId: 'g-persist', itemId: 'g-persist', windowId: 1, tabIndex: 0, url: 'https://persist.com', savedAt: 1000 },
+      { floatingTabId: 'ft-persist', groupId: 'g-persist', parentItemId: 'p-persist', windowId: 1, tabIndex: 0, url: 'https://persist.com', savedAt: 1000 },
     ],
   });
 
-  // Wipe session
   await chrome.storage.session.clear();
 
-  // Session claims should be gone
   const sessionResult = await chrome.storage.session.get('tj:tabClaims');
-  assert.equal(sessionResult['tj:tabClaims'], undefined, 'Session claims should be wiped');
+  assert.equal(sessionResult['tj:tabClaims'], undefined);
 
-  // Floating groups in local should survive
   const raw = __getRawStore('tj:floatingGroups');
-  assert.equal(raw.length, 1, 'Floating groups should survive session wipe');
+  assert.equal(raw.length, 1);
 });
