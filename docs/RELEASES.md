@@ -4,6 +4,62 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.34.0 — Sprint 40 — Drag-and-drop reorder + cold-start claim-jump fix (2026-04-30)
+
+**Tagged on `feature/sprint-40-drag-reorder` — pending PR merge to release/v2. Tag: `v1.34.0`.**
+
+Sprint 40: 5-item floating-tab bug-fix anchor + drag-reorder feature sprint. 4 items shipped (B-132 P1 cold-start claim-jump fix + B-133 P3/XS visual consolidation + B-134 P2/M drag-and-drop reorder + B-131 closed `wontfix-not-repro`) + 1 deferred stub (B-135 cross-window drag — no S40 work). All shipped items pipeline-complete; product-owner B-132 + B-134 UAT carried forward per S35/S36/S37/S38/S39 pattern.
+
+### What's new (user-visible)
+
+- **Drag-and-drop reorder for open and floating tabs (B-134, P2)** — five new drag operations are now possible from the side panel: (1) reorder open tabs within the same window (mirrors to the browser's native tab strip in real time via `chrome.tabs.move`); (2) reorder floating tabs within their group; (3) attach an open tab to a group (drop an Open Tabs row onto a group's floating area to make it a floating member); (4) detach a floating tab back to Open Tabs; (5) move a floating tab between groups as a single atomic operation. All five ops use the same horizontal drop-line indicator already used for bookmark reorder. Cross-window drag is rejected silently and tracked as **B-135** for a future sprint (same-window only in v1). Drag-to-save (Open Tabs → bookmark area to promote) remains deferred under B-041. Sidepanel-only for v1; newtab does not yet support drag reorder. 3-branch race-guard against concurrent edits from another window (B-122 §62.9 F-5 pattern).
+- **Floating tabs no longer disappear from their group after extension reload (B-132, P1)** — pre-existing floating tabs no longer get auto-claimed by an unrelated saved bookmark whose URL happened to match when the extension reloaded. Root cause: `reconcileClaims` Phase 2 had no gate skipping candidates already in the persisted `tj:floatingGroups` records, so any URL-collision at cold-start would auto-claim the floating tab and pull it out of its group. Fix: new `preMarkInheritedFromFloatingGroups()` helper runs before `reconcileClaims`, populating the in-memory `inheritedTabs` Set from persisted records; new Phase 2 gate skips already-inherited candidates (mirrors the B-125 `reevaluateTab` gate pattern). AC3 carve-out: deeply-nested opener-spawned tabs (multi-hop) may still land in Open Tabs after a reload because opener-chain context is not persisted across SW restarts — documented across three surfaces (R0, R2, JSDoc) so future readers cannot mistake the carve-out for an unpatched vulnerability.
+- **Open Tabs section rows now use a dotted green left-edge bar (B-133, P3)** — Open Tabs rows pick up the same dotted-green visual cue introduced for floating tabs in v1.33.0, completing the visual taxonomy: **solid** green = persistent (saved bookmark currently live); **dotted** green = ephemeral (floating tab in group OR Open Tabs row). At a glance you can now tell which rows in the panel are persistent and which will disappear when their tab closes. Bonus architectural fix: the latent CSS-specificity fragility flagged at R1 (floating rows matching both `[data-floating]` and `[data-live-only]` at equal specificity) is incidentally fixed — both rules now bind `--floating-bar-color`, so any future yellow/per-theme swap propagates consistently.
+
+### Internal / process
+
+- **B-131 closed `wontfix-not-repro`** — Wave 0 [product-manager] verify-first static-analysis verdict: structurally cannot reproduce in v1.33.1 (strict tabId-keyed mapping at every layer; no pathway for cross-row title bleed). HIGH confidence verdict closed the bug without sinking R2/R3 effort, freeing ~3 effort units for B-132 + B-134. Pattern worth keeping for any P1 bug where repro is uncertain post-fix-of-related-issue. Per product-owner direction: "if this comes back up naturally, i will open a new bug."
+- **R0 spike merged for B-132** — discovery completed in Wave 0 alongside R1 work; verdict came back M Full (not XL Spike-First), saving sprint capacity. Pattern: when a P1 bug touches a known-tricky subsystem (B-121/B-125 floating-tab + claim-jump), R0-in-Wave-0 is faster than serial R0→R1.
+- **R1 LOCKED at brainstorm for B-134** — saved an entire round-trip; R2 chapter 63 dropped in directly per the locked design (5 ops, 8 ACs, R2-VERIFY 1 schema-bump-or-not as first action).
+- **Wave 3a fix-round closed all 4 HIGH findings on B-134** — qa-reviewer caught the gen-counter over-trip (H-1) which would have been a UX-blocker had it shipped. Validates the "3 reviewers in parallel" Gate 1 pattern. Findings: H-1 race-guard B over-trip → content-conditional gen bumps via signature setter guards; H-2 `MSG_REORDER_FLOATING_MEMBERS` ERR_RACE silent fail → toast on race + validation; H-3 REJECT indicator stuck-position → exclude REJECT from skip-no-op; H-4 REORDER_FLOATING midline math includes dragged row → exclude in both `_computeTabDropTarget` and `_resolveTabDragIndicatorY`.
+
+### Architecture
+
+- **Schema migration `tj:floatingGroups` v2 → v3 (lazy, non-destructive)** — `tj:floatingGroups` records gain a `sortOrder: number` field per record so floating-tab order survives reloads. `KNOWN_VERSION` bumped 2 → 3 with a no-op migration step. Legacy v2 records (without `sortOrder`) are read transparently via a read-side compatibility shim using `(windowId, tabIndex)` fallback; new writes always stamp `sortOrder`. No data rewrite on update; lazy migration on next write. C-1a (`KNOWN_VERSION` + `defaultShape` for `PARTITION_META`) + C-1b (lazy strategy chosen and documented) compliance verified. Rollback: `git revert` returns to v2 reader path; v3 records remain readable (extra `sortOrder` field ignored). Documented in `docs/design/63-b-134-tab-drag-reorder.md` §63.18 As-Built.
+- **Two new message contracts (B-134)** — `MSG_REORDER_FLOATING_MEMBERS` (within-group reorder) + `MSG_MOVE_FLOATING_TAB` (cross-group MOVE atomic single-message; also covers ATTACH and DETACH flows). Both typed in `shared/messages.js` with sender/receiver contracts. Existing consumers unaffected.
+- **`inheritedTabs` Set extended with `markInherited(tabId)` / `pruneInherited(tabId)` lock helpers (B-134)** — ATTACH path calls `markInherited` to lock the tab into its group; DETACH calls `pruneInherited`. Mirrors the B-125/B-121/B-132 in-memory marker pattern. Documented in `docs/design/65-b-132-cold-start-claim-jump-fix.md` §65.14.
+- **Manifest permissions** — unchanged. **Manifest entries** — unchanged.
+
+### Quality
+
+- **Tests**: 1,734 → **1,778 passing** (+44 net — 32 B-134 lifecycle tests in `tests/b134-tab-drag-reorder.test.js` (T1-T31 + R5 gap test) + 8 B-132 lifecycle tests in `tests/b132-cold-start-inheritance.test.js` (T-132-A..H) + 2 B-133 tests in `tests/b133-open-tabs-dotted.test.js` (T-133-A + T-133-B) + 2 R5 fix-round adds). Zero regressions. ~3.6 s suite runtime.
+- **Build**: `./build.sh` clean (380 K zip, 87 files, exit 0).
+- **R4 findings**: 0 CRITICAL across all 4 items. **4 HIGH** on B-134 (all closed in Wave 3a fix-round). **2 MEDIUM** on B-132 (both closed in Wave 3a — qa M-1 sibling-test comments + qa M-2 try/catch wrap). B-133 shipped 0 CRIT/HIGH/MEDIUM/LOW from both reviewers (Fast Track XS). Surviving MEDIUMs/LOWs deferred per `docs/findings/sprint-40.md` (payload upper-bound hardening, parentItemId re-anchor reconciliation decided in favor of as-built per §63.18.2, 4 qa polish items).
+- **R2 + R6 As-Built chapters added**: `docs/design/63-b-134-tab-drag-reorder.md` (1,103 lines R2 + §63.18 As-Built), `docs/design/64-b-132-r0-spike.md` (1,103 lines R0 spike), `docs/design/65-b-132-cold-start-claim-jump-fix.md` (1,047 lines R2 + §65.14 As-Built). Root index TOC extended with chapters 63 + 64 + 65.
+
+### Mid-flight scope adjustments
+
+- **B-134 R3 docstring vs R2 deviation (parentItemId re-anchor)** — code-reviewer M-4 flagged a deviation from R2 §63.8.2 pseudocode. R6 reconciliation decided in favor of the as-built behavior (more correct), but the deviation surfaced at R4 not at R3. Filed as B-137 candidate for Sprint 41 retro piggyback (R3 STOP-and-escalate gate extension to fire on R3-finds-R2-incorrect, not just AC-locked deferrals).
+- **R2-VERIFY 1 (`chrome.storage.session` wipe-on-reload empirical confirmation) deferred to UAT-4** — fix is correct under either verdict; pushed to UAT-4 for SW-console verification. Acceptable but ideally R2 would have an "environment probe" pattern. Defer to backlog triage.
+
+### Pending UAT
+
+- **B-132 UAT-1..UAT-9 pending** (`docs/UAT_B-132.md`) — Mode-b primary fix + Mode-a regression + AC3 carve-out + R2-VERIFY 1 empirical.
+- **B-134 UAT-1..UAT-19 pending** (`docs/UAT_B-134.md`) — all 5 ops + 4 Wave 3a regression guards + edge cases.
+- **Carried forward**: S36 (B-107..B-115) + S37 (B-117 UAT-1..UAT-10) + S38 (B-125 UAT-1..UAT-8 + B-121 UAT-1..UAT-15) + S39 (B-124 UAT-1..UAT-13 + B-122 UAT-1..UAT-10) — should clear before any v2 → main merge. Not blocking S40 close per established pattern.
+
+### Note — extension reload required after update
+
+**Schema bump v2 → v3 — extension toggle required.** After updating to v1.34.0, toggle the extension OFF then ON in your browser's extensions page (`edge://extensions` or `chrome://extensions`), or fully restart the browser. This flushes the service-worker module cache and ensures the new floating-tab ordering schema is recognized. **Drag-and-drop reorder will not work correctly until this is done.** Pre-v1.34.0 `tj:floatingGroups` records remain readable; the new write path stamps `sortOrder` going forward. Per CLAUDE.md C-1a precedent (Sprint 30 B-092 `denseLayout`, Sprint 38 B-121 `floatingGroups` v1→v2).
+
+### Rollback
+
+- **Code-only revert**: single atomic `git revert <release-commit-sha>` reverses the v1.34.0 release commit. The lazy-migration v2→v3 schema bump auto-rolls-back: post-revert reader path tolerates v3 records (extra `sortOrder` field is ignored), and new writes will emit v2 shape. No data corruption. `git tag -d v1.34.0` deletes the local tag (if not yet pushed).
+- **Reinstall path**: download the v1.33.1 zip from the prior tag and load unpacked from `chrome://extensions` (or `edge://extensions`).
+- **GitHub Release**: skipped per product-owner direction (tag `v1.34.0` + zip exist for manual publish later).
+
+---
+
 ## v1.33.1 hotfix — B-130 floating-tab indicator simplification (2026-04-30)
 
 **Tagged on `hotfix/v1.33.1-b-130` — pending PR merge to release/v2. Tag: `v1.33.1`.**
