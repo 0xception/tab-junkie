@@ -4,16 +4,17 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
-## v1.35.0 — Sprint 41 — Floating-tab data-model evolution + 5 process gates (2026-04-29)
+## v1.35.0 — Sprint 41 — Floating-tab data-model evolution + 5 process gates + 2 pre-merge fixes (2026-04-30)
 
 **Tagged on `feature/sprint-41-floating-tab-id` — pending PR merge to release/v2. Tag: `v1.35.0`.**
 
-Sprint 41: 1 P1/M floating-tab reliability anchor (B-137) + 5 P3/XS CLAUDE.md process-gate Fast Track items (B-139..B-143) + 1 P2/XS DEFERRED (B-138). 6 items shipped pipeline-complete; product-owner B-137 UAT carried forward per established pattern. B-137 structurally eliminates Issues 2 + 3 from the post-S40 spike (sibling-title displacement on floating rows; spurious race-toast on legitimate same-window floating-tab reorders) by adopting `floatingTabId` as the primary live-tab join key in `tj:floatingGroups`.
+Sprint 41: 1 P1/M floating-tab reliability anchor (B-137) + 5 P3/XS CLAUDE.md process-gate Fast Track items (B-139..B-143) + 1 P2/XS DEFERRED (B-138) + **2 P0 surgical pre-merge fixes** (Fix A cascade-prune-on-tabs.onRemoved + Fix B section→strip insertIndex translation) bundled per product-owner explicit scope-discipline override after smoke-testing the v1.35.0 build prior to merge. 8 items shipped pipeline-complete (1 deferred, 6 main pipeline + 2 surgical fixes); product-owner B-137 UAT carried forward per established pattern.
 
 ### What's new (user-visible)
 
 - **Floating tabs now reliably render the correct title and metadata (B-137, P1)** — eliminates the issue where opening a new tab from a bookmark within a group sometimes showed an unrelated sibling item's title in the floating row (the root cause of B-131 and the post-Sprint 40 sibling-title displacement reports). Floating-tab rows now consistently display the title, URL, and favicon belonging to the actual live tab they represent, regardless of how many siblings exist in the same group. Subsumes B-131 (closed `wontfix-not-repro` in S40 because pre-B-137 the symptom was structurally hard to reproduce on demand; B-137's data-model evolution removes the underlying class of bug entirely).
-- **Drag-reordering floating tabs no longer fires false race-toasts (B-137, P1)** — reordering floating tabs within a group via drag-and-drop is now a clean operation; the spurious "another window changed this group, drag aborted" toast that occasionally appeared during legitimate same-window reorders has been structurally eliminated. The genuine cross-window race-guard from v1.34.0 is preserved — it only fires now when a real concurrent edit occurs.
+- **Floating-tab drag-reorder within a group no longer fires false "list changed during drag" toasts (Fix A — pre-merge bundle, P0)** — closing a floating tab previously left an orphan record in storage that subsequently caused every legitimate drag-reorder within that group to fail with a "Floating-tab list changed during drag — please retry." toast. Closing a floating tab now cleans up its storage record, so subsequent reorders succeed. (B-137 closed half of Issue 3 from the post-S40 spike — the `_resolveRecordIndexByTabId` returns-null half. Fix A closes the other half — the `storageBucketSize !== supplied.size` parity-check half — that B-137 R2 chapter promised to subsume but missed.)
+- **Drag-reordering open tabs now drops the row at the position you actually pointed to (Fix B — pre-merge bundle, P0)** — when one or more saved-bookmark tabs or floating tabs were positioned earlier in the same browser window's tab strip, dragging an Open Tab in the sidepanel previously landed it N positions above where you dropped (where N = number of those preceding tabs). The drop position now matches the user's target index regardless of how many other tabs precede in the strip. (Latent B-134 bug surfaced by v1.34.1 B-136 wiring up `chrome.tabs.onMoved` so the strip actually reorders visibly — the section-relative vs strip-absolute index discrepancy is now translated correctly at the `chrome.tabs.move` dispatch site.)
 
 ### Internal / process
 

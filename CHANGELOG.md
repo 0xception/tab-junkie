@@ -2,13 +2,14 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
-## [1.35.0] — 2026-04-29
+## [1.35.0] — 2026-04-30
 
-Sprint 41 — Floating-tab data-model evolution (1 user-visible item): 1 P1/M reliability fix that eliminates two latent floating-tab defects from prior sprints.
+Sprint 41 — Floating-tab data-model evolution + 2 pre-merge bug fixes (3 user-visible items): 1 P1/M reliability fix that eliminates latent floating-tab defects from prior sprints, plus 2 surgical fixes for drag-reorder bugs surfaced by smoke-testing the v1.35.0 build prior to merge.
 
 ### Fixed
 - **Floating tabs now reliably render the correct title and metadata (B-137)** — eliminates the issue where opening a new tab from a bookmark within a group sometimes showed an unrelated sibling item's title in the floating row (the root cause of B-131 and the post-Sprint 40 sibling-title displacement reports). Floating-tab rows now consistently display the title, URL, and favicon belonging to the actual live tab they represent, regardless of how many siblings exist in the same group.
-- **Drag-reordering floating tabs no longer fires false race-toasts (B-137)** — reordering floating tabs within a group via drag-and-drop is now a clean operation; the spurious "another window changed this group, drag aborted" toast that occasionally appeared during legitimate same-window reorders has been structurally eliminated. The genuine cross-window race-guard from v1.34.0 is preserved — it only fires now when a real concurrent edit occurs.
+- **Floating-tab drag-reorder within a group no longer fires false "list changed during drag" toasts (Fix A — pre-merge bundle)** — closing a floating tab previously left an orphan record in storage that subsequently caused every legitimate drag-reorder within that group to fail with a "Floating-tab list changed during drag — please retry." toast. Closing a floating tab now cleans up its storage record, so subsequent reorders succeed. (B-137 fixed half of the underlying race; this fix closes the other half.)
+- **Drag-reordering open tabs now drops the row at the position you actually pointed to (Fix B — pre-merge bundle)** — when one or more saved-bookmark tabs or floating tabs were positioned earlier in the same browser window's tab strip, dragging an Open Tab in the sidepanel landed it N positions above where you dropped (where N = number of those preceding tabs). The drop position now matches the user's target index regardless of how many other tabs precede in the strip. (Latent B-134 bug surfaced by v1.34.1 B-136 wiring up `chrome.tabs.onMoved`.)
 
 ### Architecture
 - **Schema migration `tj:floatingGroups` v3 → v4 (lazy, non-destructive)** — `tj:floatingGroups` records gain a stable identity field that survives tab-index shifts, so floating-tab rows can no longer be confused with their siblings during render or reorder. `KNOWN_VERSION` bumped 3 → 4 with a no-op migration step. Legacy v3 records (without the new identity field) are read transparently via a read-side compatibility shim plus a position+URL fallback; cold-start re-association lazily rewrites legacy records as they are encountered. No data rewrite on update. Per CLAUDE.md C-1a, an extension toggle OFF → ON cycle is required after this update to flush the service-worker module cache (see "Note" below).
