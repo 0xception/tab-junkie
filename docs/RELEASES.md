@@ -4,6 +4,53 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.35.0 — Sprint 41 — Floating-tab data-model evolution + 5 process gates (2026-04-29)
+
+**Tagged on `feature/sprint-41-floating-tab-id` — pending PR merge to release/v2. Tag: `v1.35.0`.**
+
+Sprint 41: 1 P1/M floating-tab reliability anchor (B-137) + 5 P3/XS CLAUDE.md process-gate Fast Track items (B-139..B-143) + 1 P2/XS DEFERRED (B-138). 6 items shipped pipeline-complete; product-owner B-137 UAT carried forward per established pattern. B-137 structurally eliminates Issues 2 + 3 from the post-S40 spike (sibling-title displacement on floating rows; spurious race-toast on legitimate same-window floating-tab reorders) by adopting `floatingTabId` as the primary live-tab join key in `tj:floatingGroups`.
+
+### What's new (user-visible)
+
+- **Floating tabs now reliably render the correct title and metadata (B-137, P1)** — eliminates the issue where opening a new tab from a bookmark within a group sometimes showed an unrelated sibling item's title in the floating row (the root cause of B-131 and the post-Sprint 40 sibling-title displacement reports). Floating-tab rows now consistently display the title, URL, and favicon belonging to the actual live tab they represent, regardless of how many siblings exist in the same group. Subsumes B-131 (closed `wontfix-not-repro` in S40 because pre-B-137 the symptom was structurally hard to reproduce on demand; B-137's data-model evolution removes the underlying class of bug entirely).
+- **Drag-reordering floating tabs no longer fires false race-toasts (B-137, P1)** — reordering floating tabs within a group via drag-and-drop is now a clean operation; the spurious "another window changed this group, drag aborted" toast that occasionally appeared during legitimate same-window reorders has been structurally eliminated. The genuine cross-window race-guard from v1.34.0 is preserved — it only fires now when a real concurrent edit occurs.
+
+### Internal / process
+
+- **Five CLAUDE.md gate strengthenings (B-139..B-143)** — Sprint 40 + post-S40 retrospective action items closed: (1) **C-13 — `chrome.tabs.move` index-shift convention** documented at R2 charter level so future drag-reorder work doesn't have to re-derive the listener-side renumber math (Sprint 40 B-134 precedent); (2) **C-14 — service-worker session-storage probe** added to R2 correctness checklist so the `chrome.storage.session` wipe-on-reload semantic is verified at R2 (not deferred to UAT) when a design depends on it (Sprint 40 R2-VERIFY 1 → UAT-4 deferral precedent); (3) R3 STOP-and-escalate gate **extended to fire on R3-finds-R2-incorrect**, not just AC-locked deferrals (Sprint 40 B-134 R3 docstring vs R2 §63.8.2 deviation precedent — code-reviewer M-4 caught at R4); (4) R3 charter — **disposition-flip enumeration at R1** when an item's tier/disposition can flip on R2 outcome (Sprint 41 B-138 mid-sprint flip from "fold into B-137 R3" to DEFERRED precedent — filed as B-144 candidate in this sprint's retro and self-applied); (5) R3 charter — **user-visible reproduction-path unit test required** when R3 ships a structural fix for a previously-reported user-visible bug (Sprint 41 B-137 qa-reviewer R4 finding that the unit T1 verifies the position-collision MECHANISM but not the user-visible PATH precedent — filed as B-145 candidate in this sprint's retro and self-applied).
+- **B-138 DEFERRED with documented disposition** — the post-B-137 cleanup of legacy `(windowId, tabIndex)` callers cannot land same-sprint because the position-fallback must be retained for legacy v3 records still in the wild. R6 As-Built §66.18.11 reverts B-138 to backlog with disposition: "after one or two sprints of v4 production observation, when v3 cohort has fully turned over (verified via UAT or extension storage inspection), B-138 cleanup becomes safe to schedule." Not a slip — intentional deferral.
+- **B-141 self-application gate worked correctly** — the new R3 STOP-and-escalate-on-R2-incorrect extension was self-tested for the first time in B-141's own R3 build; the gate did NOT fire (correctly), because the line-number drift R3 hit was JSDoc-only (not silent adaptation of an incorrect R2 spec). Validates the gate's signal/noise.
+
+### Architecture
+
+- **Schema migration `tj:floatingGroups` v3 → v4 (lazy, non-destructive)** — `tj:floatingGroups` records gain a stable identity field (`floatingTabId`) per floating-member that survives tab-index shifts, so floating-tab rows can no longer be confused with their siblings during render or reorder. The new `_resolveRecordIndexByTabId` resolver consults `floatingTabId` first; the legacy `(windowId, tabIndex)` resolver is retained as a fallback for v3 records (which is exactly why B-138 must be deferred). `KNOWN_VERSION` bumped 3 → 4 with a no-op migration step (lazy strategy chosen and documented per CLAUDE.md C-1b). Legacy v3 records (without `floatingTabId`) are read transparently via the position-fallback resolver; cold-start re-association lazily rewrites legacy records as they are encountered (cold-start re-bind path in `background/tabs/tab-events.js`). No data rewrite on update. C-1a (`KNOWN_VERSION` + `defaultShape` for `PARTITION_META`) + C-1b (lazy strategy) compliance verified. Documented in `docs/design/66-b-137-floating-tab-id-join-key.md` §66.18 As-Built (1,129 lines total).
+- **Manifest permissions** — unchanged. **Manifest entries** — unchanged. **`DEFAULT_PREFERENCES`** — unchanged. **Message contracts** — unchanged.
+
+### Quality
+
+- **Tests**: 1,782 → **1,799 passing** (+17 net — 15 B-137 lifecycle tests across 9 existing test files (`floating-shape`, `floating-position`, `floating-multi`, `b132-cold-start-inheritance`, `b134-tab-drag-reorder`, `migration-steps`, `b013-opener-chain`, `b018-persistence`, `b121-floating-group-render`) + 2 R5-added gap tests (`floating-multi.test.js` qa L-2 H-2 dedup pin + `migration-fresh-install.test.js` qa L-3 `defaultShape` literal pin)). Zero regressions. ~3.4 s suite runtime.
+- **Build**: `./build.sh` clean (384 K zip, 87 files, exit 0).
+- **R4 findings**: 0 CRITICAL / 0 HIGH on B-137 across all 3 reviewers. MEDIUMs/LOWs all closed at R5 (cheap-fix tests + UAT-1) or R6 As-Built (qa L-1 JSDoc) or routed to UAT-13. B-139..B-143 bundle (Fast Track XS) shipped 0 CRIT/HIGH/MEDIUM/LOW from both reviewers; qa-reviewer skipped per Fast Track tier. Findings persisted in `docs/findings/sprint-41.md`.
+- **R2 + R6 As-Built chapter added**: `docs/design/66-b-137-floating-tab-id-join-key.md` (1,129 lines R2 + §66.18 As-Built incl. §66.18.11 B-138 deferred-disposition rationale). Root index TOC updated for chapter 66 to "R2 + R6 Close".
+- **CLAUDE.md** — 5 surgical edits across 2 regions (R2 Correctness Checklist + ROUND 3 Build section): C-13 + C-14 added, R3 STOP-and-escalate + 2 R3 charter additions appended.
+
+### Pending UAT
+
+- **B-137 UAT-1..UAT-15 pending** (`docs/UAT_B-137.md`) — schema-migration verification + sibling-title rendering + drag-reorder race-toast regression coverage + cold-start re-bind path.
+- **Carried forward**: S36 (B-107..B-115) + S37 (B-117 UAT-1..UAT-10) + S38 (B-125 UAT-1..UAT-8 + B-121 UAT-1..UAT-15) + S39 (B-124 UAT-1..UAT-13 + B-122 UAT-1..UAT-10) + S40 (B-132 UAT-1..UAT-9 + B-134 UAT-1..UAT-19) — should clear before any v2 → main merge. Not blocking S41 close per established pattern.
+
+### Note — extension reload required after update
+
+**Schema bump v3 → v4 — extension toggle required.** After updating to v1.35.0, toggle the extension OFF then ON in your browser's extensions page (`edge://extensions` or `chrome://extensions`), or fully restart the browser. This flushes the service-worker module cache and ensures the new floating-tab data model is recognized. **Floating-tab title rendering and drag-reorder may behave inconsistently until this is done.** Pre-v1.35.0 `tj:floatingGroups` records remain readable; the new write path stamps `floatingTabId` going forward, and legacy v3 records lazily acquire the new field on next write. Per CLAUDE.md C-1a precedent (Sprint 30 B-092 `denseLayout`, Sprint 38 B-121 `floatingGroups` v1→v2, Sprint 40 B-134 `floatingGroups` v2→v3).
+
+### Rollback
+
+- **Code-only revert**: single atomic `git revert <release-commit-sha>` reverses the v1.35.0 release commit. The lazy-migration v3→v4 schema bump auto-rolls-back: post-revert reader path tolerates v4 records (extra `floatingTabId` field is ignored by the v3 resolver), and new writes will emit v3 shape. No data corruption. `git tag -d v1.35.0` deletes the local tag (if not yet pushed).
+- **Reinstall path**: download the v1.34.1 zip from the prior tag and load unpacked from `chrome://extensions` (or `edge://extensions`).
+- **GitHub Release**: skipped per product-owner direction (tag `v1.35.0` + zip exist for manual publish later).
+
+---
+
 ## v1.34.1 hotfix — B-136 chrome.tabs.onMoved listener registration (2026-04-30)
 
 **Tagged on `hotfix/v1.34.1-b-136` — pending PR merge to release/v2. Tag: `v1.34.1`.**
