@@ -296,3 +296,324 @@ R2 chapter authored as `docs/design/66-b-137-floating-tab-id-join-key.md` (17 se
 **Top R3-VERIFY markers** (deferred to R3): URL-guard at tier (a) for stale-`liveTabId` (R2 LOCKS no-guard, R3 may add post-UAT); pruneResolvedFloatingGroups extend-in-place vs. new function (R2 prefers in-place); `_resolveRecordIndexByTabId` linear-scan vs. precomputed cache (R2 LOCKS linear).
 
 **Nothing escalates back to R1.** R1's 7 R2-VERIFY markers all resolved within R2 chapter; the 8 ACs are buildable as locked.
+
+---
+
+## [code-reviewer] — B-137 R4 anchor (Full M-tier)
+
+**Scope**: Full M-tier R3 review of the v3→v4 schema bump + lazy-migration adoption of `liveTabId` as the primary live-tab join key. Audited 5 production files (`background/storage/migration.js`, `background/storage/shapes.js`, `background/tabs/floating-groups.js`, `background/tabs/floating-members.js`, `background/tabs/tab-events.js` — ~242 added lines net) + 9 test files (~608 added lines, +15 new tests + fixture updates). Verified the R2 contract (`docs/design/66-b-137-floating-tab-id-join-key.md` §66.1–§66.17) against R3's actual diff.
+
+### CRITICAL (must fix before R5)
+
+_None_
+
+### HIGH (must fix before R5)
+
+_None_
+
+### MEDIUM (fix if time permits)
+
+_None_
+
+### LOW (defer to future sprint)
+
+_None_
+
+### Notes / observations
+
+- **C-1a + C-1b governance compliance — VERIFIED**: `KNOWN_VERSION` is bumped to `4` at `background/storage/migration.js:89` (R2 cited line 76 — drift of +13 from R3's expanded JSDoc on the constant itself, all four version-history paragraphs intact). `defaultShape(PARTITION_META)` returns `{ schemaVersion: 4, createdAt: Date.now() }` at `background/storage/shapes.js:111` with the v3→v4 history paragraph appended at lines 105-110. New no-op `MIGRATION_STEPS` v3→v4 entry added at `migration.js:137-141` with the C-1a + C-1b governance rationale comment at lines 126-136. Migration chain contiguity preserved (1→2→3→4); F2 contiguity check at `migration.js:157-164` continues to validate the chain. Lazy-migration strategy (option 2) implemented as locked.
+- **C-1a SW module-cache flush note**: confirmed deferred to R7 [technical-writer] for `CHANGELOG.md`. R2 §66.2.1 explicitly flagged this as R7 territory; not in R3 scope. No finding.
+- **AC1 (schema bump + validator)**: PASS. `assertShape(PARTITION_FLOATING_GROUPS)` validator extension at `shapes.js:266-277` follows the OPTIONAL `'fieldName' in entry`-guarded type check pattern (allow-list direction per C-7). Mirrors the existing `floatingTabId`/`parentItemId`/`itemId`/`sortOrder` precedents at `:248-265`. When present, `liveTabId` MUST be a finite number (`typeof === 'number'` AND `Number.isFinite`); when absent, the record is still valid (legacy v3). Backward-compat verified by `tests/floating-position.test.js:78-101` and the new `tests/migration-steps.test.js:97-145` v2→v4 test (legacy v2 record with neither `sortOrder` nor `liveTabId` continues to validate).
+- **AC2 (lazy migration)**: PASS. Writes always stamp `liveTabId` via `appendFloatingGroup` (§66.5.4 implementation at `floating-groups.js:242-253`). Reads tolerate v3 records via the 3-tier fallback in `buildFloatingMembers` (§66.6.1 implementation at `floating-members.js:90-128`) and `_resolveRecordIndexByTabId` (§66.8.1 implementation at `floating-groups.js:322-345`). No bulk rewrite. Confirmed by `tests/migration-steps.test.js:97-145` (legacy v2/v3 records survive intact through `runMigrations`).
+- **AC3 (write path stamps `liveTabId`)**: PASS. Input validator extension at `floating-groups.js:236-238` (silent reject on missing/non-finite `liveTabId` — matches the existing reject-pattern at lines 224-231). Caller-supplies pattern at `tab-events.js:163-167` passes `liveTabId: tab.id` from the `chrome.tabs.onCreated` callback parameter (line 125) — `tab.id` is in scope at the call-site. Test pin at `tests/floating-shape.test.js:212-225` (auto-stamp from caller-supplied entry) + `:227-243` (silent reject on missing `liveTabId`) + `:245-271` (silent reject on `NaN` and string).
+- **AC4 (read path 3-tier join)**: PASS. `buildFloatingMembers` adopts the documented order:
+  - Tier (a) at `floating-members.js:97-106` — `record.liveTabId is finite AND liveIndex.has(record.liveTabId)`. The §66.9.2 Option B "no URL-guard" rationale comment is present at lines 100-104 — reviewers can trace the deferred R3-VERIFY 1 stale-defense reasoning without spelunking the R2 chapter.
+  - Tier (b) at `:108-116` — preserved verbatim from pre-B-137 behavior.
+  - Tier (c) at `:117-128` — preserved verbatim.
+  - H-2 dedup gate at `:135-138` and claimed-tab filter at `:131-133` retained in original positions.
+  - Sort path at `:165-180` retained — `sortOrder` is the order key, `liveTabId` is the join key (separate concerns per §66.6.5).
+- **AC5 (cold-start lazy rewrite owner = `reassociateFloatingGroups`)**: PASS. R2-VERIFY 1 LOCK honored — `reassociateFloatingGroups` body at `floating-groups.js:115-201` extends the existing classification with a fourth bookkeeping bucket (`staleLiveTabIdRecords: Map<floatingTabId, newLiveTabId>` at line 134). The lazy-rewrite predicate at `:180-188` correctly fires for both legacy v3 records (record.liveTabId === undefined → !== matchedTabId) AND v4 records with stale liveTabId (record.liveTabId !== matchedTabId). Records lacking `floatingTabId` (pre-S38 legacy shape) are explicitly NOT lazy-rewritten — see the storage-identity rationale comment at `:127-132` and the R2 §66.7.4 LOCK; these self-evict via natural turnover. `preMarkInheritedFromFloatingGroups` body (`:711-751`) is unchanged — confirmed via `grep -A40 "export async function preMarkInheritedFromFloatingGroups"` showing the same position+URL fallback as pre-B-137. T-132-H "writes ZERO storage" pin at `tests/b132-cold-start-inheritance.test.js:353-391` continues to pass (verified via the npm test green count 1797/1797).
+- **AC6 (`_resolveRecordIndexByTabId` direct-tabId fast-path)**: PASS. Tier (a) at `floating-groups.js:323-331` (linear scan on `arr` for matching `groupId + liveTabId`); tier (b) at `:333-344` (preserved geometry-via-`liveIndex.get(tabId)` lookup). All three call-sites (`:388` reorderFloatingMembers outer parity, `:412` mutator inner-loop, `:488` moveFloatingTab source-resolution) get the fast-path automatically — no caller-side changes needed (R2-VERIFY 4 LOCK honored). The R3-VERIFY 3 LOCK (linear scan retained) is documented at `:309-314` with the perf rationale referenced. The cross-group `liveTabId` preservation block at `:529-533` extends the existing `floatingTabId` preservation pattern at `:516-520` exactly as R2 §66.8.4 prescribed; the new record push at `:547-558` includes `liveTabId: liveTabIdForRecord` per §66.10 invariant. ATTACH path (sourceRecord === null) correctly seeds `liveTabIdForRecord = tabId` (the caller-supplied numeric live tab id is the new record's identity).
+- **AC7 (regression guards + new T1 + T2)**: PASS.
+  - **T1 sibling-displacement (post-S40 Issue 2)** at `tests/floating-multi.test.js:96-141`. Deliberate position-collision: record A carries `liveTabId: 100` + stale `(windowId 1, tabIndex 0)`; tab 100 has been moved to index 5; tab 101 occupies (windowId 1, tabIndex 0). The assertion `assert.equal(members['g-A'][0].tabId, 100)` would fail without tier (a) (the pre-B-137 position-match would resolve to tab 101). PASS.
+  - **T2 race-toast (post-S40 Issue 3)** at `tests/b134-tab-drag-reorder.test.js:1037-1080` (T32). Deliberately corrupts `LiveTabIndex.entry.index` post-write (`live.set(800, { ...live.get(800), index: 99 })`) to simulate the stale-index gap that B-136 closed structurally; verifies `reorderFloatingMembers([801, 800])` returns `true` via tier (a). PASS.
+  - **T33 MOVE_FLOATING preserves `liveTabId`** at `tests/b134-tab-drag-reorder.test.js:1083-1121`. Cross-group move; assertion `assert.equal(after[0].liveTabId, 1500)` confirms preservation. PASS.
+  - **ATTACH seeds `liveTabId` from caller** at `tests/b134-tab-drag-reorder.test.js:1124-1143`. PASS.
+  - **15 new tests + fixture updates total** — matches R2 §66.13.2 estimate (~15-20 new tests).
+- **AC8 (out-of-scope fences)**: PASS. `(windowId, tabIndex)` position fallback retained in all four reader sites (`buildFloatingMembers` tier (b), `_resolveRecordIndexByTabId` tier (b), `reassociateFloatingGroups` tier (b), `preMarkInheritedFromFloatingGroups` unchanged); `inheritedTabs` / `claimsMirror` contracts unchanged (no diff to `tab-claims.js`); `MSG_LIST_ITEMS` shape unchanged (no diff to `shared/messages.js` or `floating-members.js:25-39` typedef); zero `manifest.json` changes (verified via `git status`). Newtab/popup parity untouched (no UI surface in the diff).
+- **C-1a + C-1b governance compliance — coverage table verified**:
+  - `KNOWN_VERSION === 4` at `migration.js:89` (R3 reported line 89, confirmed; R2 cited line 76 — JSDoc expansion above the constant accounts for the +13 drift).
+  - `defaultShape(PARTITION_META).schemaVersion === 4` at `shapes.js:111`.
+  - New v3→v4 entry in `MIGRATION_STEPS` is no-op governance per C-1b option 2; chain `1→2→3→4` contiguous; F2 sanity check at `migration.js:157-164` would throw if drift introduced.
+  - Validator OPTIONAL `liveTabId` finite-number check at `shapes.js:266-277`.
+- **Cascade-prune sibling-grep (B-129 / R2 §66.10) — VERIFIED**: ran `grep -nE "arr\\.push|writeTransaction|return arr" background/tabs/floating-groups.js`. Eight write surfaces enumerated by R2 are mapped to actual code as follows:
+  - (1) `appendFloatingGroup` mutator — explicit `liveTabId: entry.liveTabId` stamp at `:252` ✓.
+  - (2) `saveFloatingGroups` — verbatim writes preserved (caller-controlled shape; no auto-stamp); test pin at `tests/floating-shape.test.js:273-292` ✓.
+  - (3) `pruneResolvedFloatingGroups` — extended in-place per R3-VERIFY 2 Option (i) at `:610-646`; patch branch at `:631-634` (`{ ...entry, liveTabId: <new id> }` spread preserves all other fields including `sortOrder` / `floatingTabId` / `parentItemId`) ✓.
+  - (4) `pruneFloatingGroupsByParentItemId` — pure filter at `:660-669`; spread/preserve unaffected ✓.
+  - (5) `reorderFloatingMembers` mutator — `arr[idx] = { ...arr[idx], sortOrder: newSortOrder }` at `:415` preserves `liveTabId` (and every other field) by spread ✓.
+  - (6) `moveFloatingTab` source-removal — `arr.splice(sourceIdx, 1)` at `:494` (record vanishes from source bucket); source `liveTabId` captured into `sourceRecord` BEFORE splice, then propagated to target via `liveTabIdForRecord` at `:529-533` ✓.
+  - (7) `moveFloatingTab` target-renumber-and-push — existing-record renumbers at `:541-545` mutate `sortOrder` directly (no spread, no field loss); new-record push at `:547-558` includes `liveTabId: liveTabIdForRecord` ✓.
+  - (8) `reassociateFloatingGroups` lazy-rewrite — patches via the extended `pruneResolvedFloatingGroups` at `:195-199` ✓.
+  - All 8 sites accounted for; no missed write surface; B-129 R3-VERIFY (cascade-grep §66.10.1) is satisfied.
+- **B-141 self-application sanity check**: PASS. R2 cited several specific line numbers (e.g., `appendFloatingGroup` at 177-220, `reassociateFloatingGroups` at 107-162, `_resolveRecordIndexByTabId` at 254-266, `moveFloatingTab` floatingTabId block at 437-441, `preMarkInheritedFromFloatingGroups` at 592-632). The actual post-build line numbers drift downward by 6-80 lines because R3's JSDoc expansion added ~110 LOC of comment to `floating-groups.js` (e.g., the new R2-section-citation comments at `:127-132`, `:184-188`, `:299-314`, `:519-528`). The line-number drift is expected and does NOT trigger the B-141 STOP-and-escalate gate because the structural identifiers (function names, block positions relative to function bodies, identifier patterns) match exactly. R3's reported "all R2-cited line numbers matched reality" is correct in the sense that R3 followed each anchor identifier to the right code; the absolute line numbers shifted but the relative anchors (function bodies, preservation blocks, validator branches) all hit. No silent adaptation.
+- **R3-VERIFY 1 (no-URL-guard at tier (a)) — confirmed shipped without guard**: At `floating-members.js:97-106`, the tier (a) match commits the resolved `record.liveTabId` directly into `matchedTabId` with no URL comparison. The §66.9.2 Option B rationale comment at lines 100-104 cites the lifecycle guarantees (chrome.tabs.onRemoved drops stale ids → liveIndex.has returns false → tier (a) misses) + the cold-start lazy rewrite + the H-2 dedup gate as the defense layers. The R3-VERIFY 1 deferred-defense-block from §66.14 is referenced cleanly. No defensive URL-check leaked into the code.
+- **R3-VERIFY 3 (linear scan retained per §66.8.2)** — confirmed at `floating-groups.js:323-331` (single `for` loop iterating `arr` with `groupId + liveTabId` predicate). No precomputed `Map<liveTabId, recordIndex>` cache. Bounded N (≤ 5 records per group, ≤ 20 groups → ≤ 100 comparisons typical) makes this acceptable. Documented in the function JSDoc at `:309-314`.
+- **R3-VERIFY 4 (B-134 fixture classification)** — confirmed at `tests/b134-tab-drag-reorder.test.js`. T1-T31 existing tests gain `liveTabId: <numeric>` arguments to the `appendFloatingGroup` calls so the input-validator silent-reject doesn't fire (necessary fixture additions per AC3 §66.5.3 — without `liveTabId`, no record is written and the existing assertions would fail). T32 (race-toast) + T33 (MOVE_FLOATING preservation) + ATTACH-seeds-liveTabId are added as net-new tests pinning the v4 contract. The classification matches the R2 §66.12 enumeration exactly.
+- **Test quality (R2 §66.12 enumeration coverage)** — VERIFIED:
+  - **AC1 schema bump + validator**: `tests/migration-steps.test.js:88-95` (KNOWN_VERSION === 4 pin) + `:97-145` (v2→v4 lazy migration with v2 fixture intact) + `:148-198` (v3→v4 lazy migration with v3 fixture intact). 3 tests.
+  - **AC2 lazy migration**: covered by the same migration-steps tests + the `tests/floating-shape.test.js:212-292` v4 write tests + the `tests/floating-position.test.js:78-176` lazy-rewrite tests + the `tests/floating-multi.test.js:142-201` legacy-v3 tier-(b) test.
+  - **AC3 write path**: `tests/floating-shape.test.js:212-225` + `:227-243` + `:245-271` + `:273-292`.
+  - **AC4 read path 3-tier**: `tests/floating-multi.test.js:96-141` (T1 tier-(a) wins) + `:142-187` (tier-(a) miss → tier-(b) fallback) + `:189-201` (legacy v3 → tier (b) tolerant).
+  - **AC5 cold-start lazy rewrite**: `tests/floating-position.test.js:84-119` (rewrite onto v3) + `:122-149` (rewrite stale v4) + `:152-176` (no-op when correct) + `tests/b132-cold-start-inheritance.test.js:393-438` (T-132-H cold-start preservation + AC5 lazy-rewrite).
+  - **AC6 helper + MOVE preservation**: `tests/b134-tab-drag-reorder.test.js:1037-1143` (T32 race + T33 preservation + ATTACH).
+  - **AC7 T1 + T2**: pinned in `tests/floating-multi.test.js:96-141` (T1) + `tests/b134-tab-drag-reorder.test.js:1037-1080` (T2). Both regression scenarios pinned per R1 LOCK.
+  - **AC8 out-of-scope fences**: pinned by absence-of-diff (no manifest, message-shape, or contract changes detectable in the diff).
+  - **Coverage matrix**: 8/8 ACs covered; 15+ new tests aligned with the R2 §66.13.2 estimate of 15-20.
+- **T-132-H pure-read-pin** (B-132 contract): VERIFIED. `tests/b132-cold-start-inheritance.test.js:353-391` re-pins the "writes ZERO storage" contract pre-mark. The new B-137 lazy-rewrite test at `:393-438` runs `preMarkInheritedFromFloatingGroups` BEFORE `reassociateFloatingGroups` (matching the cold-start sequence), confirming the order-of-operations contract: pre-mark is pure-read; lazy-rewrite happens AFTER pre-mark in the dedicated owner. Both tests pass independently; both pass together.
+- **B-121 sibling-displacement regression scenario (post-S40 Issue 2)** — pinned in `tests/floating-multi.test.js:96-141`. The fixture deliberately stages the position collision that triggered the original Issue 2 (record A's `(windowId, tabIndex)` matches a different live tab's position cell). The assertion confirms tier (a) liveTabId direct-match resolves correctly to tab 100 (the record's tab) NOT tab 101 (the unrelated tab). The pre-B-137 codepath cannot pass this test — verifies the regression is structurally closed.
+- **Fixture classification — R2-VERIFY 5 honored**: tests adding `liveTabId` to existing fixtures use unique numeric ids per fixture (100, 101, 200, 201, 300, 400, 500, 700, 800, 801, 1500, 1600, 1313, 4242, etc.) — deliberately distinct from one another to prevent accidental cross-test sharing. Tests targeting legacy fallback paths (`tests/floating-position.test.js`, `tests/floating-url-fallback.test.js`, most `tests/floating-multi.test.js` cases) explicitly omit `liveTabId` to keep exercising the v3 fallback. Mixed v3+v4 scenarios distinguishable.
+- **Quality bar (CLAUDE.md "Frontend Standards" + R2 §66.13.4)**: VERIFIED. No TODOs / FIXMEs / commented-out blocks / `console.log` in the diff (confirmed via `git diff release/v2 HEAD -- background/ | grep -E "^\\+" | grep -iE "todo|fixme|console\\.log"` returns empty). All new JSDoc comments cite the §66.X chapter section they implement (e.g., `:251 "B-137 §66.5.4 — primary live-session join key (schema v4)"`, `:556 "B-137 §66.8.4 — preserve/seed liveTabId on the new record."`, `:266 "B-137 §66.4 — OPTIONAL liveTabId field (schema v4)"`). Source-citation discipline (B-118) maintained throughout the new code.
+- **Test suite execution evidence**: `npm test` confirms 1,797/1,797 passing, 0 failures, duration 3,128ms. Baseline was 1,782/1,782 at S41 kickoff; the +15 net is consistent with the new test count documented above. Zero regressions.
+- **DRY observation (informational, not a finding)**: tier (a) direct-match and tier (b) position-match share no significant code structure (tier (a) is a `liveIndex.has(record.liveTabId)` early-return; tier (b) is an iteration over `liveIndex` entries). `_resolveRecordIndexByTabId` and `buildFloatingMembers`'s 3-tier resolver have parallel-but-not-identical shapes (the former resolves an array index, the latter resolves a tabId; the position-match predicate differs subtly). Refactoring into a shared helper would lose the contextual differences and introduce coupling — current duplication is healthy and intentional. No finding.
+- **Performance observation (informational)**: tier (a) match is O(1) Map.get for `buildFloatingMembers` (single `liveIndex.has + liveIndex.get` per record). For `_resolveRecordIndexByTabId` it is O(N_records) linear scan (matches R3-VERIFY 3 LOCK rationale at §66.8.2). Cold-start lazy rewrite adds storage writes only when records are matched-unclaimed AND have a missing/stale `liveTabId`; the writeTransaction is still atomic per `pruneResolvedFloatingGroups` extension at `:610-646` (single mutator, single set call).
+
+### Verdict
+
+**APPROVE** — clean Full M-tier R3 build of the highest-blast-radius schema migration since v1.32.0 (B-121). All 8 ACs implemented per the R2 LOCK; all 7 R2-VERIFY markers honored; all 5 R3-VERIFY markers respected; cascade-prune sibling-grep (8 write surfaces) verified; B-141 self-application gate did not need to fire (line-number drifts are pure JSDoc-expansion); zero TODOs / commented-out blocks / console.log; zero regressions in the test suite (1,797/1,797 green); coverage of all post-S40 R0 spike regression scenarios pinned. Ready for [security-reviewer] + [qa-reviewer] parallel completion at R4 and [test-engineer] at R5.
+
+---
+
+## [security-reviewer] — B-137 R4 anchor (Full M-tier)
+
+**Verdict**: PROCEED — 0 CRITICAL / 0 HIGH / 0 MEDIUM / 1 LOW (advisory). Schema v3→v4 migration is governance-clean and atomicity-clean. Lazy-migration semantics preserved verbatim; cold-start re-bind extends an existing write transaction without introducing a new write surface; allow-list validator direction (C-7) maintained; no new manifest permissions, no new message contracts, no XSS-relevant interpolation, no network/telemetry/console additions. Two storage-write race classes considered and resolved acceptably (T-1, T-2 below). The single LOW is an advisory observation about pre-S38 v1 records' lazy-rewrite carve-out — no fix required.
+
+**Scope of review**: B-137 R3 build commit `ab82845` against `release/v2`. Files touched (production): `background/storage/migration.js` (+31/-1), `background/storage/shapes.js` (+26/-7), `background/tabs/floating-groups.js` (+~140/-~25), `background/tabs/floating-members.js` (+25/-6), `background/tabs/tab-events.js` (+5/-0). Tests: `tests/migration-steps.test.js`, `tests/floating-shape.test.js`, `tests/floating-position.test.js`, `tests/floating-multi.test.js`, `tests/b121-floating-group-render.test.js`, `tests/b132-cold-start-inheritance.test.js`, `tests/b134-tab-drag-reorder.test.js`, `tests/b013-opener-chain.test.js`, `tests/b018-persistence.test.js`. Full-suite check: 1797/1797 PASS, duration 3251 ms (clean baseline).
+
+### Generic threat surface
+
+#### (1) Manifest / permissions
+PASS. `git diff release/v2 HEAD -- manifest.json` is empty. No new permissions, no host-permission additions, no `chrome_url_overrides` mutation. C-6 permission-minimization gate satisfied. AC8(f) ("No new `manifest.json` permissions") confirmed.
+
+#### (2) CSP / eval / new Function / innerHTML / outerHTML
+PASS. `git diff release/v2 HEAD -- background/ | grep -E "console\.|innerHTML|outerHTML|eval\(|new Function|XMLHttpRequest|fetch\("` returns no matches in the diff. The change is purely SW-side storage-layer logic — no DOM interpolation surface introduced. CSP unaffected.
+
+#### (3) `textContent` vs `innerHTML`
+PASS — N/A. Zero renderer (`sidepanel/`, `newtab/`, `popup/`) edits in this sprint's source diff. The `FloatingMember` descriptor shape is unchanged per R2-VERIFY 3 LOCK (§66.6.4), so renderer string-interpolation paths consume identical input. `liveTabId` is a numeric type (validator enforces `Number.isFinite`) and never reaches a renderer surface — it is a SW-internal join key.
+
+#### (4) Network / telemetry / console.log
+PASS. No new network code, no new `console.log` debug noise in production paths. The pre-existing `console.warn` calls in `migration.js` (legacy-key cleanup) and `tab-events.js` (opener-chain inheritance failure) are preserved verbatim — defensive logging at error-path boundaries is appropriate and PII-free (no URLs or titles logged). Privacy posture unchanged.
+
+### Storage / schema
+
+#### (5a) C-1a governance — schema bump v3→v4
+PASS. `KNOWN_VERSION` bumped 3→4 at `background/storage/migration.js:89` (verified). `defaultShape(PARTITION_META)` returns `{ schemaVersion: 4, ... }` at `background/storage/shapes.js:111` (hardcoded literal preserved per the storage-layer-independence comment). New no-op v3→v4 `MIGRATION_STEPS` entry appended at `background/storage/migration.js:137-141` (chain `1→2→3→4` contiguous, F2 contiguity check at lines 156-164 still passes). C-1a governance is fully closed at the code level.
+
+**SW module-cache flush note (R7 deferral)**: §66.2.1 of the chapter explicitly flags the `CHANGELOG.md` flush note for R7 [technical-writer] sprint-close work. This is the correct deferral target per Sprint 30 B-092 / Sprint 38 B-121 / Sprint 40 B-134 precedent. Flagged here for [scrum-master] to verify the R7 work item is not silently dropped at sprint close — see "Recommendations" below.
+
+#### (5b) C-1b lazy-migration semantics
+PASS. The lazy strategy is implemented correctly across three independent code paths:
+
+- **Read tolerance** (`shapes.js:273-277`): the validator's `'liveTabId' in entry` guard does NOT reject v3 records lacking the field. Verified by `tests/floating-position.test.js`, `tests/floating-multi.test.js`, `tests/floating-session-wipe.test.js`, `tests/floating-ready-gate.test.js` continuing to pass with v3 fixtures.
+- **Write stamping** (`floating-groups.js:236-238`): `appendFloatingGroup` REQUIRES `liveTabId` on the input via the silent-rejection input-validator pattern. Production caller at `tab-events.js:167` passes `liveTabId: tab.id`. Test pin at `tests/floating-shape.test.js:216-231` confirms `typeof records[0].liveTabId === 'number' && Number.isFinite(...)` post-write.
+- **Cold-start lazy rewrite** (`floating-groups.js:115-201`): `reassociateFloatingGroups` extends its existing `pruneResolvedFloatingGroups` write transaction with the new `staleLiveTabIdRecords: Map<floatingTabId, newLiveTabId>` patch bucket. The lazy-rewrite test pin at `tests/floating-position.test.js:85-117` verifies the rewrite materializes after the cold-start cycle.
+
+The three paths converge correctly: legacy v3 records render via tier (b)/(c) fallback, get rewritten on next cold-start, then render via tier (a) on subsequent dispatches. Self-evict on tab close via the existing `pruneResolvedFloatingGroups` claimed-record branch.
+
+#### (6) Validator integrity (allow-list direction, C-7)
+PASS. The new validator branch at `shapes.js:273-277` follows the established OPTIONAL `'fieldName' in entry`-guarded pattern verbatim:
+
+```js
+if ('liveTabId' in entry) {
+  if (typeof entry.liveTabId !== 'number' || !Number.isFinite(entry.liveTabId)) {
+    throw new StorageError(ERR_CORRUPT_DATA, ...);
+  }
+}
+```
+
+Allow-list discipline (C-7) maintained — no deny-list introduction. The type guard correctly rejects: strings (`typeof !== 'number'` rejects), `NaN` (`Number.isFinite(NaN) === false` rejects), `Infinity`/`-Infinity` (rejected by `Number.isFinite`), arrays/objects/booleans (`typeof` rejects), `null`/`undefined` (the `'in' entry` guard makes them absent — accepted as legacy). Negative finite numbers are accepted; this matches the existing validator policy for `windowId`/`tabIndex`/`sortOrder` (any finite number, no signedness check). Chrome's documented `tabs.Tab.id` contract is positive integer or `chrome.tabs.TAB_ID_NONE` (`-1`); negatives in storage would not match a real live tab and would fall through to tier (b)/(c). No exploit surface — invalid stored data merely fails the join, never escalates.
+
+#### (7) Atomic write surfaces (B-129 cascade-prune sibling-grep)
+PASS. All eight write surfaces enumerated in chapter §66.10 audited against the v3→v4 `liveTabId` invariant:
+
+| # | Site | `liveTabId` handling | Verdict |
+|---|------|---------------------|---------|
+| 1 | `appendFloatingGroup` (`floating-groups.js:223-276`) | Stamped from `entry.liveTabId` (caller-supplied; required) | PASS |
+| 2 | `saveFloatingGroups` (`:68-84`) | Verbatim — caller responsible for shape (legacy migration path) | PASS — preserved by spread |
+| 3 | `pruneResolvedFloatingGroups` (`:610-646`) | Filter+patch via `arr.reduce`; `staleLiveTabIdRecords.has(...)` patch branch + `arr.push({ ...entry, liveTabId: ... })` spread | PASS |
+| 4 | `pruneFloatingGroupsByParentItemId` (`:660-669`) | `arr.filter(...)` — `liveTabId` preserved by reference | PASS |
+| 5 | `reorderFloatingMembers` mutator (`:411-417`) | `arr[idx] = { ...arr[idx], sortOrder: newSortOrder }` — spread preserves `liveTabId` | PASS |
+| 6 | `moveFloatingTab` source removal (`:494`) | `arr.splice(sourceIdx, 1)` removes record; `liveTabId` captured into `sourceRecord` BEFORE splice (line 493) | PASS |
+| 7 | `moveFloatingTab` target push (`:547-558`) | New record explicitly stamps `liveTabId: liveTabIdForRecord` (line 557) — preserved from source for MOVE_FLOATING, caller-arg for ATTACH | PASS |
+| 8 | `reassociateFloatingGroups` lazy-rewrite (`:115-201` → calls `pruneResolvedFloatingGroups`) | Patch via the extended `pruneResolvedFloatingGroups` (site #3 above) | PASS |
+
+The B-121 Sprint 38 cascade-prune-sibling-grep precedent (`MSG_DELETE_ITEM` → `MSG_BULK_DELETE_ITEMS` + `MSG_DELETE_GROUP`) is satisfied here by inheritance: all three handlers route through `pruneFloatingGroupsByParentItemId` (site #4 — `storage-handlers.js:233, 268, 305`), which uses `arr.filter(...)` and preserves `liveTabId` by reference. No new cascade-prune entry-point required.
+
+The atomic invariant from §66.10.2 (every write to `tj:floatingGroups` post-S41 either stamps fresh, preserves from source, or is a verbatim test-fixture write via `saveFloatingGroups`) holds across all eight sites.
+
+#### (8) Cold-start re-bind atomicity (R2 §66.7)
+PASS. `reassociateFloatingGroups` extends the existing `pruneResolvedFloatingGroups` writeTransaction at `floating-groups.js:618-645` rather than introducing a new sequenced write. The single mutator handles three branches in `arr.reduce`:
+
+1. `resolvedFloatingTabIds.has(entry.floatingTabId)` → drop (existing prune)
+2. `staleLiveTabIdRecords.has(entry.floatingTabId)` → push patched record with new `liveTabId` (NEW B-137)
+3. Legacy fallback `legacyResolvedParentItemIds.has(parentId)` for `floatingTabId`-less records → drop
+
+All three branches operate inside one `writeTransaction(...)` — the storage-layer atomicity invariant (B-001b: per-partition single-writer) is preserved. No partial-state-on-failure window: if the `chrome.storage.local.set` fails, neither the prune nor the patch lands; control returns to the caller and `schemaVersion` (or any other state) is unaffected. The collection iteration's `else if` branch at `:180-188` ensures a record is added to AT MOST one of `resolvedFloatingTabIds` / `legacyResolvedParentItemIds` / `staleLiveTabIdRecords` — no double-bucket race.
+
+**T-132-H verification (B-132 §65.4 "preMarkInheritedFromFloatingGroups writes ZERO storage" pin)**: PASS. `git diff release/v2 HEAD -- background/tabs/floating-groups.js` shows `preMarkInheritedFromFloatingGroups` body (`:711-751`) unchanged at the production-code level. The function still does pure-read-then-mark with no `writeTransaction` call, no `chrome.storage.*` write, no mutation outside the module-scoped `inheritedTabs` Set in `tab-claims.js`. R2-VERIFY 1 LOCK preserves the contract verbatim. The T-132-H test pin continues to pass in the full-suite run.
+
+### Race conditions
+
+#### (9) Stale `liveTabId` race (R2 §66.9)
+PASS — accepted v1 behavior with documented self-correction window. R3-VERIFY 1 LOCKED Option B (no URL-guard at tier (a)) per §66.9.2.
+
+**Threat model considered**:
+- Within a single SW lifetime, `chrome.tabs.onRemoved` (`tab-events.js:213-229`) calls `removeTabEntry(tabId)` immediately on tab close → `liveIndex.has(staleId)` returns false → tier (a) misses → tier (b)/(c) fallback fires. Window of mis-join ≤ event-loop tick.
+- Across SW restart: `reassociateFloatingGroups` runs on cold-start BEFORE the first `MSG_LIST_ITEMS` dispatch (per B-132 §65.3 sequencing) — lazy-rewrite of stale `liveTabId` happens in tier (b)/(c) match path; subsequent reads use tier (a) with the corrected id. The tier-(a) check at `floating-members.js:98-99` and `floating-groups.js:144-147` always re-validates `liveIndex.has(record.liveTabId)` before trusting the stored value — the stored value is never blindly used.
+- Chrome documented behavior: tabIds are NOT recycled within a single browser session (verified at B-132 §64.4 H-4 spike). Across browser restart they may be reassigned, but `chrome.tabs.onRemoved` fires before the SW shutdown (typical case) → the stale id is dropped from `liveIndex`. The narrow uncovered window (browser killed mid-tick before `onRemoved` fires) is the documented self-correction transient.
+
+**Self-correction window** (§66.9.3): the next `chrome.tabs.onRemoved`/`onActivated`/`onMoved` event fires `broadcast(SCOPE.LIVE_STATE, ...)` → sidepanel re-issues `MSG_LIST_ITEMS` → `buildFloatingMembers` re-runs → tier (a) misses (now-stale id is no longer in `liveIndex`) → tier (b)/(c) fallback resolves → cold-start re-bind on next SW boot rewrites the corrected id. The H-2 dedup gate at `floating-members.js:135-138` prevents two records from ever rendering against the same tabId in a single dispatch — the visible artifact, if any, is a single-frame title flicker, never a persistent wrong-tab association.
+
+**Existing `chrome.tabs.onRemoved` cleanup post-B-137**: confirmed unchanged at `tab-events.js:213-229`. The handler still calls `removeTabEntry(tabId)` (drops from `liveIndex`), `pruneInherited(tabId)` (drops `inheritedTabs` mark), `releaseClaimByTab(tabId)` (releases claim). B-137 does NOT add a `chrome.tabs.onRemoved`-driven prune of `tj:floatingGroups`; lazy cleanup via the existing `reassociateFloatingGroups` cold-start path is the documented strategy. This is correct: eager `tj:floatingGroups` pruning on every tab close would multiply storage writes; the records persist by design (see B-018 AC9 — record may be re-resolved on a future restart).
+
+#### (10) Tab-close-during-rebind race (R2 §66.15 case 6)
+PASS. `reassociateFloatingGroups` reads `liveTabIndex` snapshot reference at `floating-groups.js:116`. Mid-iteration, a `chrome.tabs.onRemoved` could fire and call `removeTabEntry(...)` on the underlying Map. JavaScript Map semantics: the iteration over `liveTabIndex` entries inside the resolver is forward-only (`for...of`); a delete during iteration on an entry already iterated past has no effect; a delete on an entry NOT yet visited correctly skips that entry on subsequent iterations.
+
+**Behavioral consequence**: a record whose live tab was closed mid-resolver-loop falls through to "no match" (tier (b)/(c) miss because the tab was deleted from the Map mid-iteration) → record stays in place per B-018 AC9 → reconciled on next cold-start. No partial-state corruption; the writeTransaction at `:618-645` is atomic.
+
+The mutation snapshot is captured by JavaScript engine's iterator semantics (Map iterators reflect live deletes); subsequent records may see a smaller liveIndex but the per-record correctness invariant holds. The R5 test-engineer should consider a UAT case for "close a floating-group-associated tab during browser restart cold-start window" to validate empirically (UAT case suggested below).
+
+### Cross-cutting
+
+#### (11) `inheritedTabs` lifecycle (B-125)
+PASS — N/A delta. B-137 does NOT modify `inheritedTabs` Set semantics. The `markInherited` call at `tab-events.js:181` is unchanged; `pruneInherited` calls at `tab-events.js:217, 291` are unchanged. `preMarkInheritedFromFloatingGroups` body unchanged. Per AC8(c) ("No change to `inheritedTabs` Set semantics or `claimsMirror` reconciliation contract"), this is correct.
+
+#### (12) `claimsMirror` contract
+PASS — N/A delta. `reconcileClaims` (`tab-claims.js`) untouched. The `claimedTabIds` Set used inside `buildFloatingMembers` (`floating-members.js:64-65`) and `reassociateFloatingGroups` (`floating-groups.js:119`) consumes the existing `getClaimsMirror()` API verbatim. No write to `claimsMirror` from B-137 paths.
+
+#### (13) Drift partition
+PASS — N/A delta. `tj:drift` partition unchanged. Drift-detection logic in `background/tabs/drift.js` not modified.
+
+#### (14) Message contracts
+PASS. `git diff release/v2 HEAD -- shared/messages.js` is empty. No new `MSG_*` types. `MSG_LIST_ITEMS` response shape (`{ items, liveStates, driftRecords, openTabs, windowMap, floatingMembers }`) unchanged per R2-VERIFY 3 LOCK. `FloatingMember` descriptor unchanged. `MSG_REORDER_FLOATING_MEMBERS` and `MSG_MOVE_FLOATING_TAB` payloads unchanged. C-2 message-contract gate satisfied.
+
+#### (15) Defensive payload validation
+PASS — N/A. No new message handlers; no new payload-receiving boundary.
+
+### XSS-specific
+
+#### (16) No new user-string interpolation
+PASS. `git diff release/v2 HEAD -- background/ | grep -E "innerHTML|outerHTML|insertAdjacentHTML|document\.write"` returns zero matches. B-137 is purely a storage-schema + join-key change; no DOM-side or renderer-side edits. XSS surface is zero.
+
+### Severity tally
+
+- **CRITICAL**: 0
+- **HIGH**: 0
+- **MEDIUM**: 0
+- **LOW**: 1 (advisory)
+
+### LOW (advisory)
+
+#### L-1 — pre-S38 v1 records (no `floatingTabId`) excluded from lazy-rewrite, by design
+
+**File**: `background/tabs/floating-groups.js:180-188`
+
+**Observation**: The lazy-rewrite collection branch is gated on `typeof record.floatingTabId === 'string' && record.floatingTabId.length > 0`. Pre-S38 legacy v1 records (no `floatingTabId`, no `liveTabId`) that match an unclaimed live tab will NOT be lazy-rewritten — they are left in place indefinitely. The chapter explicitly documents this at §66.7.4 ("records lacking floatingTabId — pre-S38 legacy shape — are not lazy-rewritten; they self-evict via natural turnover"), and the comment at `floating-groups.js:128-134` reproduces the rationale.
+
+**Risk**: NONE. v1 records are now ≥ 3 sprints old; cumulative natural turnover (tab close cycles) has likely emptied this cohort already. The records continue to render correctly via tier (b)/(c) fallback in `buildFloatingMembers`. No exploit surface; no data integrity risk.
+
+**Recommendation**: NO ACTION REQUIRED. The design choice is documented and correct. Filed as LOW advisory only so a future engineer reading this code does not mistake the omission for a bug.
+
+### Recommendations (non-blocking)
+
+1. **R7 [technical-writer] CHANGELOG SW module-cache flush note** — flagged in C-1a (§66.2.1 of the chapter). Schema-version bump requires a `chrome://extensions` toggle OFF→ON cycle after update for the SW module cache to flush; without it, the new tier-(a) join code may not activate until the next browser restart. Sprint 30 B-092 and Sprint 38 B-121 are precedents — both required this exact note. [scrum-master] should verify the R7 work item is on the sprint-close checklist.
+
+2. **R5 [test-engineer] UAT case suggestion (T-1, optional)** — close a floating-group-associated tab during browser restart cold-start window. Verify no record corruption, no orphan render, no broadcast loop. The integration-test `chrome-mock.js` cannot reproduce SW lifecycle teardown; this is a UAT-only signal class (parallel to B-022 popup-lifecycle race).
+
+3. **R5 [test-engineer] UAT case suggestion (T-2, optional)** — rapidly close-and-reopen a tab whose `tj:floatingGroups` record has a `liveTabId`. Verify the next render does not show the wrong tab's title (the §66.9.3 self-correction window). If this surfaces a single-frame visual glitch, R3-VERIFY 1 unlocks the URL-guard option (5-line addition to `floating-members.js` tier (a)) — currently LOCKED no-guard per §66.9.2 Option B.
+
+4. **B-138 follow-up cleanup item** — once telemetry / passage of time confirms zero v3 records remain in the wild, the `(windowId, tabIndex)` tier (b) and URL tier (c) fallback paths can be removed from all four reader sites. Filed at AC8(a) and §66.1 "Out of scope". This is the natural closure of the lazy-migration arc; not in scope for B-137 R5.
+
+### Verdict
+
+**PROCEED** to R5 [test-engineer]. Schema v3→v4 governance is fully closed at the code level; lazy-migration semantics are correctly implemented across read / write / cold-start paths; allow-list validator discipline maintained; eight write surfaces audited for `liveTabId` invariant compliance; two race classes considered and resolved acceptably (with documented self-correction); no new permissions / message contracts / network surface / XSS vectors. The build is high-quality and ships ready.
+
+---
+
+## [qa-reviewer] — B-137 R4 anchor (Full M-tier)
+
+**Verdict**: PROCEED — 0 CRITICAL / 0 HIGH / 1 MEDIUM / 4 LOW. R3 build cleanly implements the R2-locked 3-tier join + lazy-rewrite; B-131 / Issue 2 / Issue 3 root cause is structurally eliminated for v4 records; full automated suite green at 1,797/1,797 (+15 from S41 kickoff baseline). The single MEDIUM is a UAT-plan coverage gap (no opener-chain spawn-from-bookmark T1 variant); LOWs are documentation/coverage gaps that do not block R5 entry.
+
+**Scope of review**: B-137 R3 build commit `ab82845`. Production diff: `background/storage/migration.js` (KNOWN_VERSION 3→4 + v3→v4 no-op step), `background/storage/shapes.js` (defaultShape v4 + OPTIONAL liveTabId validator), `background/tabs/floating-groups.js` (appendFloatingGroup stamp, _resolveRecordIndexByTabId 2-tier, moveFloatingTab preservation, reassociateFloatingGroups lazy-rewrite, pruneResolvedFloatingGroups patch branch), `background/tabs/floating-members.js` (3-tier join), `background/tabs/tab-events.js` (caller passes tab.id). Test diff: 9 test files (4 new in floating-shape, 3 new in floating-position, 3 new in floating-multi including T1 sibling-displacement, 1 new in b132-cold-start-inheritance, 3 new in b134-tab-drag-reorder including T32 race-toast + T33 MOVE_FLOATING preservation + T34 ATTACH-seed, migration-steps KNOWN_VERSION + v3→v4, plus 3 fixture updates in b013/b018/b121).
+
+### CRITICAL (must fix before R5)
+_None_
+
+### HIGH (must fix before R5)
+_None_
+
+### MEDIUM (fix if time permits)
+
+| # | File:line | Finding | Fix |
+|---|-----------|---------|-----|
+| M-1 | `tests/floating-multi.test.js:97-145` (T1 sibling-displacement test) | The T1 test fixture exercises **position collision via tab-move** (a stale-position scenario where tab 100 has been moved so tab 101 occupies tab 100's old position). However, B-131's documented user-visible repro is specifically "**open a new tab from a bookmark in a group → the new floating row shows the new tab's title, NOT a sibling's title**" — the opener-chain spawn-from-bookmark workflow. T1 verifies the structural fix (tier (a) wins over tier (b)) but does NOT walk the spawn-from-bookmark path through `tab-events.js:140-188` (`chrome.tabs.onCreated` → `walkOpenerChain` → `appendFloatingGroup`) end-to-end. R5 [test-engineer] UAT plan SHOULD enumerate the opener-chain B-131 reproduction explicitly so the structural fix is verified against the actual user flow that filed B-131. | R5 UAT plan: add a UAT test case that loads a bookmark in a group whose parent has multiple children, opens it (so a child tab is spawned via opener-chain), and verifies the new floating row title matches the new tab's title even when one of the siblings' stored position would otherwise collide with the new tab's position. Structural fix is sound; UAT just needs to walk the user-visible flow that filed the bug. |
+
+### LOW (defer to future sprint)
+
+| # | File:line | Finding | Fix |
+|---|-----------|---------|-----|
+| L-1 | `background/tabs/floating-groups.js:322-345` (`_resolveRecordIndexByTabId`) | Tier (a) does NOT verify `liveIndex.has(tabId)` before returning — it relies on the caller having already filtered on liveness. In practice every production caller (`reorderFloatingMembers` outer + inner-loop, `moveFloatingTab` source resolution) passes a `tabId` that has been verified alive (drop-handler guard A, `chrome.tabs.get` pre-flight). The helper is `_`-prefixed (file-internal) but the caller-contract is implicit; if a future caller passes a closed tabId, tier (a) could match a record whose `liveTabId` was never updated post-close. **Self-correcting** at next cold-start, but worth a JSDoc note clarifying the caller contract. | Add JSDoc note: "Caller MUST verify the supplied `tabId` is alive before invoking. Tier (a) trusts the caller; tier (b) `liveIndex.get(tabId)` already short-circuits on `!live`." Defer to follow-up — not a behavioral defect today. |
+| L-2 | `docs/design/66-b-137-floating-tab-id-join-key.md` §66.15 (C-9 closure) — case 10 explicit pin | The C-9 enumeration lists 10 cases. R3 covers cases 1-6 directly via tests (empty bucket, all-v3, v4 happy path with stale-position T1, mixed transitional via tier-(a)+tier-(b), stale-`liveTabId`, lazy-rewrite). Cases 7 (storage write-conflict during cold-start), 8 (parent deleted), 9 (claimed-tab skip) are implicitly covered (atomic writeTransaction guarantee + preserved code at `floating-members.js:87` + `:133`). Case 10 (H-2 dedup with mixed v3 record + v4 record both resolving to the same tab) has no explicit pin; T1 exercises tier-(a)-wins, but the H-2 dedup ordering is implicit. | Optional R5 test addition: pin case 10 explicitly in `tests/floating-multi.test.js` (a v3 + v4 record that both resolve to the same tabId — confirm H-2 dedup keeps only one descriptor). Defer to follow-up. R6 As-Built can also note coverage; not a regression risk. |
+| L-3 | `tests/migration-fresh-install.test.js`, `tests/migration-normal.test.js` | Tests read `KNOWN_VERSION` constant and assert `meta.schemaVersion === KNOWN_VERSION` (per §66.12 fix-scope class (c) "value implicitly bumped"). Verified — both pass at 1,797/1,797. However, neither test seeds a fresh-install scenario that asserts `defaultShape(PARTITION_META).schemaVersion === 4` against a literal — the implicit-bump-via-constant means a future drift in `defaultShape` (e.g., manual edit reverting to literal 3) would NOT be caught by these tests, only by the `KNOWN_VERSION` literal assertion in `migration-steps.test.js`. | Optional: add a test in `tests/migration-fresh-install.test.js` that pins `defaultShape(PARTITION_META).schemaVersion === 4` (literal). Hardens C-1a paired-bump invariant. Defer to follow-up. |
+| L-4 | `background/tabs/floating-members.js:97-106` (tier (a) §66.9.2 Option B no URL-guard) | The R2 LOCK chose Option B (no URL-guard at tier (a)). The §66.9.3 self-correcting transient claim is sound for SW-internal lifecycle (onRemoved → removeTabEntry → liveIndex.has returns false). However, there's a behavior-question UAT corner: when a user navigates a bound floating tab to a different URL, `record.url` (write-time URL) and `liveEntry.url` (current URL) diverge — the descriptor renders with the new URL/title (which IS correct behavior — tab identity preserved via `liveTabId`). No misjoin, just a perception question worth UAT. | R5 UAT plan: add a UAT test case that navigates a bound floating tab to a different URL — the floating row should reflect the new URL/title (tab identity preserved via `liveTabId`). Correct behavior, but UAT should confirm user perception matches. |
+
+### Notes / observations
+
+- **Bug-fix verification (Issue 2 / B-131 root cause)**: PASS structurally. The 3-tier join in `floating-members.js:90-128` puts `record.liveTabId` direct-match first; tier (b) position-match is unreachable for v4 records when their `liveTabId` is in `liveIndex`. T1 (`tests/floating-multi.test.js:97-145`) deliberately constructs a stale-position fixture that would have misrouted pre-B-137; the test asserts `members['g-A'][0].tabId === 100` and `title === 'CHILD-A'` (no displacement). The cross-record contamination root cause is structurally impossible for v4 records. M-1 above clarifies the UAT-plan implication.
+- **Bug-fix verification (Issue 3 / floating reorder race toast)**: PASS structurally. T32 (`tests/b134-tab-drag-reorder.test.js:1027-1071`) deliberately corrupts `LiveTabIndex.entry.index` post-write (simulates the post-S40 stale-index scenario that B-136 closed), then issues `reorderFloatingMembers` and asserts `ok === true` — tier (a) `_resolveRecordIndexByTabId` direct-match resolves via `liveTabId` without needing `LiveTabIndex.entry.index` parity. This is the exact defense the R0 spike prescribed.
+- **Empty-state coverage (C-9 case 1 — empty `tj:floatingGroups`)**: PASS verbatim. `floating-members.js:59` short-circuits at `records.length === 0`; `floating-groups.js:117` short-circuits in `reassociateFloatingGroups`. No new B-137 logic when bucket is empty. No regression.
+- **Empty-state coverage (C-9 case 2 — all-records-v3)**: PASS via `tests/floating-multi.test.js` "legacy v3 record (no liveTabId) resolves via tier (b)". Tier (a) skipped via the `typeof record.liveTabId === 'number'` guard; tier (b) renders correctly. Pin is explicit.
+- **Empty-state coverage (C-9 case 3 — all-records-v4)**: PASS via T1 and existing b134/b132 lazy-rewrite tests post-cold-start. Tier (a) hits for every record; tier (b)/(c) never fires.
+- **Empty-state coverage (C-9 case 4 — mixed v3+v4)**: PASS via natural composition (T1 v4-only + legacy v3 fallback test cover both paths). H-2 dedup gate at `floating-members.js:135-138` unchanged. **Coverage gap (LOW L-2)**: no explicit test pins a v3 + v4 record both resolving to the same tab and dedup keeping the v4. Acceptable for v1.
+- **Empty-state coverage (C-9 case 5 — stale `liveTabId`)**: PASS via `tests/floating-multi.test.js` "tier (a) skipped when record.liveTabId is not in liveIndex". The `liveIndex.has(record.liveTabId)` guard correctly rejects stale ids; tier (b) recovers. Self-correcting via `reassociateFloatingGroups` lazy-rewrite on next cold-start (verified `tests/floating-position.test.js` "rewrites stale liveTabId on v4 records when tier (b) resolves to a different tab").
+- **Migration edge case (fresh install at v4)**: PASS. `defaultShape(PARTITION_META)` returns `{ schemaVersion: 4, ... }` (`shapes.js:111`). Existing `migration-fresh-install.test.js` reads `KNOWN_VERSION` and asserts `meta.schemaVersion === KNOWN_VERSION` — implicitly bumped via the constant change. Test passes. (LOW L-3 hardening note.)
+- **Migration edge case (update from v3 to v4)**: PASS. New test `tests/migration-steps.test.js` "B-137 §66.2.2: v3 → v4 lazy migration" seeds a v3 record + meta, runs `runMigrations`, asserts `schemaVersion === 4` AND legacy record's data is unchanged (`liveTabId === undefined`). C-1b lazy migration verified.
+- **Migration edge case (browser-restart during cold-start)**: PASS. `reassociateFloatingGroups` reads partition snapshot once, iterates, then commits via single `pruneResolvedFloatingGroups` writeTransaction. If SW killed mid-iteration: nothing committed (no partial state); next cold-start re-runs from the top. B-001b atomic writeTransaction contract holds.
+- **Migration edge case (tab-close during cold-start re-bind)**: PASS. Mid-loop `liveTabIndex.has(...)` reads against the captured Map reference; `removeTabEntry(staleId)` mutates the Map but does not invalidate the loop. Records that mismatch fall through to position+URL fallback; if BOTH fail, record left in place per AC9. WriteTransaction atomic.
+- **B-121 floating-render regression**: PASS. `tests/b121-floating-group-render.test.js` updated with `liveTabId` fixtures (line 344, 356). All existing assertions hold; no shape change to `FloatingMember` descriptor (R2-VERIFY 3 LOCK).
+- **B-125 inherited-tabs regression**: PASS. `inheritedTabs` Set unchanged; `markInherited(tab.id)` still placed strictly AFTER `appendFloatingGroup` await per `tab-events.js:181`. T-132-H pure-read pin (zero storage writes) preserved verbatim — `preMarkInheritedFromFloatingGroups` body unchanged per R2-VERIFY 1 LOCK rationale.
+- **B-130 dotted visual unaffected**: PASS. CSS-only B-130 change; B-137 production diff has zero CSS/HTML changes.
+- **B-132 cold-start claim-jump fix interaction**: PASS — by design separation. B-132 `preMarkInheritedFromFloatingGroups` retains pure-read-then-mark contract (T-132-H pin holds at `tests/b132-cold-start-inheritance.test.js`). B-137 lazy-rewrite owner is `reassociateFloatingGroups` (R2-VERIFY 1 LOCK Option A). Different cold-start stages: pre-mark runs before `reconcileClaims` to populate `inheritedTabs`; reassociate runs after to prune resolved-claimed records AND lazy-rewrite stale `liveTabId`. New test in `tests/b132-cold-start-inheritance.test.js` verifies cooperation: pre-mark sets `isInherited(920) === true`, then reassociate writes `liveTabId === 920` onto the legacy v3 record.
+- **B-134 drag-reorder regression**: PASS. T1-T31 unchanged; T32+T33+T34 added (race-toast resolved, MOVE_FLOATING liveTabId preservation, ATTACH liveTabId seed). Existing fixtures in T3, T5, T6, T11, T13, T31 updated to supply `liveTabId` argument (silent-rejection contract per §66.5.3 means tests that did not previously supply it would have produced zero records → cascade test failures; R3 correctly added the argument across all 9 affected test files).
+- **B-136 chrome.tabs.onMoved regression**: PASS. B-137 production diff does NOT touch `chrome.tabs.onMoved` listener at `tab-events.js:382`. Post-B-137 `chrome.tabs.move` still triggers the post-move broadcast updating `LiveTabIndex.entry.index`. Listener correctness independent of B-137; tier (b) position fallback consumes `LiveTabIndex.entry.index` for legacy v3 records.
+- **AC8 — no UI changes**: PASS. `git diff HEAD~1 HEAD --stat` returns zero changes to `sidepanel/`, `newtab/`, `popup/`, `components/`, or any `.css`/`.html` file. All changes are SW-side (`background/`) + tests.
+- **C-9 §66.15 enumeration coverage**: 10 cases enumerated; cases 1-6 directly pinned by R3 tests; cases 7-10 implicitly covered (case 7 storage write-conflict — atomic writeTransaction guarantee; case 8 parent deleted — preserved at `floating-members.js:87`; case 9 claimed-tab skip — preserved at `:133`; case 10 H-2 dedup — gate at `:135-138`). LOW L-2 flags case 10 explicit pin as a follow-up.
+- **Test suite execution evidence**: `npm test` confirms `tests 1797 / pass 1797 / fail 0 / duration_ms 3487` — clean, no flake, +15 net new tests over S41 kickoff baseline (1,782).
+
+### UAT must explicitly walk
+
+R5 [test-engineer] UAT_B-137.md plan inputs (the user-visible flows that the structural correctness fix touches):
+
+1. **B-131 spawn-from-bookmark repro (M-1 follow-up)**: open a new tab from a bookmark in a group whose parent has multiple children. The new floating row should show the new tab's title, NOT a sibling's title. Walks `chrome.tabs.onCreated` → `walkOpenerChain` → `appendFloatingGroup` end-to-end. **Mandatory** — this is the actual user-visible bug.
+
+2. **Position-collision (Issue 2 root cause)**: with two floating rows under the same parent, drag-reorder them so positions swap. Open a new bookmark elsewhere that ends up at the position one of the floating rows used to occupy. The new floating row should bind to the correct tab title. (T1 covers this structurally; UAT confirms user-perceived behavior.)
+
+3. **Race-toast (Issue 3 root cause)**: rapidly drag-reorder floating rows under heavy SW load (e.g., during opener-chain processing of a freshly-created tab, or during `chrome.tabs.onMoved` cascade). No `ERR_RACE` toast should fire post-B-137. (T32 covers this structurally with mocked stale-index; UAT confirms the realistic race window is also clean.)
+
+4. **Cold-start v3-to-v4 lazy rewrite (AC5)**: after updating the extension to v1.35.0, toggle OFF→ON in `chrome://extensions` to flush SW module cache (per CHANGELOG note from C-1a). Verify pre-existing legacy v3 floating-group records (no `liveTabId`) gain the field on the next cold-start re-bind. Inspect `chrome.storage.local.get('tj:floatingGroups')` in the SW console after the cold-start cycle — records should now carry `liveTabId: <numeric>`.
+
+5. **Mixed v3+v4 transitional state (C-9 case 4)**: with a mix of legacy v3 records (no `liveTabId`) AND newly-written v4 records (with `liveTabId`), confirm both render correctly in the floating-tab list. No visual regression. No "phantom row" double-render (H-2 dedup holds).
+
+6. **Tab-navigate after binding (LOW L-4)**: open a bookmark in a group (creates a floating row), then navigate that tab to a completely different URL. The floating row should reflect the new URL/title (tab identity preserved via `liveTabId`; only displayed metadata changes). Confirm user perception matches the technical correctness.
+
+7. **Stale `liveTabId` cross-restart self-correction (C-9 case 5)**: with a v4 record carrying `liveTabId: N`, kill the browser. On restart, Chrome may have reused tabId N for a different tab (rare but possible). Verify `reassociateFloatingGroups` runs BEFORE first `MSG_LIST_ITEMS` dispatch, lazy-rewrites `liveTabId` to the correct tabId via tier (b) position+URL fallback, and floating row renders correctly. (Difficult to reproduce deterministically; SHOULD be enumerated as a SKIP in UAT plan with a note that the self-correcting transient is acceptable.) [security-reviewer] T-2 suggestion overlaps.
+
+8. **Tab-close during cold-start re-bind window (security-reviewer T-1 overlap)**: close a floating-group-associated tab during browser restart cold-start window. Verify no record corruption, no orphan render, no broadcast loop. Integration tests cannot reproduce SW lifecycle teardown — UAT-only signal class.
+
+9. **B-138 follow-up boundary**: confirm `(windowId, tabIndex)` position fallback REMAINS active for legacy v3 records — i.e., a user with pre-B-137 floating-group records sees no breakage even if those records never get cold-start-re-bound (e.g., user never closes/reopens browser). B-138 will remove the fallback once telemetry confirms zero v3 records remain in the wild.
+
+### Recommendation
+
+PROCEED to R5 [test-engineer] testing round. The R3 build cleanly implements the R2-locked design; B-131 / Issue 2 / Issue 3 structural root cause is eliminated for v4 records via tier (a) `liveTabId` direct-match; lazy migration preserves v3 backward compat; cascade-grep parity holds across all 8 enumerated record-write surfaces (§66.10); H-2 dedup gate preserved verbatim; AC8 (no UI changes) verified. The single MEDIUM finding (M-1 — UAT plan needs explicit opener-chain spawn-from-bookmark scenario) is an R5 enumeration item, not an R3 build defect. The 4 LOW findings are documentation/coverage hardening for future sprints. Test suite green at 1,797/1,797.
+
+Zero CRITICAL, zero HIGH, zero MEDIUM findings. The single LOW is an advisory non-issue. No code changes required from [frontend-engineer] for security gate closure.

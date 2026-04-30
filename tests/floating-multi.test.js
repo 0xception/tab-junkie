@@ -231,6 +231,76 @@ test('B-137 §66.6: legacy v3 record (no liveTabId) resolves via tier (b) positi
     'legacy v3 record resolves via tier (b) position match');
 });
 
+/* =========================================================================
+   B-137 §66.15 case 10 / R5 LOW L-2 — H-2 dedup gate explicit pin for the
+   mixed v3+v4 transitional state. A v3 record (no liveTabId) AND a v4
+   record (with liveTabId) both resolving to the SAME live tab. The
+   resolver order is v4-first (insertion order) → tier (a) emits the v4
+   descriptor → matchedTabIds.add(tabId) → the v3 record's tier (b) match
+   to the same tabId is dropped by the H-2 dedup gate. Exactly one
+   descriptor must emit.
+   ========================================================================= */
+
+test('B-137 §66.15 case 10: H-2 dedup gate drops the v3 record when both v3 + v4 records resolve to the same tabId (mixed transitional state)', async () => {
+  /* Stored fixture: TWO records under the same parent — record V4 carries
+     liveTabId 200 (matches tier (a)); record V3 carries no liveTabId but
+     its (windowId, tabIndex) cell ALSO matches tab 200's position (tier
+     (b)). Both records resolve to tabId 200; H-2 dedup must keep only
+     the FIRST emit (insertion order = V4 first). */
+  seedPartitions({
+    items: [
+      { id: 'p-mix', title: 'Parent Mix', url: 'https://parent-mix.example', groupId: 'g-mix',
+        sortOrder: 0, createdAt: 1000, updatedAt: 1000 },
+    ],
+    groups: [
+      { id: 'g-mix', name: 'Mix', color: 'red', parentId: null, sortOrder: 0,
+        collapsed: false, createdAt: 1000, updatedAt: 1000 },
+    ],
+    floatingGroups: [
+      {
+        /* V4 record — emitted first via tier (a). */
+        floatingTabId: 'ft-mix-v4',
+        groupId: 'g-mix',
+        parentItemId: 'p-mix',
+        windowId: 1,
+        tabIndex: 0,
+        url: 'https://child-mix.example',
+        savedAt: 1000,
+        liveTabId: 200,   // v4 — tier (a) direct-match key
+      },
+      {
+        /* V3 record (no liveTabId) — would resolve to the same tab 200
+           via tier (b) (windowId 1, tabIndex 0). H-2 dedup must drop it. */
+        floatingTabId: 'ft-mix-v3',
+        groupId: 'g-mix',
+        parentItemId: 'p-mix',
+        windowId: 1,
+        tabIndex: 0,
+        url: 'https://child-mix.example',
+        savedAt: 1100,
+        /* deliberately no liveTabId — legacy v3 record */
+      },
+    ],
+  });
+
+  __setMockTabs([
+    { id: 200, url: 'https://child-mix.example', title: 'CHILD-MIX', windowId: 1, active: false, audible: false, index: 0 },
+  ]);
+  await buildLiveTabIndex();
+
+  const items = [{ id: 'p-mix', groupId: 'g-mix' }];
+  const members = await buildFloatingMembers(items);
+
+  /* Exactly ONE descriptor emits — H-2 dedup drops the second record. */
+  assert.ok(members['g-mix'], 'g-mix bucket must be populated');
+  assert.equal(members['g-mix'].length, 1,
+    'H-2 dedup gate must keep exactly one descriptor when v3+v4 records both resolve to the same tabId');
+  assert.equal(members['g-mix'][0].tabId, 200,
+    'descriptor must bind to tab 200 (the resolved live tab)');
+  assert.equal(members['g-mix'][0].title, 'CHILD-MIX',
+    'descriptor carries the live tab title');
+});
+
 test('AC11: three records with distinct windows + URLs all retained', async () => {
   seedPartitions({
     floatingGroups: [
