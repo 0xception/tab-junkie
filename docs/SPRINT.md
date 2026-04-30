@@ -49,14 +49,7 @@ _B-131 closed `wontfix-not-repro` 2026-04-30 — moved to "Completed This Sprint
 - **Files Changed**: TBD
 - **Parallel Opportunity**: Wave 0 R0 can run parallel with B-131 verify + B-133 R1
 
-### [B-133] Open Tabs section dotted-green indicator (P3 — Wave 1 Fast Track)
-- **Tier**: Fast Track (XS)
-- **Status**: 🔄 R1 [product-manager] in flight (Wave 0)
-- **Assigned To**: [product-manager] for R1
-- **Feature Context**: Visual consolidation per ephemeral-state taxonomy. Open Tabs section rows currently use SOLID green live indicator; should use DOTTED green (matching floating-tab visual from B-130) to clearly mark ephemeral state.
-- **Handoff Notes for Wave 0**: tight, lock-on-first-pass ACs. Apply B-118 source-citation gate. Cite `sidepanel.js buildOpenTabRow` selector + `sidepanel.css` rule that currently sets `border-left-color: var(--live-indicator)` on Open Tabs rows + `--floating-bar-color` token + B-130 §61.X precedent. Decide cross-surface coverage (sidepanel-only vs sidepanel+newtab+popup).
-- **Files Changed**: TBD by R3
-- **Parallel Opportunity**: Wave 0 R1 can run parallel with B-131 verify + B-132 R0
+_B-133 closed DONE 2026-04-30 — moved to "Completed This Sprint" below._
 
 ### [B-134] Drag-and-drop reorder for open + floating tabs (P2 — anchor #2)
 - **Tier**: Full (M)
@@ -77,6 +70,15 @@ _B-131 closed `wontfix-not-repro` 2026-04-30 — moved to "Completed This Sprint
 ---
 
 ## Completed This Sprint
+
+### ✅ B-133 — Open Tabs dotted-green indicator (Fast Track XS)
+- **Status**: DONE 2026-04-30 — Fast Track DoD met. R3 build complete + R4 [code-reviewer] CLEAN + R4 [security-reviewer] CLEAN (qa skipped per Fast Track tier).
+- **Files Changed**: `sidepanel/sidepanel.css` (lines 1680-1691 — comment block + rule body edit on `.item-row[data-live-only="true"]`); `tests/b133-open-tabs-dotted.test.js` (new, 87 lines, 2 tests T-133-A + T-133-B)
+- **Tests**: 1,732 → 1,734 (+2)
+- **Visual taxonomy now consolidated**: solid-green = persistent (saved bookmark, currently live); dotted-green = ephemeral (floating tab in group OR Open Tabs section row).
+- **Bonus architectural fix**: the latent CSS-specificity fragility flagged at R1 (floating rows matching both `[data-floating]` and `[data-live-only]` at equal specificity, with source order making `--live-indicator` win) is incidentally fixed — both rules now bind `--floating-bar-color`. Any future yellow/per-theme swap propagates consistently.
+- **Cross-surface verification**: newtab and popup confirmed without left-side border on Open Tabs rows (no-op per R1 R2-VERIFY).
+- **R4 findings**: 0 CRIT/HIGH/MEDIUM/LOW from both reviewers.
 
 ### ❌ B-131 — Floating tab title-displacement (closed `wontfix-not-repro`)
 - **Status**: CLOSED 2026-04-30 — `wontfix-not-repro` per product-owner decision after Wave 0 [product-manager] verify-first analysis
