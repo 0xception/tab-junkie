@@ -2476,3 +2476,58 @@ Both filed as `backlog | TBD` with triage notes; R1 to investigate at next sprin
 - **Storage schema**: `tj:floatingGroups` v2 → v3 (lazy migration; rollback documented at §63.18)
 - **Manifest permissions**: zero new permissions added
 - **Sprints + hotfixes without rollback**: 17 (S23 → S40)
+
+---
+
+## v1.34.1 Hotfix — B-136 chrome.tabs.onMoved listener (closed 2026-04-30)
+
+**Release**: v1.34.1 (cut tag on `release/v2` after PR #45 merge `e60eab6`; `gh release create` skipped per established pattern)
+**Branch**: `hotfix/v1.34.1-b-136` off `release/v2` (post-S40 close)
+**Test delta**: 1,778 → 1,782 (+4)
+**Build**: `tab-junkie.zip` 380 KB / 87 files (`./build.sh` exit 0)
+
+### B-136 — chrome.tabs.onMoved listener registration (P0/S, Fast Track)
+
+**Origin**: post-S40 v1.34.0 ship smoke test surfaced 3 issues. R0 discovery spike (`docs/findings/post-s40-smoke-triage.md`) classified Issue 1 (Open Tabs drag no-op despite B-134) as a localized bug:
+
+> `chrome.tabs.onMoved` is never registered in `background/tabs/tab-events.js:41-353`. Drop dispatches `chrome.tabs.move` correctly (browser strip reorders) but `LiveTabIndex.entry.index` never updates → `buildOpenTabs` keeps sorting by stale indices → cache signature unchanged → no patch path runs → TJ row stays put.
+
+**Fix**: ~30-40 production LOC. Register `chrome.tabs.onMoved` listener mirroring existing `onUpdated`/`onActivated`/`onAttached` patterns. Local-renumber strategy chosen (Option B): forward move `(fromIndex, toIndex]` shift -1; backward move `[toIndex, fromIndex)` shift +1. After `LiveTabIndex.updateTabEntry(tabId, { windowId, index: toIndex })`, fire `broadcast(SCOPE.LIVE_STATE, 'tab/moved', { requireClaimsReady: true })`.
+
+**R3-VERIFY confirmations**:
+- R3-V-1 (`toIndex` literal — no -1 placeholder per Chrome docs): confirmed via `developer.chrome.com/docs/extensions/reference/api/tabs#event-onMoved`
+- R3-V-2 (`LiveTabIndex.updateTabEntry` API supports the patch): confirmed at `live-tab-index.js:52`
+- R3-V-3 (broadcast pattern matches existing `onUpdated`): confirmed via grep
+
+**R4**: `[code-reviewer]` CLEAN, `[security-reviewer]` CLEAN. Zero findings of any severity. qa-reviewer skipped per Fast Track tier.
+
+**Test additions**:
+- `tests/b134-tab-drag-reorder.test.js` T1 extended (now asserts post-move `LiveTabIndex.get(tabId).index` reflects new index AND `buildOpenTabs(...)` returns rows in new order — was previously asserting only `_moveCalls.length`)
+- 4 new T1b tests: forward move, backward move, cross-window isolation, same-position no-op
+- `tests/chrome-mock.js` gained `tabs.onMoved` event channel + `_fireOnMoved` helper; `tabs.move` mock now realistically renumbers siblings + fires `onMoved`
+
+**No schema bump, no new permissions, no new message contracts, no DEFAULT_PREFERENCES changes** — therefore **no SW module-cache flush note required** in CHANGELOG (distinct from v1.32.0 / v1.34.0 schema bumps).
+
+**Files**:
+- `background/tabs/tab-events.js` (+53 LOC)
+- `tests/chrome-mock.js` (+44/-3)
+- `tests/b134-tab-drag-reorder.test.js` (+101/-1)
+- `manifest.json` (1.34.0 → 1.34.1)
+- `CHANGELOG.md` v1.34.1 entry
+- `docs/RELEASES.md` v1.34.1 entry
+- Bookkeeping: `docs/BACKLOG.md`, `docs/BACKLOG_BOARD.md`, `docs/findings/post-s40-smoke-triage.md`
+
+### Process notes
+
+- **Post-ship smoke-test triage as R0 spike** worked cleanly: 2-hour spike bisected 3 issues to root causes (1 localized bug + 2 data-model gap) with `file:line` evidence. Spike output drove sprint shape decision (Option B mixed: hotfix for B-136 + S41 anchor B-137 for the data-model item).
+- **Wave-0 wontfix-not-repro verdict on B-131 was wrong** — static analysis missed the `(windowId, tabIndex)`-keyed JOIN in `buildFloatingMembers` (focused only on tabId-keyed direct lookups). B-131 reclassified `superseded-by-B-137` since the displacement is real and structural.
+- **Sprint 40 R4 review process gap** surfaced: B-134 R3 dispatched `chrome.tabs.move` without registering `chrome.tabs.onMoved`. No R2 enumeration of "what updates LiveTabIndex after the move?" — filed as B-139 (CLAUDE.md C-13 candidate: Chrome event-feedback completeness gate).
+- **Filed alongside B-136**: B-137 (P1/M Full S41 anchor — `tj:floatingGroups` schema v3→v4 adopting `floatingTabId` as primary live-tab join key; subsumes B-131); B-138 (P2/XS post-B-137 cleanup); B-139 (P3/XS CLAUDE.md C-13 R2 check).
+
+### Final State
+
+- **Tests**: 1,782/1,782 passing · zero regressions
+- **Release tag**: v1.34.1 (cut on `release/v2`; `gh release create` skipped)
+- **Storage schema**: unchanged (still v3 from v1.34.0)
+- **Manifest permissions**: zero new permissions added
+- **Sprints + hotfixes without rollback**: 18 (S23 → v1.34.1)
