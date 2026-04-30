@@ -80,7 +80,10 @@ import {
   __resetTabClaims,
   isInherited,
   markInherited,
+  reconcileClaims,
 } from '../background/tabs/tab-claims.js';
+import { registerTabEventListeners } from '../background/tabs/tab-events.js';
+import { buildOpenTabs } from '../background/tabs/open-tabs.js';
 import {
   reorderFloatingMembers,
   moveFloatingTab,
@@ -129,19 +132,116 @@ beforeEach(() => {
    (no -1 adjustment for same-window per §63.14.4).
    ========================================================================= */
 
-test('B-134 T1 (AC1): REORDER_OPEN dispatches chrome.tabs.move with literal user-target index', async () => {
+test('B-134 T1 (AC1) + B-136 (AC2/AC3): REORDER_OPEN dispatches chrome.tabs.move with literal user-target index AND LiveTabIndex/buildOpenTabs reflect the new order', async () => {
   __setMockTabs([
     { id: 100, url: 'https://a.example', windowId: 1, active: false, audible: false, index: 0 },
     { id: 101, url: 'https://b.example', windowId: 1, active: false, audible: false, index: 1 },
     { id: 102, url: 'https://c.example', windowId: 1, active: false, audible: false, index: 2 },
   ]);
   await buildLiveTabIndex();
+  /* B-136: register the SW-side onMoved listener so chrome.tabs.move's
+     mock-fired onMoved updates LiveTabIndex (mirrors production wiring). */
+  registerTabEventListeners(Promise.resolve());
+  /* B-136: claims must be ready for buildOpenTabs to return non-empty. */
+  await reconcileClaims([]);
 
   /* Direct call to chrome.tabs.move (sidepanel-side dispatch). Verifies the
      mock records the call with literal index — no -1 adjustment. */
   await chrome.tabs.move(102, { index: 0 });
   assert.equal(chrome.tabs._moveCalls.length, 1);
   assert.deepEqual(chrome.tabs._moveCalls[0], { tabIds: 102, props: { index: 0 } });
+
+  /* B-136 AC2: LiveTabIndex reflects the new index for tab 102 AND siblings
+     have been renumbered by the local-renumber path in tab-events.js. */
+  const live = getLiveTabIndex();
+  assert.equal(live.get(102).index, 0, 'moved tab now at index 0');
+  assert.equal(live.get(100).index, 1, 'tab 100 shifted from 0 to 1');
+  assert.equal(live.get(101).index, 2, 'tab 101 shifted from 1 to 2');
+
+  /* B-136 AC3: buildOpenTabs returns rows in the new order. */
+  const openTabs = buildOpenTabs();
+  assert.deepEqual(openTabs.map((t) => t.tabId), [102, 100, 101]);
+});
+
+/* =========================================================================
+   T1b — B-136 listener directly: simulate chrome.tabs.onMoved with a known
+   (fromIndex, toIndex) pair. Asserts the LiveTabIndex mutation is correct
+   for both forward and backward moves, plus the same-position no-op guard.
+   Bypasses chrome.tabs.move entirely so the listener body is the unit
+   under test.
+   ========================================================================= */
+
+test('B-136 T1b (AC2/AC4): chrome.tabs.onMoved listener renumbers LiveTabIndex (forward move)', async () => {
+  __setMockTabs([
+    { id: 100, url: 'https://a.example', windowId: 1, active: false, audible: false, index: 0 },
+    { id: 101, url: 'https://b.example', windowId: 1, active: false, audible: false, index: 1 },
+    { id: 102, url: 'https://c.example', windowId: 1, active: false, audible: false, index: 2 },
+  ]);
+  await buildLiveTabIndex();
+  registerTabEventListeners(Promise.resolve());
+
+  /* Simulate a forward move: tab 100 (index 0) → index 2. Tabs 101, 102
+     should shift from 1, 2 → 0, 1. */
+  chrome.tabs.onMoved.__fire(100, { windowId: 1, fromIndex: 0, toIndex: 2 });
+
+  const live = getLiveTabIndex();
+  assert.equal(live.get(100).index, 2, 'moved tab lands at toIndex');
+  assert.equal(live.get(101).index, 0, 'tab 101 shifted 1 → 0');
+  assert.equal(live.get(102).index, 1, 'tab 102 shifted 2 → 1');
+});
+
+test('B-136 T1b (AC2/AC4): chrome.tabs.onMoved listener renumbers LiveTabIndex (backward move)', async () => {
+  __setMockTabs([
+    { id: 200, url: 'https://a.example', windowId: 1, active: false, audible: false, index: 0 },
+    { id: 201, url: 'https://b.example', windowId: 1, active: false, audible: false, index: 1 },
+    { id: 202, url: 'https://c.example', windowId: 1, active: false, audible: false, index: 2 },
+  ]);
+  await buildLiveTabIndex();
+  registerTabEventListeners(Promise.resolve());
+
+  /* Backward move: tab 202 (index 2) → index 0. Tabs 200, 201 shift
+     from 0, 1 → 1, 2. */
+  chrome.tabs.onMoved.__fire(202, { windowId: 1, fromIndex: 2, toIndex: 0 });
+
+  const live = getLiveTabIndex();
+  assert.equal(live.get(202).index, 0, 'moved tab lands at toIndex');
+  assert.equal(live.get(200).index, 1, 'tab 200 shifted 0 → 1');
+  assert.equal(live.get(201).index, 2, 'tab 201 shifted 1 → 2');
+});
+
+test('B-136 T1b (AC2): chrome.tabs.onMoved listener ignores cross-window siblings during local renumber', async () => {
+  __setMockTabs([
+    { id: 300, url: 'https://w1a.example', windowId: 1, active: false, audible: false, index: 0 },
+    { id: 301, url: 'https://w1b.example', windowId: 1, active: false, audible: false, index: 1 },
+    { id: 400, url: 'https://w2a.example', windowId: 2, active: false, audible: false, index: 0 },
+    { id: 401, url: 'https://w2b.example', windowId: 2, active: false, audible: false, index: 1 },
+  ]);
+  await buildLiveTabIndex();
+  registerTabEventListeners(Promise.resolve());
+
+  /* Move tab 300 within window 1 only. Window 2 indices must be untouched. */
+  chrome.tabs.onMoved.__fire(300, { windowId: 1, fromIndex: 0, toIndex: 1 });
+
+  const live = getLiveTabIndex();
+  assert.equal(live.get(300).index, 1);
+  assert.equal(live.get(301).index, 0);
+  assert.equal(live.get(400).index, 0, 'window 2 tabs untouched');
+  assert.equal(live.get(401).index, 1, 'window 2 tabs untouched');
+});
+
+test('B-136 T1b (AC2): chrome.tabs.onMoved listener is a no-op when fromIndex === toIndex', async () => {
+  __setMockTabs([
+    { id: 500, url: 'https://a.example', windowId: 1, active: false, audible: false, index: 0 },
+    { id: 501, url: 'https://b.example', windowId: 1, active: false, audible: false, index: 1 },
+  ]);
+  await buildLiveTabIndex();
+  registerTabEventListeners(Promise.resolve());
+
+  chrome.tabs.onMoved.__fire(500, { windowId: 1, fromIndex: 0, toIndex: 0 });
+
+  const live = getLiveTabIndex();
+  assert.equal(live.get(500).index, 0);
+  assert.equal(live.get(501).index, 1);
 });
 
 /* =========================================================================

@@ -215,7 +215,12 @@ const tabs = {
   /* B-134 §63.13.2 — chrome.tabs.move mock. Records the call (for spy
      assertions) and updates the in-memory mockTabs array's `index` fields
      to mimic Chrome's same-window reorder. Cross-window moves are out of
-     scope for B-134 (rejected at sidepanel layer). */
+     scope for B-134 (rejected at sidepanel layer).
+
+     B-136 — same-window moves now fire `chrome.tabs.onMoved` after the
+     mockTabs index is updated AND sibling tabs are renumbered to match
+     Chrome's actual shift behaviour. This lets tests exercise the full
+     listener path end-to-end (background/tabs/tab-events.js onMoved). */
   _moveCalls: [],
   async move(tabIds, props) {
     tabs._moveCalls.push({ tabIds, props });
@@ -224,11 +229,38 @@ const tabs = {
     if (!tab) {
       throw new Error(`Tab ${tabIds} not found`);
     }
+    const fromIndex = tab.index;
+    const fromWindowId = tab.windowId;
+    let toIndex = fromIndex;
+    let toWindowId = fromWindowId;
     if (props && typeof props.index === 'number') {
-      tab.index = props.index;
+      toIndex = props.index;
     }
     if (props && typeof props.windowId === 'number') {
-      tab.windowId = props.windowId;
+      toWindowId = props.windowId;
+    }
+    /* Same-window move — renumber siblings to match Chrome's shift. */
+    if (toWindowId === fromWindowId && toIndex !== fromIndex) {
+      if (fromIndex < toIndex) {
+        for (const t of state.mockTabs) {
+          if (t.id === tab.id) continue;
+          if (t.windowId !== fromWindowId) continue;
+          if (t.index > fromIndex && t.index <= toIndex) t.index -= 1;
+        }
+      } else {
+        for (const t of state.mockTabs) {
+          if (t.id === tab.id) continue;
+          if (t.windowId !== fromWindowId) continue;
+          if (t.index >= toIndex && t.index < fromIndex) t.index += 1;
+        }
+      }
+      tab.index = toIndex;
+      tabs.onMoved.__fire(tab.id, { windowId: fromWindowId, fromIndex, toIndex });
+    } else {
+      /* Cross-window move (rejected by drop-handler in production but the
+         mock still records the index/windowId for completeness). */
+      tab.index = toIndex;
+      tab.windowId = toWindowId;
     }
     return deepClone(tab);
   },
@@ -247,6 +279,11 @@ const tabs = {
      windows. Chrome does NOT fire onUpdated for this motion. */
   onDetached: createEventMock(),
   onAttached: createEventMock(),
+  /* B-136: onMoved fires when a tab is moved within a window. The
+     chrome.tabs.move mock above fires this event after renumbering the
+     in-memory mockTabs to match Chrome's shift behaviour. Tests can also
+     dispatch directly via tabs.onMoved.__fire(tabId, moveInfo). */
+  onMoved: createEventMock(),
 };
 
 /* B-091: track windows.update calls so dispatcher tests can assert
@@ -323,6 +360,7 @@ export function __resetMock() {
   tabs.onRemoved._listeners.length = 0;
   tabs.onDetached._listeners.length = 0;
   tabs.onAttached._listeners.length = 0;
+  tabs.onMoved._listeners.length = 0;
   tabs._moveCalls.length = 0;
   windows.onCreated._listeners.length = 0;
   windows.onRemoved._listeners.length = 0;

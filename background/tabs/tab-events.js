@@ -350,4 +350,57 @@ export function registerTabEventListeners(readyPromise) {
     broadcast(SCOPE.LIVE_STATE, 'tab/attached', { requireClaimsReady: true });
     broadcast(SCOPE.WINDOW_MAP, 'tab/attached');
   });
+
+  /**
+   * B-136: tabs.onMoved fires when a tab is moved WITHIN a window (Chrome
+   * dispatches separate onDetached/onAttached for cross-window drags).
+   * Without this listener, `LiveTabIndex.entry.index` goes stale after
+   * `chrome.tabs.move` and `buildOpenTabs` (background/tabs/open-tabs.js:34-63)
+   * keeps sorting by stale indices — the sidepanel cache signature does not
+   * change and no patch path runs. See `docs/findings/post-s40-smoke-triage.md`
+   * Issue 1 for the full failure trace.
+   *
+   * Payload: `(tabId, { windowId, fromIndex, toIndex })`. Per Chrome docs
+   * (developer.chrome.com/docs/extensions/reference/api/tabs#event-onMoved),
+   * `toIndex` is always a literal 0-based index — Chrome resolves the -1
+   * "end of strip" convention before firing this event. Local renumber is
+   * therefore safe (no -1 special case needed).
+   *
+   * Local-renumber strategy (vs. full re-query): mirror Chrome's own
+   * shift behaviour for the affected range:
+   *   forward  (from < to): tabs at indices [from+1, to] shift -1
+   *   backward (from > to): tabs at indices [to, from-1] shift +1
+   *   moved tab itself takes `toIndex`
+   * Rationale: synchronous + O(window-size) — matches the in-memory cost
+   * of `onUpdated`. Avoids the extra `chrome.tabs.query` await.
+   */
+  chrome.tabs.onMoved.addListener((tabId, moveInfo) => {
+    if (!moveInfo || typeof moveInfo.windowId !== 'number') return;
+    if (typeof moveInfo.fromIndex !== 'number' || typeof moveInfo.toIndex !== 'number') return;
+    const { windowId, fromIndex, toIndex } = moveInfo;
+    if (fromIndex === toIndex) return;
+
+    const index = getLiveTabIndex();
+    if (fromIndex < toIndex) {
+      // Forward move: tabs in (fromIndex, toIndex] shift down by 1.
+      for (const [otherTabId, entry] of index) {
+        if (otherTabId === tabId) continue;
+        if (entry.windowId !== windowId) continue;
+        if (entry.index > fromIndex && entry.index <= toIndex) {
+          updateTabEntry(otherTabId, { index: entry.index - 1 });
+        }
+      }
+    } else {
+      // Backward move: tabs in [toIndex, fromIndex) shift up by 1.
+      for (const [otherTabId, entry] of index) {
+        if (otherTabId === tabId) continue;
+        if (entry.windowId !== windowId) continue;
+        if (entry.index >= toIndex && entry.index < fromIndex) {
+          updateTabEntry(otherTabId, { index: entry.index + 1 });
+        }
+      }
+    }
+    updateTabEntry(tabId, { windowId, index: toIndex });
+    broadcast(SCOPE.LIVE_STATE, 'tab/moved', { requireClaimsReady: true });
+  });
 }
