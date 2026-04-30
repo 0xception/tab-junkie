@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-30 · **Version:** 2.40.2 · **Total Items:** 138 · **B-136 DONE Fast Track (R4 both reviewers CLEAN, 0 findings); v1.34.1 release in flight. B-137 P1/M S41 anchor queued (subsumes B-131). B-138 + B-139 process candidates queued. Branch: `hotfix/v1.34.1-b-136` off release/v2.**
+**Updated:** 2026-04-30 · **Version:** 2.41 · **Total Items:** 142 · **Sprint 41 active — kicked off 2026-04-30 with B-137 (P1/M Full · `floatingTabId` join-key adoption · subsumes B-131) anchor + 6 Fast Track XS piggybacks (B-138 cleanup + B-139..B-143 CLAUDE.md gates; 4 new retro action items filed at kickoff). Branch: `feature/sprint-41-floating-tab-id` off release/v2.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  92% (128/138)  [B-136 DONE · v1.34.1 release in flight · B-137 S41 anchor queued]
+Overall Progress    ██████████████████░░  90% (128/142)  [S41 active · 7 items in flight + 4 newly-filed retro candidates]
 ```
 
 ### Legend
@@ -277,14 +277,21 @@ Overall Progress    ██████████████████░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 127 | 92% |
-| 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 8 | 6% |
+| ✅ Done | 128 | 90% |
+| 🔄 In Progress | 7 | 5% |
+| ⬜ To Do | 4 | 3% |
 | 🧊 Icebox | 3 | 2% |
 
-(Done count: 127 code-shipping. B-131 reclassified `superseded-by-B-137` — bug is structural and being addressed in B-137.)
+(Done count: 128 code-shipping. B-131 reclassified `superseded-by-B-137`.)
 
-**In Progress breakdown**: _0 items in flight (B-136 DONE; v1.34.1 release-manager next)._
+**In Progress breakdown (7 items, all Sprint 41)**:
+- 🔴 **B-137** (P1/M Full · anchor) — `tj:floatingGroups` v3→v4 join-key adoption (subsumes B-131; eliminates Issues 2+3 from post-S40 spike)
+- 🟡 **B-138** (P2/XS Fast Track) — post-B-137 cleanup of remaining `(windowId, tabIndex)` callers
+- ⚪ **B-139** (P3/XS Fast Track) — CLAUDE.md C-13 Chrome event-feedback completeness gate
+- ⚪ **B-140** (P3/XS Fast Track) — CLAUDE.md R2 gen-counter content predicate enumeration
+- ⚪ **B-141** (P3/XS Fast Track) — CLAUDE.md B-127 STOP-and-escalate extension to "R2 spec incorrect"
+- ⚪ **B-142** (P3/XS Fast Track) — CLAUDE.md R3 cross-surface diff self-check
+- ⚪ **B-143** (P3/XS Fast Track) — CLAUDE.md R3 deferred-to-UAT cheap-fix self-check
 
 **To-Do breakdown (8 items)**:
 - 🔴 **P1** (1 — Sprint 41 anchor candidate): **B-137** floatingGroups schema v3→v4 (adopt `floatingTabId` as primary live-tab join key; subsumes B-131)
