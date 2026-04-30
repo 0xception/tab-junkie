@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-30 · **Version:** 2.39.1 · **Total Items:** 131 · **Sprint 39 + v1.33.1 hotfix shipped (B-130 done). 2 P1 floating-tab bugs filed for next-sprint triage: B-131 (initial title-displacement) + B-132 (post-reload routing regression to Open Tabs).**
+**Updated:** 2026-04-30 · **Version:** 2.39.2 · **Total Items:** 132 · **Sprint 39 + v1.33.1 hotfix shipped (B-130 done). 2 P1 floating-tab bugs (B-131 + B-132) + 1 P3 visual-consolidation story (B-133) queued for Sprint 40 triage.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  94% (123/131)  [S39 + v1.33.1 hotfix done · 7 items shipped · 2 P1 bugs queued for next sprint]
+Overall Progress    ██████████████████░░  93% (123/132)  [S39 + v1.33.1 hotfix done · 7 items shipped · 2 P1 bugs + 1 P3 visual story queued for Sprint 40]
 ```
 
 ### Legend
@@ -277,17 +277,17 @@ Overall Progress    ██████████████████░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 123 | 94% |
+| ✅ Done | 123 | 93% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 5 | 4% |
+| ⬜ To Do | 6 | 5% |
 | 🧊 Icebox | 3 | 2% |
 
 **In Progress breakdown**: _0 items in flight._
 
-**To-Do breakdown (5 items)**:
-- 🔴 **P1** (2 — newly filed 2026-04-30): **B-131** floating tab opens with wrong title initially (title-displacement race in `buildFloatingTabRow` / patch path) · **B-132** floating tabs route to Open Tabs section instead of originating group after extension reload (likely SW-memory loss of `openerMap` or `inheritedTabs`)
+**To-Do breakdown (6 items)**:
+- 🔴 **P1** (2 — filed 2026-04-30): **B-131** floating tab opens with wrong title initially (note: may no longer reproduce post-v1.33.1 — Sprint 40 R1 verifies first) · **B-132** floating tabs route to Open Tabs section instead of originating group after extension reload (likely SW-memory loss of `openerMap` or `inheritedTabs`)
 - 🟡 **P2** (2): B-041 sync tab order (L) · B-076 MIGRATION_STEPS hook (S)
-- ⚪ **P3** (1): B-086 sidepanel UI/UX umbrella (M)
+- ⚪ **P3** (2): **B-133** consolidate ephemeral-state visual cue (Open Tabs section rows use dotted-green indicator like floating tabs — solid-green stays reserved for persistent saved-bookmark rows) · B-086 sidepanel UI/UX umbrella (M)
 
 **To Do breakdown (3 items, S40+ candidates)**:
 - **🟡 P2 (2)**: B-041 (sync tab order, L · pre-S33 — last big v2 feature), B-076 (MIGRATION_STEPS hook, S · pre-S33)
