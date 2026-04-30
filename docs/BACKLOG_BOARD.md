@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-30 · **Version:** 2.40 · **Total Items:** 134 · **Sprint 40 closing — 4 items DONE (B-133 dotted-green + B-132 cold-start fix + B-134 drag-reorder + B-131 wontfix); B-135 cross-window drag deferred stub. Gate 4 + Gate 7 + release v1.34.0 in flight. Branch: `feature/sprint-40-drag-reorder` off release/v2.**
+**Updated:** 2026-04-30 · **Version:** 2.40.1 · **Total Items:** 138 · **Sprint 40 shipped v1.34.0. Post-ship smoke test surfaced 3 issues; R0 triage classified 1 as localized bug (B-136 → v1.34.1 hotfix in flight) + 2 as data-model gap (B-137 P1/M S41 anchor, subsumes B-131). Plus B-138 + B-139 process candidates filed. B-131 marked superseded-by-B-137. Branch: `hotfix/v1.34.1-b-136` off release/v2.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████████████████░  95% (127/134)  [S40 closing · 4 items done + 1 deferred stub · release v1.34.0 in flight]
+Overall Progress    ██████████████████░░  92% (127/138)  [v1.34.1 hotfix in flight · B-136 P0 + 3 newly-filed items · B-131 superseded-by-B-137]
 ```
 
 ### Legend
@@ -277,14 +277,20 @@ Overall Progress    ███████████████████░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 127 | 95% |
-| 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 4 | 3% |
+| ✅ Done | 126 | 91% |
+| 🔄 In Progress | 1 | 1% |
+| ⬜ To Do | 8 | 6% |
 | 🧊 Icebox | 3 | 2% |
 
-(Done count includes 1 `wontfix-not-repro` closure in S40 — B-131. Code-shipping done count is 126.)
+(Done count: 126 code-shipping. B-131 reclassified `superseded-by-B-137` and removed from "Done" — the wontfix verdict was wrong; the bug is structural and being addressed in B-137.)
 
-**In Progress breakdown**: _Sprint 40 closing — 0 items in flight._
+**In Progress breakdown (1 item, v1.34.1 hotfix)**:
+- 🔴 **B-136** (P0/S Fast Track) — register `chrome.tabs.onMoved` listener; restore B-134 op 1 (Open Tabs drag user-visible reorder); v1.34.1 hotfix anchor
+
+**To-Do breakdown (8 items)**:
+- 🔴 **P1** (1 — Sprint 41 anchor candidate): **B-137** floatingGroups schema v3→v4 (adopt `floatingTabId` as primary live-tab join key; subsumes B-131)
+- 🟡 **P2** (3): **B-138** post-B-137 cleanup (XS) · B-041 sync tab order (L) · B-076 MIGRATION_STEPS hook (S)
+- ⚪ **P3** (4): **B-139** C-13 Chrome event-feedback completeness gate (CLAUDE.md edit) · **B-135** cross-window Open Tabs drag · B-086 sidepanel UI/UX umbrella (M) · (existing P3 items)
 
 **To-Do breakdown (4 items)**:
 - 🟡 **P2** (2): B-041 sync tab order (L) · B-076 MIGRATION_STEPS hook (S)
