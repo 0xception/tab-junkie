@@ -2,6 +2,20 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.34.1] — 2026-04-30 — B-136 hotfix
+
+Fast Track S hotfix restoring B-134 Op 1 (Open Tabs drag-reorder user-visible behavior).
+
+### Fixed
+- **Drag-and-drop reorder of open tabs in the sidepanel now actually moves the row to the new position (B-136)** — under v1.34.0, dragging an Open Tabs row dispatched `chrome.tabs.move` correctly (the browser's native tab strip reordered) but Tab Junkie's sidepanel view did not refresh, so the row appeared to snap back to its original position. The drag gesture now has the visible effect promised by B-134 AC1, matching what already happens in the browser tab strip.
+
+### Changed (developer-visible)
+- **Registered `chrome.tabs.onMoved` listener in `background/tabs/tab-events.js`** — was missing in v1.34.0 ship of B-134. Listener mirrors existing `onUpdated` / `onActivated` / `onAttached` patterns: local-renumber forward (`(fromIndex, toIndex]` shift `-1`) / backward (`[toIndex, fromIndex)` shift `+1`), then `broadcast(SCOPE.LIVE_STATE, 'tab/moved', { requireClaimsReady: true })` triggers cache invalidation so `buildOpenTabs` re-sorts by the fresh indices and the sidepanel re-renders.
+- **`tests/chrome-mock.js`** gains an `onMoved` event channel + `_fireOnMoved(tabId, moveInfo)` helper; `chrome.tabs.move` mock now fires `onMoved` after recording `_moveCalls`.
+
+### Note
+- **No reload required.** No storage schema changes, no manifest changes, no message-contract changes, no new permissions, no `DEFAULT_PREFERENCES` additions. Pure listener-registration + cache-invalidation wiring. Update and use the new behavior immediately.
+
 ## [1.34.0] — 2026-04-30
 
 Sprint 40 — Floating-tab bug-fix anchor + drag-reorder feature (3 user-visible items): 1 P1 cold-start bug fix (B-132) + 1 P2/M drag-and-drop reorder feature (B-134) + 1 P3/XS visual-cue consolidation (B-133).

@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-30 · **Version:** 2.40 · **Total Items:** 134 · **Sprint 40 closing — 4 items DONE (B-133 dotted-green + B-132 cold-start fix + B-134 drag-reorder + B-131 wontfix); B-135 cross-window drag deferred stub. Gate 4 + Gate 7 + release v1.34.0 in flight. Branch: `feature/sprint-40-drag-reorder` off release/v2.**
+**Updated:** 2026-04-30 · **Version:** 2.40.2 · **Total Items:** 138 · **B-136 DONE Fast Track (R4 both reviewers CLEAN, 0 findings); v1.34.1 release in flight. B-137 P1/M S41 anchor queued (subsumes B-131). B-138 + B-139 process candidates queued. Branch: `hotfix/v1.34.1-b-136` off release/v2.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████████████████░  95% (127/134)  [S40 closing · 4 items done + 1 deferred stub · release v1.34.0 in flight]
+Overall Progress    ██████████████████░░  92% (128/138)  [B-136 DONE · v1.34.1 release in flight · B-137 S41 anchor queued]
 ```
 
 ### Legend
@@ -277,14 +277,19 @@ Overall Progress    ███████████████████░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 127 | 95% |
+| ✅ Done | 127 | 92% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 4 | 3% |
+| ⬜ To Do | 8 | 6% |
 | 🧊 Icebox | 3 | 2% |
 
-(Done count includes 1 `wontfix-not-repro` closure in S40 — B-131. Code-shipping done count is 126.)
+(Done count: 127 code-shipping. B-131 reclassified `superseded-by-B-137` — bug is structural and being addressed in B-137.)
 
-**In Progress breakdown**: _Sprint 40 closing — 0 items in flight._
+**In Progress breakdown**: _0 items in flight (B-136 DONE; v1.34.1 release-manager next)._
+
+**To-Do breakdown (8 items)**:
+- 🔴 **P1** (1 — Sprint 41 anchor candidate): **B-137** floatingGroups schema v3→v4 (adopt `floatingTabId` as primary live-tab join key; subsumes B-131)
+- 🟡 **P2** (3): **B-138** post-B-137 cleanup (XS) · B-041 sync tab order (L) · B-076 MIGRATION_STEPS hook (S)
+- ⚪ **P3** (4): **B-139** C-13 Chrome event-feedback completeness gate (CLAUDE.md edit) · **B-135** cross-window Open Tabs drag · B-086 sidepanel UI/UX umbrella (M) · (existing P3 items)
 
 **To-Do breakdown (4 items)**:
 - 🟡 **P2** (2): B-041 sync tab order (L) · B-076 MIGRATION_STEPS hook (S)

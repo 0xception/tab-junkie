@@ -4,6 +4,44 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.34.1 hotfix — B-136 chrome.tabs.onMoved listener registration (2026-04-30)
+
+**Tagged on `hotfix/v1.34.1-b-136` — pending PR merge to release/v2. Tag: `v1.34.1`.**
+
+Fast Track S hotfix restoring B-134 Op 1 (Open Tabs drag-reorder user-visible behavior). v1.34.0 dispatched `chrome.tabs.move` correctly (the browser tab strip reordered) but TJ's sidepanel view did not refresh because no `chrome.tabs.onMoved` listener existed to update `LiveTabIndex`. This hotfix registers the missing listener.
+
+### What's new (user-visible)
+
+- **Drag-and-drop reorder of open tabs in the sidepanel now actually moves the row to the new position (B-136, P0)** — matching what already happens in the browser tab strip. Previously in v1.34.0 the tab strip moved but the sidepanel view did not refresh, so the row appeared to snap back to its original position. The drag gesture now has the visible effect promised by B-134 AC1.
+
+### Developer-visible
+
+- **Registered `chrome.tabs.onMoved` listener in `background/tabs/tab-events.js`** — payload `(tabId, { windowId, fromIndex, toIndex })`. Listener mirrors the existing `onUpdated` / `onActivated` / `onAttached` registration patterns: local-renumber for tabs in the affected window (forward move shifts `(fromIndex, toIndex]` down by 1; backward move shifts `[toIndex, fromIndex)` up by 1) — avoids a full `chrome.tabs.query` round-trip — then `broadcast(SCOPE.LIVE_STATE, 'tab/moved', { requireClaimsReady: true })` triggers cache invalidation so `buildOpenTabs` re-sorts by the fresh indices and the sidepanel re-renders.
+- **`tests/chrome-mock.js`** gains an `onMoved` event channel + `_fireOnMoved(tabId, moveInfo)` helper; `chrome.tabs.move` mock now fires `onMoved` after recording `_moveCalls`.
+
+### Architecture
+
+- **No storage schema changes**, no manifest changes, no message-contract changes, no new permissions, no `DEFAULT_PREFERENCES` additions. Pure listener-registration + cache-invalidation wiring.
+- **No SW module-cache flush required** — no schema bump, no new pref keys, no new permissions. Standard extension reload after update is sufficient.
+
+### Quality
+
+- **Tests**: 1,778 → **1,782 passing** (+4 — T1 in `tests/b134-tab-drag-reorder.test.js` extended to assert post-move `LiveTabIndex.get(tabId).index` reflects the new index AND `buildOpenTabs(...)` returns rows in the new order; 4 new T1b tests pin the listener directly with known `(fromIndex, toIndex)` pairs incl. forward, backward, and edge cases).
+- **Build**: `./build.sh` clean (380 K zip, 87 files, exit 0).
+- **R4 findings**: 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW. `[code-reviewer]` CLEAN, `[security-reviewer]` CLEAN. Zero findings of any severity. `[qa-reviewer]` skipped per Fast Track tier.
+
+### Pending UAT
+
+- B-136 UAT folds into the existing B-134 UAT-1..UAT-19 carry-forward — verifies Op 1 (Open Tabs drag-reorder) end-to-end on the loaded extension.
+
+### Rollback
+
+- **Code-only revert**: single atomic `git revert <hotfix-commit-sha>` reverses v1.34.1, returning to the v1.34.0 listener-missing state. No storage schema migrations to reverse. `git tag -d v1.34.1` deletes the local tag (if not yet pushed).
+- **Reinstall path**: download the v1.34.0 zip from the prior tag and load unpacked from `chrome://extensions` (or `edge://extensions`).
+- **GitHub Release**: skipped per product-owner direction (tag `v1.34.1` + zip exist for manual publish later).
+
+---
+
 ## v1.34.0 — Sprint 40 — Drag-and-drop reorder + cold-start claim-jump fix (2026-04-30)
 
 **Tagged on `feature/sprint-40-drag-reorder` — pending PR merge to release/v2. Tag: `v1.34.0`.**
