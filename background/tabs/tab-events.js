@@ -160,6 +160,11 @@ export function registerTabEventListeners(readyPromise) {
               tabIndex: typeof liveIndex === 'number' ? liveIndex : 0,
               url: liveUrl,
               savedAt: Date.now(),
+              /* B-137 §66.5.5 — caller-supplies `liveTabId`. `tab.id` is in
+                 scope from the `chrome.tabs.onCreated` callback parameter;
+                 the `liveEntry` re-validation above (line 151-152) ensures
+                 the tab is still alive at write time. */
+              liveTabId: tab.id,
             });
             // B-125 (§59.3): mark the inherited tab so reevaluateTab will
             // skip the auto-claim branch. Placed strictly AFTER the

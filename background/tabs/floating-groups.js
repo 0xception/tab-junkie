@@ -86,18 +86,26 @@ export async function saveFloatingGroups(entries) {
 /**
  * Re-associate floating-group records on cold start.
  *
- * Algorithm (B-121 §60.4.3):
- *   1. POSITION MATCH: find live tab where windowId === record.windowId
- *      AND index === record.tabIndex AND tab is unclaimed.
- *   2. URL FALLBACK: if no position match, find unclaimed tab where
+ * Algorithm (B-121 §60.4.3 + B-137 §66.7):
+ *   1. TIER (a) DIRECT TABID MATCH (B-137): record.liveTabId is finite AND
+ *      liveTabIndex.has(record.liveTabId).
+ *   2. POSITION MATCH: find live tab where windowId === record.windowId
+ *      AND index === record.tabIndex.
+ *   3. URL FALLBACK: if no position match, find tab where
  *      normalizeForMatch(stored.url) === normalizeForMatch(tab.url).
- *   3. If matched AND already claimed: prune the record.
- *   4. If matched AND unclaimed: LEAVE IN PLACE (runtime render path
- *      surfaces it via buildFloatingMembers).
- *   5. If no match: leave in place per B-018 AC9.
+ *   4. If matched AND already claimed: prune the record.
+ *   5. If matched AND unclaimed AND record.liveTabId differs from the
+ *      resolved tabId (legacy v3 record OR v4 record with stale liveTabId):
+ *      LAZY-REWRITE record.liveTabId to the resolved tabId (B-137 §66.7).
+ *   6. If matched AND unclaimed AND record.liveTabId already matches:
+ *      LEAVE IN PLACE (runtime render path surfaces it).
+ *   7. If no match: leave in place per B-018 AC9.
  *
  * The function does NOT mutate `claimsMirror`. Parent claims established
- * by reconcileClaims are preserved unconditionally (AC7).
+ * by reconcileClaims are preserved unconditionally (AC7). The lazy
+ * `liveTabId` rewrite (step 5) piggybacks on the existing
+ * `pruneResolvedFloatingGroups` writeTransaction so cold-start storage
+ * mutations remain a single atomic write.
  *
  * @param {Map<number, {url: string, windowId: number, active: boolean,
  *                     audible: boolean, index: number}>} liveTabIndex
@@ -116,21 +124,39 @@ export async function reassociateFloatingGroups(liveTabIndex, existingClaims) {
    *  pruned (used only when the record lacks a floatingTabId — the legacy
    *  prune path described in §60.4.5). */
   const legacyResolvedParentItemIds = new Set();
+  /** B-137 §66.7.4 — floatingTabId → resolved liveTabId for matched-
+   *  unclaimed records whose stored liveTabId is missing or stale. The
+   *  pruneResolvedFloatingGroups writeTransaction patches these atomically
+   *  alongside the prune. Keyed by floatingTabId because that is the
+   *  storage identity (records lacking floatingTabId — pre-S38 legacy
+   *  shape — are not lazy-rewritten; they self-evict via natural turnover). */
+  /** @type {Map<string, number>} */
+  const staleLiveTabIdRecords = new Map();
 
   for (const record of records) {
     if (!record || typeof record !== 'object') continue;
 
     let matchedTabId = null;
 
-    // POSITION MATCH
-    for (const [tabId, entry] of liveTabIndex) {
-      if (entry.windowId === record.windowId && entry.index === record.tabIndex) {
-        matchedTabId = tabId;
-        break;
+    /* B-137 §66.7.4 tier (a) — direct liveTabId fast path. Used to skip
+       the position loop when the v4 record's liveTabId is still valid in
+       this session. */
+    if (typeof record.liveTabId === 'number' && Number.isFinite(record.liveTabId)
+      && liveTabIndex.has(record.liveTabId)) {
+      matchedTabId = record.liveTabId;
+    }
+
+    // POSITION MATCH (legacy fallback)
+    if (matchedTabId === null) {
+      for (const [tabId, entry] of liveTabIndex) {
+        if (entry.windowId === record.windowId && entry.index === record.tabIndex) {
+          matchedTabId = tabId;
+          break;
+        }
       }
     }
 
-    // URL FALLBACK
+    // URL FALLBACK (legacy fallback)
     if (matchedTabId === null) {
       const normalizedStored = safeNormalizeForMatch(record.url);
       if (normalizedStored) {
@@ -151,13 +177,26 @@ export async function reassociateFloatingGroups(liveTabIndex, existingClaims) {
         const parentId = getParentItemId(record);
         if (parentId) legacyResolvedParentItemIds.add(parentId);
       }
+    } else if (matchedTabId !== null
+      && record.liveTabId !== matchedTabId    // missing OR stale stored liveTabId
+      && typeof record.floatingTabId === 'string'
+      && record.floatingTabId.length > 0) {
+      /* B-137 §66.7.4 — matched + unclaimed + (missing OR stale) liveTabId.
+         Lazy-rewrite the resolved tabId. floatingTabId is the storage
+         identity used for the patch lookup in pruneResolvedFloatingGroups. */
+      staleLiveTabIdRecords.set(record.floatingTabId, matchedTabId);
     }
-    // matched + unclaimed → leave in place (runtime path renders it)
+    // matched + unclaimed + liveTabId already correct → leave in place
     // not matched → leave in place per AC9
   }
 
-  if (resolvedFloatingTabIds.size > 0 || legacyResolvedParentItemIds.size > 0) {
-    await pruneResolvedFloatingGroups(resolvedFloatingTabIds, legacyResolvedParentItemIds);
+  if (resolvedFloatingTabIds.size > 0 || legacyResolvedParentItemIds.size > 0
+    || staleLiveTabIdRecords.size > 0) {
+    await pruneResolvedFloatingGroups(
+      resolvedFloatingTabIds,
+      legacyResolvedParentItemIds,
+      staleLiveTabIdRecords,
+    );
   }
 }
 
@@ -165,13 +204,20 @@ export async function reassociateFloatingGroups(liveTabIndex, existingClaims) {
  * Append a single floating-group entry atomically.
  *
  * B-121 §60.4.4: stamps a fresh `floatingTabId` (ulid) onto every record.
+ * B-137 §66.5: ALSO stamps the caller-supplied `liveTabId` (numeric tabId at
+ * write time — primary live-session join key). The caller — `tab-events.js`
+ * `chrome.tabs.onCreated` opener-chain block at lines 156-163 — has `tab.id`
+ * in scope and passes it through the `entry` object. Records supplied
+ * without `liveTabId` are silently rejected (matches the existing input-
+ * validator pattern).
+ *
  * Required field: `parentItemId` (the parent saved item's id). Records
  * supplied with a legacy `itemId` field are migrated transparently:
  * `itemId` is renamed to `parentItemId` before persistence.
  *
  * @param {{groupId: string, parentItemId?: string, itemId?: string,
  *          windowId: number, tabIndex: number, url: string,
- *          savedAt: number}} entry
+ *          savedAt: number, liveTabId: number}} entry
  * @returns {Promise<void>}
  */
 export async function appendFloatingGroup(entry) {
@@ -181,6 +227,13 @@ export async function appendFloatingGroup(entry) {
     || typeof entry.tabIndex !== 'number' || !Number.isFinite(entry.tabIndex)
     || typeof entry.url !== 'string' || entry.url.length > MAX_URL
     || typeof entry.savedAt !== 'number' || !Number.isFinite(entry.savedAt)) {
+    return;
+  }
+  /* B-137 §66.5.3 — `liveTabId` is REQUIRED on the input; silent reject
+     on missing/non-finite (matches the existing input-validator early-
+     return pattern above). The sole production caller — `tab-events.js`
+     opener-chain block — always has `tab.id` in scope. */
+  if (typeof entry.liveTabId !== 'number' || !Number.isFinite(entry.liveTabId)) {
     return;
   }
   const parentId = getParentItemId(entry);
@@ -194,6 +247,9 @@ export async function appendFloatingGroup(entry) {
     tabIndex: entry.tabIndex,
     url: entry.url,
     savedAt: entry.savedAt,
+    /* B-137 §66.5.4 — primary live-session join key (schema v4). Caller
+       supplies the numeric tabId (`tab.id` from `chrome.tabs.onCreated`). */
+    liveTabId: entry.liveTabId,
   };
 
   await writeTransaction([{
@@ -238,12 +294,24 @@ export async function appendFloatingGroup(entry) {
    ========================================================================= */
 
 /**
- * Resolve a live tab's floatingGroups record within `groupId` by matching on
- * the LiveTabIndex `(windowId, tabIndex)` geometry — §63.14.1 Strategy A.
- * Returns the record's index in `arr`, or -1 if no match. Defense-in-depth:
- * the mutator skips records whose tab has vanished (race guard at the
- * writeTransaction layer; the drop-handler third branch in §63.10 is the
- * primary guard).
+ * Resolve a live tab's floatingGroups record within `groupId` via a 2-tier
+ * join (B-137 §66.8):
+ *   - Tier (a): direct `liveTabId === tabId` match. v4 records resolve in
+ *     a single linear scan (no LiveTabIndex lookup required).
+ *   - Tier (b): `(windowId, tabIndex)` geometry against LiveTabIndex.
+ *     Required for legacy v3 records lacking `liveTabId` AND for v4
+ *     records whose stored `liveTabId` is stale (Chrome restart edge case).
+ *
+ * Returns the record's index in `arr`, or -1 if no match. Defense-in-
+ * depth: the mutator skips records whose tab has vanished (race guard at
+ * the writeTransaction layer; the drop-handler third branch in §63.10 is
+ * the primary guard).
+ *
+ * Performance (R3-VERIFY 3 LOCK): tier (a) is O(N_records), not true O(1).
+ * The R0 spike's "O(1) Map.get" framing was aspirational; precomputing a
+ * `Map<liveTabId, recordIndex>` per-mutator-invocation would cost more
+ * than the linear scan at the bounded N (≤ 5 records per group, ≤ 20
+ * groups). Linear scan retained per §66.8.2.
  *
  * @param {Array<object>} arr      tj:floatingGroups records
  * @param {number} tabId           live tab id
@@ -252,6 +320,17 @@ export async function appendFloatingGroup(entry) {
  * @returns {number}               index in arr, or -1
  */
 function _resolveRecordIndexByTabId(arr, tabId, groupId, liveIndex) {
+  /* B-137 §66.8.1 tier (a) — direct liveTabId match. */
+  for (let i = 0; i < arr.length; i++) {
+    const rec = arr[i];
+    if (!rec || typeof rec !== 'object') continue;
+    if (rec.groupId !== groupId) continue;
+    if (typeof rec.liveTabId === 'number' && rec.liveTabId === tabId) {
+      return i;
+    }
+  }
+
+  /* Tier (b) — legacy fallback: (windowId, tabIndex) geometry. */
   const live = liveIndex.get(tabId);
   if (!live) return -1;
   for (let i = 0; i < arr.length; i++) {
@@ -440,6 +519,19 @@ export async function moveFloatingTab(tabId, sourceGroupId, targetGroupId, inser
           ? sourceRecord.floatingTabId
           : ulid();
 
+        /* B-137 §66.8.4 — preserve liveTabId across the cross-group move.
+           The live tab itself does not close during MOVE_FLOATING (the
+           drop-handler guard A at sidepanel.js + the chrome.tabs.get
+           pre-flight at floating-groups.js above ensure the tab is alive);
+           the join must remain intact. ATTACH (sourceRecord === null) has
+           no source liveTabId, so we use the caller-supplied tabId
+           argument — that IS the new record's liveTabId. */
+        const liveTabIdForRecord = (sourceRecord
+          && typeof sourceRecord.liveTabId === 'number'
+          && Number.isFinite(sourceRecord.liveTabId))
+          ? sourceRecord.liveTabId
+          : tabId;
+
         const tgtRecords = arr.filter((r) => r && r.groupId === targetGroupId);
         const clampedIdx = Math.max(0, Math.min(insertIndex, tgtRecords.length));
 
@@ -461,6 +553,8 @@ export async function moveFloatingTab(tabId, sourceGroupId, targetGroupId, inser
           url,
           savedAt: Date.now(),
           sortOrder: clampedIdx,
+          /* B-137 §66.8.4 — preserve/seed liveTabId on the new record. */
+          liveTabId: liveTabIdForRecord,
         });
 
         /* Final renumber to defend against any sortOrder gaps. */
@@ -492,36 +586,61 @@ function _floatingRecordCompare(a, b) {
 }
 
 /**
- * Remove resolved floating-group records from storage.
+ * Remove resolved floating-group records from storage AND lazy-rewrite
+ * `liveTabId` on matched-unclaimed records (B-137 §66.7.5).
  *
  * B-121 §60.4.5: identity has shifted from `parentItemId` to
  * `floatingTabId`. The legacy fallback (`legacyResolvedParentItemIds`)
  * removes records that lack a `floatingTabId` field (pre-S38 writes that
- * never went through the migration). New code SHOULD pass only
- * `resolvedFloatingTabIds`; the second parameter exists for the
- * cold-start re-association path during the v1→v2 transition window.
+ * never went through the migration).
+ *
+ * B-137 §66.7.5: extended to also accept a third optional argument —
+ * `staleLiveTabIdRecords` — a `Map<floatingTabId, newLiveTabId>` of
+ * matched-unclaimed records whose stored `liveTabId` is missing or stale.
+ * The mutator patches these records inline with the prune filter so cold-
+ * start storage mutations remain a single atomic write transaction. The
+ * extension is in-place per R3-VERIFY 2 LOCK (Option (i) — extend in
+ * place; no new exported function).
  *
  * @param {Set<string>} resolvedFloatingTabIds
  * @param {Set<string>} [legacyResolvedParentItemIds]
+ * @param {Map<string, number>} [staleLiveTabIdRecords] — B-137 §66.7.5
  * @returns {Promise<void>}
  */
 export async function pruneResolvedFloatingGroups(
   resolvedFloatingTabIds,
   legacyResolvedParentItemIds = new Set(),
+  staleLiveTabIdRecords = new Map(),
 ) {
-  if (resolvedFloatingTabIds.size === 0 && legacyResolvedParentItemIds.size === 0) return;
+  if (resolvedFloatingTabIds.size === 0
+    && legacyResolvedParentItemIds.size === 0
+    && staleLiveTabIdRecords.size === 0) return;
   await writeTransaction([{
     partition: PARTITION_FLOATING_GROUPS,
     mutator: (current) => {
       const arr = Array.isArray(current) ? current : [];
-      return arr.filter((entry) => {
-        if (!entry || typeof entry !== 'object') return false;
+      return arr.reduce((acc, entry) => {
+        if (!entry || typeof entry !== 'object') return acc;
+
         if (typeof entry.floatingTabId === 'string' && entry.floatingTabId.length > 0) {
-          return !resolvedFloatingTabIds.has(entry.floatingTabId);
+          // Prune branch (existing) — drop records whose floatingTabId resolved.
+          if (resolvedFloatingTabIds.has(entry.floatingTabId)) return acc;
+          /* B-137 §66.7.5 — Patch branch. Records flagged for lazy
+             liveTabId rewrite get a new record pushed with the resolved
+             tabId; all other fields preserved by spread. */
+          if (staleLiveTabIdRecords.has(entry.floatingTabId)) {
+            acc.push({ ...entry, liveTabId: staleLiveTabIdRecords.get(entry.floatingTabId) });
+            return acc;
+          }
+        } else {
+          // Legacy prune branch (no floatingTabId) — match by parentItemId.
+          const parentId = getParentItemId(entry);
+          if (legacyResolvedParentItemIds.has(parentId)) return acc;
         }
-        const parentId = getParentItemId(entry);
-        return !legacyResolvedParentItemIds.has(parentId);
-      });
+
+        acc.push(entry);
+        return acc;
+      }, []);
     },
   }]);
 }

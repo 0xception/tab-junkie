@@ -389,3 +389,50 @@ test('B-132 T-132-H: preMarkInheritedFromFloatingGroups writes ZERO storage (pur
   /* The mark IS the side effect — confirmed via isInherited. */
   assert.equal(isInherited(700), true, 'helper marks the matched tabId');
 });
+
+/* =========================================================================
+   B-137 §66.7 — reassociateFloatingGroups owns the lazy-`liveTabId`-rewrite.
+   This test confirms the cold-start sequence:
+     1. preMarkInheritedFromFloatingGroups — pure read+mark (T-132-H pin
+        verifies it remains pure-read).
+     2. reassociateFloatingGroups — lazy-rewrites liveTabId on matched-
+        unclaimed legacy v3 records via the existing prune writeTransaction.
+   The contract preservation is critical: B-137 MUST NOT modify the B-132
+   §65.4 helper body (R2-VERIFY 1 LOCK rationale).
+   ========================================================================= */
+test('B-137 §66.7 (T-132-H + AC5): reassociateFloatingGroups lazy-rewrites liveTabId on matched-unclaimed legacy v3 records during cold start', async () => {
+  /* Seed a legacy v3 record (no liveTabId) whose tab is alive and unclaimed
+     after the pre-mark phase. */
+  seedPartitions({
+    floatingGroups: [
+      {
+        floatingTabId: 'ft-cold-rewrite',
+        groupId: 'g-1',
+        parentItemId: 'p-1',
+        windowId: 1,
+        tabIndex: 0,
+        url: 'https://cold.example/',
+        savedAt: 1000,
+        /* deliberately no liveTabId — legacy v3 record */
+      },
+    ],
+  });
+
+  __setMockTabs([
+    { id: 920, url: 'https://cold.example/', windowId: 1, active: true, audible: false, index: 0 },
+  ]);
+  await buildLiveTabIndex();
+
+  /* Mirrors initializeLiveState ordering: pre-mark, then reassociate. */
+  await preMarkInheritedFromFloatingGroups();
+  await reassociateFloatingGroups(getLiveTabIndex(), {});
+
+  /* Inherited mark from the pre-mark helper is intact. */
+  assert.equal(isInherited(920), true, 'pre-mark helper still marks the resolved tabId');
+
+  /* Record retained AND lazy-rewritten with liveTabId by reassociateFloatingGroups. */
+  const raw = __getRawStore('tj:floatingGroups');
+  assert.equal(raw.length, 1, 'matched-unclaimed legacy record retained');
+  assert.equal(raw[0].liveTabId, 920,
+    'B-137 §66.7: legacy v3 record gains liveTabId after cold-start re-bind');
+});

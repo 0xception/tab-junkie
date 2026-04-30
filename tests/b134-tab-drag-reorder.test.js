@@ -284,10 +284,12 @@ test('B-134 T3 (AC3): MSG_REORDER_FLOATING_MEMBERS atomically rewrites sortOrder
   await appendFloatingGroup({
     groupId: g.id, parentItemId: item.id,
     windowId: 1, tabIndex: 0, url: 'https://x.example', savedAt: 1000,
+    liveTabId: 200,
   });
   await appendFloatingGroup({
     groupId: g.id, parentItemId: item.id,
     windowId: 1, tabIndex: 1, url: 'https://y.example', savedAt: 2000,
+    liveTabId: 201,
   });
 
   /* Initial order: tab 200 (sortOrder 0), tab 201 (sortOrder 1). */
@@ -366,6 +368,7 @@ test('B-134 T5 (AC5): DETACH (floating → Open Tabs) prunes the inherited marke
   await appendFloatingGroup({
     groupId: g.id, parentItemId: item.id,
     windowId: 1, tabIndex: 0, url: 'https://detach-me.example', savedAt: 1000,
+    liveTabId: 400,
   });
   markInherited(400);
   assert.equal(isInherited(400), true);
@@ -406,6 +409,7 @@ test('B-134 T6 (AC6): MOVE_FLOATING moves record between groups in a single writ
   await appendFloatingGroup({
     groupId: gA.id, parentItemId: itemA.id,
     windowId: 1, tabIndex: 0, url: 'https://moveme.example', savedAt: 1000,
+    liveTabId: 500,
   });
   markInherited(500);
 
@@ -528,6 +532,7 @@ test('B-134 T11 (§63.15 same-position): REORDER_FLOATING with same order return
   await appendFloatingGroup({
     groupId: g.id, parentItemId: item.id,
     windowId: 1, tabIndex: 0, url: 'https://only.example', savedAt: 1000,
+    liveTabId: 700,
   });
 
   /* Single-member reorder with itself — idempotent (no-op write). */
@@ -566,6 +571,7 @@ test('B-134 T13 (§63.13.1 schema): appendFloatingGroup stamps numeric sortOrder
   await appendFloatingGroup({
     groupId: 'g-T13', parentItemId: 'item-T13',
     windowId: 1, tabIndex: 0, url: 'https://t13.example', savedAt: 1,
+    liveTabId: 1313,
   });
   const records = __getRawStore('tj:floatingGroups');
   assert.equal(records.length, 1);
@@ -970,10 +976,12 @@ test('B-134 T31 (R4 [code-reviewer] M-2): reorderFloatingMembers race-paths retu
   await appendFloatingGroup({
     groupId: g.id, parentItemId: item.id,
     windowId: 1, tabIndex: 0, url: 'https://x.example', savedAt: 1000,
+    liveTabId: 200,
   });
   await appendFloatingGroup({
     groupId: g.id, parentItemId: item.id,
     windowId: 1, tabIndex: 1, url: 'https://y.example', savedAt: 2000,
+    liveTabId: 201,
   });
 
   /* Snapshot pre-state for each branch: the records written above. */
@@ -1015,4 +1023,123 @@ test('B-134 T31 (R4 [code-reviewer] M-2): reorderFloatingMembers race-paths retu
      parity checks are surgical, not flaky). */
   const okHappy = await reorderFloatingMembers(g.id, [201, 200]);
   assert.equal(okHappy, true, 'happy path must succeed after race-fail probes');
+});
+
+/* =========================================================================
+   B-137 — extends B-134 with `liveTabId` join-key adoption.
+
+   T32 — AC7 T2 (post-S40 Issue 3 race-toast resolved): rapid floating
+         reorder using v4 records succeeds via tier (a) liveTabId direct-
+         match even when LiveTabIndex.entry.index is stale (the gap that
+         B-136 closed structurally — but here we exercise the v4 path
+         directly to pin that the join is robust against position drift).
+
+   T33 — §66.8.4 MOVE_FLOATING preserves liveTabId across the cross-group
+         move (parallels T6's `floatingTabId` preservation assertion).
+   ========================================================================= */
+
+test('B-137 T32 (AC7 T2): reorderFloatingMembers resolves via tier (a) liveTabId direct-match even when stored tabIndex is stale', async () => {
+  const g = await createGroup({ name: 'G1', color: COLOR, parentId: null, sortOrder: 0 });
+  const item = await createItem({ title: 'parent', url: 'https://parent.example', groupId: g.id });
+
+  __setMockTabs([
+    { id: 800, url: 'https://x.example', windowId: 1, active: false, audible: false, index: 5 },
+    { id: 801, url: 'https://y.example', windowId: 1, active: false, audible: false, index: 7 },
+  ]);
+  await buildLiveTabIndex();
+
+  /* Append v4 records — each carries liveTabId. The tabIndex stored at
+     write time is the live tab's CURRENT index; this is the v4 happy path. */
+  await appendFloatingGroup({
+    groupId: g.id, parentItemId: item.id,
+    windowId: 1, tabIndex: 5, url: 'https://x.example', savedAt: 1000,
+    liveTabId: 800,
+  });
+  await appendFloatingGroup({
+    groupId: g.id, parentItemId: item.id,
+    windowId: 1, tabIndex: 7, url: 'https://y.example', savedAt: 2000,
+    liveTabId: 801,
+  });
+
+  /* Now corrupt LiveTabIndex.entry.index (simulating the post-S40 Issue 3
+     stale-index scenario that B-136 closed structurally). The tier (b)
+     position match would now fail because the live tabs' indices no longer
+     line up with the stored tabIndex on either record. Tier (a) MUST
+     resolve the records via liveTabId direct match — the resolver is no
+     longer position-dependent for v4 records. */
+  const live = getLiveTabIndex();
+  live.set(800, { ...live.get(800), index: 99 });
+  live.set(801, { ...live.get(801), index: 100 });
+
+  /* Race-toast scenario: reorder MUST succeed (no ERR_RACE) because tier (a)
+     direct match bypasses the stale-index geometry. */
+  const ok = await reorderFloatingMembers(g.id, [801, 800]);
+  assert.equal(ok, true, 'B-137: reorder succeeds via tier (a) despite stale LiveTabIndex.entry.index');
+
+  /* Verify the sortOrder rewrite landed correctly. */
+  const records = __getRawStore('tj:floatingGroups');
+  const byTab = new Map();
+  for (const r of records) byTab.set(r.liveTabId, r);
+  assert.equal(byTab.get(801).sortOrder, 0, 'tab 801 now first');
+  assert.equal(byTab.get(800).sortOrder, 1, 'tab 800 now second');
+});
+
+test('B-137 T33 (§66.8.4): MOVE_FLOATING preserves liveTabId across cross-group move', async () => {
+  const gA = await createGroup({ name: 'A', color: COLOR, parentId: null, sortOrder: 0 });
+  const gB = await createGroup({ name: 'B', color: COLOR, parentId: null, sortOrder: 1000 });
+  const itemA = await createItem({ title: 'A', url: 'https://a.example', groupId: gA.id });
+  await createItem({ title: 'B', url: 'https://b.example', groupId: gB.id });
+
+  __setMockTabs([
+    { id: 1500, url: 'https://moveme.example', windowId: 1, active: false, audible: false, index: 0 },
+  ]);
+  await buildLiveTabIndex();
+
+  /* Seed a v4 record under gA. */
+  await appendFloatingGroup({
+    groupId: gA.id, parentItemId: itemA.id,
+    windowId: 1, tabIndex: 0, url: 'https://moveme.example', savedAt: 1000,
+    liveTabId: 1500,
+  });
+
+  /* Snapshot the source record's liveTabId BEFORE the move. */
+  const before = __getRawStore('tj:floatingGroups');
+  assert.equal(before.length, 1);
+  assert.equal(before[0].liveTabId, 1500);
+  const sourceFloatingTabId = before[0].floatingTabId;
+
+  /* Cross-group move from gA → gB. */
+  const ok = await moveFloatingTab(1500, gA.id, gB.id, 0);
+  assert.equal(ok, true, 'cross-group move succeeds');
+
+  /* The new record under gB MUST preserve liveTabId (mirrors floatingTabId
+     preservation per T6 / §60.4) AND retain the same floatingTabId
+     (storage identity preserved). */
+  const after = __getRawStore('tj:floatingGroups');
+  assert.equal(after.length, 1);
+  assert.equal(after[0].groupId, gB.id);
+  assert.equal(after[0].liveTabId, 1500,
+    'B-137 §66.8.4: liveTabId preserved across MOVE_FLOATING');
+  assert.equal(after[0].floatingTabId, sourceFloatingTabId,
+    'floatingTabId storage identity preserved (per §60.4)');
+});
+
+test('B-137 §66.8.4: ATTACH (Open Tab → floating area) seeds liveTabId from caller-supplied tabId', async () => {
+  const g = await createGroup({ name: 'G', color: COLOR, parentId: null, sortOrder: 0 });
+  await createItem({ title: 'parent', url: 'https://parent.example', groupId: g.id });
+
+  __setMockTabs([
+    { id: 1600, url: 'https://attach.example', windowId: 1, active: false, audible: false, index: 5 },
+  ]);
+  await buildLiveTabIndex();
+
+  /* ATTACH: sourceGroupId === null. The new record's liveTabId is seeded
+     from the caller-supplied tabId (the live tab's numeric id). */
+  const ok = await moveFloatingTab(1600, null, g.id, 0);
+  assert.equal(ok, true, 'ATTACH succeeds');
+
+  const records = __getRawStore('tj:floatingGroups');
+  assert.equal(records.length, 1);
+  assert.equal(records[0].liveTabId, 1600,
+    'B-137 §66.8.4 ATTACH path: liveTabId seeded from caller-supplied tabId');
 });

@@ -65,6 +65,7 @@ test('AC1: appendFloatingGroup writes entry with correct groupId and parentItemI
     tabIndex: 2,
     url: 'https://example.com/new',
     savedAt: Date.now(),
+    liveTabId: 100,
   };
   await appendFloatingGroup(entry);
 
@@ -236,6 +237,7 @@ test('AC9: appendFloatingGroup rejects entry missing parentItemId / itemId', asy
     tabIndex: 0,
     url: 'https://example.com',
     savedAt: Date.now(),
+    liveTabId: 1,
   });
 
   const records = await readPartition(PARTITION_FLOATING_GROUPS);
@@ -250,6 +252,7 @@ test('AC9: appendFloatingGroup rejects entry with empty parentItemId', async () 
     tabIndex: 0,
     url: 'https://example.com',
     savedAt: Date.now(),
+    liveTabId: 1,
   });
 
   const records = await readPartition(PARTITION_FLOATING_GROUPS);
@@ -264,6 +267,7 @@ test('AC9: appendFloatingGroup rejects entry missing savedAt', async () => {
     tabIndex: 0,
     url: 'https://example.com',
     // savedAt intentionally omitted
+    liveTabId: 1,
   });
 
   const records = await readPartition(PARTITION_FLOATING_GROUPS);
@@ -278,6 +282,7 @@ test('AC9: appendFloatingGroup rejects entry with non-finite savedAt', async () 
     tabIndex: 0,
     url: 'https://example.com',
     savedAt: NaN,
+    liveTabId: 1,
   });
 
   const records = await readPartition(PARTITION_FLOATING_GROUPS);
@@ -309,6 +314,7 @@ test('AC10: no floating-group written if tab is removed from LiveTabIndex before
       tabIndex: liveEntry.index ?? 0,
       url: liveEntry.url,
       savedAt: Date.now(),
+      liveTabId: 90,
     });
   }
 

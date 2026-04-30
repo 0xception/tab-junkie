@@ -12,6 +12,7 @@ import { __resetMock, __setMockTabs, __getRawStore, seedPartitions } from './chr
 import { buildLiveTabIndex, __resetLiveTabIndex, getLiveTabIndex } from '../background/tabs/live-tab-index.js';
 import { __resetTabClaims, getClaimsMirror, reconcileClaims } from '../background/tabs/tab-claims.js';
 import { reassociateFloatingGroups } from '../background/tabs/floating-groups.js';
+import { buildFloatingMembers } from '../background/tabs/floating-members.js';
 
 beforeEach(() => {
   __resetMock();
@@ -81,6 +82,153 @@ test('AC11: matched-and-claimed records pruned independently from matched-unclai
      The Y record's matched tab is unclaimed → retained. */
   assert.equal(raw.length, 1);
   assert.equal(raw[0].floatingTabId, 'ft-y');
+});
+
+/* =========================================================================
+   B-137 §66.6 / R1 AC7 T1 — sibling-title displacement (post-S40 Issue 2).
+   With v4 records carrying liveTabId, the resolver's tier (a) direct-match
+   takes priority over tier (b) (windowId, tabIndex) match. A position-
+   collision fixture — where tab 100's record is at (windowId 1, tabIndex 0)
+   but tab 100 has been moved to a different position so a different tab
+   (101) now occupies that cell — MUST resolve via liveTabId direct-match
+   to tab 100, NOT to tab 101. Pre-B-137 this would misroute and the
+   descriptor would carry tab 101's metadata.
+   ========================================================================= */
+
+test('B-137 §66.6 AC7 T1: tier (a) liveTabId direct-match wins over tier (b) position-match for v4 records (sibling-title-displacement regression pin)', async () => {
+  /* Stored fixture: record A carries liveTabId 100 + (windowId 1, tabIndex 0).
+     Live state: tab 100 has been moved to (windowId 1, tabIndex 5); tab 101
+     now occupies (windowId 1, tabIndex 0) — the position cell that the
+     stored record points at via tier (b). */
+  seedPartitions({
+    items: [
+      { id: 'p-a', title: 'Parent A', url: 'https://parent-a.example', groupId: 'g-A',
+        sortOrder: 0, createdAt: 1000, updatedAt: 1000 },
+    ],
+    groups: [
+      { id: 'g-A', name: 'A', color: 'red', parentId: null, sortOrder: 0,
+        collapsed: false, createdAt: 1000, updatedAt: 1000 },
+    ],
+    floatingGroups: [
+      {
+        floatingTabId: 'ft-A',
+        groupId: 'g-A',
+        parentItemId: 'p-a',
+        windowId: 1,
+        tabIndex: 0,        // STALE — tab 100 has since moved
+        url: 'https://child-a.example',
+        savedAt: 1000,
+        liveTabId: 100,     // v4 — tier (a) direct-match key
+      },
+    ],
+  });
+
+  __setMockTabs([
+    /* Tab 100 (the bound floating tab) is now at index 5. */
+    { id: 100, url: 'https://child-a.example', title: 'CHILD-A', windowId: 1, active: false, audible: false, index: 5 },
+    /* Tab 101 (a different tab) now occupies (windowId 1, tabIndex 0). */
+    { id: 101, url: 'https://unrelated.example', title: 'UNRELATED', windowId: 1, active: false, audible: false, index: 0 },
+  ]);
+  await buildLiveTabIndex();
+
+  const items = [{ id: 'p-a', groupId: 'g-A' }];
+  const members = await buildFloatingMembers(items);
+
+  /* Tier (a) wins: descriptor MUST resolve to tab 100, NOT tab 101. */
+  assert.ok(members['g-A'], 'g-A bucket must be populated');
+  assert.equal(members['g-A'].length, 1, 'exactly one floating member');
+  assert.equal(members['g-A'][0].tabId, 100,
+    'B-137 tier (a) direct-tabId join wins — NOT the stale-position fallback');
+  assert.equal(members['g-A'][0].title, 'CHILD-A',
+    'descriptor carries the correct tab title (no sibling displacement)');
+  assert.equal(members['g-A'][0].tabIndex, 5,
+    'descriptor reflects the live tab\'s current index (not the stored stale tabIndex)');
+});
+
+test('B-137 §66.6: tier (a) skipped when record.liveTabId is not in liveIndex (cross-restart stale id) → falls back to position match', async () => {
+  /* Stored fixture: record carries liveTabId 999 (a stale id from a
+     previous SW session). The live index has no tab 999 but does have
+     tab 50 at (windowId 1, tabIndex 0) — the stored position cell.
+     The tier (a) liveIndex.has(999) guard returns false → tier (b)
+     position match resolves to tab 50. */
+  seedPartitions({
+    items: [
+      { id: 'p-stale', title: 'Parent', url: 'https://parent.example', groupId: 'g-stale',
+        sortOrder: 0, createdAt: 1000, updatedAt: 1000 },
+    ],
+    groups: [
+      { id: 'g-stale', name: 'Stale', color: 'red', parentId: null, sortOrder: 0,
+        collapsed: false, createdAt: 1000, updatedAt: 1000 },
+    ],
+    floatingGroups: [
+      {
+        floatingTabId: 'ft-stale',
+        groupId: 'g-stale',
+        parentItemId: 'p-stale',
+        windowId: 1,
+        tabIndex: 0,
+        url: 'https://child.example',
+        savedAt: 1000,
+        liveTabId: 999,     // STALE — no tab 999 in this session
+      },
+    ],
+  });
+
+  __setMockTabs([
+    { id: 50, url: 'https://child.example', title: 'CHILD', windowId: 1, active: false, audible: false, index: 0 },
+  ]);
+  await buildLiveTabIndex();
+
+  const items = [{ id: 'p-stale', groupId: 'g-stale' }];
+  const members = await buildFloatingMembers(items);
+
+  /* Tier (a) misses (liveIndex.has(999) === false); tier (b) resolves
+     via (windowId 1, tabIndex 0) → tab 50. */
+  assert.ok(members['g-stale'], 'bucket populated via legacy fallback');
+  assert.equal(members['g-stale'].length, 1);
+  assert.equal(members['g-stale'][0].tabId, 50,
+    'tier (b) position fallback resolves when tier (a) liveTabId is stale');
+});
+
+test('B-137 §66.6: legacy v3 record (no liveTabId) resolves via tier (b) position match — backward compat', async () => {
+  /* Pure v3 fixture — no liveTabId field. The 3-tier join must skip tier
+     (a) entirely and resolve via tier (b). This verifies legacy data
+     continues to render correctly (lazy migration tolerance). */
+  seedPartitions({
+    items: [
+      { id: 'p-v3', title: 'Parent v3', url: 'https://parent-v3.example', groupId: 'g-v3',
+        sortOrder: 0, createdAt: 1000, updatedAt: 1000 },
+    ],
+    groups: [
+      { id: 'g-v3', name: 'V3', color: 'red', parentId: null, sortOrder: 0,
+        collapsed: false, createdAt: 1000, updatedAt: 1000 },
+    ],
+    floatingGroups: [
+      {
+        floatingTabId: 'ft-v3',
+        groupId: 'g-v3',
+        parentItemId: 'p-v3',
+        windowId: 1,
+        tabIndex: 2,
+        url: 'https://child-v3.example',
+        savedAt: 1000,
+        /* deliberately no liveTabId — legacy v3 record */
+      },
+    ],
+  });
+
+  __setMockTabs([
+    { id: 70, url: 'https://child-v3.example', title: 'CHILD-V3', windowId: 1, active: false, audible: false, index: 2 },
+  ]);
+  await buildLiveTabIndex();
+
+  const items = [{ id: 'p-v3', groupId: 'g-v3' }];
+  const members = await buildFloatingMembers(items);
+
+  assert.ok(members['g-v3'], 'legacy v3 bucket populated via tier (b)');
+  assert.equal(members['g-v3'].length, 1);
+  assert.equal(members['g-v3'][0].tabId, 70,
+    'legacy v3 record resolves via tier (b) position match');
 });
 
 test('AC11: three records with distinct windows + URLs all retained', async () => {

@@ -66,6 +66,7 @@ test('GAP-1: appendFloatingGroup rejects entries without parentItemId or itemId'
     tabIndex: 0,
     url: 'https://orphan.com',
     savedAt: 1000,
+    liveTabId: 1,
   });
 
   const raw = __getRawStore('tj:floatingGroups');
@@ -227,6 +228,7 @@ test('Integration: append + reassociate (matched + unclaimed) keeps record in st
     tabIndex: 0,
     url: 'https://integration.example',
     savedAt: 1000,
+    liveTabId: 5,
   });
 
   __setMockTabs([
