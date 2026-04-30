@@ -53,6 +53,18 @@
      (github-light, github-dark, monokai, tokyo-night) inherit this
      :root default. system-OS-dark also clears via the @media branch. */
   --group-header-name-color: color-mix(in srgb, var(--group-header-color, var(--text-primary)) 50%, var(--text-primary));
+  /* B-124 (Sprint 39): dotted-bar color for floating-tab rows. Default
+     aliases the live-indicator green so the floating bar matches the
+     solid green live-bar by hue but differs by stroke style (dotted vs
+     solid). To swap the floating bar to yellow (or any other color) for
+     a future product decision, change THIS token only — the underlying
+     --live-indicator stays green for the saved-bookmark live bar. The
+     `var()` resolves at use-site against the active theme's
+     --live-indicator (every theme block declares its own value), so the
+     per-theme green carries through automatically. Themes may override
+     this token directly if a future product decision needs an
+     asymmetric per-theme color. See docs/design/61-b-124-floating-visual.md §61.2.1. */
+  --floating-bar-color: var(--live-indicator);
 }
 
 /* --- Default palette (data-theme="system" + light OS) -------------------- */

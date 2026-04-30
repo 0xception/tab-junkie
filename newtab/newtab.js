@@ -38,6 +38,7 @@ import {
   MSG_STATE_CHANGED,
   MSG_GET_PREFERENCES,
   MSG_CLOSE_TABS,
+  MSG_PROMOTE_TAB,
 } from '../shared/messages.js';
 import { SCOPE } from '../shared/scopes.js';
 import { GROUP_COLORS } from '../shared/constants.js';
@@ -372,6 +373,20 @@ function _onDocumentKeyDown(event) {
    ========================================================================= */
 
 function _onGridClick(event) {
+  /* B-124 §61.4: floating-row Save-CTA intercept — promote to bookmark.
+     Mirror of the close-button intercept below; check FIRST because both
+     buttons live inside the row <button>. */
+  const saveTarget = event.target?.closest?.('[data-action="save-floating"]');
+  if (saveTarget) {
+    event.preventDefault();
+    event.stopPropagation();
+    const saveRow = saveTarget.closest('.newtab-item-row');
+    const tabIdAttr = saveRow?.dataset?.tabId;
+    const tabId = tabIdAttr ? Number(tabIdAttr) : NaN;
+    if (Number.isFinite(tabId)) _promoteFloatingTab(tabId, saveRow);
+    return;
+  }
+
   /* B-121 R4 code-reviewer H-1: floating-row close-button intercept.
      A click on `[data-action="close-floating"]` (the X button on a
      synthetic row) dispatches MSG_CLOSE_TABS for the parent row's tabId
@@ -517,6 +532,56 @@ function _closeFloatingTab(tabId) {
   } catch {
     /* SW uninstalled mid-session; silent degrade. */
   }
+}
+
+/**
+ * B-124 §61.4: promote a floating tab to a saved bookmark.
+ *
+ * Resolves the parent group from the floating-member descriptor cached in
+ * `_floatingMembers` (keyed by groupId), then dispatches MSG_PROMOTE_TAB.
+ * Per R2 §61.2.3 the newtab page does NOT have a toast surface; errors are
+ * silently degraded (matching the existing fire-and-forget pattern of
+ * `_activateItem` / `_closeFloatingTab`). The successful promote
+ * broadcasts `SCOPE.ITEMS`, which triggers a refetch + re-render through
+ * the existing broadcast listener — the floating row drops out and a
+ * saved-bookmark row appears in its place.
+ */
+function _promoteFloatingTab(tabId, row) {
+  /* Resolve the parent group's id from `_floatingMembers` so the promoted
+     bookmark lands in the same group as its parent saved item. The
+     descriptor's groupId is the `_floatingMembers` map key. Fallback to
+     null (Ungrouped) on miss — defensive, narrow race. */
+  let groupId = null;
+  for (const [gid, arr] of Object.entries(_floatingMembers || {})) {
+    if (!Array.isArray(arr)) continue;
+    for (const m of arr) {
+      if (m && m.tabId === tabId) {
+        groupId = gid;
+        break;
+      }
+    }
+    if (groupId !== null) break;
+  }
+  /* C-9 empty-state defense: if the resolved groupId no longer exists in
+     `_groups`, fall back to null (Ungrouped). */
+  if (groupId && !_groups.some((g) => g.id === groupId)) {
+    groupId = null;
+  }
+  try {
+    const p = chrome.runtime.sendMessage({
+      type: MSG_PROMOTE_TAB,
+      payload: { tabId, groupId },
+    });
+    if (p && typeof p.catch === 'function') {
+      p.catch(() => { /* silent degrade — newtab has no toast surface. */ });
+    }
+  } catch {
+    /* SW uninstalled mid-session; silent degrade. */
+  }
+  /* Reference `row` to avoid an unused-arg lint flag — kept in the
+     signature so future expansion (e.g., visual feedback on click) does
+     not need a signature change. */
+  void row;
 }
 
 /* =========================================================================
@@ -949,6 +1014,15 @@ function _buildFloatingTabRow(member) {
   if (member.active) row.dataset.active = 'true';
   if (member.audible) row.dataset.audible = 'true';
 
+  /* B-124 §61.3.2: dotted left bar — absolute-positioned child at left:0
+     within the (relatively-positioned) row. The newtab row is a flex
+     container; the bar is positioned out-of-flow so it does not perturb
+     the favicon/text layout. */
+  const bar = document.createElement('span');
+  bar.className = 'newtab-floating-bar';
+  bar.setAttribute('aria-hidden', 'true');
+  row.appendChild(bar);
+
   /* Favicon (or letter-avatar fallback). */
   const favIconUrl = isSafeFaviconUrl(member.favIconUrl) ? member.favIconUrl : null;
   if (favIconUrl) {
@@ -1002,6 +1076,26 @@ function _buildFloatingTabRow(member) {
   }
   row.appendChild(wrap);
 
+  /* B-124 §61.3.3: Save-as-bookmark CTA on hover/focus-within. The button
+     is a real <button> nested inside the row <button>; modern browsers
+     permit interactive descendants for keyboard reach. `_onGridClick`
+     intercepts the `data-action="save-floating"` selector and dispatches
+     MSG_PROMOTE_TAB, stopping propagation so the row's tab-activate path
+     does not also fire. */
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button';
+  saveBtn.className = 'newtab-floating-save';
+  saveBtn.dataset.action = 'save-floating';
+  /* B-124 R4 fix-round (qa L-1 / code L-2 / security L-1): cross-surface
+     parity with sidepanel — the Save CTA carries the constant
+     `aria-label="Save as bookmark"`. The row-level aria-label below
+     already names the floating tab so screen readers context-link the
+     CTA to the row. */
+  saveBtn.setAttribute('aria-label', 'Save as bookmark');
+  saveBtn.title = 'Save as bookmark';
+  saveBtn.textContent = '+';
+  row.appendChild(saveBtn);
+
   /* B-121 R4 code-reviewer H-1: explicit close affordance on every
      floating row, matching AC6 (parity with sidepanel X-button on
      live rows). The button is a real <button> nested inside the row
@@ -1017,14 +1111,20 @@ function _buildFloatingTabRow(member) {
   closeBtn.textContent = '×';
   row.appendChild(closeBtn);
 
-  /* aria-label: include "currently open" so screen readers carry the
-     live-state cue. */
+  /* B-124 §61.8: aria-label uses "floating tab —" prefix so screen readers
+     distinguish ephemeral floating rows from saved-bookmark live rows.
+     Suffix order mirrors the sidepanel floating-row contract:
+     active → audible. The "currently open" wording (used by the
+     pre-B-124 newtab label) is dropped because the new "floating tab"
+     prefix carries the live-state semantics. B-124 R4 fix-round
+     (code-reviewer L-2): URL interpolation removed for cross-surface
+     parity with sidepanel — both surfaces now produce the title-only
+     `"floating tab — <title>, <suffixes>"` form prescribed by R2 §61.8. */
   const titleText = member.title || member.url || 'Untitled tab';
-  const states = ['currently open'];
-  if (member.active) states[0] = 'active tab';
-  if (member.audible) states.push('playing audio');
-  const base = [titleText, member.url || ''].filter((s) => s.length > 0).join(' — ');
-  row.setAttribute('aria-label', `${base} (${states.join(', ')})`);
+  const parts = [`floating tab — ${titleText}`];
+  if (member.active) parts.push('active tab');
+  if (member.audible) parts.push('playing audio');
+  row.setAttribute('aria-label', parts.join(', '));
 
   return row;
 }

@@ -446,12 +446,24 @@ html, body {
 .item-row {
   /* B-101 §48.3 D-2: positioned ancestor for the absolutely-positioned
      `.item-drift-bar` child. Verified safe — no existing `.item-row`
-     descendants are positioned absolutely. */
+     descendants are positioned absolutely.
+     B-123 §61: every row reserves a 3 px transparent left-border footprint +
+     9 px left padding so plain rows, live rows, active rows, and drift-only
+     rows ALL share the same content-x-origin (3 + 9 = 12 px from outer edge).
+     Indicator variants below override only `border-left-color` — never width,
+     style, or padding — keeping content origin invariant across all states.
+     Pre-B-123 the base relied on a 12 px symmetric padding while live/active
+     rules redeclared `border-left: 3px solid <color>; padding-left: 9px;` —
+     that math was correct in default mode but broke in `.tj-dense` (which
+     overrode to `padding: 3px 12px`, leaving the 3 px border in flow without
+     the compensating padding-left reduction → 3 px content shift on dense
+     live rows). The structural placeholder makes alignment invariant. */
   position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 12px;
+  padding: 6px 12px 6px 9px;
+  border-left: 3px solid transparent;
   cursor: pointer;
   border-bottom: 1px solid var(--border-subtle);
   contain: layout style;
@@ -464,15 +476,17 @@ html, body {
 
 /* --- State indicators -------------------------------------------------- */
 
+/* B-123 §61: indicator variants override ONLY `border-left-color` — the
+   3 px width and `solid` style come from the base `.item-row` rule above.
+   Padding is NOT redeclared so dense-mode (`.tj-dense .item-row`) padding
+   overrides apply uniformly to plain + indicator rows. */
 .item-row[data-live="true"] {
-  border-left: 3px solid var(--live-indicator);
-  padding-left: 9px;
+  border-left-color: var(--live-indicator);
 }
 
 .item-row[data-active="true"] {
   background: var(--active-bg);
-  border-left: 3px solid var(--active-border);
-  padding-left: 9px;
+  border-left-color: var(--active-border);
 }
 
 /* B-048 AC4: hover on an active row must be distinguishable from non-hover.
@@ -542,7 +556,11 @@ html, body {
    to 12px, and hiding the secondary URL line. Pure CSS — no per-row JS. */
 
 .tj-dense .item-row {
-  padding: 3px 12px;
+  /* B-123 §61: dense mode preserves the 9 px left-padding so the 3 px
+     transparent left-border placeholder (declared on the base `.item-row`
+     above) keeps content origin at 12 px in dense mode too. Pre-B-123 this
+     rule used `padding: 3px 12px` which broke dense+live alignment by 3 px. */
+  padding: 3px 12px 3px 9px;
   min-height: 28px;
 }
 
@@ -588,6 +606,79 @@ html, body {
   width: 3px;
   border-left: 3px dotted var(--drifted-color);
   pointer-events: none;
+}
+
+/* --- B-124 §61.3.1: dotted left bar for floating-tab rows ------------- */
+/* Floating rows are built via buildFloatingTabRow → buildOpenTabRow,
+   which sets `data-live="true"` on the row. The base `.item-row[data-live]`
+   rule paints a SOLID green border-left at left:0. B-124 replaces that
+   solid bar with a 3 px DOTTED bar (still in the live-indicator hue) so
+   floating rows are visually distinguishable from saved-bookmark live rows.
+   The override below transparents the inherited solid border, and the
+   absolute-positioned `.item-floating-bar` child paints the dotted stroke
+   on top at left:0. Active+floating rows still need the active-row
+   indicator: when both `data-active` and `data-floating` are true, the
+   active border-left declaration sets a colored solid border AND the
+   absolute-positioned `.item-floating-bar` paints over it — the dotted
+   bar wins visually because it occupies the same 3 px column. The active
+   background tint remains visible across the rest of the row.
+   See docs/design/61-b-124-floating-visual.md §61.3.1. */
+.item-row[data-floating="true"] {
+  border-left-color: transparent;
+}
+
+.item-floating-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-left: 3px dotted var(--floating-bar-color);
+  pointer-events: none;
+}
+
+/* --- B-124 §61.3.3: hover-revealed Save-as-bookmark CTA on floating rows */
+/* The CTA mounts inside the floating row's `.item-indicators` container
+   and lives next to the existing window-badge / audible-icon affordances.
+   Visibility is bound to `:hover` and `:focus-within` so keyboard users
+   reach the CTA when the row receives focus (CRITICAL R3 invariant — a
+   hover-only reveal would be an accessibility regression). The CTA reuses
+   the `.item-action-btn` shape (24×24, transparent bg, hover surface)
+   without enrolling in the row-level `.item-actions` reveal so floating
+   rows can show the CTA without showing the saved-row delete affordance.
+   Transition: none — palette flips instantly on reveal (AC11(c) parity
+   with B-117 hover-state-no-color-transition decisions). */
+.floating-row-save-cta {
+  visibility: hidden;
+  opacity: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.floating-row-save-cta:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.floating-row-save-cta:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.item-row[data-floating="true"]:hover .floating-row-save-cta,
+.item-row[data-floating="true"]:focus-within .floating-row-save-cta {
+  visibility: visible;
+  opacity: 1;
 }
 
 /* --- Focus indicators -------------------------------------------------- */
