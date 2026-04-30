@@ -19,6 +19,11 @@ import {
   MSG_BULK_REORDER_ITEMS,
   MSG_BULK_REORDER_GROUPS,
   MSG_PROMOTE_TAB,
+  /* B-134 §63.7 — drag-driven reorder + move for floating tabs and Open
+     Tabs rows. `MSG_REORDER_FLOATING_MEMBERS` carries same-group reorder;
+     `MSG_MOVE_FLOATING_TAB` carries ATTACH / DETACH / MOVE_FLOATING. */
+  MSG_REORDER_FLOATING_MEMBERS,
+  MSG_MOVE_FLOATING_TAB,
   /* B-093: MSG_EXPORT_COLLECTION + MSG_IMPORT_COLLECTION moved to
      settings/settings-import-export.js along with the import/export UI. */
 } from '../shared/messages.js';
@@ -241,10 +246,17 @@ let _searchIndexDisabled = false;
    ========================================================================= */
 let _cachedOpenTabs = [];
 let _cachedOpenTabsById = new Map();
+/* B-134 §63.10.2 — broadcast-race generation counter for Open Tabs. Bumped
+   on every `_setCachedOpenTabs` assignment. Tab-drag dragstart captures the
+   value; the drop-handler third branch (`_validateTabDropPreflight`) compares
+   against the live value to detect mid-drag broadcast races. Mirrors the
+   `_cachedItemsGen` pattern at line 207. */
+let _cachedOpenTabsGen = 0;
 
 function _setCachedOpenTabs(next) {
   _cachedOpenTabs = Array.isArray(next) ? next : [];
   _cachedOpenTabsById = new Map(_cachedOpenTabs.map((t) => [t.tabId, t]));
+  _cachedOpenTabsGen += 1;
 }
 
 /* =========================================================================
@@ -257,6 +269,10 @@ function _setCachedOpenTabs(next) {
    ========================================================================= */
 let _cachedFloatingMembers = {};
 let _cachedFloatingMemberByTabId = new Map();
+/* B-134 §63.10.2 — broadcast-race generation counter for floating members.
+   Bumped on every `_setCachedFloatingMembers` assignment. Mirrors
+   `_cachedOpenTabsGen` above. */
+let _cachedFloatingMembersGen = 0;
 function _setCachedFloatingMembers(next) {
   _cachedFloatingMembers = (next && typeof next === 'object' && !Array.isArray(next))
     ? next
@@ -268,6 +284,7 @@ function _setCachedFloatingMembers(next) {
       if (m && typeof m.tabId === 'number') _cachedFloatingMemberByTabId.set(m.tabId, m);
     }
   }
+  _cachedFloatingMembersGen += 1;
 }
 
 /* =========================================================================
@@ -374,6 +391,54 @@ let _groupDragRectCache = null;
    simultaneous state assignments across paths can't stomp each other. */
 let _pendingGroupPointerX = 0;
 let _pendingGroupPointerY = 0;
+
+/* =========================================================================
+   B-134 §63.3 — tab drag-reorder state (Open Tabs + floating members)
+
+   Mode-exclusive with `_itemDragState` AND `_groupDragState`: at most ONE of
+   the three is non-null at any time. Dragstart routes to a SINGLE path via
+   the selector disambiguation in §63.3.4 (`.item-row[data-tab-id]` →
+   `_tabDragState`; `.item-row[data-item-id]:not([data-floating])` →
+   `_itemDragState`; `.group-section` from drag handle → `_groupDragState`).
+
+   Shape (§63.3.1):
+     {
+       draggedTabId: number,
+       sourceMode: 'OPEN' | 'FLOATING',
+       sourceWindowId: number,
+       sourceGroupId: string | null,    // null when sourceMode === 'OPEN'
+       cachedFloatingMembersGen: number,
+       cachedOpenTabsGen: number,
+       pendingMode: null | 'REORDER_OPEN' | 'REORDER_FLOATING' | 'ATTACH'
+                  | 'DETACH' | 'MOVE_FLOATING' | 'REJECT',
+       pendingTargetWindowId: number | null,
+       pendingTargetGroupId: string | null,
+       pendingInsertIndex: number | null,
+       pendingTargetTabId: number | null,
+       rafHandle: number | null,
+       scrollListener: Function | null,
+     }
+   ========================================================================= */
+let _tabDragState = null;
+
+/* B-134 §63.5 — per-drag rect cache. Built lazily at dragstart and
+   invalidated on scroll (passive listener). The rAF tick (`_tabDragTick`)
+   rebuilds when invalid. Mirrors `_dragRectCache` (B-030) and
+   `_groupDragRectCache` (B-031/B-122). Shape (§63.5.1):
+     {
+       containerRect: DOMRect,
+       floatingZoneRects: Map<groupId, {top, bottom, rowMidlines, rowTabIds}>,
+       openTabsRect: DOMRect | null,
+       openTabsByWindow: Map<windowId, {rowMidlines, rowTabIds}>,
+       invalid: boolean,
+     } */
+let _tabDragRectCache = null;
+
+/* Pointer primitives for tab drag — separate channel from item / group
+   drag pointers so simultaneous (well-formed: mode-exclusive) drag paths
+   can't stomp each other. */
+let _pendingTabPointerX = 0;
+let _pendingTabPointerY = 0;
 
 /* =========================================================================
    B-009 — drag-to-expand collapsed group state
@@ -2791,6 +2856,11 @@ function buildOpenTabRow(tab /* , { multiWindow } */) {
   row.className = 'item-row';
   row.setAttribute('role', 'listitem');
   row.setAttribute('tabindex', '0');
+  /* B-134 §63.3.3 — Open Tabs rows participate in tab-drag (REORDER_OPEN /
+     ATTACH / DETACH). The row itself is the drag handle (no separate
+     drag-handle element). The dragstart listener distinguishes tab-drag vs
+     item-drag vs group-drag via selector dispatch (§63.3.4). */
+  row.draggable = true;
   row.dataset.liveOnly = 'true';
   row.dataset.tabId = String(tab.tabId);
   row.dataset.windowId = String(tab.windowId);
@@ -4239,6 +4309,77 @@ itemListEl.addEventListener('mousedown', (e) => {
 });
 
 itemListEl.addEventListener('dragstart', (e) => {
+  /* B-134 §63.3 — tab drag path (Open Tabs + floating rows). Mode-exclusive
+     with `_itemDragState` and `_groupDragState` (§63.3.3). The origin row
+     carries `data-tab-id` (set by `buildOpenTabRow`); saved-bookmark rows
+     carry `data-item-id` and route through the B-030 path below. Drag
+     handle = the row itself (no separate handle). */
+  const tabRow = e.target.closest('.item-row[data-tab-id]');
+  if (tabRow && !_dragInitiatedFromHandle) {
+    /* Mode-exclusivity guard (§63.3.3) — defense-in-depth. The other state
+       vars should be null at dragstart-time, but a stuck drag from a prior
+       error path could leave one set. Bail rather than corrupt state. */
+    if (_itemDragState || _groupDragState) {
+      e.preventDefault();
+      return;
+    }
+
+    const draggedTabId = Number(tabRow.dataset.tabId);
+    if (!Number.isFinite(draggedTabId)) {
+      e.preventDefault();
+      return;
+    }
+    const sourceWindowId = Number(tabRow.dataset.windowId);
+
+    /* Disambiguate Open Tabs vs floating row by `data-floating` attribute. */
+    const isFloating = tabRow.dataset.floating === 'true';
+    let sourceMode;
+    let sourceGroupId = null;
+    if (isFloating) {
+      sourceMode = 'FLOATING';
+      const section = tabRow.closest('.group-section[data-group-id]');
+      sourceGroupId = section ? section.dataset.groupId : null;
+      if (!sourceGroupId || sourceGroupId === '__ungrouped__') {
+        e.preventDefault();
+        return;
+      }
+    } else {
+      sourceMode = 'OPEN';
+    }
+
+    /* B-134 §63.3.1 — initialise state. */
+    _tabDragState = {
+      draggedTabId,
+      sourceMode,
+      sourceWindowId,
+      sourceGroupId,
+      cachedFloatingMembersGen: _cachedFloatingMembersGen,
+      cachedOpenTabsGen: _cachedOpenTabsGen,
+      pendingMode: null,
+      pendingTargetWindowId: null,
+      pendingTargetGroupId: null,
+      pendingInsertIndex: null,
+      pendingTargetTabId: null,
+      rafHandle: null,
+      scrollListener: null,
+    };
+
+    e.dataTransfer.effectAllowed = 'move';
+    /* Firefox compat — Chromium ignores the dataTransfer payload but Firefox
+       requires non-empty data for drag to register. Mirrors B-030 / B-122
+       precedent at sidepanel.js:4361. */
+    try { e.dataTransfer.setData('text/plain', String(draggedTabId)); } catch { /* noop */ }
+
+    _buildTabDragRectCache();
+    _tabDragState.scrollListener = () => {
+      if (_tabDragRectCache) _tabDragRectCache.invalid = true;
+    };
+    itemListEl.addEventListener('scroll', _tabDragState.scrollListener, { passive: true });
+
+    itemListEl.classList.add('is-tab-dragging');
+    return;
+  }
+
   /* B-030 v2 — item drag path (takes precedence when origin is an .item-row
      AND the drag was NOT initiated from a group handle). */
   const itemRow = e.target.closest('.item-row');
@@ -4417,6 +4558,19 @@ itemListEl.addEventListener('dragstart', (e) => {
 });
 
 itemListEl.addEventListener('dragover', (e) => {
+  /* B-134 §63.4.6 — tab-drag path (mode-exclusive with item / group drag).
+     Mirror of the B-030 / B-031 3-statement pattern: no rect reads, no DOM
+     mutations, no layout in this handler. All hit-testing happens in
+     `_tabDragTick`. */
+  if (_tabDragState) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    _pendingTabPointerX = e.clientX;
+    _pendingTabPointerY = e.clientY;
+    _scheduleTabDragTick();
+    return;
+  }
+
   /* B-030 v2 — AC16 + AC17: dragover body is 3 statements only. No rect
      reads, no DOM mutations, no layout. rAF callback (_dragTick) does the
      work. R4 code-reviewer greps this handler for getBoundingClientRect
@@ -4460,6 +4614,8 @@ itemListEl.addEventListener('dragleave', (e) => {
   /* B-031 — same rAF-gated opacity approach for group drag. Classes +
      indicator are managed by `_groupDragTick`; dragleave would flicker. */
   if (_groupDragState) return;
+  /* B-134 — same rAF-gated approach for tab drag. */
+  if (_tabDragState) return;
   /* Legacy B-008 drop indicator cleanup (used only by the fallback path
      above). */
   if (!e.relatedTarget || !itemListEl.contains(e.relatedTarget)) {
@@ -4468,6 +4624,95 @@ itemListEl.addEventListener('dragleave', (e) => {
 });
 
 itemListEl.addEventListener('drop', async (e) => {
+  /* B-134 §63.6 — tab drag drop path (Open Tabs + floating). Dispatched
+     BEFORE the item / group branches because `_tabDragState` is mode-
+     exclusive and its drop semantics differ from item / group drops. */
+  if (_tabDragState) {
+    e.preventDefault();
+    const state = _tabDragState;
+    _cleanupTabDragDom();
+    _tabDragState = null;
+
+    /* No pendingMode → user dropped in dead zone. Silent no-op. */
+    if (state.pendingMode === null || state.pendingMode === 'REJECT') return;
+
+    /* B-134 §63.10 — race-guard third branch. */
+    const guard = await _validateTabDropPreflight(state);
+    if (!guard.ok) {
+      if (guard.reason === 'tab-closed') {
+        showToast('Tab closed during drag — drop cancelled.');
+      } else if (guard.reason === 'broadcast-race-floating'
+        || guard.reason === 'broadcast-race-open') {
+        showToast('Tabs changed during drag — please retry.');
+      } else if (guard.reason === 'cross-window') {
+        showToast('Cross-window drag is not supported yet.');
+      }
+      return;
+    }
+
+    /* Dispatch by pendingMode. Failures surface as toasts; the broadcast
+       on success drives the renderer re-fetch. */
+    try {
+      switch (state.pendingMode) {
+        case 'REORDER_OPEN': {
+          /* B-134 §63.6.3 / §63.10.3 — cross-window guard. The hit-test
+             also returns 'REJECT' for cross-window targets so the user
+             sees the rejection visual; this guard is the storage-write
+             guarantor (defensive belt-and-braces). */
+          if (state.pendingTargetWindowId !== state.sourceWindowId) {
+            showToast('Cross-window drag is not supported yet.');
+            return;
+          }
+          /* §63.14.4 — chrome.tabs.move uses the literal user-target index;
+             Chrome adjusts source-removal automatically when source and
+             destination are in the same window. No client-side -1
+             adjustment needed. */
+          await chrome.tabs.move(state.draggedTabId, { index: state.pendingInsertIndex });
+          return;
+        }
+        case 'REORDER_FLOATING': {
+          const orderedTabIds = _computeReorderFloatingPayload(
+            state.sourceGroupId,
+            state.draggedTabId,
+            state.pendingInsertIndex,
+          );
+          if (orderedTabIds.length === 0) return; // single-member or no-op
+          await sendMessage(MSG_REORDER_FLOATING_MEMBERS, {
+            groupId: state.sourceGroupId,
+            orderedTabIds,
+          });
+          return;
+        }
+        case 'ATTACH':
+        case 'DETACH':
+        case 'MOVE_FLOATING': {
+          /* §63.6.1: ATTACH (sourceGroupId=null), DETACH (targetGroupId=null),
+             MOVE_FLOATING (both non-null) all dispatch via the same message. */
+          const resp = await sendMessage(MSG_MOVE_FLOATING_TAB, {
+            tabId: state.draggedTabId,
+            sourceGroupId: state.sourceGroupId,
+            targetGroupId: state.pendingTargetGroupId,
+            insertIndex: state.pendingInsertIndex,
+          });
+          if (resp && resp.moved === false && resp.reason === 'ERR_RACE') {
+            /* Common ERR_RACE reasons for ATTACH: target group has zero
+               saved items (no parent bookmark). Inform the user. */
+            if (state.pendingMode === 'ATTACH') {
+              showToast('Cannot attach to an empty group.');
+            } else {
+              showToast('Tab move failed — please retry.');
+            }
+          }
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('[tab-junkie:b134] tab-drag drop failed', err);
+      showToast('Couldn’t move tab — try again.');
+    }
+    return;
+  }
+
   /* B-030 v2 — item drop path (with AC24 broadcast-race guard). */
   if (_itemDragState) {
     e.preventDefault();
@@ -4757,6 +5002,14 @@ itemListEl.addEventListener('drop', async (e) => {
 });
 
 itemListEl.addEventListener('dragend', () => {
+  /* B-134 — tab-drag cancel path (Escape or invalid drop). If drop handler
+     already consumed the state, this is a no-op. Cleanup-before-null
+     pattern (matches B-031). */
+  if (_tabDragState) {
+    _cleanupTabDragDom();
+    _tabDragState = null;
+  }
+
   /* B-030 v2 — cancel path (Escape or invalid drop). If drop handler
      already consumed the state, this is a no-op.
      B-025 — cleanup-before-null so `_cleanupItemDragDom` can read
@@ -5667,6 +5920,425 @@ function _cleanupGroupDragDom() {
     }
   }
   _groupDragRectCache = null;
+}
+
+/* =========================================================================
+   B-134 — tab drag helpers (Open Tabs + floating rows)
+
+   Mirror of the B-030 / B-031 helpers — same rAF-coalesced tick, same
+   rect-cache pattern, same passive-scroll-listener invalidation. Distinct
+   hit-test (`_computeTabDropTarget`) tuned to the five drag operations
+   defined in §63.1 (REORDER_OPEN, REORDER_FLOATING, ATTACH, DETACH,
+   MOVE_FLOATING). Reuses the existing `.drop-indicator--item`
+   (`itemDragIndicatorEl`) for visual feedback per §63.1 (no new element).
+   ========================================================================= */
+
+/* B-134 §63.5.2 — build the per-drag rect cache (single pass at dragstart;
+   rebuilt lazily on scroll-invalidate). Keeps the rAF tick at O(1) per
+   pointer move once the cache is warm. Fields populated:
+     - containerRect
+     - floatingZoneRects: per-group floating-area zones (top + bottom +
+       midlines for each existing floating row in the group's items
+       container)
+     - openTabsRect + openTabsByWindow: per-window row clusters under
+       Open Tabs */
+function _buildTabDragRectCache() {
+  const containerRect = itemListEl.getBoundingClientRect();
+  /** @type {Map<string, {top: number, bottom: number, rowMidlines: number[], rowTabIds: number[]}>} */
+  const floatingZoneRects = new Map();
+  /** @type {Map<number, {rowMidlines: number[], rowTabIds: number[]}>} */
+  const openTabsByWindow = new Map();
+
+  /* Per-group floating zones. Iterate every `.group-section` (skip
+     synthetic Ungrouped — floating rows can't anchor there per §60.4). */
+  for (const section of itemListEl.querySelectorAll('.group-section')) {
+    const groupId = section.dataset.groupId;
+    if (!groupId || groupId === '__ungrouped__') continue;
+    const itemsContainer = section.querySelector(':scope > .group-items');
+    if (!itemsContainer) continue;
+    const floatingRows = itemsContainer.querySelectorAll(':scope > .item-row[data-floating="true"]');
+
+    /* Zone vertical bounds:
+         top    — bottom of last saved-bookmark row, OR top of items container
+         bottom — top of first nested child .group-section, OR bottom of
+                  items container (nested children belong to their own zone;
+                  including them in the parent's zone would mis-classify
+                  drops on a child's floating area as drops on the parent). */
+    const savedRows = itemsContainer.querySelectorAll(':scope > .item-row[data-item-id]:not([data-floating])');
+    const top = savedRows.length > 0
+      ? savedRows[savedRows.length - 1].getBoundingClientRect().bottom
+      : itemsContainer.getBoundingClientRect().top;
+    const firstChildSection = itemsContainer.querySelector(':scope > .group-section');
+    const bottom = firstChildSection
+      ? firstChildSection.getBoundingClientRect().top
+      : itemsContainer.getBoundingClientRect().bottom;
+
+    const rowMidlines = [];
+    const rowTabIds = [];
+    for (const row of floatingRows) {
+      const r = row.getBoundingClientRect();
+      rowMidlines.push((r.top + r.bottom) / 2);
+      rowTabIds.push(Number(row.dataset.tabId));
+    }
+    floatingZoneRects.set(groupId, { top, bottom, rowMidlines, rowTabIds });
+  }
+
+  /* Open Tabs section per-window clusters. */
+  const openTabsSection = document.getElementById('open-tabs-section');
+  const openTabsRect = openTabsSection ? openTabsSection.getBoundingClientRect() : null;
+  if (openTabsSection) {
+    const list = openTabsSection.querySelector('.open-tabs-list');
+    if (list) {
+      for (const row of list.querySelectorAll(':scope > .item-row[data-tab-id]')) {
+        const wid = Number(row.dataset.windowId);
+        if (!Number.isFinite(wid)) continue;
+        if (!openTabsByWindow.has(wid)) openTabsByWindow.set(wid, { rowMidlines: [], rowTabIds: [] });
+        const cluster = openTabsByWindow.get(wid);
+        const r = row.getBoundingClientRect();
+        cluster.rowMidlines.push((r.top + r.bottom) / 2);
+        cluster.rowTabIds.push(Number(row.dataset.tabId));
+      }
+    }
+  }
+
+  _tabDragRectCache = {
+    containerRect,
+    floatingZoneRects,
+    openTabsRect,
+    openTabsByWindow,
+    invalid: false,
+  };
+}
+
+/* Schedule a single rAF-coalesced tick. Dragover fires at browser cadence;
+   rAF dedup ensures at most one pending tick per frame. */
+function _scheduleTabDragTick() {
+  if (!_tabDragState || _tabDragState.rafHandle != null) return;
+  _tabDragState.rafHandle = requestAnimationFrame(_tabDragTick);
+}
+
+function _tabDragTick() {
+  if (!_tabDragState) return;
+  _tabDragState.rafHandle = null;
+
+  /* Rebuild cache if scroll invalidated it (§63.5.3 lazy rebuild). */
+  if (!_tabDragRectCache || _tabDragRectCache.invalid) _buildTabDragRectCache();
+
+  const target = _computeTabDropTarget(_pendingTabPointerX, _pendingTabPointerY);
+
+  if (!target) {
+    /* No valid target — hide indicator + clear pending. */
+    itemDragIndicatorEl.style.opacity = '0';
+    itemDragIndicatorEl.style.transform = 'translateY(-9999px)';
+    _tabDragState.pendingMode = null;
+    _tabDragState.pendingTargetWindowId = null;
+    _tabDragState.pendingTargetGroupId = null;
+    _tabDragState.pendingInsertIndex = null;
+    _tabDragState.pendingTargetTabId = null;
+    return;
+  }
+
+  /* Skip-no-op (§63.5.4 perf): if target unchanged since last tick, no
+     DOM write. */
+  if (target.mode === _tabDragState.pendingMode
+    && target.targetGroupId === _tabDragState.pendingTargetGroupId
+    && target.insertIndex === _tabDragState.pendingInsertIndex
+    && target.targetWindowId === _tabDragState.pendingTargetWindowId) {
+    return;
+  }
+
+  _tabDragState.pendingMode = target.mode;
+  _tabDragState.pendingTargetWindowId = target.targetWindowId ?? null;
+  _tabDragState.pendingTargetGroupId = target.targetGroupId ?? null;
+  _tabDragState.pendingInsertIndex = target.insertIndex;
+  _tabDragState.pendingTargetTabId = target.pinnedRowTabId ?? null;
+
+  /* REJECT — paint indicator with the reject visual (CSS class). */
+  if (target.mode === 'REJECT') {
+    itemDragIndicatorEl.classList.add('drop-indicator--reject');
+    /* Position at the pointer Y for visibility. */
+    const containerRect = _tabDragRectCache.containerRect;
+    const scrollTop = itemListEl.scrollTop;
+    const y = _pendingTabPointerY - containerRect.top + scrollTop;
+    itemDragIndicatorEl.style.transform = `translateY(${y}px)`;
+    itemDragIndicatorEl.style.opacity = '1';
+    return;
+  }
+
+  /* Standard accept — clear reject class + position indicator at the
+     insertion line (Y derived from cache). */
+  itemDragIndicatorEl.classList.remove('drop-indicator--reject');
+  const y = _resolveTabDragIndicatorY(target);
+  if (y == null) {
+    itemDragIndicatorEl.style.opacity = '0';
+    return;
+  }
+  itemDragIndicatorEl.style.transform = `translateY(${y}px)`;
+  itemDragIndicatorEl.style.opacity = '1';
+}
+
+/* Resolve the indicator Y (container-local, accounting for scrollTop) from
+   the hit-test target. Returns null when the target's bucket cache is
+   unavailable. */
+function _resolveTabDragIndicatorY(target) {
+  if (!_tabDragRectCache) return null;
+  const containerRect = _tabDragRectCache.containerRect;
+  const scrollTop = itemListEl.scrollTop;
+
+  if (target.mode === 'REORDER_OPEN' || target.mode === 'DETACH') {
+    /* Open Tabs target — Y derived from the per-window cluster's row
+       midlines + insertIndex. */
+    const wid = target.targetWindowId;
+    const cluster = (wid != null) ? _tabDragRectCache.openTabsByWindow.get(wid) : null;
+    if (cluster && target.insertIndex >= 0 && target.insertIndex <= cluster.rowMidlines.length) {
+      const idx = target.insertIndex;
+      let pageY;
+      if (idx === 0) {
+        /* Above first row — anchor at first row's top edge approximation
+           (use midline minus row-half-height heuristic). */
+        const first = cluster.rowMidlines[0];
+        if (first != null) pageY = first - 14;
+        else if (_tabDragRectCache.openTabsRect) pageY = _tabDragRectCache.openTabsRect.top + 28;
+        else pageY = containerRect.top;
+      } else if (idx >= cluster.rowMidlines.length) {
+        const last = cluster.rowMidlines[cluster.rowMidlines.length - 1];
+        if (last != null) pageY = last + 14;
+        else pageY = containerRect.top;
+      } else {
+        const a = cluster.rowMidlines[idx - 1];
+        const b = cluster.rowMidlines[idx];
+        pageY = (a + b) / 2;
+      }
+      return pageY - containerRect.top + scrollTop;
+    }
+    /* No cluster (e.g. drop into an empty Open Tabs subset) — anchor at
+       openTabsRect bottom as a defensive fallback. */
+    if (_tabDragRectCache.openTabsRect) {
+      return _tabDragRectCache.openTabsRect.top - containerRect.top + scrollTop + 28;
+    }
+    return null;
+  }
+
+  /* REORDER_FLOATING / ATTACH / MOVE_FLOATING — Y derived from the target
+     group's floating zone midlines + insertIndex. */
+  const zone = (target.targetGroupId != null)
+    ? _tabDragRectCache.floatingZoneRects.get(target.targetGroupId)
+    : null;
+  if (!zone) return null;
+  const idx = target.insertIndex;
+  let pageY;
+  if (zone.rowMidlines.length === 0) {
+    /* Empty floating area — anchor at the zone top (just below the last
+       saved-bookmark row). */
+    pageY = zone.top + 2;
+  } else if (idx === 0) {
+    pageY = zone.rowMidlines[0] - 14;
+  } else if (idx >= zone.rowMidlines.length) {
+    pageY = zone.rowMidlines[zone.rowMidlines.length - 1] + 14;
+  } else {
+    const a = zone.rowMidlines[idx - 1];
+    const b = zone.rowMidlines[idx];
+    pageY = (a + b) / 2;
+  }
+  return pageY - containerRect.top + scrollTop;
+}
+
+/* B-134 §63.4 — hit-test for tab-row drag. Returns null (no valid target)
+   or a TabDropTarget descriptor. Priority order matches §63.4.2 verbatim:
+     1. Outside #item-list → null
+     2. Floating-area zone of group G → ATTACH / REORDER_FLOATING / MOVE_FLOATING
+     3. Open Tabs section interior → REORDER_OPEN / DETACH / REJECT
+     4. Saved-bookmark row → null (silent no-op)
+     5. Group header → null
+     6. Other zones → null */
+function _computeTabDropTarget(x, y) {
+  if (!_tabDragState) return null;
+  if (!_tabDragRectCache) return null;
+  const containerRect = _tabDragRectCache.containerRect;
+
+  /* Step 1 — defensive horizontal bounds. */
+  if (x < containerRect.left || x > containerRect.right) return null;
+
+  /* Step 2 — floating-area zone for some group G. Iterate the cached
+     zones; the first zone whose vertical bounds contain Y wins. */
+  for (const [groupId, zone] of _tabDragRectCache.floatingZoneRects) {
+    if (y < zone.top || y > zone.bottom) continue;
+
+    /* Compute insertIndex from pointer Y vs row midlines (§63.4.4). */
+    let insertIndex = 0;
+    for (let i = 0; i < zone.rowMidlines.length; i++) {
+      if (y > zone.rowMidlines[i]) insertIndex = i + 1;
+      else break;
+    }
+
+    if (_tabDragState.sourceMode === 'OPEN') {
+      return {
+        mode: 'ATTACH',
+        targetWindowId: null,
+        targetGroupId: groupId,
+        insertIndex,
+        pinnedRowTabId: zone.rowTabIds[insertIndex] ?? null,
+      };
+    }
+    /* sourceMode === 'FLOATING' */
+    if (groupId === _tabDragState.sourceGroupId) {
+      return {
+        mode: 'REORDER_FLOATING',
+        targetWindowId: null,
+        targetGroupId: groupId,
+        insertIndex,
+        pinnedRowTabId: zone.rowTabIds[insertIndex] ?? null,
+      };
+    }
+    return {
+      mode: 'MOVE_FLOATING',
+      targetWindowId: null,
+      targetGroupId: groupId,
+      insertIndex,
+      pinnedRowTabId: zone.rowTabIds[insertIndex] ?? null,
+    };
+  }
+
+  /* Step 3 — Open Tabs section interior. */
+  const openTabsRect = _tabDragRectCache.openTabsRect;
+  if (openTabsRect && y >= openTabsRect.top && y <= openTabsRect.bottom) {
+    /* Determine which window cluster the pointer is in via elementFromPoint
+       (cheap — no layout). */
+    const hit = document.elementFromPoint(x, y);
+    /* Skip header rows. */
+    if (hit && hit.closest('.open-tabs-header')) return null;
+
+    let targetWindowId = null;
+    /* If the pointer is over a specific row, use that row's windowId. */
+    const rowUnderPointer = hit ? hit.closest('.item-row[data-tab-id]') : null;
+    if (rowUnderPointer && rowUnderPointer.closest('.open-tabs-section')) {
+      targetWindowId = Number(rowUnderPointer.dataset.windowId);
+    } else if (_tabDragRectCache.openTabsByWindow.size > 0) {
+      /* Pointer is in section dead-space — pick the cluster whose midlines
+         are closest to Y. */
+      let bestDist = Infinity;
+      for (const [wid, cluster] of _tabDragRectCache.openTabsByWindow) {
+        for (const midY of cluster.rowMidlines) {
+          const d = Math.abs(midY - y);
+          if (d < bestDist) {
+            bestDist = d;
+            targetWindowId = wid;
+          }
+        }
+      }
+    }
+    if (!Number.isFinite(targetWindowId)) targetWindowId = null;
+
+    /* Compute insertIndex within the per-window cluster. */
+    const cluster = (targetWindowId != null)
+      ? _tabDragRectCache.openTabsByWindow.get(targetWindowId)
+      : null;
+    let insertIndex = 0;
+    if (cluster) {
+      for (let i = 0; i < cluster.rowMidlines.length; i++) {
+        if (y > cluster.rowMidlines[i]) insertIndex = i + 1;
+        else break;
+      }
+    }
+
+    if (_tabDragState.sourceMode === 'OPEN') {
+      /* §63.10.3 — cross-window REJECT (visual-only; the drop-handler
+         re-checks defensively). */
+      if (targetWindowId !== null && targetWindowId !== _tabDragState.sourceWindowId) {
+        return {
+          mode: 'REJECT',
+          targetWindowId,
+          targetGroupId: null,
+          insertIndex: 0,
+          pinnedRowTabId: null,
+        };
+      }
+      return {
+        mode: 'REORDER_OPEN',
+        targetWindowId: targetWindowId ?? _tabDragState.sourceWindowId,
+        targetGroupId: null,
+        insertIndex,
+        pinnedRowTabId: cluster ? (cluster.rowTabIds[insertIndex] ?? null) : null,
+      };
+    }
+    /* sourceMode === 'FLOATING' → DETACH. targetGroupId: null. */
+    return {
+      mode: 'DETACH',
+      targetWindowId: targetWindowId ?? null,
+      targetGroupId: null,
+      insertIndex,
+      pinnedRowTabId: null,
+    };
+  }
+
+  /* Steps 4–6 — saved-bookmark rows / group headers / other zones. */
+  return null;
+}
+
+/* B-134 §63.6.2 — pure helper that computes the orderedTabIds payload for
+   `MSG_REORDER_FLOATING_MEMBERS`. Reads from `_cachedFloatingMembers` for
+   the source group; the SW handler re-validates against authoritative
+   storage (no trust in client-supplied order beyond message validation). */
+function _computeReorderFloatingPayload(groupId, draggedTabId, insertIndex) {
+  const members = (_cachedFloatingMembers && _cachedFloatingMembers[groupId]) || [];
+  const tabIds = members.map((m) => m.tabId);
+  const currentIdx = tabIds.indexOf(draggedTabId);
+  if (currentIdx === -1) return [];
+  /* Splice out then splice in. Account for the index-shift when inserting
+     after the source index. */
+  tabIds.splice(currentIdx, 1);
+  const adjusted = currentIdx < insertIndex ? insertIndex - 1 : insertIndex;
+  const clamped = Math.max(0, Math.min(adjusted, tabIds.length));
+  tabIds.splice(clamped, 0, draggedTabId);
+  return tabIds;
+}
+
+/* B-134 §63.10 — race-guard third branch. Three guards (A: tab closed
+   mid-drag, B: broadcast race, C: cross-window). Returns
+   `{ ok: true }` on pass, `{ ok: false, reason }` on fail. Caller surfaces
+   `reason` in a toast and aborts the drop. */
+async function _validateTabDropPreflight(state) {
+  /* Guard A — tab closed mid-drag. */
+  try {
+    const tab = await chrome.tabs.get(state.draggedTabId);
+    if (!tab) return { ok: false, reason: 'tab-closed' };
+  } catch {
+    return { ok: false, reason: 'tab-closed' };
+  }
+
+  /* Guard B — broadcast race (open-tabs OR floating-members). */
+  if (state.cachedFloatingMembersGen !== _cachedFloatingMembersGen) {
+    return { ok: false, reason: 'broadcast-race-floating' };
+  }
+  if (state.cachedOpenTabsGen !== _cachedOpenTabsGen) {
+    return { ok: false, reason: 'broadcast-race-open' };
+  }
+
+  /* Guard C — cross-window (op 1 only). Defense-in-depth: hit-test
+     already returns 'REJECT' on cross-window targets so the user never
+     reaches this guard via the indicator path. */
+  if (state.pendingMode === 'REORDER_OPEN'
+    && state.pendingTargetWindowId !== state.sourceWindowId) {
+    return { ok: false, reason: 'cross-window' };
+  }
+  return { ok: true };
+}
+
+/* Cleanup: indicator + dragging class + scroll listener + rAF + rect cache. */
+function _cleanupTabDragDom() {
+  itemDragIndicatorEl.style.opacity = '0';
+  itemDragIndicatorEl.style.transform = 'translateY(-9999px)';
+  itemDragIndicatorEl.classList.remove('drop-indicator--reject');
+  itemListEl.classList.remove('is-tab-dragging');
+  if (_tabDragState) {
+    if (_tabDragState.rafHandle != null) {
+      cancelAnimationFrame(_tabDragState.rafHandle);
+    }
+    if (_tabDragState.scrollListener) {
+      itemListEl.removeEventListener('scroll', _tabDragState.scrollListener);
+    }
+  }
+  _tabDragRectCache = null;
 }
 
 /* =========================================================================

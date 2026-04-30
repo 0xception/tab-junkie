@@ -47,6 +47,8 @@ import {
   MSG_EXPORT_COLLECTION,
   MSG_IMPORT_COLLECTION,
   MSG_RECENCY_ADD,
+  MSG_REORDER_FLOATING_MEMBERS,
+  MSG_MOVE_FLOATING_TAB,
 } from '../../shared/messages.js';
 
 import {
@@ -91,9 +93,23 @@ import {
 
 import { getSystemStatus, isSafeMode, KNOWN_VERSION } from '../storage/migration.js';
 import { buildLiveStates, getDriftRecords } from '../tabs/index.js';
-import { getClaimsMirror, getItemIdForTab, claimTabForItem, releaseClaimByTab } from '../tabs/tab-claims.js';
+import {
+  getClaimsMirror,
+  getItemIdForTab,
+  claimTabForItem,
+  releaseClaimByTab,
+  /* B-134 §63.9 — inheritedTabs side-effects fire from MSG_MOVE_FLOATING_TAB
+     post-write block (ATTACH → markInherited; DETACH → pruneInherited). */
+  markInherited,
+  pruneInherited,
+} from '../tabs/tab-claims.js';
 import { clearDrift } from '../tabs/drift.js';
-import { saveFloatingGroups, pruneFloatingGroupsByParentItemId } from '../tabs/floating-groups.js';
+import {
+  saveFloatingGroups,
+  pruneFloatingGroupsByParentItemId,
+  reorderFloatingMembers,
+  moveFloatingTab,
+} from '../tabs/floating-groups.js';
 import { buildFloatingMembers, collectFloatingTabIds } from '../tabs/floating-members.js';
 import { getLiveTabIndex } from '../tabs/live-tab-index.js';
 import { buildOpenTabs } from '../tabs/open-tabs.js';
@@ -119,6 +135,11 @@ const MUTATION_BROADCASTS = {
   [MSG_DEMOTE_ITEM]: SCOPE.ITEMS,
   [MSG_NAVIGATE_TO_ITEM]: SCOPE.ITEMS, // Included because navigate bumps lastAccessedAt via updateItem — a real storage mutation.
   [MSG_IMPORT_COLLECTION]: SCOPE.ITEMS, // B-044 / B-045 — replace-all import. One broadcast covers items + groups (+ prefs); the sidepanel re-fetches on scope: items.
+  /* B-134 §63.7.4 — both new messages mutate `tj:floatingGroups` and require
+     a liveState-equivalent re-fetch. SCOPE.ITEMS triggers `MSG_LIST_ITEMS`
+     in the sidepanel which carries the refreshed `floatingMembers` map. */
+  [MSG_REORDER_FLOATING_MEMBERS]: SCOPE.ITEMS,
+  [MSG_MOVE_FLOATING_TAB]: SCOPE.ITEMS,
 };
 
 /**
@@ -145,6 +166,10 @@ const WRITE_MESSAGE_TYPES = new Set([
      silently (recency is a best-effort UX feature, never user-visible
      failure). */
   MSG_RECENCY_ADD,
+  /* B-134 §63.7.4 — both reorder + move are persistent writes to
+     `tj:floatingGroups` and must be blocked in safe mode. */
+  MSG_REORDER_FLOATING_MEMBERS,
+  MSG_MOVE_FLOATING_TAB,
 ]);
 
 function isWriteType(message) {
@@ -660,6 +685,72 @@ async function dispatch(type, payload) {
         },
       }]);
       return { ok: true };
+    }
+    case MSG_REORDER_FLOATING_MEMBERS: {
+      /* B-134 §63.8.1 — same-group reorder. Validates payload shape, then
+         delegates to `reorderFloatingMembers` which performs the atomic
+         renumber under a single writeTransaction.
+
+         Allow-list direction (C-7): payload is validated by positive
+         field/type checks; the SW handler asserts the supplied tabId set
+         matches the live floating-members resolution before writing.
+         Set-mismatch / vanished-tab races return reordered=false; the
+         sidepanel translates that to a toast (race-guard branch §63.10). */
+      if (!p || typeof p.groupId !== 'string' || p.groupId.length === 0) {
+        return { reordered: false, reason: 'ERR_VALIDATION' };
+      }
+      if (!Array.isArray(p.orderedTabIds) || p.orderedTabIds.length === 0) {
+        return { reordered: false, reason: 'ERR_VALIDATION' };
+      }
+      for (const id of p.orderedTabIds) {
+        if (typeof id !== 'number' || !Number.isFinite(id)) {
+          return { reordered: false, reason: 'ERR_VALIDATION' };
+        }
+      }
+      const ok = await reorderFloatingMembers(p.groupId, p.orderedTabIds);
+      if (!ok) return { reordered: false, reason: 'ERR_RACE' };
+      return { reordered: true };
+    }
+    case MSG_MOVE_FLOATING_TAB: {
+      /* B-134 §63.8.2 — atomic detach+attach. Validates payload shape, then
+         delegates to `moveFloatingTab`. Post-write inheritedTabs side-effects
+         (§63.9) fire ONLY when the writeTransaction resolved successfully —
+         never before (matches B-013 §21.5 precedent). */
+      if (!p || typeof p.tabId !== 'number' || !Number.isFinite(p.tabId)) {
+        return { moved: false, reason: 'ERR_VALIDATION' };
+      }
+      if (p.sourceGroupId !== null
+        && (typeof p.sourceGroupId !== 'string' || p.sourceGroupId.length === 0)) {
+        return { moved: false, reason: 'ERR_VALIDATION' };
+      }
+      if (p.targetGroupId !== null
+        && (typeof p.targetGroupId !== 'string' || p.targetGroupId.length === 0)) {
+        return { moved: false, reason: 'ERR_VALIDATION' };
+      }
+      if (p.sourceGroupId === null && p.targetGroupId === null) {
+        return { moved: false, reason: 'ERR_VALIDATION' };
+      }
+      if (p.sourceGroupId === p.targetGroupId) {
+        return { moved: false, reason: 'ERR_VALIDATION' };
+      }
+      if (typeof p.insertIndex !== 'number'
+        || !Number.isFinite(p.insertIndex)
+        || p.insertIndex < 0) {
+        return { moved: false, reason: 'ERR_VALIDATION' };
+      }
+
+      const ok = await moveFloatingTab(p.tabId, p.sourceGroupId, p.targetGroupId, p.insertIndex);
+      if (!ok) return { moved: false, reason: 'ERR_RACE' };
+
+      /* B-134 §63.9.1 inheritedTabs invariants. Op 5 (MOVE_FLOATING) is a
+         no-op on inheritedTabs (the tab was already in the set). */
+      if (p.sourceGroupId === null && p.targetGroupId !== null) {
+        markInherited(p.tabId);   // ATTACH (op 3)
+      } else if (p.targetGroupId === null && p.sourceGroupId !== null) {
+        pruneInherited(p.tabId);  // DETACH (op 4)
+      }
+
+      return { moved: true };
     }
     default:
       throw new StorageError(ERR_VALIDATION, `Unknown message type: ${String(type)}`);

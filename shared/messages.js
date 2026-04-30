@@ -171,6 +171,80 @@ export const MSG_IMPORT_COLLECTION = 'tj/importCollection';
  * On failure: { ok: false, error: { code: 'ERR_*', message: string } }.
  */
 
+// ---- Floating-tab drag operations (B-134) ----
+/**
+ * B-134 §63.7.1 — reorder floating-tab members within a single group.
+ *
+ * Payload validated by the SW handler (`background/messages/storage-handlers.js`):
+ *  - groupId: string, non-empty.
+ *  - orderedTabIds: number[]; finite, non-NaN. The handler asserts the set
+ *    matches the live tabIds resolved by `buildFloatingMembers` for `groupId`
+ *    (race guard against a tab that closed mid-drag).
+ *
+ * Atomicity: single `writeTransaction` over `PARTITION_FLOATING_GROUPS`. The
+ * handler resolves each tabId → floatingTabId via the LiveTabIndex
+ * (windowId, tabIndex) geometry — Strategy A per §63.14.1. After the
+ * mutator returns, the affected bucket carries `sortOrder` = consecutive
+ * integers `[0, 1, ..., N-1]` (renormalised on every write).
+ *
+ * Allow-list direction (C-7): the handler reads authoritative records from
+ * storage and accepts the client-supplied order ONLY when the set membership
+ * matches the live floating members. No deny-list.
+ *
+ * Scope: SCOPE.ITEMS. Broadcast fires liveState-scoped so all open surfaces
+ * re-fetch.
+ *
+ * @typedef {Object} ReorderFloatingMembersRequest
+ * @property {string}   groupId
+ * @property {number[]} orderedTabIds   sortOrder = index in this array
+ *
+ * @typedef {Object} ReorderFloatingMembersResponse
+ * @property {boolean}  reordered
+ * @property {string}  [reason]   present when reordered=false ('ERR_VALIDATION'|'ERR_RACE')
+ */
+export const MSG_REORDER_FLOATING_MEMBERS = 'tj/reorderFloatingMembers';
+
+/**
+ * B-134 §63.7.2 — atomic detach+attach of a floating tab between groups
+ * (or between a group and Open Tabs in either direction).
+ *
+ * Payload validated by the SW handler:
+ *  - tabId: number, finite. The Chrome tabId of the dragged row.
+ *  - sourceGroupId: string|null. null → ATTACH (op 3); string → DETACH
+ *    (when targetGroupId is null) OR MOVE_FLOATING (when both are non-null).
+ *  - targetGroupId: string|null. null → DETACH (op 4); string → ATTACH
+ *    (op 3) OR MOVE_FLOATING (op 5).
+ *  - insertIndex: number, finite, >= 0. Position in the target bucket
+ *    (ignored when targetGroupId is null).
+ *
+ * Reject if both sourceGroupId === null AND targetGroupId === null.
+ * Reject if sourceGroupId === targetGroupId (same-group → REORDER instead).
+ *
+ * Atomicity: single `writeTransaction` over `PARTITION_FLOATING_GROUPS`.
+ *  - ATTACH (op 3): append a v3 record with sortOrder = insertIndex,
+ *    renumber the target bucket. Calls `markInherited(tabId)` post-write.
+ *  - DETACH (op 4): remove the source group's record, renumber the source
+ *    bucket. Calls `pruneInherited(tabId)` post-write.
+ *  - MOVE_FLOATING (op 5): remove from source + append to target, both
+ *    bucket renumbers in the same writeTransaction. inheritedTabs unchanged.
+ *
+ * inheritedTabs side-effects fire ONLY after `writeTransaction` resolves
+ * successfully — never before (§63.9.2).
+ *
+ * Scope: SCOPE.ITEMS. Broadcast is liveState-scoped.
+ *
+ * @typedef {Object} MoveFloatingTabRequest
+ * @property {number}      tabId
+ * @property {string|null} sourceGroupId
+ * @property {string|null} targetGroupId
+ * @property {number}      insertIndex
+ *
+ * @typedef {Object} MoveFloatingTabResponse
+ * @property {boolean}  moved
+ * @property {string}  [reason]   present when moved=false ('ERR_VALIDATION'|'ERR_RACE')
+ */
+export const MSG_MOVE_FLOATING_TAB = 'tj/moveFloatingTab';
+
 // ---- Quick-search popup (B-022) ----
 /**
  * B-022 — append an entry to the popup's persistent recency store

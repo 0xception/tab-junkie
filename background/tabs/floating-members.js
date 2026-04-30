@@ -33,6 +33,9 @@ import { getParentItemId } from './floating-groups.js';
  * @property {string|null} favIconUrl
  * @property {boolean} audible
  * @property {boolean} active
+ * @property {number} [sortOrder]   B-134 §63.8.4 — explicit per-bucket
+ *   sort key. OPTIONAL on the typedef so legacy v2 records lacking the
+ *   field continue to work; the renderer reads either value.
  */
 
 /**
@@ -129,15 +132,29 @@ export async function buildFloatingMembers(items) {
       audible: !!liveEntry.audible,
       active: !!liveEntry.active,
     };
+    /* B-134 §63.8.4 — propagate explicit sortOrder when the source record
+       carries one (v3+). Legacy v2 records (no sortOrder) flow through
+       without the field; the comparator below handles both shapes. */
+    if (typeof record.sortOrder === 'number' && Number.isFinite(record.sortOrder)) {
+      descriptor.sortOrder = record.sortOrder;
+    }
 
     if (!out[parent.groupId]) out[parent.groupId] = [];
     out[parent.groupId].push(descriptor);
   }
 
-  // Sort each group's members by (windowId, tabIndex) — AC9 parity with
-  // buildOpenTabs.
+  /* B-134 §63.8.4 — sort each group's members by `sortOrder` (ascending)
+     when present, falling back to `(windowId, tabIndex)` for legacy v2
+     records. Records carrying explicit sortOrder are authoritative; legacy
+     records sort identically to v2 behavior (no visual regression). */
   for (const arr of Object.values(out)) {
     arr.sort((a, b) => {
+      const aHasSO = typeof a.sortOrder === 'number';
+      const bHasSO = typeof b.sortOrder === 'number';
+      if (aHasSO && bHasSO) return a.sortOrder - b.sortOrder;
+      if (aHasSO) return -1;
+      if (bHasSO) return 1;
+      // Legacy fallback (matches today's behavior — AC9 parity with buildOpenTabs).
       if (a.windowId !== b.windowId) return a.windowId - b.windowId;
       return a.tabIndex - b.tabIndex;
     });

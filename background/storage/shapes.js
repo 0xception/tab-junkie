@@ -93,12 +93,16 @@ export function defaultShape(partition) {
     case PARTITION_PREFS:
       return { ...DEFAULT_PREFERENCES };
     case PARTITION_META:
-      /* B-121 §60.4.7 — fresh installs seed at v2 directly so no migration
-         step runs on first boot. `migration.js` KNOWN_VERSION = 2. Hardcoded
+      /* B-134 §63.2.3 — fresh installs seed at v3 directly so no migration
+         step runs on first boot. `migration.js` KNOWN_VERSION = 3. Hardcoded
          literal (not imported from migration.js) to keep the storage layer
          independent of the migration runner — bumping this when KNOWN_VERSION
-         bumps is a deliberate, paired change. */
-      return { schemaVersion: 2, createdAt: Date.now() };
+         bumps is a deliberate, paired change.
+         History: v1→v2 (B-121 §60.4.7) added floatingTabId + parentItemId.
+         v2→v3 (B-134 §63.2.3) adds OPTIONAL `sortOrder` to PARTITION_FLOATING_GROUPS
+         records; data migration is lazy (legacy records sort by (windowId, tabIndex)
+         fallback in buildFloatingMembers; new writes always stamp sortOrder). */
+      return { schemaVersion: 3, createdAt: Date.now() };
     case PARTITION_DRIFT:
       return {};
     case PARTITION_FLOATING_GROUPS:
@@ -243,6 +247,15 @@ export function assertShape(partitionOrKey, value) {
         }
         if ('itemId' in entry && typeof entry.itemId !== 'string') {
           throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition}`);
+        }
+        /* B-134 §63.2.5 — OPTIONAL sortOrder field (schema v3). Legacy v2
+           records lack the field; new writes from B-134 stamp it. The
+           validator tolerates both shapes; buildFloatingMembers prefers
+           sortOrder when present, falling back to (windowId, tabIndex). */
+        if ('sortOrder' in entry) {
+          if (typeof entry.sortOrder !== 'number' || !Number.isFinite(entry.sortOrder)) {
+            throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition} — sortOrder`);
+          }
         }
       }
       return;

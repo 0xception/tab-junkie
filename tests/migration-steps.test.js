@@ -84,3 +84,62 @@ test('AC4: migration steps registry is properly cleaned up between tests', async
   const status = getSystemStatus();
   assert.equal(status.schemaVersion, KNOWN_VERSION);
 });
+
+test('B-134 §63.2.3: KNOWN_VERSION is 3 (governance bump for sortOrder)', () => {
+  /* C-1a check: KNOWN_VERSION MUST be incremented when the
+     PARTITION_FLOATING_GROUPS record shape changes. The constant being a
+     literal `3` is asserted indirectly by the migration-chain integrity
+     check (`MIGRATION_STEPS` has steps for 1→2 and 2→3, contiguous). */
+  assert.equal(KNOWN_VERSION, 3,
+    'KNOWN_VERSION must be 3 (B-134 §63.2.3 schema bump for sortOrder)');
+});
+
+test('B-134 §63.2.4: v2 → v3 lazy migration — stored v2 advances to v3 with no data rewrite', async () => {
+  /* The beforeEach clears MIGRATION_STEPS for test isolation. Re-register
+     the v1→v2 + v2→v3 no-op steps so runMigrations finds the chain. */
+  _registerMigrationStepForTest({
+    fromVersion: 1,
+    toVersion: 2,
+    migrate: (snapshot) => snapshot,
+  });
+  _registerMigrationStepForTest({
+    fromVersion: 2,
+    toVersion: 3,
+    migrate: (snapshot) => snapshot,
+  });
+
+  /* Seed pre-S40 v2 records (no sortOrder field). The lazy migration
+     strategy advances `tj:meta.schemaVersion` to 3 without touching
+     `tj:floatingGroups` data. The read-side validator tolerates the
+     missing field; `buildFloatingMembers` falls back to (windowId, tabIndex)
+     ordering for legacy records. */
+  seedPartitions({
+    meta: { schemaVersion: 2, createdAt: 1000 },
+    floatingGroups: [
+      {
+        floatingTabId: 'ft-legacy',
+        groupId: 'g-1',
+        parentItemId: 'item-1',
+        windowId: 1,
+        tabIndex: 0,
+        url: 'https://legacy.example',
+        savedAt: 500,
+        /* deliberately no sortOrder — legacy v2 record */
+      },
+    ],
+  });
+
+  await runMigrations();
+
+  const status = getSystemStatus();
+  assert.equal(status.schemaVersion, 3, 'schemaVersion advanced to 3');
+
+  /* The legacy record is still readable and unchanged. */
+  const meta = __getRawStore('tj:meta');
+  assert.equal(meta.schemaVersion, 3);
+  const records = __getRawStore('tj:floatingGroups');
+  assert.equal(records.length, 1);
+  assert.equal(records[0].floatingTabId, 'ft-legacy');
+  assert.equal(records[0].sortOrder, undefined,
+    'legacy record retains its v2 shape (no sortOrder field) — lazy migration');
+});
