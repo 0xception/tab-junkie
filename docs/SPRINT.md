@@ -35,42 +35,24 @@ Seven-item sprint: 1 P1 anchor (B-137 schema v3→v4 migration adopting `floatin
 - **Handoff Notes for R3**: B-137 R3 [frontend-engineer] decides at R3-time whether to fold B-138 into B-137 R3 commit (recommended if same files touched) OR keep as separate Fast Track R3 sequenced after B-137 close.
 - **Files Changed**: TBD
 
-### [B-139] CLAUDE.md C-13 — Chrome event-feedback completeness gate (P3 — Wave 1)
-- **Tier**: Fast Track (XS)
-- **Status**: 🔄 R1 [product-manager] in flight (Wave 0 bundle)
-- **Feature Context**: Post-S40 process-gap finding (B-136 origin). When R2 adopts a Chrome write API (e.g., `chrome.tabs.move`), R2 MUST enumerate the corresponding event listeners that update the in-memory mirror.
-- **Handoff Notes for Wave 0 bundle**: tight 2-3 ACs; mirrors B-118/B-126/B-127/B-128/B-129 precedent format.
-- **Files Changed**: `CLAUDE.md` only (R2 Correctness Checklist new C-13 row)
-
-### [B-140] CLAUDE.md R2 gen-counter content predicate enumeration (P3 — Wave 1)
-- **Tier**: Fast Track (XS)
-- **Status**: 🔄 R1 [product-manager] in flight (Wave 0 bundle)
-- **Feature Context**: S40 retro action item (origin: Wave 3a H-1 over-trip class). When R2 designs a drag-state / cache-invalidation contract using gen counters, R2 MUST enumerate "what counts as content" for the gen-bump predicate.
-- **Files Changed**: `CLAUDE.md` only (R2 charter addition)
-
-### [B-141] CLAUDE.md B-127 STOP-and-escalate extension (P3 — Wave 1)
-- **Tier**: Fast Track (XS)
-- **Status**: 🔄 R1 [product-manager] in flight (Wave 0 bundle)
-- **Feature Context**: S40 retro action item (origin: B-134 R3 §63.8.2 parentItemId re-anchor deviation surfaced at R4 not R3). Extend B-127 STOP-and-escalate to fire when R3 finds R2 spec is incorrect.
-- **Files Changed**: `CLAUDE.md` only (R3 Build section bullet extension)
-
-### [B-142] CLAUDE.md R3 cross-surface diff self-check (P3 — Wave 1)
-- **Tier**: Fast Track (XS)
-- **Status**: 🔄 R1 [product-manager] in flight (Wave 0 bundle)
-- **Feature Context**: S39 retro action item (origin: 3 silent newtab/sidepanel divergences in B-124 R3 caught at R4). When same AC lands on 2+ surfaces, R3 MUST diff implementations against R2 spec before claiming complete.
-- **Files Changed**: `CLAUDE.md` only (R3 Build section)
-
-### [B-143] CLAUDE.md R3 deferred-to-UAT cheap-fix self-check (P3 — Wave 1)
-- **Tier**: Fast Track (XS)
-- **Status**: 🔄 R1 [product-manager] in flight (Wave 0 bundle)
-- **Feature Context**: S39 retro action item (origin: B-122 §62.9 F-1 Open-Tabs reject-guard UAT-deferred-but-cheap-fixed at Wave 3a). When R2 defers a UX-risk to UAT, R3 MUST assess whether fix is ≤10 LOC and document keep-deferred-or-pre-empt with rationale.
-- **Files Changed**: `CLAUDE.md` only (R3 Build section)
+_B-139..B-143 bundle DONE 2026-04-30 — moved to "Completed This Sprint" below._
 
 ---
 
 ## Completed This Sprint
 
-*None yet.*
+### ✅ B-139..B-143 — CLAUDE.md process-gate bundle (Fast Track XS, 5 items)
+- **Status**: DONE 2026-04-30 — Fast Track DoD met. R1 LOCKED (Wave 0 bundle) → R3 build (single CLAUDE.md edit pass per R3 ordering note) → R4 [code-reviewer] CLEAN + [security-reviewer] CLEAN (qa skipped per Fast Track tier).
+- **Files Changed**: `CLAUDE.md` (5 insertions + 1 deletion across 2 regions: R2 Correctness Checklist + ROUND 3 Build section).
+- **What shipped**: Five new process gates closing real failure-mode classes:
+  - **C-13 (B-139)** — Chrome event-feedback completeness: when R2 adopts a Chrome write API, R2 MUST enumerate corresponding event listeners. Closes the B-136 missing-`onMoved` class.
+  - **C-14 (B-140)** — gen-counter content predicate enumeration: R2 must specify "what counts as gen-bump-relevant" for cache-invalidation / drag-state contracts. Closes the B-134 H-1 over-trip class.
+  - **B-141** — STOP-and-escalate extension: fires when R3 finds R2 spec is incorrect (not just for AC-locked deferrals). Closes the B-134 §63.8.2 parentItemId re-anchor late-surfacing class.
+  - **B-142** — R3 cross-surface diff self-check: when same AC lands on 2+ surfaces, R3 MUST diff vs R2 spec. Closes the B-124 silent-divergence class.
+  - **B-143** — R3 R2-deferred-to-UAT cheap-fix self-check: ≤10 LOC fixes get pre-empted at R3, not deferred. Closes the B-122 §62.9 F-1 deferred-but-cheap-fix class.
+- **B-141 self-application gate**: did NOT trigger (line numbers all matched reality at R3 time). First successful self-application of the new gate.
+- **R4 findings**: 0 CRIT/HIGH/MEDIUM/LOW from both reviewers.
+- **Tests**: 1,782/1,782 PASS (no test changes for CLAUDE.md edits).
 
 ---
 
