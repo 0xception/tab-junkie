@@ -2360,3 +2360,47 @@ Product-owner manual UAT in Edge for v1.30.0 + v1.31.0 + v1.32.0. Not blocking s
 - **Storage schema**: unchanged
 - **Manifest permissions**: zero new permissions added
 - **Sprints without rollback**: 15 (S23 → S39)
+
+---
+
+## v1.33.1 Hotfix — B-130 floating-tab indicator simplification (closed 2026-04-30)
+
+**Release**: v1.33.1 (cut tag on `release/v2` after PR #43 merge `872ad95`; `gh release create` skipped per established pattern)
+**Branch**: `hotfix/v1.33.1-b-130` off `release/v2` (post-S39 close)
+**Test delta**: 1,731 → 1,732 (+1 T-124-A.2 JS-side cleanup pin)
+**Build**: `tab-junkie.zip` 360 KB / 87 files (`./build.sh` exit 0)
+
+### B-130 — Floating-tab visual indicator simplification (P3/XS, Fast Track)
+
+**Origin**: product-owner observed post-v1.33.0 ship that the new `.item-floating-bar` element added in B-124 R3 (a separate dotted-green bar absolute-positioned at `left: 3px`) visually collided with the dotted-orange `.item-drift-bar` (B-101) which sits in the same x-column. The dotted-green bar looked like it was replacing the drift indicator rather than the open indicator.
+
+**Decision**: floating tabs reuse the existing live-tab open-indicator (the row's left border) and just render it as DOTTED green instead of solid green. No separate bar element.
+
+**Implementation**:
+- `sidepanel/sidepanel.css` — removed `.item-floating-bar` rule; added `[data-floating="true"]` override that sets `border-left-style: dotted` + `border-left-color: var(--floating-bar-color)`.
+- `sidepanel/sidepanel.js` — removed `<span class="item-floating-bar">` injection in `buildFloatingTabRow` + defensive re-attach in `patchFloatingMembersSections`.
+- `newtab/newtab.css` — removed `.newtab-floating-bar` rule entirely (no replacement).
+- `newtab/newtab.js` — removed element creation in `_buildFloatingTabRow`. **Newtab decision**: right-side-only — the right-side `.newtab-indicator-live` dot (per R2 §61.3.2) already covers the live-state cue on newtab; no left-side mirror needed since newtab has no left-side `border-left` indicator to inherit a dotted-vs-solid distinction from. The visual collision concern that motivated B-130 doesn't exist on newtab in the first place (no `newtab-drift-bar` element).
+- `tests/b124-floating-visual.test.js` — T-124-A + A.2 + F + I rewritten to pin the new architecture (regex-asserts dotted style on the override + asserts `.item-floating-bar` rule does NOT exist).
+- `--floating-bar-color` token RETAINED in `shared/themes.css` so a future yellow swap remains a one-token change.
+
+**R4**: 0 CRITICAL / 0 HIGH / 0 MEDIUM. 2 LOW deferred ([code-reviewer] L-1 stale file-level docstring header in `tests/b124-floating-visual.test.js`; L-2 documentation note about B-123 placeholder-contract broadening). [security-reviewer] 0 findings — net surface-reduction (one DOM element + one CSS rule removed per surface).
+
+### Process notes
+
+- **Toolchain hygiene fix applied**: `docs/findings/sprint-39-1.md` was pre-created at hotfix kickoff per S39 retrospective action item. R4 reviewers wrote findings to it without permission-prompt friction. Pattern adopted for future sprints.
+- **Bookkeeping commit pattern refined**: split the v1.33.1 work into 3 commits — (1) `5b3ce4a` hotfix code+tests+release-notes, (2) `55b6ba3` BACKLOG/board/findings, (3) `d573248` next-sprint bug filings (B-131 + B-132). Cleaner history vs single-commit-per-sprint pattern.
+
+### Newly filed bugs (queued for next sprint)
+
+- **B-131** (P1, TBD) — Floating tab opens with wrong title initially (sibling item's title shown until tab activates). Suspected render-pipeline race in `buildFloatingTabRow` / `patchFloatingMembersSections` — descriptor mapping may be sourced against stale/off-by-one index, or `chrome.tabs.onCreated` initial empty title triggers a displacement.
+- **B-132** (P1, TBD) — Floating tabs route to Open Tabs section instead of originating group after extension reload. Suspected SW-memory loss of `openerMap` (B-013/B-018) or `inheritedTabs` (B-125), or cold-start `tj:floatingGroups` re-bind regression. Distinguish: (a) post-reload-only spawn affected, vs (b) pre-existing floating tabs also lose their group.
+
+Both filed as `backlog | TBD` with triage notes; R1 to investigate at next sprint kickoff.
+
+### Final State
+
+- **Tests**: 1,732/1,732 passing · zero regressions
+- **Release tag**: v1.33.1 (cut on `release/v2`; `gh release create` skipped)
+- **Storage schema**: unchanged · **Manifest permissions**: unchanged · **Message contracts**: unchanged
+- **Sprints + hotfixes without rollback**: 16 (S23 → S39 → v1.33.1)
