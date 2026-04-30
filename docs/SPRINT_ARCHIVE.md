@@ -2404,3 +2404,75 @@ Both filed as `backlog | TBD` with triage notes; R1 to investigate at next sprin
 - **Release tag**: v1.33.1 (cut on `release/v2`; `gh release create` skipped)
 - **Storage schema**: unchanged · **Manifest permissions**: unchanged · **Message contracts**: unchanged
 - **Sprints + hotfixes without rollback**: 16 (S23 → S39 → v1.33.1)
+
+---
+
+## Sprint 40 — Floating-tab bug-fix anchor + drag-reorder feature (closed 2026-04-30)
+
+**Release**: v1.34.0 (cut tag on `release/v2` after PR #44 merge `f131e95`; `gh release create` skipped per established pattern)
+**Branch**: `feature/sprint-40-drag-reorder` off `release/v2`
+**Test delta**: 1,734 → 1,778 (+44)
+**Build**: `tab-junkie.zip` 380 KB / 87 files (`./build.sh` exit 0)
+
+### Items shipped (4 + 1 wontfix + 1 deferred stub)
+
+#### B-134 — Drag-and-drop reorder for open + floating tabs (P2/M, Full)
+- **5 ops**: (1) Open Tabs reorder same-window via `chrome.tabs.move`; (2) within-floating reorder via new `MSG_REORDER_FLOATING_MEMBERS`; (3) ATTACH (Open→Floating) via new `MSG_MOVE_FLOATING_TAB` + `markInherited(tabId)` lock; (4) DETACH (Floating→Open) + `pruneInherited(tabId)`; (5) cross-group floating MOVE atomic single message. Cross-window REJECT silent. 3-branch race-guard (B-122 §62.9 F-5 pattern).
+- **Schema bump**: `tj:floatingGroups` v2 → v3 — added `sortOrder: number` field; `KNOWN_VERSION` 2→3; `defaultShape(PARTITION_META)` updated; new no-op `MIGRATION_STEPS` v2→v3 entry; lazy migration with `(windowId, tabIndex)` fallback for legacy v2 records. C-1a + C-1b compliance verified. CHANGELOG SW module-cache flush note included per Sprint 30 B-092 / Sprint 38 B-121 precedent.
+- **R4**: 0 CRITICAL, **4 HIGH** (all closed in Wave 3a fix-round): H-1 race-guard B over-trip on title/audible/active changes → content-conditional gen bumps via `_openTabsSignature` + `_floatingMembersSignature` setter guards; H-2 `MSG_REORDER_FLOATING_MEMBERS` ERR_RACE silent fail → mirror MOVE_FLOATING handler pattern; H-3 REJECT indicator stuck-position → exclude REJECT from skip-no-op; H-4 REORDER_FLOATING midline math includes dragged row → exclude in both `_computeTabDropTarget` and `_resolveTabDragIndicatorY`. 12 MEDIUM + 14 LOW deferred per `docs/findings/sprint-40.md`.
+- **R6 As-Built §63.18 reconciliation**: R4 [code-reviewer] M-4 (parentItemId re-anchor deviation from R2 §63.8.2 pseudocode) ACCEPTED in favor of as-built behavior — load-bearing for B-129 cascade-prune contract; reusing source's stale `parentItemId` would silently leak floating records past parent-item deletion. T6 in `tests/b134-tab-drag-reorder.test.js:294` is the regression guard.
+- **Files**: 8 source + 4 test (`shared/messages.js`, `background/storage/{shapes.js, migration.js}`, `background/tabs/{floating-groups.js, floating-members.js}`, `background/messages/storage-handlers.js`, `sidepanel/{sidepanel.js, sidepanel.css}`; `tests/b134-tab-drag-reorder.test.js` new (32 tests T1-T31), `tests/floating-shape.test.js`, `tests/migration-steps.test.js`, `tests/chrome-mock.js`); design `docs/design/63-b-134-tab-drag-reorder.md` (1,305 lines, R2 + §63.18 As-Built); `docs/UAT_B-134.md` (19 cases).
+
+#### B-132 — Cold-start claim-jump fix (P1/M, Full)
+- **Origin**: product-owner observed post-v1.33.0 ship that pre-existing floating tabs route to Open Tabs section after extension reload (Mode-b URL-collision claim-jump).
+- **Top hypothesis confirmed (R0 spike, HIGH ~75%)**: cold-start `reconcileClaims` Phase 2 auto-claims unclaimed live tabs whose URL matches saved items. The B-125 `inheritedTabs` gate is INSIDE `reevaluateTab`, NOT inside `reconcileClaims` — so on cold-start (with `chrome.storage.session` cleared on extension reload) Phase 2 sees pre-existing floating tabs as candidates and URL-matches them.
+- **Fix**: ~117 LOC across 3 files. NEW `preMarkInheritedFromFloatingGroups()` helper in `background/tabs/floating-groups.js` runs at cold-start BEFORE `reconcileClaims`, populating `inheritedTabs` Set from persisted records (mirrors `reassociateFloatingGroups` position-then-URL match algorithm). NEW Phase 2 gate in `reconcileClaims` (`background/tabs/tab-claims.js:169-200`) skips candidates already in `inheritedTabs` via `while`/shift pattern.
+- **AC3 deep-chain carve-out (acceptable limitation)**: tabs spawned post-reload through multi-hop opener-chain (e.g., grandparent claimed → parent floating → child opens) do NOT re-bind to the originating group post-reload, because `openerMap` is empty post-reload and multi-hop walks return null. Structurally infeasible without persisting `openerMap`. Documented across THREE surfaces (R0 §64.6, R2 §65.7, inline JSDoc on helper).
+- **R4**: 0 CRITICAL/HIGH/MEDIUM from [code-reviewer] + [security-reviewer]; 2 MEDIUM from [qa-reviewer] both closed in Wave 3a (M-1 clarifying comment blocks on 3 sibling tests with same URL-collision pattern; M-2 try/catch wrap on cold-start helper for graceful degradation).
+- **R2-VERIFY 1**: chrome.storage.session wipe behavior on extension reload — confirmed at R2 §65.2 via internal consistency analysis (deferred to UAT-4 for empirical SW-console verification; fix correct under either verdict).
+- **No schema bump, no new permissions, no new message contracts**.
+- **Files**: 3 source (`floating-groups.js`, `index.js`, `tab-claims.js`); tests `tests/b132-cold-start-inheritance.test.js` (NEW, 8 tests T-132-A..H), comment-only edits to 4 existing test files (`floating-multi`, `floating-position`, `floating-ready-gate`, `b018-persistence`); design `docs/design/64-b-132-r0-spike.md` (1,140 lines R0 spike) + `docs/design/65-b-132-cold-start-claim-jump-fix.md` (1,212 lines R2 + §65.14 As-Built); `docs/UAT_B-132.md` (9 cases).
+
+#### B-133 — Open Tabs section dotted-green indicator (P3/XS, Fast Track)
+- **User-visible**: Open Tabs section rows now use dotted-green left-border (matching floating-tab visual from B-130) instead of solid-green. Visual taxonomy completed: solid-green = persistent (saved bookmark, currently live); dotted-green = ephemeral (floating tab in group OR Open Tabs row).
+- **Implementation**: single CSS edit at `sidepanel.css:1680-1691` — `.item-row[data-live-only="true"]` now declares `border-left-style: dotted` + `border-left-color: var(--floating-bar-color)` (was solid green via `var(--live-indicator)`).
+- **Cross-surface decision**: sidepanel-only (newtab uses right-side dot indicators per B-130 §61.3.2; popup uses favicon-overlay).
+- **Bonus architectural fix**: latent CSS-specificity fragility (floating rows matched both `[data-floating]` and `[data-live-only]` at equal specificity, with source-order making `--live-indicator` win) is incidentally fixed — both rules now bind `--floating-bar-color`.
+- **R4**: 0 findings from both reviewers.
+- **Files**: `sidepanel/sidepanel.css` (~12 LOC) + `tests/b133-open-tabs-dotted.test.js` (NEW, 92 LOC, 2 tests).
+
+#### B-131 — Floating tab title-displacement bug (closed `wontfix-not-repro`)
+- Wave 0 [product-manager] verify-first verdict (HIGH confidence): structurally cannot reproduce in v1.33.1. Strict tabId-keyed mapping at every layer (LiveTabIndex, buildFloatingMembers first-match-wins, row reuse, patch path). What user likely observed was the empty-title window during `chrome.tabs.onCreated` (Chrome delivers `tab.title === ''` initially → first paint falls back to URL string or `'Untitled tab'`, NOT a sibling's title). Closed without code change per product-owner: "if this comes back up naturally, i will open a new bug."
+
+#### B-135 — Cross-window Open Tabs drag (deferred stub, no S40 work)
+- Filed alongside B-134 per CLAUDE.md scope-change-control. Out of B-134 v1 scope per Q3 brainstorm (same-window only). Future sprint will tackle if surfaced; will involve `chrome.tabs.move({windowId})` cross-window semantics + drop-zone hit-test recognizing per-window regions.
+
+### Quality Summary
+
+- **R4**: 0 CRITICAL across all items. **4 HIGH on B-134 (all closed in Wave 3a fix-round)**. 2 MEDIUM on B-132 (closed Wave 3a). 12 MEDIUM + 14 LOW on B-134 deferred with rationale. 0 findings on B-133.
+- **R5**: 2 UAT plans authored (`docs/UAT_B-132.md` 9 cases, `docs/UAT_B-134.md` 19 cases) + 1 gap-closing test (T31 covering `reorderFloatingMembers` SW-side parity-mismatch race-paths). Tests 1,777 → 1,778.
+- **R6**: chapters 63 + 65 As-Built sections appended (§63.18 + §65.14, 11 subsections each). `docs/SOLUTION_DESIGN.md` TOC updated.
+- **R7**: `CHANGELOG.md` v1.34.0 entry with mandatory C-1a SW module-cache flush note. `STORE_LISTING.md` surgical bullets. `docs/user-manual/managing-items.md` extended with drag-reorder section + B-132 reload-limitation note + visual-taxonomy clarification.
+
+### Process Improvements (Gate 7 retrospective)
+
+**What went well**:
+- R0 spike merged with Wave 0 work for B-132 saved sprint capacity (verdict: M Full not XL Spike-First)
+- B-131 verify-first saved ~3 effort units (closed Wave 0 without sinking R2/R3)
+- R1 LOCKED at brainstorm for B-134 (saved a round-trip)
+- Cross-reviewer convergence at R4 surfaced 4 HIGH findings cleanly (qa H-1 caught a UX-blocker)
+- Toolchain hygiene fix shipped (`docs/findings/sprint-40.md` pre-created at kickoff; 0 file-write denials)
+- Schema-bump compliance worked cleanly (C-1a + C-1b for `tj:floatingGroups` v2→v3 lazy migration; CHANGELOG flush note included)
+
+**Next-sprint candidates** (file before S41 kickoff):
+- **B-136**: CLAUDE.md R2 charter addition — for any drag-state / cache invalidation contract, R2 must enumerate "what changes count as gen-counter-relevant" to prevent the H-1 over-trip class
+- **B-137**: CLAUDE.md R3 STOP-and-escalate (B-127) extension — fire when R3 finds R2 spec is incorrect, not just for AC-locked deferrals
+- Pre-existing S39 retro candidates **B-138/B-139** (R3 cross-surface diff self-check + R3 deferred-to-UAT cheap-fix check) still pending file. Bundle in S41 Wave 1 retro piggyback
+
+### Final State
+
+- **Tests**: 1,778/1,778 passing · zero regressions
+- **Release tag**: v1.34.0 (cut on `release/v2`; `gh release create` skipped)
+- **Storage schema**: `tj:floatingGroups` v2 → v3 (lazy migration; rollback documented at §63.18)
+- **Manifest permissions**: zero new permissions added
+- **Sprints + hotfixes without rollback**: 17 (S23 → S40)
