@@ -2,6 +2,21 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.33.1] — 2026-04-30 — B-130 hotfix
+
+Fast Track XS hotfix simplifying the v1.33.0 B-124 floating-tab visual implementation.
+
+### Fixed
+- **Floating-tab indicator no longer collides with the drift indicator (B-130)** — under v1.33.0 floating tabs rendered a separate dotted-green bar just inside the row's left edge, which sat in the same x-column as the dotted-orange drift indicator and read as a replacement of it. The separate bar is removed; the existing left-most live-state indicator on a floating row now renders dotted-green directly, and the drift indicator retains its independent identity. Saved-with-active-live rows continue to render a solid-green bar. No behavior change beyond the visual cleanup.
+
+### Changed (developer-visible)
+- **Removed `.item-floating-bar` element + CSS rule (sidepanel)** — `buildItemRow` no longer appends the dedicated bar element; floating state is communicated entirely via `[data-floating="true"]` selectors targeting the existing `border-left` declaration.
+- **Removed `.newtab-floating-bar` element + CSS rule (newtab)** — newtab's right-side dot indicators already cover the live-state cue, so the left-side bar was redundant on this surface and is dropped without replacement.
+- **`--floating-bar-color` CSS token retained** — the future yellow-bar swap remains a one-token change; the token is now consumed by the `[data-floating="true"]` `border-left-color` override.
+
+### Note
+- **No reload required.** CSS / DOM-shape change only — zero new pref keys, zero new manifest entries, zero storage schema changes. Update and use the new behavior immediately.
+
 ## [1.33.0] — 2026-04-29
 
 Sprint 39 — Polish + process close-out (6 items): 1 P3/M floating-tab visual distinction + 1 P2/M sub-group drag-to-root + 1 P3/XS row-alignment fix + 3 XS CLAUDE.md process gates.

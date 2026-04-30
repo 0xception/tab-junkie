@@ -59,44 +59,66 @@ function readFile(rel) {
 }
 
 /* =========================================================================
-   T-124-A — `.item-floating-bar` element appended in buildFloatingTabRow.
+   T-124-A (B-130 hotfix rewrite) — `.item-row[data-floating="true"]`
+   re-styles the row's existing `border-left` (the live indicator) as
+   DOTTED in `var(--floating-bar-color)`. The previous separate
+   `.item-floating-bar` element was removed by B-130 to eliminate the
+   visual collision with the dotted-orange drift bar that sits in the
+   same x-column.
    ========================================================================= */
 
-test('B-124 T-124-A: buildFloatingTabRow appends an `.item-floating-bar` child element', () => {
+test('B-124 T-124-A (B-130): `.item-row[data-floating="true"]` overrides border-left to dotted in --floating-bar-color', () => {
+  const css = readFile('sidepanel/sidepanel.css');
+
+  /* The override rule body must declare BOTH border-left-style: dotted
+     AND border-left-color: var(--floating-bar-color). */
+  const overrideMatch = css.match(/\.item-row\[data-floating="true"\]\s*\{([^}]*)\}/);
+  assert.ok(overrideMatch, '`.item-row[data-floating="true"]` rule must exist');
+  const overrideBody = overrideMatch[1];
+
+  assert.match(
+    overrideBody,
+    /border-left-style:\s*dotted/,
+    'floating-row override must declare border-left-style: dotted',
+  );
+  assert.match(
+    overrideBody,
+    /border-left-color:\s*var\(--floating-bar-color\)/,
+    'floating-row override must declare border-left-color: var(--floating-bar-color)',
+  );
+
+  /* B-130 AC2: the previous separate `.item-floating-bar` rule MUST NOT
+     exist anywhere in sidepanel.css. */
+  assert.doesNotMatch(
+    css,
+    /\.item-floating-bar\s*\{/,
+    'B-130 AC2: `.item-floating-bar` CSS rule must be removed (was the pre-hotfix separate-bar element)',
+  );
+});
+
+test('B-124 T-124-A.2 (B-130): buildFloatingTabRow no longer injects an `.item-floating-bar` element', () => {
   const js = readFile('sidepanel/sidepanel.js');
 
-  /* Locate the buildFloatingTabRow function body. */
   const fnMatch = js.match(/function buildFloatingTabRow\(member\)\s*\{([\s\S]*?)\n\}/);
   assert.ok(fnMatch, 'buildFloatingTabRow function must exist in sidepanel.js');
   const fnBody = fnMatch[1];
 
-  /* The dotted-bar element MUST be created and appended. */
-  assert.match(
-    fnBody,
-    /createElement\(['"]div['"]\)/,
-    'buildFloatingTabRow must create a <div> for the bar element',
-  );
-  assert.match(
+  /* B-130 AC2: the className assignment for the now-removed bar element
+     must not appear in the build path. */
+  assert.doesNotMatch(
     fnBody,
     /\.className\s*=\s*['"]item-floating-bar['"]/,
-    'buildFloatingTabRow must set className="item-floating-bar"',
+    'B-130 AC2: buildFloatingTabRow must not assign className="item-floating-bar" (separate-bar element removed)',
   );
 
-  /* The bar must also exist as a CSS rule in sidepanel.css with the
-     dotted stroke + token reference. */
-  const css = readFile('sidepanel/sidepanel.css');
-  const barRuleMatch = css.match(/\.item-floating-bar\s*\{([^}]*)\}/);
-  assert.ok(barRuleMatch, '.item-floating-bar CSS rule must exist');
-  const barBody = barRuleMatch[1];
-  assert.match(
-    barBody,
-    /position:\s*absolute/,
-    '.item-floating-bar must be position: absolute (out-of-flow, mirrors drift-bar pattern)',
-  );
-  assert.match(
-    barBody,
-    /border-left:\s*3px\s+dotted\s+var\(--floating-bar-color\)/,
-    '.item-floating-bar must declare `border-left: 3px dotted var(--floating-bar-color)`',
+  /* The defensive re-attach inside patchFloatingMembersSections must
+     also be gone (B-130 AC2). */
+  const patchMatch = js.match(/function patchFloatingMembersSections\(nextFloatingMembers\)\s*\{([\s\S]*?)\n\}/);
+  assert.ok(patchMatch, 'patchFloatingMembersSections must exist');
+  assert.doesNotMatch(
+    patchMatch[1],
+    /\.className\s*=\s*['"]item-floating-bar['"]/,
+    'B-130 AC2: patchFloatingMembersSections must not defensively re-attach an `.item-floating-bar` element',
   );
 });
 
@@ -275,25 +297,33 @@ test('B-124 T-124-E: detectDriftForTab returns early for unclaimed tabIds (float
 });
 
 /* =========================================================================
-   T-124-F — Newtab parity: _buildFloatingTabRow includes the dotted-bar
-   element, the Save CTA, and the floating-tab aria-label.
+   T-124-F (B-130 hotfix rewrite) — Newtab parity: _buildFloatingTabRow
+   includes the Save CTA + floating-tab aria-label, and the right-side
+   `.newtab-indicator-live` dot signals live-state. Per B-130, newtab no
+   longer has a `.newtab-floating-bar` left-side element — the rationale:
+   sidepanel rows have an inherited `border-left` live indicator (B-130
+   re-styles it dotted on floating rows); newtab rows have no left-side
+   border indicator at all (live state is signaled via the right-side
+   `.newtab-indicator-*` dots in `.newtab-item-indicators`). Adding a
+   left-side bar provided no extra cue and re-introduced the same
+   x-column collision concern that motivated B-130 on sidepanel.
    ========================================================================= */
 
-test('B-124 T-124-F: newtab _buildFloatingTabRow appends bar + Save CTA + new aria-label', () => {
+test('B-124 T-124-F (B-130): newtab _buildFloatingTabRow appends Save CTA + new aria-label; no separate floating bar element', () => {
   const js = readFile('newtab/newtab.js');
 
   const fnMatch = js.match(/function _buildFloatingTabRow\(member\)\s*\{([\s\S]*?)\n\}/);
   assert.ok(fnMatch, 'newtab _buildFloatingTabRow must exist');
   const fnBody = fnMatch[1];
 
-  /* Dotted bar element. */
-  assert.match(
+  /* B-130 AC2: the `.newtab-floating-bar` element creation must be gone. */
+  assert.doesNotMatch(
     fnBody,
     /\.className\s*=\s*['"]newtab-floating-bar['"]/,
-    'newtab _buildFloatingTabRow must append `.newtab-floating-bar` element',
+    'B-130 AC2: newtab _buildFloatingTabRow must not append `.newtab-floating-bar` element',
   );
 
-  /* Save CTA button. */
+  /* Save CTA button (retained — Save flow is unchanged). */
   assert.match(
     fnBody,
     /\.className\s*=\s*['"]newtab-floating-save['"]/,
@@ -305,7 +335,7 @@ test('B-124 T-124-F: newtab _buildFloatingTabRow appends bar + Save CTA + new ar
     'newtab Save CTA must carry data-action="save-floating" for click delegation',
   );
 
-  /* New aria-label format. */
+  /* New aria-label format (retained). */
   assert.match(
     fnBody,
     /['"`]floating tab — \$\{titleText\}['"`]/,
@@ -320,15 +350,13 @@ test('B-124 T-124-F: newtab _buildFloatingTabRow appends bar + Save CTA + new ar
     '_promoteFloatingTab must send MSG_PROMOTE_TAB',
   );
 
-  /* Newtab CSS — bar + CTA rules exist with correct invariants. */
+  /* Newtab CSS — B-130 AC2: `.newtab-floating-bar` rule must be removed.
+     Save CTA rule retained. */
   const css = readFile('newtab/newtab.css');
-  const barMatch = css.match(/\.newtab-floating-bar\s*\{([^}]*)\}/);
-  assert.ok(barMatch, '.newtab-floating-bar CSS rule must exist');
-  assert.match(barMatch[1], /position:\s*absolute/, 'newtab bar must be position: absolute');
-  assert.match(
-    barMatch[1],
-    /border-left:\s*3px\s+dotted\s+var\(--floating-bar-color\)/,
-    'newtab bar must use the same `--floating-bar-color` token (cross-surface parity)',
+  assert.doesNotMatch(
+    css,
+    /\.newtab-floating-bar\s*\{/,
+    'B-130 AC2: `.newtab-floating-bar` CSS rule must be removed',
   );
 
   const saveMatch = css.match(/\.newtab-floating-save\s*\{([^}]*)\}/);
@@ -402,37 +430,57 @@ test('B-124 T-124-H: floating-row Save CTA is keyboard-reachable via :focus-with
 });
 
 /* =========================================================================
-   T-124-I — CSS contract: floating-row override transparents the inherited
-   live-bar so the dotted bar paints alone. Active+floating rows still
-   show the active-row tint via `.item-row[data-active]` background.
+   T-124-I (B-130 hotfix rewrite) — CSS contract: the floating-row
+   override re-styles the row's existing `border-left` (painted by
+   `.item-row[data-live]`) as DOTTED in `var(--floating-bar-color)` — the
+   visual cue lives in the same x-column slot as the saved-bookmark live
+   cue, no separate element. The override must NOT transparent the
+   border-left-color anymore (that was the pre-hotfix behavior); the
+   dotted style ON the token color IS the cue.
    ========================================================================= */
 
-test('B-124 T-124-I: `.item-row[data-floating="true"]` transparents the inherited live-bar; dotted bar paints alone', () => {
+test('B-124 T-124-I (B-130): floating-row override re-styles the live-bar as dotted in the floating token color', () => {
   const css = readFile('sidepanel/sidepanel.css');
 
-  /* The override rule sets border-left-color to transparent. */
   const overrideMatch = css.match(/\.item-row\[data-floating="true"\]\s*\{([^}]*)\}/);
   assert.ok(overrideMatch, '`.item-row[data-floating="true"]` rule must exist');
+  const overrideBody = overrideMatch[1];
+
+  /* B-130: dotted style + floating-bar-color ON the existing border-left
+     slot. NOT transparent (the pre-hotfix override transparented the
+     inherited solid border so the separate `.item-floating-bar` element
+     could paint over it; that element is gone). */
   assert.match(
-    overrideMatch[1],
+    overrideBody,
+    /border-left-style:\s*dotted/,
+    'B-130: floating override must declare border-left-style: dotted',
+  );
+  assert.match(
+    overrideBody,
+    /border-left-color:\s*var\(--floating-bar-color\)/,
+    'B-130: floating override must declare border-left-color: var(--floating-bar-color)',
+  );
+  assert.doesNotMatch(
+    overrideBody,
     /border-left-color:\s*transparent/,
-    'floating override must transparent the inherited solid live-bar (so dotted-bar paints alone)',
+    'B-130: floating override must NOT set border-left-color: transparent (pre-hotfix shape removed)',
   );
 
   /* The override rule MUST NOT redeclare the full `border-left:`
      shorthand — that would re-introduce the pre-B-123 width/style/padding
      asymmetry. Mirrors the b123 §61 placeholder invariant. */
   assert.doesNotMatch(
-    overrideMatch[1],
+    overrideBody,
     /(^|;|\n)\s*border-left\s*:/,
     'floating override must NOT redeclare full `border-left:` shorthand (B-123 placeholder invariant)',
   );
 
-  /* The dotted bar lives at left:0 (replacing the live-bar slot at the
-     border-box left edge). */
-  const barMatch = css.match(/\.item-floating-bar\s*\{([^}]*)\}/);
-  assert.ok(barMatch);
-  assert.match(barMatch[1], /left:\s*0/, '.item-floating-bar must anchor at left: 0');
+  /* B-130 AC2: the previous separate-bar rule must be gone. */
+  assert.doesNotMatch(
+    css,
+    /\.item-floating-bar\s*\{/,
+    'B-130 AC2: `.item-floating-bar` CSS rule must be removed',
+  );
 });
 
 /* =========================================================================

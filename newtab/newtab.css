@@ -302,11 +302,13 @@ body {
   background: transparent;
   width: 100%;
   text-align: left;
-  /* B-124 §61.3.2: positioning context for the absolute-positioned
-     `.newtab-floating-bar` child (which paints the dotted left bar on
-     floating rows). Rows without `data-floating="true"` have no bar
-     child, so the positioned-ancestor declaration is inert in the
-     non-floating case. */
+  /* Positioning context for any absolute-positioned descendants
+     (e.g. focus rings, future overlays). B-130 removed the
+     `.newtab-floating-bar` child that originally required this context —
+     newtab uses RIGHT-side `.newtab-indicator-*` dots for the live /
+     active / drifted state cues, so no left-side bar is needed for the
+     floating-tab visual distinction. The rule is retained as a harmless
+     positioning anchor. */
   position: relative;
 }
 
@@ -466,21 +468,19 @@ body {
   outline-offset: 1px;
 }
 
-/* --- B-124 §61.3.2: dotted left bar for floating rows on newtab ------- */
-/* Mirrors the sidepanel `.item-floating-bar` treatment — 3 px dotted
-   stroke in `var(--floating-bar-color)` (defaults to live-indicator). The
-   newtab row uses 14 px horizontal padding (no left-side border indicator
-   like the sidepanel), so the bar lives at left:0 without competing with
-   any inherited border-left rule. */
-.newtab-floating-bar {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  border-left: 3px dotted var(--floating-bar-color);
-  pointer-events: none;
-}
+/* --- B-130 §61.X-as-built: newtab floating-tab visual distinction -------- */
+/* B-124 (Sprint 39) added a `.newtab-floating-bar` left-side dotted bar
+   for sidepanel-parity. B-130 hotfix removed it: unlike sidepanel,
+   newtab rows have no inherited left-side `border-left` indicator —
+   live / active / drifted state is signaled entirely via the
+   right-side `.newtab-indicator-*` dots in `.newtab-item-indicators`.
+   Adding a left-side bar provided no additional state cue and re-introduced
+   the same x-column collision concern that motivated B-130 on sidepanel.
+   The floating-tab visual cue on newtab is now: the right-side
+   `.newtab-indicator-live` dot (already present), the hover-reveal Save
+   CTA (`.newtab-floating-save`, retained below), and the row's
+   `aria-label` "floating tab —" prefix.
+   See docs/design/61-b-124-floating-visual.md §61.X-as-built (B-130). */
 
 /* --- B-124 §61.3.3: hover/focus-within Save-as-bookmark CTA on newtab -- */
 /* Right-side icon button next to the existing close affordance. Hidden by
