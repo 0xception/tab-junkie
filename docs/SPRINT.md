@@ -1,83 +1,91 @@
 # Current Sprint
 
-**Sprint 39 — Polish + drag UX (kicked off 2026-04-29)**
+**Sprint 40 — Floating-tab bug-fix anchor + drag-reorder feature (kicked off 2026-04-30)**
 
-Six-item sprint: 3 user-flagged polish/feature items (B-124 + B-122 + B-123) + 3 S38-retrospective process gate edits piggybacked as Wave 1 Fast Track XS bundle (B-127 + B-128 + B-129).
+Five-item sprint: 2 P1 floating-tab bugs (B-131 + B-132) + 1 P2 drag-reorder feature with R1-locked design (B-134) + 1 P3 visual consolidation Fast Track (B-133). One sibling deferred stub filed (B-135 cross-window drag — no sprint work).
 
-- **Branch**: `feature/sprint-39-polish` off `release/v2` (release/v2 fast-forwarded after PR #41 merge `b2ef883`)
-- **Target version**: v1.33.0 (release/v2 only — no main merge per established pattern)
-- **Test baseline at kickoff**: 1,663/1,663
-- **Anchors**: B-124 (P3/M Full · WCAG AA × 14 themes) + B-122 (P2/S→M Full · drag UX)
-- **Wave 1**: B-123 + B-127 + B-128 + B-129 (all XS Fast Track)
+- **Branch**: `feature/sprint-40-drag-reorder` off `release/v2` (post-v1.33.1 hotfix at `872ad95`)
+- **Target version**: v1.34.0 (release/v2 only — no main merge per established pattern)
+- **Test baseline at kickoff**: 1,732/1,732
+- **Anchors**: B-132 (P1 bug · SW-memory + cold-start regression in B-121/B-125 subsystem · likely Spike-First R0) + B-134 (P2 drag-reorder · M Full · R1 LOCKED at brainstorm)
+- **Wave 1**: B-131 verify-first + B-133 Fast Track XS
 
 ---
 
-## R1 design answers (locked at kickoff per product-owner)
+## R1 design status (Wave 0 inputs)
 
-**B-124 floating-tab visual distinction**
-- **Q1 mechanism**: dotted green vertical bar (matches B-101 drift-precedent style); R1 to parameterize the bar color via a CSS token so a future swap to yellow is a one-token change (design hedge documented).
-- **Q2 drift overlap**: confirmed contract — floating tabs cannot drift (no saved URL to drift from). R1 to encode as a tested invariant.
-- **Q3 hover affordance**: "Save as bookmark" CTA on hover; promotion uses existing `MSG_PROMOTE_TAB`.
-- **Q4 accessibility**: distinct ARIA label (`aria-label="floating tab — <title>"` vs `"live tab — <title>"`).
-- **Q5 WCAG AA**: full 14-theme audit required (B-117 matrix-audit pattern).
+**B-131 — Floating tab title-displacement bug**
+- **Verify-first**: product-owner reports may no longer reproduce post-v1.33.1. Wave 0 [product-manager] verifies repro on latest `release/v2` build BEFORE sinking R2 effort. If not-repro, downgrade to static-analysis review of suspected `buildFloatingTabRow` / `patchFloatingMembersSections` descriptor mapping; close as `wontfix-not-repro` if review is clean.
+- **Tier**: TBD pending verify-first outcome.
 
-**B-122 sub-group drag-to-root**
-- **Q1 root drop zone**: anywhere outside an existing `.group-section`.
-- **Q2 visual indicator**: same drop-line / insertion cue used today by drag-reorder (no new visual primitive).
-- **Q3 mid-list ordering**: allowed (drop between two top-level groups inserts at that ordinal).
-- **Q4 above-own-parent edge**: promote (slight uncertainty — R2 [solution-architect] to confirm against drag-state contract before R3 LOCK).
+**B-132 — Floating tabs route to Open Tabs after extension reload**
+- **Likely Spike-First R0** — same B-121/B-125 subsystem that needed an R0 spike in S38 (B-125 + B-121 merged spike pattern).
+- Distinguish: (a) post-reload-only spawn affected (SW lost opener context), vs (b) pre-existing floating tabs also lose their group (cold-start `tj:floatingGroups` re-bind regression).
+- Wave 0 [solution-architect] runs R0 discovery spike to surface root cause + sub-item candidates.
 
-**B-123 row alignment**
-- **Q1 scope**: live indicator + drift bar (B-101) — both LEFT-side indicators get the spacer treatment. Audible icon (RIGHT side) explicitly OUT of scope.
+**B-133 — Open Tabs section dotted-green indicator (visual consolidation)**
+- **Tier**: Fast Track (XS) — pure CSS rule extension mirroring B-130 pattern.
+- Visual taxonomy: solid-green = persistent (saved bookmark currently live); dotted-green = ephemeral (floating tab OR Open Tabs row).
+- Wave 0 [product-manager] writes tight ACs. R1 source-citation gate (B-118) applies: cite `buildOpenTabRow` selector + `--floating-bar-color` token references.
+
+**B-134 — Drag-and-drop reorder for open + floating tabs**
+- **R1 LOCKED at brainstorm 2026-04-30** — see BACKLOG.md row B-134 for the full 8-AC block.
+- 5 ops: Open Tabs reorder (chrome.tabs.move), within-floating reorder, ATTACH (open→floating), DETACH (floating→open), cross-group MOVE (floating→floating).
+- **R2-VERIFY 1 (CRITICAL)**: schema-bump-or-not — does `tj:floatingGroups` already carry an ordering field? R2 first action.
+- No PM agent needed in Wave 0 — design already locked.
 
 ---
 
 ## Active Items
 
-_Wave 3a + Wave 4 R5 + Wave 5 R6/R7 complete for both anchors — moved to "Completed This Sprint" below._
+### [B-131] Floating tab title-displacement bug (P1 — verify-first)
+- **Tier**: TBD (verify-first determines)
+- **Status**: 🔄 R1 verify-first → next round in flight (Wave 0)
+- **Assigned To**: [product-manager] for Wave 0 verify-first agent
+- **Feature Context**: product-owner reports floating-tab row briefly shows wrong title (sibling item's) on initial open, then corrects on tab activation. May no longer reproduce post-v1.33.1.
+- **Handoff Notes for Wave 0**: load v1.33.1 unpacked extension; attempt repro per the BACKLOG triage notes; produce verdict (repro/not-repro/intermittent). If not-repro: write static-analysis review of suspected `buildFloatingTabRow` / `patchFloatingMembersSections` descriptor mapping for any latent race; close as `wontfix-not-repro` if clean. If repro: write full R1 ACs and route to R2.
+- **Files Changed**: TBD
+- **Parallel Opportunity**: Wave 0 verify can run parallel with B-132 R0 + B-133 R1
 
-_Wave 1 retro+polish bundle (B-123 + B-127 + B-128 + B-129) moved to "Completed This Sprint" below._
+### [B-132] Floating tabs land in Open Tabs after extension reload (P1 — anchor #1)
+- **Tier**: TBD (likely Spike-First M/XL pending R0 spike)
+- **Status**: 🔄 R0 [solution-architect] in flight (Wave 0)
+- **Assigned To**: [solution-architect] for R0 discovery spike
+- **Feature Context**: post-extension-reload, opener-chain-spawned tabs route to Open Tabs section instead of originating group. Suspected: SW-memory loss of `openerMap` (B-013/B-018) or `inheritedTabs` (B-125), or cold-start `tj:floatingGroups` re-bind regression.
+- **Handoff Notes for Wave 0**: read B-121/B-125 As-Built + the existing `background/tabs/opener-chain.js` + `background/tabs/floating-groups.js` cold-start re-association code. Distinguish failure mode (a) post-reload spawn only vs (b) pre-existing floating tabs also affected. Produce R0 output: feasibility verdict, suspected root cause(s) with `file:line` citations, sub-item candidates if scope splits, recommended Tier (M Full vs XL Spike-First with R0 captured).
+- **Files Changed**: TBD
+- **Parallel Opportunity**: Wave 0 R0 can run parallel with B-131 verify + B-133 R1
+
+### [B-133] Open Tabs section dotted-green indicator (P3 — Wave 1 Fast Track)
+- **Tier**: Fast Track (XS)
+- **Status**: 🔄 R1 [product-manager] in flight (Wave 0)
+- **Assigned To**: [product-manager] for R1
+- **Feature Context**: Visual consolidation per ephemeral-state taxonomy. Open Tabs section rows currently use SOLID green live indicator; should use DOTTED green (matching floating-tab visual from B-130) to clearly mark ephemeral state.
+- **Handoff Notes for Wave 0**: tight, lock-on-first-pass ACs. Apply B-118 source-citation gate. Cite `sidepanel.js buildOpenTabRow` selector + `sidepanel.css` rule that currently sets `border-left-color: var(--live-indicator)` on Open Tabs rows + `--floating-bar-color` token + B-130 §61.X precedent. Decide cross-surface coverage (sidepanel-only vs sidepanel+newtab+popup).
+- **Files Changed**: TBD by R3
+- **Parallel Opportunity**: Wave 0 R1 can run parallel with B-131 verify + B-132 R0
+
+### [B-134] Drag-and-drop reorder for open + floating tabs (P2 — anchor #2)
+- **Tier**: Full (M)
+- **Status**: ✅ R1 LOCKED at brainstorm 2026-04-30 → R2 [solution-architect] next (Wave 2)
+- **Assigned To**: pending Wave 0 completion → [solution-architect] for Wave 2 R2
+- **Feature Context**: 5 drag operations (Open Tabs reorder, within-floating reorder, ATTACH, DETACH, cross-group MOVE). Open Tabs reorder mirrors to browser tab strip via `chrome.tabs.move`; floating-tab membership changes are TJ-metadata only.
+- **R1 LOCKED Output**: full 8-AC block in BACKLOG.md row B-134 (R1 design Q&A locked at brainstorm per product-owner answers).
+- **Handoff Notes for R2**: **R2-VERIFY 1 (CRITICAL) is the first action** — read `background/storage/shapes.js` + `buildFloatingMembers` iteration logic to disambiguate Case 1 (records carry ordering field) vs Case 2 (need to add `sortOrder` + comply with C-1a/C-1b). R2 chapter format: new `docs/design/63-b-134-tab-drag-reorder.md`. Reuse B-122 §62.3-§62.9 patterns (drop-target hit-test, sectionBottoms cache extension, F-5 race-guard third branch).
+- **Files Changed**: TBD by R3
+- **Parallel Opportunity**: R2 can run parallel with B-132 R2 (both M tier; CLAUDE.md P-3 allows 2 M parallel)
+
+### [B-135] Cross-window Open Tabs drag (P3 — deferred stub)
+- **Tier**: N/A — deferred stub, NO Sprint 40 work
+- **Status**: 🔄 Filed only (Sprint 40 has zero work on this; documented for traceability)
+- **Files Changed**: none
+- **Notes**: filed alongside B-134 per CLAUDE.md scope-change-control (don't silently defer; file the followup). Out of B-134 v1 scope per Q3 decision (same-window only).
 
 ---
 
 ## Completed This Sprint
 
-### ✅ B-123 — Item-row alignment (Fast Track XS)
-- **Status**: DONE (Wave 2 R4 PASS — 0 CRIT/HIGH/MEDIUM, 1 LOW deferred)
-- **Files Changed**: `sidepanel/sidepanel.css` · `tests/b123-row-alignment.test.js` (new — 6 tests T1-T6)
-- **Tests**: 1,663 → 1,669 (+6)
-- **Handoff Notes**: sidepanel-only fix per R1 R2-VERIFY (newtab uses right-side dot, popup uses favicon overlay — no left-side indicators). Base `.item-row` reserves `border-left: 3px solid transparent` + `padding-left: 9px`; live + active variants override only `border-left-color`; dense-mode preserves `padding-left: 9px`. T6 pins the no-op verdict on newtab/popup as a future-regression guard.
-
-### ✅ B-127 — R3 STOP-and-escalate gate (S38 retro action #1)
-- **Status**: DONE (Wave 2 R4 PASS — 0 findings)
-- **Files Changed**: `CLAUDE.md` line 394 — new bullet under R3 Build section.
-- **Handoff Notes**: prose follows the B-118/B-119/B-126 precedent pattern; cites Sprint 38 B-121 R3 silent-deferral as the blocking precedent.
-
-### ✅ B-128 — C-1 schema-bump vs data-migration split (S38 retro action #2)
-- **Status**: DONE (Wave 2 R4 PASS — 0 findings)
-- **Files Changed**: `CLAUDE.md` lines 365-366 — C-1 row split into C-1a (governance: KNOWN_VERSION bump + defaultShape + CHANGELOG note) and C-1b (data-migration strategy: eager / lazy / no-op).
-- **Handoff Notes**: self-applies — the split itself satisfies the new C-1a + C-1b ACs.
-
-### ✅ B-129 — R3 cascade-prune sibling-grep gate (S38 retro action #3)
-- **Status**: DONE (Wave 2 R4 PASS — 0 findings)
-- **Files Changed**: `CLAUDE.md` line 395 — new bullet under R3 Build section.
-- **Handoff Notes**: parallel form to B-127; cites Sprint 38 B-121 single-delete cascade-prune as the blocking precedent; enumerates `MSG_DELETE_*`, `MSG_BULK_*`, `MSG_*_GROUP` as the multi-entry-point write surfaces.
-
-### ✅ B-124 — Floating-tab visual distinction (P3 — anchor #1, Full M)
-- **Status**: DONE (Wave 5 R6 As-Built §61.10 + R7 user-manual updated)
-- **Files Changed**: `shared/themes.css` · `sidepanel/sidepanel.css` · `sidepanel/sidepanel.js` · `newtab/newtab.css` · `newtab/newtab.js` · `tests/b124-floating-visual.test.js` (new, 10 tests) · `tests/b124-floating-bar-contrast.test.js` (new, 34 tests) · `docs/design/61-b-124-floating-visual.md` (R6 §61.10 As-Built appended) · `CHANGELOG.md` (R7) · `STORE_LISTING.md` (R7) · `docs/user-manual/managing-items.md` (R7)
-- **What shipped**: dotted green left-bar on floating-tab rows in sidepanel + newtab; hover "Save as bookmark" CTA wires to existing `MSG_PROMOTE_TAB`; distinct ARIA `"floating tab — <title>"`; new `--floating-bar-color` CSS token (default aliases `var(--live-indicator)` — one-token swap to yellow possible); WCAG AA matrix encoded for 14 themes with 3 ACCEPTED_LIMITATIONS (solarized-light Dim 1 @ 2.970:1; solarized-light Dim 2 @ 4.170:1; solarized-dark Dim 2 @ 3.281:1 — all pre-existing palette gaps).
-- **Wave 3a fix-round resolutions**: M-1 docstring inaccuracy (corrected) · L-2/L-1/L-1 aria-label cross-surface parity (newtab dropped URL + title interpolation) · M-3 WCAG contrast tests (encoded as new test file).
-- **R5 UAT plan**: `docs/UAT_B-124.md` — 13 cases (UAT-1..UAT-13).
-- **No new permissions / no new message contracts / no schema changes / no version bump (release-manager).**
-
-### ✅ B-122 — Sub-group drag-to-root (P2 — anchor #2, Full M)
-- **Status**: DONE (Wave 5 R6 As-Built §62.11 + R7 user-manual updated)
-- **Files Changed**: `shared/sort-order.js` (new pure helper `computeGroupPromote`) · `sidepanel/sidepanel.js` (new `_computeGroupPromoteTarget` + F-5 race-guard third branch + F-1 Open-Tabs reject-guard) · `tests/sort-order.test.js` (+9 tests) · `tests/b122-drag-to-root.test.js` (new, 7 tests including R5 T7 Open-Tabs guard regression) · `docs/design/62-b-122-drag-to-root.md` (R6 §62.11 As-Built appended) · `CHANGELOG.md` (R7) · `STORE_LISTING.md` (R7) · `docs/user-manual/managing-items.md` (R7)
-- **What shipped**: drag-out-of-group + drop-anywhere-outside `.group-section` → promotes sub-group to top-level via existing `MSG_BULK_REORDER_GROUPS` (no new message contract). Mid-list ordering supported. Same drop-line indicator as drag-reorder (Q2). Open-Tabs section is REJECTED as a drop target (Wave 3a fix per R4 cross-reviewer convergence).
-- **Wave 3a fix-round resolution**: M-4/M-2 Open-Tabs reject-guard (R2 §62.9 F-1 deferred-to-UAT was upgraded to in-build pre-emptive fix per [code-reviewer] + [qa-reviewer] convergence; R5 added T7 regression test).
-- **R5 UAT plan**: `docs/UAT_B-122.md` — 10 cases (UAT-1..UAT-10).
-- **No new permissions / no new message contracts / no schema changes / no version bump (release-manager).**
+*None yet.*
 
 ---
 
@@ -87,112 +95,87 @@ _Wave 1 retro+polish bundle (B-123 + B-127 + B-128 + B-129) moved to "Completed 
 
 ---
 
-## Gate 4 — Release Checklist (verified 2026-04-29)
-
-- ✅ All R4 review findings resolved — 0 CRIT/HIGH; convergent MEDIUMs (Open-Tabs reject-guard, docstring inaccuracy, aria-label parity, WCAG contrast tests) all addressed in Wave 3a fix-round; deferred LOW items documented in `docs/findings/sprint-39.md`
-- ✅ All R5 automated tests passing — **1,729/1,729 → 1,731/1,731** (R5 added T7 Open-Tabs guard regression + T-124-K deleted-group fallback)
-- ✅ UAT plans authored by [test-engineer] for all M-tier items: `docs/UAT_B-124.md` (13 cases) + `docs/UAT_B-122.md` (10 cases). Manual UAT by product-owner pending — NOT blocking close per established S37/S38 pattern.
-- ✅ No open blockers
-- ✅ R6 As-Built sections appended: `docs/design/61-b-124-floating-visual.md` §61.10 + `docs/design/62-b-122-drag-to-root.md` §62.11
-- ✅ `docs/SOLUTION_DESIGN.md` TOC updated for chapters 61 + 62 (R2 + R6 Close)
-- ✅ `manifest.json` permissions reviewed — no additions
-- ✅ `./build.sh` clean (release-manager will re-run with version bump)
-- ✅ Rollback plans documented in As-Built §61.10.8 + §62.11.7 (no storage migrations)
-- ✅ R7 docs updated: `CHANGELOG.md` v1.33.0 entry + `STORE_LISTING.md` surgical bullet updates + `docs/user-manual/managing-items.md` new sections (floating tabs + drag-to-root)
-- ✅ `BACKLOG.md` updated — all 6 items set to `done | 39`
-- ✅ `BACKLOG_BOARD.md` updated — progress 95% (122/128); status summary recalculated
-- ✅ `SPRINT.md` "Completed This Sprint" section reflects all 6 finished items
-
-**Gate 4 status: PASS** — sprint may close.
-
----
-
-## Sprint Retrospective — Sprint 39 (Gate 7)
-
-### Velocity
-- **Planned**: 6 items / ~7 effort units (1×M B-124 + 1×S→M B-122 + 4×XS B-123/B-127/B-128/B-129)
-- **Completed**: 6 items / ~7 effort units (B-122 confirmed M; one Wave 3a fix-round added ~0.5 unit)
-- **Carried over**: 0 items
-- **Test count delta**: 1,663 → 1,731 (+68 tests across the sprint)
-
-### What Went Well
-- **R0 spike not needed**: anchors were well-scoped at R1 (locked design Q&A pre-kickoff per product-owner answers) — saved a round vs S38's R0 spike. The B-118 source-citation gate caught no R2 binding-correction surprises this sprint.
-- **R4 cross-reviewer convergence as a fix-round signal**: 4 MEDIUMs from [code-reviewer], 3 MEDIUMs from [qa-reviewer], 2 LOWs from [security-reviewer] — convergence on Open-Tabs reject-guard + docstring + aria-label parity gave [scrum-master] a high-confidence fix-round scope without overrun. Pattern worth keeping: "fix MEDIUMs flagged by 2+ reviewers, defer single-reviewer MEDIUMs unless cheap."
-- **WCAG matrix encoded as tests on first try**: R5 [qa-reviewer] M-3 was the only single-reviewer MEDIUM that justified pre-emptive fix because it followed B-117 / B-105 precedent shape exactly. Wave 3a [frontend-engineer] applied the precedent without inventing a new helper. 34 contrast cells now regression-pinned.
-- **Self-applying retro items shipped clean**: B-127/B-128/B-129 R4 found 0 findings — meta-process gates self-applied correctly; both R3 and R4 patterns held under self-recursion.
-
-### What to Improve
-- **R3 silent-divergences from R2 spec**: 3 cross-surface aria-label divergences (newtab adding URL, newtab interpolating CTA title, sidepanel docstring contradicting actual behavior) all landed in Wave 3 R3 + were caught at R4. The fix-and-reproceed cycle cost ~0.5 effort unit. Cause: cross-surface implementation done in same agent session — agent handled sidepanel correctly, then duplicated newtab without re-checking R2 §61.8 spec. Improvement: add an R3 self-check rule for cross-surface implementations — when implementing the same AC across 2+ surfaces, the agent must explicitly diff the surface implementations against the R2 spec before claiming complete.
-- **R2-deferred-to-UAT items as fix candidates**: B-122 R2 §62.9 F-1 (Open-Tabs reject-guard) was correctly deferred at R2 but BOTH R4 reviewers flagged it as "fix pre-emptively". Improvement: when R2 explicitly defers a UX-risk to UAT, the R3 charter should require an R3 self-check — "is the deferral worth a 5-line guard clause now, or genuinely a behavior question for UAT?". Many "deferred to UAT" items are actually cheap-fixes, not behavior questions.
-- **Permission-prompt friction during R4 reviewer file writes**: all 3 Wave 3 R4 reviewer agents hit permission denials when appending to `docs/findings/sprint-39.md` — [scrum-master] manually appended 3 sections from agent reports. The agents WERE returning their findings inline correctly, so no quality loss, but the toolchain friction is real. Improvement: pre-create the empty `docs/findings/sprint-NN.md` file at sprint kickoff so agents have an existing-file edit (vs new-file write) — may bypass the harness deny pattern.
-
-### Action Items for Next Sprint
-- [ ] **Add R3 cross-surface diff self-check** to CLAUDE.md R3 charter (mirror of B-127/B-129 pattern). When the same AC implementation lands on 2+ surfaces, R3 MUST explicitly diff the surface implementations against the R2 spec before claiming complete. Filed as B-130 candidate for Sprint 40 retro piggyback.
-- [ ] **Add R3 self-check on R2-deferred-to-UAT items**: when an R2 chapter explicitly defers a UX-risk to UAT (vs deferring as out-of-scope), R3 must explicitly assess whether the fix is cheap (≤10 LOC) and document the keep-deferred-or-pre-empt decision. Filed as B-131 candidate for Sprint 40 retro piggyback.
-- [ ] **Pre-create empty `docs/findings/sprint-NN.md` at sprint kickoff** — small toolchain hygiene improvement to bypass agent file-write permission friction. [scrum-master] absorbs this into the sprint-kickoff checklist; no CLAUDE.md edit needed.
-
-
----
-
 ## Pipeline Plan
 
-**Wave 0 (parallel R1)**: 6 [product-manager] agents in parallel — one per item. Each applies B-118 source-citation gate. Anchors (B-124, B-122) get fuller AC sets; Fast Track items (B-123, B-127, B-128, B-129) get tight, lock-on-first-pass ACs.
+**Wave 0 (parallel — 3 agents)**:
+- B-131 verify-first [product-manager] — load v1.33.1 in Edge, attempt repro, produce verdict
+- B-132 R0 [solution-architect] — discovery spike on SW-memory persistence + cold-start re-bind
+- B-133 R1 [product-manager] — tight ACs with B-118 source-citation gate
 
-**Anchor path (B-124 + B-122)**:
-- R1 → R2 ([solution-architect] — B-124 needs the WCAG AA matrix-audit pattern; B-122 needs the drag-state contract review) → R3 ([frontend-engineer], possibly bundled or sequenced) → R4 (3 reviewers parallel) → fix CRIT/HIGH → R5 (tests + UAT plans) → R6 → R7 (conditional)
+B-134 already R1 LOCKED — no Wave 0 agent needed.
 
-**Wave 1 path (B-123 + B-127 + B-128 + B-129, all Fast Track XS)**:
-- R1 → R3 → R4 (code + security parallel — qa skipped per Fast Track) → run existing test suite → done
-- B-127 + B-128 + B-129 R3 can be bundled into a single [frontend-engineer] agent since all three edit `CLAUDE.md` (different sections); B-123 R3 stays separate (CSS files).
+**Wave 1 (B-131 branch decision)**:
+- If not-repro → static-analysis review → close `wontfix-not-repro`. Done. Removed from active items.
+- If repro → continue Full pipeline through R2/R3/R4/R5/R6.
 
-**Sprint close**:
-- Gate 4 release checklist → Gate 7 retrospective → [release-manager] for v1.33.0 (cut tag on `feature/sprint-39-polish`, skip `gh release create` per pattern) → archive
+**Wave 2 (parallel R2 — anchors)**:
+- B-132 R2 [solution-architect] — chapter for SW-memory persistence story (chapter # TBD)
+- B-134 R2 [solution-architect] — `docs/design/63-b-134-tab-drag-reorder.md`; first action is R2-VERIFY 1 (schema bump or not)
+
+**Wave 3 (parallel R3 — build)**:
+- B-132 R3 [frontend-engineer]
+- B-134 R3 [frontend-engineer]
+- B-133 R3 [frontend-engineer] — bundleable with B-134 R3 (both touch sidepanel CSS)
+
+**Wave 4 (parallel R4 — review)**:
+- 3 reviewers (code + security + qa) for B-132 + B-134 (M tier, all 3 mandatory per CLAUDE.md Gate 1)
+- 2 reviewers (code + security; qa skipped per Fast Track) for B-133
+
+**Wave 5 (R5 + R6 + R7 + close)**:
+- R5 [test-engineer] writes UAT plans for B-132 + B-134 + integration tests
+- R6 [solution-architect] As-Built sections appended
+- R7 [technical-writer] CHANGELOG + STORE_LISTING + user-manual updates
+- Sprint close: Gate 4 → Gate 7 retrospective → [release-manager] v1.34.0 → archive
 
 ---
 
-## Pending UAT (Sprint 36 + Sprint 37 + Sprint 38 + Sprint 39 — carry-forward tracking)
+## Pending UAT (Sprint 36 + Sprint 37 + Sprint 38 + Sprint 39 + v1.33.1 + Sprint 40 — carry-forward tracking)
 
-Product-owner manual UAT in Edge for v1.30.0 + v1.31.0 + v1.32.0 + v1.33.0. Not blocking sprint close per established pattern, but should be cleared before any v2 → main merge.
+Product-owner manual UAT in Edge for v1.30.0 + v1.31.0 + v1.32.0 + v1.33.0 + v1.33.1 + v1.34.0 (planned). Not blocking sprint close per established pattern, but should be cleared before any v2 → main merge.
 
 - **Sprint 36 (v1.30.0)**: B-107..B-115 — UAT pending
 - **Sprint 37 (v1.31.0)**: B-117 UAT-1..UAT-10 pending (`docs/UAT_B-117.md`)
 - **Sprint 38 (v1.32.0)**: B-125 UAT-1..UAT-8 pending (`docs/UAT_B-125.md`) · B-121 UAT-1..UAT-15 pending (`docs/UAT_B-121.md`)
-- **Sprint 39 (v1.33.0)**: B-124 + B-122 UAT plans authored at R5 (this sprint)
+- **Sprint 39 (v1.33.0)**: B-124 UAT-1..UAT-13 pending (`docs/UAT_B-124.md`) · B-122 UAT-1..UAT-10 pending (`docs/UAT_B-122.md`)
+- **Sprint 40 (v1.34.0)**: B-132 + B-134 UAT plans authored at R5 (this sprint)
 
 ---
 
-## Backlog (Sprint 40+ candidates)
+## Backlog (Sprint 41+ candidates)
 
-After S39 close — pending product-owner triage:
+After S40 close — pending product-owner triage:
 
-- **B-041** (sync tab order, P2/L · pre-S33) — last big v2 feature item
-- **B-076** (MIGRATION_STEPS hook, P2/S · pre-S33) — passive future-work placeholder
-- **B-086** (sidepanel UI/UX umbrella, P3/M · pre-S33)
-- **User-flagged**: "a few other usability/features/bugs to address before tab syncing" — to be filed by user before S40 planning
+- **B-041** Sync tab order (P2/L · pre-S33) — last big v2 feature item; may absorb B-135 cross-window drag
+- **B-076** MIGRATION_STEPS hook (P2/S · pre-S33) — passive future-work placeholder
+- **B-086** Sidepanel UI/UX umbrella (P3/M · pre-S33)
+- **B-135** Cross-window Open Tabs drag (P3 · deferred from B-134 v1 scope)
+- **S39 retro action items** still pending file (R3 cross-surface diff self-check + R3 deferred-to-UAT self-check) — file as `B-???` after S40
 
 ---
 
-## Pre-flight reminders for S39 execution
+## Pre-flight reminders for S40 execution
 
 When [scrum-master] launches Wave 0:
-- 6 R1 [product-manager] agents in parallel (single message)
-- Each applies the **B-118 source-citation gate** (every R1 source-code claim cites `file:line` or is marked `R2-VERIFY`)
-- Each applies the **B-119 + B-126 fix-scope test-assertion enumeration** subsection at R2-time (covers DOM/ARIA/message/selector/CSS-token/storage-schema contracts)
-- B-127 + B-128 + B-129 are self-applying meta-process — they edit the same gates that govern themselves; expect tight, recursive R1 ACs
+- 3 agents in parallel (single message): B-131 verify, B-132 R0, B-133 R1
+- All apply **B-118 source-citation gate** (every R1/R0 source-code claim cites `file:line` or is marked `R2-VERIFY`)
+- B-132 R0 is the highest-risk path — possible auto-upgrade to XL Spike-First if discovery surfaces complexity
+- B-131 verify-first is the highest-uncertainty path — outcome determines whether item joins full pipeline or closes
+- B-134 R1 already LOCKED; no Wave 0 work; SPRINT.md routes directly to R2 once Wave 0 + Wave 1 complete
 
 ---
 
 ## Gate 6 — Sprint Readiness Verification
 
-- ✅ Total sprint effort fits — 1×M + 1×S→M + 4×XS = ~7 effort units; comparable to S38 (6 units) with retro piggyback
-- ✅ No unresolved blockers from S38 (closed; PR #41 merged; release/v2 has v1.32.0)
+- ✅ Total sprint effort fits — 8.5–13 effort units (8.5 best case, 13 worst case if all risks fire). Comparable to S38 (6) and S39 (7); slight stretch but manageable. Mitigation: defer B-134 to S41 if B-132 R0 spike comes back as XL.
+- ✅ No unresolved blockers from S39 / v1.33.1 hotfix
 - ✅ Deps-resolved check:
-  - **B-124** deps: B-010 ✅, B-013 ✅, B-055 ✅, B-101 ✅, B-121 ✅ (just shipped S38 — feature is now meaningful)
-  - **B-122** deps: B-007 ✅, B-031 ✅, B-083 ✅
-  - **B-123** deps: B-010 ✅, B-048 ✅, B-101 ✅
-  - **B-127/B-128/B-129** deps: B-118 ✅, B-119 ✅, B-126 ✅
-- ✅ All sprint items in BACKLOG.md as `in-progress` / `Sprint 39`
+  - **B-131** deps: B-013 ✅, B-018 ✅, B-121 ✅, B-124 ✅
+  - **B-132** deps: B-013 ✅, B-018 ✅, B-121 ✅, B-125 ✅
+  - **B-133** deps: B-124 ✅, B-130 ✅
+  - **B-134** deps: B-031 ✅, B-122 ✅, B-121 ✅, B-125 ✅, B-130 ✅
+- ✅ All sprint items in BACKLOG.md flipped to `in-progress | 40` at kickoff
 - ✅ SPRINT.md "Active Items" populated (this section)
-- ✅ B-124 + B-122 R1 design Q&A locked at kickoff (per product-owner answers above) — saves 1 round-trip vs deferring Q&A to mid-R1
+- ✅ B-134 R1 design Q&A LOCKED at brainstorm — saves 1 round-trip vs deferring to mid-R1
+- ✅ Findings file `docs/findings/sprint-40.md` pre-created (S39 retro toolchain hygiene action item)
 
-**Gate 6 status: PASS** (R1 design Q&A pre-locked; deps clean).
+**Gate 6 status: PASS** — Sprint 40 ready to launch Wave 0.

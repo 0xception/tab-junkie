@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-30 · **Version:** 2.39.3 · **Total Items:** 134 · **Sprint 39 + v1.33.1 hotfix shipped. Sprint 40 candidates (5): 2 P1 bugs (B-131 + B-132) + 1 P2 drag-reorder feature (B-134) + 1 P3 visual consolidation (B-133) + 1 P3 cross-window drag deferred stub (B-135).**
+**Updated:** 2026-04-30 · **Version:** 2.40 · **Total Items:** 134 · **Sprint 40 active — kicked off 2026-04-30. 4 items in flight: B-131 (P1 verify-first) + B-132 (P1 R0 spike candidate) + B-133 (P3 Fast Track XS) + B-134 (P2 M Full · R1 LOCKED). B-135 filed as deferred stub (no sprint work). Branch: `feature/sprint-40-drag-reorder` off release/v2.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  92% (123/134)  [S39 + v1.33.1 hotfix done · Sprint 40 queue: 5 items in triage]
+Overall Progress    ██████████████████░░  92% (123/134)  [S40 active · 4 items in flight + 1 deferred stub]
 ```
 
 ### Legend
@@ -278,16 +278,19 @@ Overall Progress    ██████████████████░░
 | Status | Count | % |
 |--------|-------|---|
 | ✅ Done | 123 | 92% |
-| 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 8 | 6% |
+| 🔄 In Progress | 4 | 3% |
+| ⬜ To Do | 4 | 3% |
 | 🧊 Icebox | 3 | 2% |
 
-**In Progress breakdown**: _0 items in flight._
+**In Progress breakdown (4 items, all Sprint 40)**:
+- 🔴 **B-131** (P1) — floating tab title-displacement; Wave 0 verify-first in flight
+- 🔴 **B-132** (P1) — floating tabs route to Open Tabs after reload; Wave 0 R0 spike in flight
+- 🟡 **B-134** (P2/M Full) — drag-and-drop reorder; R1 LOCKED, awaiting Wave 2 R2
+- ⚪ **B-133** (P3/XS Fast Track) — Open Tabs dotted-green visual consolidation; Wave 0 R1 in flight
 
-**To-Do breakdown (8 items)**:
-- 🔴 **P1** (2 — Sprint 40 candidates): **B-131** floating tab opens with wrong title initially (verify-first; may no longer reproduce post-v1.33.1) · **B-132** floating tabs route to Open Tabs section instead of originating group after extension reload (likely SW-memory loss of `openerMap` or `inheritedTabs`)
-- 🟡 **P2** (3): **B-134** drag-and-drop reorder open + floating tabs (M Full · 5 ops · R1 LOCKED; Sprint 40 anchor candidate) · B-041 sync tab order (L) · B-076 MIGRATION_STEPS hook (S)
-- ⚪ **P3** (3): **B-133** consolidate ephemeral-state visual cue · **B-135** cross-window Open Tabs drag (deferred stub from B-134) · B-086 sidepanel UI/UX umbrella (M)
+**To-Do breakdown (4 items)**:
+- 🟡 **P2** (2): B-041 sync tab order (L) · B-076 MIGRATION_STEPS hook (S)
+- ⚪ **P3** (2): **B-135** cross-window Open Tabs drag (deferred stub from B-134) · B-086 sidepanel UI/UX umbrella (M)
 
 **To Do breakdown (3 items, S40+ candidates)**:
 - **🟡 P2 (2)**: B-041 (sync tab order, L · pre-S33 — last big v2 feature), B-076 (MIGRATION_STEPS hook, S · pre-S33)
