@@ -247,16 +247,38 @@ let _searchIndexDisabled = false;
 let _cachedOpenTabs = [];
 let _cachedOpenTabsById = new Map();
 /* B-134 §63.10.2 — broadcast-race generation counter for Open Tabs. Bumped
-   on every `_setCachedOpenTabs` assignment. Tab-drag dragstart captures the
-   value; the drop-handler third branch (`_validateTabDropPreflight`) compares
-   against the live value to detect mid-drag broadcast races. Mirrors the
-   `_cachedItemsGen` pattern at line 207. */
+   on every `_setCachedOpenTabs` assignment whose contents would actually
+   affect drop-target geometry (tab added, removed, or reordered/rebucketed).
+   Tab-drag dragstart captures the value; the drop-handler third branch
+   (`_validateTabDropPreflight`) compares against the live value to detect
+   mid-drag broadcast races. Mirrors the `_cachedItemsGen` pattern at line 207.
+
+   B-134 R4 H-1 fix (Option A — content-conditional bump): liveState
+   broadcasts fire on title/audible/focus changes too, none of which alter
+   the tabId-by-window ordering used for hit-test. Bumping on EVERY
+   assignment over-trips Guard B during multi-second drags. The signature
+   below diffs the per-window ordered tabId list — title/audible/active
+   patches preserve it, so the gen stays put. Ordering / membership
+   changes (tab created, removed, moved between windows, or moved within
+   a window) do change it and bump the gen as before. */
 let _cachedOpenTabsGen = 0;
 
+function _openTabsSignature(arr) {
+  // Per-window ordered tabId tuple — the only projection that affects
+  // drag-zone hit-test. Avoids JSON allocation on the hot patch path.
+  if (!Array.isArray(arr) || arr.length === 0) return '';
+  const parts = [];
+  for (const t of arr) parts.push(`${t.windowId}:${t.tabId}`);
+  return parts.join('|');
+}
+
 function _setCachedOpenTabs(next) {
-  _cachedOpenTabs = Array.isArray(next) ? next : [];
+  const nextArr = Array.isArray(next) ? next : [];
+  const prevSig = _openTabsSignature(_cachedOpenTabs);
+  const nextSig = _openTabsSignature(nextArr);
+  _cachedOpenTabs = nextArr;
   _cachedOpenTabsById = new Map(_cachedOpenTabs.map((t) => [t.tabId, t]));
-  _cachedOpenTabsGen += 1;
+  if (prevSig !== nextSig) _cachedOpenTabsGen += 1;
 }
 
 /* =========================================================================
@@ -270,13 +292,35 @@ function _setCachedOpenTabs(next) {
 let _cachedFloatingMembers = {};
 let _cachedFloatingMemberByTabId = new Map();
 /* B-134 §63.10.2 — broadcast-race generation counter for floating members.
-   Bumped on every `_setCachedFloatingMembers` assignment. Mirrors
-   `_cachedOpenTabsGen` above. */
+   Bumped on every `_setCachedFloatingMembers` assignment whose contents
+   would actually affect drop-target geometry. Mirrors `_cachedOpenTabsGen`.
+
+   B-134 R4 H-1 fix (Option A — content-conditional bump): see
+   `_setCachedOpenTabs` rationale. The signature is the per-group ordered
+   tabId tuple — title/audible/active patches preserve it (same record
+   identity), so Guard B does not over-trip during drags. Group keys are
+   sorted to keep the signature stable across reference-equal but
+   key-order-different snapshots. */
 let _cachedFloatingMembersGen = 0;
+
+function _floatingMembersSignature(obj) {
+  if (!obj || typeof obj !== 'object') return '';
+  const groupIds = Object.keys(obj).sort();
+  if (groupIds.length === 0) return '';
+  const parts = [];
+  for (const gid of groupIds) {
+    const arr = obj[gid];
+    if (!Array.isArray(arr)) continue;
+    parts.push(gid + '=' + arr.map((m) => (m && typeof m.tabId === 'number' ? m.tabId : '')).join(','));
+  }
+  return parts.join('|');
+}
+
 function _setCachedFloatingMembers(next) {
-  _cachedFloatingMembers = (next && typeof next === 'object' && !Array.isArray(next))
-    ? next
-    : {};
+  const nextObj = (next && typeof next === 'object' && !Array.isArray(next)) ? next : {};
+  const prevSig = _floatingMembersSignature(_cachedFloatingMembers);
+  const nextSig = _floatingMembersSignature(nextObj);
+  _cachedFloatingMembers = nextObj;
   _cachedFloatingMemberByTabId = new Map();
   for (const arr of Object.values(_cachedFloatingMembers)) {
     if (!Array.isArray(arr)) continue;
@@ -284,7 +328,7 @@ function _setCachedFloatingMembers(next) {
       if (m && typeof m.tabId === 'number') _cachedFloatingMemberByTabId.set(m.tabId, m);
     }
   }
-  _cachedFloatingMembersGen += 1;
+  if (prevSig !== nextSig) _cachedFloatingMembersGen += 1;
 }
 
 /* =========================================================================
@@ -4677,10 +4721,20 @@ itemListEl.addEventListener('drop', async (e) => {
             state.pendingInsertIndex,
           );
           if (orderedTabIds.length === 0) return; // single-member or no-op
-          await sendMessage(MSG_REORDER_FLOATING_MEMBERS, {
+          /* B-134 R4 H-2 fix: surface ERR_RACE / ERR_VALIDATION as a toast.
+             Mirrors the MOVE_FLOATING handler below for AC7 compliance
+             ("each guard fail surfaces a specific toast"). */
+          const resp = await sendMessage(MSG_REORDER_FLOATING_MEMBERS, {
             groupId: state.sourceGroupId,
             orderedTabIds,
           });
+          if (resp && resp.reordered === false) {
+            if (resp.reason === 'ERR_RACE') {
+              showToast('Floating-tab list changed during drag — please retry.');
+            } else {
+              showToast('Couldn’t reorder tabs — please retry.');
+            }
+          }
           return;
         }
         case 'ATTACH':
@@ -6039,8 +6093,17 @@ function _tabDragTick() {
   }
 
   /* Skip-no-op (§63.5.4 perf): if target unchanged since last tick, no
-     DOM write. */
-  if (target.mode === _tabDragState.pendingMode
+     DOM write.
+
+     B-134 R4 H-3 fix (Option A — REJECT excluded from skip-no-op): in
+     REJECT mode all four cache-key fields stay constant while the
+     pointer moves between rows of the rejected window. The skip would
+     freeze the indicator at the first Y the pointer entered. REJECT
+     must always re-render at the live pointer Y, so we fall through to
+     the REJECT branch below. Cost: one transform write per rAF tick
+     while the pointer is in a rejected zone — bounded and acceptable. */
+  if (target.mode !== 'REJECT'
+    && target.mode === _tabDragState.pendingMode
     && target.targetGroupId === _tabDragState.pendingTargetGroupId
     && target.insertIndex === _tabDragState.pendingInsertIndex
     && target.targetWindowId === _tabDragState.pendingTargetWindowId) {
@@ -6120,24 +6183,36 @@ function _resolveTabDragIndicatorY(target) {
   }
 
   /* REORDER_FLOATING / ATTACH / MOVE_FLOATING — Y derived from the target
-     group's floating zone midlines + insertIndex. */
+     group's floating zone midlines + insertIndex.
+
+     B-134 R4 H-4 fix: indicator-Y MUST mirror the hit-test's filtered
+     midlines for REORDER_FLOATING (dragged row excluded). Otherwise the
+     indicator paints between rows that include the dragged row's slot,
+     desyncing visual-from-outcome. */
   const zone = (target.targetGroupId != null)
     ? _tabDragRectCache.floatingZoneRects.get(target.targetGroupId)
     : null;
   if (!zone) return null;
+  const isReorderFloating = (target.mode === 'REORDER_FLOATING'
+    && _tabDragState && _tabDragState.sourceMode === 'FLOATING'
+    && target.targetGroupId === _tabDragState.sourceGroupId);
+  const draggedTabId = _tabDragState ? _tabDragState.draggedTabId : null;
+  const midlines = isReorderFloating
+    ? zone.rowMidlines.filter((_, i) => zone.rowTabIds[i] !== draggedTabId)
+    : zone.rowMidlines;
   const idx = target.insertIndex;
   let pageY;
-  if (zone.rowMidlines.length === 0) {
+  if (midlines.length === 0) {
     /* Empty floating area — anchor at the zone top (just below the last
        saved-bookmark row). */
     pageY = zone.top + 2;
   } else if (idx === 0) {
-    pageY = zone.rowMidlines[0] - 14;
-  } else if (idx >= zone.rowMidlines.length) {
-    pageY = zone.rowMidlines[zone.rowMidlines.length - 1] + 14;
+    pageY = midlines[0] - 14;
+  } else if (idx >= midlines.length) {
+    pageY = midlines[midlines.length - 1] + 14;
   } else {
-    const a = zone.rowMidlines[idx - 1];
-    const b = zone.rowMidlines[idx];
+    const a = midlines[idx - 1];
+    const b = midlines[idx];
     pageY = (a + b) / 2;
   }
   return pageY - containerRect.top + scrollTop;
@@ -6164,10 +6239,26 @@ function _computeTabDropTarget(x, y) {
   for (const [groupId, zone] of _tabDragRectCache.floatingZoneRects) {
     if (y < zone.top || y > zone.bottom) continue;
 
+    /* B-134 R4 H-4 fix: per R2 §63.4.4, REORDER_FLOATING midline math
+       MUST exclude the dragged row from the source group's row list.
+       Without exclusion, hovering the dragged row's own slot
+       misplaces the indicator by one slot. ATTACH and MOVE_FLOATING
+       hit different groups (no dragged row in target), so they keep
+       the unfiltered midlines. */
+    const isReorderFloating = (_tabDragState.sourceMode === 'FLOATING'
+      && groupId === _tabDragState.sourceGroupId);
+    const draggedTabId = _tabDragState.draggedTabId;
+    const midlines = isReorderFloating
+      ? zone.rowMidlines.filter((_, i) => zone.rowTabIds[i] !== draggedTabId)
+      : zone.rowMidlines;
+    const tabIds = isReorderFloating
+      ? zone.rowTabIds.filter((id) => id !== draggedTabId)
+      : zone.rowTabIds;
+
     /* Compute insertIndex from pointer Y vs row midlines (§63.4.4). */
     let insertIndex = 0;
-    for (let i = 0; i < zone.rowMidlines.length; i++) {
-      if (y > zone.rowMidlines[i]) insertIndex = i + 1;
+    for (let i = 0; i < midlines.length; i++) {
+      if (y > midlines[i]) insertIndex = i + 1;
       else break;
     }
 
@@ -6177,7 +6268,7 @@ function _computeTabDropTarget(x, y) {
         targetWindowId: null,
         targetGroupId: groupId,
         insertIndex,
-        pinnedRowTabId: zone.rowTabIds[insertIndex] ?? null,
+        pinnedRowTabId: tabIds[insertIndex] ?? null,
       };
     }
     /* sourceMode === 'FLOATING' */
@@ -6187,7 +6278,7 @@ function _computeTabDropTarget(x, y) {
         targetWindowId: null,
         targetGroupId: groupId,
         insertIndex,
-        pinnedRowTabId: zone.rowTabIds[insertIndex] ?? null,
+        pinnedRowTabId: tabIds[insertIndex] ?? null,
       };
     }
     return {
@@ -6195,7 +6286,7 @@ function _computeTabDropTarget(x, y) {
       targetWindowId: null,
       targetGroupId: groupId,
       insertIndex,
-      pinnedRowTabId: zone.rowTabIds[insertIndex] ?? null,
+      pinnedRowTabId: tabIds[insertIndex] ?? null,
     };
   }
 

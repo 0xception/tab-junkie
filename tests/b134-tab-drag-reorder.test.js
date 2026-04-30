@@ -734,3 +734,115 @@ test('B-134 T26 (§63.3.3): buildOpenTabRow sets row.draggable = true', () => {
     'buildOpenTabRow must set row.draggable = true',
   );
 });
+
+/* =========================================================================
+   T27 — R4 H-1 fix: gen-counter bumps are content-conditional.
+   Title/audible/active LiveState patches must NOT bump the gen.
+   ========================================================================= */
+
+test('B-134 T27 (R4 H-1): _setCachedOpenTabs bumps gen only on signature change', () => {
+  const sidepanelJs = readFile('sidepanel/sidepanel.js');
+  /* Helper signature function exists and reads windowId+tabId. */
+  assert.match(
+    sidepanelJs,
+    /function _openTabsSignature\(arr\)\s*\{[\s\S]{0,400}\$\{t\.windowId\}:\$\{t\.tabId\}/,
+    '_openTabsSignature must hash per-window ordered tabId tuples',
+  );
+  /* _setCachedOpenTabs body must guard the bump on signature inequality. */
+  const fnMatch = sidepanelJs.match(/function _setCachedOpenTabs\(next\)\s*\{([\s\S]*?)\n\}/);
+  assert.ok(fnMatch, '_setCachedOpenTabs body match');
+  assert.match(
+    fnMatch[1],
+    /if \(prevSig !== nextSig\) _cachedOpenTabsGen \+= 1/,
+    '_setCachedOpenTabs must guard gen bump on prev/next signature inequality',
+  );
+});
+
+test('B-134 T27b (R4 H-1): _setCachedFloatingMembers bumps gen only on signature change', () => {
+  const sidepanelJs = readFile('sidepanel/sidepanel.js');
+  assert.match(
+    sidepanelJs,
+    /function _floatingMembersSignature\(obj\)/,
+    '_floatingMembersSignature helper must exist',
+  );
+  const fnMatch = sidepanelJs.match(/function _setCachedFloatingMembers\(next\)\s*\{([\s\S]*?)\n\}/);
+  assert.ok(fnMatch, '_setCachedFloatingMembers body match');
+  assert.match(
+    fnMatch[1],
+    /if \(prevSig !== nextSig\) _cachedFloatingMembersGen \+= 1/,
+    '_setCachedFloatingMembers must guard gen bump on prev/next signature inequality',
+  );
+});
+
+/* =========================================================================
+   T28 — R4 H-2 fix: REORDER_FLOATING surfaces ERR_RACE/ERR_VALIDATION via toast.
+   ========================================================================= */
+
+test('B-134 T28 (R4 H-2): REORDER_FLOATING dispatcher surfaces ERR_RACE toast', () => {
+  const sidepanelJs = readFile('sidepanel/sidepanel.js');
+  /* The REORDER_FLOATING case body must inspect resp.reordered and call
+     showToast on ERR_RACE. Source-text-pin both the await and the toast. */
+  const caseMatch = sidepanelJs.match(/case 'REORDER_FLOATING': \{([\s\S]*?)\n\s+\}\n\s+case 'ATTACH'/);
+  assert.ok(caseMatch, 'REORDER_FLOATING case body match');
+  assert.match(
+    caseMatch[1],
+    /resp\s*&&\s*resp\.reordered === false/,
+    'REORDER_FLOATING dispatcher must inspect resp.reordered',
+  );
+  assert.match(
+    caseMatch[1],
+    /resp\.reason === 'ERR_RACE'[\s\S]{0,200}showToast\(/,
+    'REORDER_FLOATING ERR_RACE branch must invoke showToast',
+  );
+});
+
+/* =========================================================================
+   T29 — R4 H-3 fix: REJECT mode is excluded from skip-no-op so the
+   indicator follows the pointer between rejected rows.
+   ========================================================================= */
+
+test('B-134 T29 (R4 H-3): _tabDragTick skip-no-op excludes REJECT mode', () => {
+  const sidepanelJs = readFile('sidepanel/sidepanel.js');
+  const fnMatch = sidepanelJs.match(/function _tabDragTick\(\)\s*\{([\s\S]*?)\nfunction /);
+  assert.ok(fnMatch, '_tabDragTick body match');
+  /* The skip-no-op check must include `target.mode !== 'REJECT'` so that
+     subsequent ticks within the rejected zone re-render the indicator. */
+  assert.match(
+    fnMatch[1],
+    /target\.mode !== 'REJECT'[\s\S]{0,400}target\.mode === _tabDragState\.pendingMode/,
+    'skip-no-op must exclude REJECT mode (always re-render REJECT indicator)',
+  );
+});
+
+/* =========================================================================
+   T30 — R4 H-4 fix: REORDER_FLOATING midline math excludes the dragged row
+   from the source group. ATTACH / MOVE_FLOATING keep all rows.
+   ========================================================================= */
+
+test('B-134 T30 (R4 H-4): REORDER_FLOATING midline math excludes the dragged row', () => {
+  const sidepanelJs = readFile('sidepanel/sidepanel.js');
+  /* _computeTabDropTarget must compute a per-zone filtered midline
+     array when sourceMode==='FLOATING' && groupId===sourceGroupId. */
+  const fnMatch = sidepanelJs.match(/function _computeTabDropTarget\(x, y\)\s*\{([\s\S]*?)\nfunction /);
+  assert.ok(fnMatch, '_computeTabDropTarget body match');
+  assert.match(
+    fnMatch[1],
+    /isReorderFloating[\s\S]{0,200}sourceMode === 'FLOATING'[\s\S]{0,200}sourceGroupId/,
+    'isReorderFloating predicate must gate on FLOATING + same source group',
+  );
+  assert.match(
+    fnMatch[1],
+    /zone\.rowMidlines\.filter\(\(_, i\) => zone\.rowTabIds\[i\] !== draggedTabId\)/,
+    'midlines must be filtered to exclude the dragged row',
+  );
+
+  /* _resolveTabDragIndicatorY must mirror the same exclusion so the
+     indicator Y does not desync from the hit-test insertIndex. */
+  const resolveFnMatch = sidepanelJs.match(/function _resolveTabDragIndicatorY\(target\)\s*\{([\s\S]*?)\nfunction /);
+  assert.ok(resolveFnMatch, '_resolveTabDragIndicatorY body match');
+  assert.match(
+    resolveFnMatch[1],
+    /target\.mode === 'REORDER_FLOATING'[\s\S]{0,400}zone\.rowMidlines\.filter\(\(_, i\) => zone\.rowTabIds\[i\] !== draggedTabId\)/,
+    '_resolveTabDragIndicatorY must filter midlines for REORDER_FLOATING mirror',
+  );
+});

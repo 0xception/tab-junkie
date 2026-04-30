@@ -30,6 +30,7 @@ import { writeTransaction } from '../storage/write-transaction.js';
 import { readPartition, PARTITION_FLOATING_GROUPS, MAX_URL } from '../storage/partitions.js';
 import { ulid } from '../storage/ids.js';
 import { getLiveTabIndex } from './live-tab-index.js';
+import { markInherited, getClaimsMirror } from './tab-claims.js';
 
 /**
  * Resolve the parent itemId for a floating-group record, supporting both
@@ -546,4 +547,86 @@ export async function pruneFloatingGroupsByParentItemId(parentItemId) {
       return arr.filter((entry) => getParentItemId(entry) !== parentItemId);
     },
   }]);
+}
+
+/**
+ * B-132 §65.4: cold-start re-population of inheritedTabs from
+ * tj:floatingGroups. For every record whose match resolves AND whose
+ * matched tabId is NOT already claimed, call markInherited(matchedTabId)
+ * so reconcileClaims Phase 2 (background/tabs/tab-claims.js:169-178) skips
+ * the URL-collision auto-claim. Mirrors the B-125 (§59.3) gate at
+ * background/tabs/tab-claims.js:250 — runtime path — extended into the
+ * cold-start claim path.
+ *
+ * Pure read+mark — writes ZERO storage. The mark on the module-scoped
+ * `inheritedTabs` Set in tab-claims.js is the sole side effect.
+ *
+ * Algorithm (mirrors reassociateFloatingGroups §60.4.3):
+ *   1. Read tj:floatingGroups records.
+ *   2. POSITION MATCH per record: find live tab where windowId AND
+ *      tabIndex match.
+ *   3. URL FALLBACK if no position match: find live tab whose
+ *      normalized URL equals the record's normalized URL.
+ *   4. If matched AND matchedTabId NOT in claimsMirror.values(): call
+ *      markInherited(matchedTabId).
+ *   5. If matched AND already claimed: SKIP (reconcileClaims Phase 1
+ *      preserved the claim; reassociateFloatingGroups will prune the
+ *      now-stale record at floating-groups.js:145-153).
+ *   6. If unmatched: SKIP (no live tab to mark).
+ *
+ * Invariant: this helper MUST run after buildLiveTabIndex resolves and
+ * BEFORE reconcileClaims executes. See background/tabs/index.js for the
+ * call-site ordering (between the Promise.all and reconcileClaims).
+ *
+ * B-132 §65.7 AC3 carve-out: this helper marks live tabs whose
+ * tj:floatingGroups record resolves. It does NOT reconstruct pre-reload
+ * opener-chain relationships (openerMap is ephemeral —
+ * background/tabs/opener-chain.js:6-9 documents this as Chrome's own
+ * contract). A NEW middle-click inside a former-floating tab post-reload
+ * thus creates a new tab whose opener-walk returns null and which lives
+ * in Open Tabs. This is the AC3 known-acceptable degradation; the user's
+ * recourse is to re-spawn from the bookmarked parent.
+ *
+ * @returns {Promise<void>}
+ */
+export async function preMarkInheritedFromFloatingGroups() {
+  const records = await readPartition(PARTITION_FLOATING_GROUPS);
+  if (!Array.isArray(records) || records.length === 0) return;
+
+  const liveTabIndex = getLiveTabIndex();
+  const claimsMirror = getClaimsMirror();
+  const claimedTabIds = new Set(Object.values(claimsMirror));
+
+  for (const record of records) {
+    if (!record || typeof record !== 'object') continue;
+
+    let matchedTabId = null;
+
+    // POSITION MATCH (mirrors floating-groups.js:124-130)
+    for (const [tabId, entry] of liveTabIndex) {
+      if (entry.windowId === record.windowId && entry.index === record.tabIndex) {
+        matchedTabId = tabId;
+        break;
+      }
+    }
+
+    // URL FALLBACK (mirrors floating-groups.js:132-143)
+    if (matchedTabId === null) {
+      const normalizedStored = safeNormalizeForMatch(record.url);
+      if (normalizedStored) {
+        for (const [tabId, entry] of liveTabIndex) {
+          if (safeNormalizeForMatch(entry.url) === normalizedStored) {
+            matchedTabId = tabId;
+            break;
+          }
+        }
+      }
+    }
+
+    // Mark only matched + unclaimed candidates. The already-claimed branch
+    // is the reassociateFloatingGroups prune-target (§60.4.3 step 3).
+    if (matchedTabId !== null && !claimedTabIds.has(matchedTabId)) {
+      markInherited(matchedTabId);
+    }
+  }
 }

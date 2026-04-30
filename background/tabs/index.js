@@ -17,7 +17,7 @@ export { buildLiveStates } from './tab-claims.js';
 export { getDriftRecords } from './drift.js';
 import { buildLiveTabIndex, getLiveTabIndex } from './live-tab-index.js';
 import { reconcileClaims, getClaimsMirror } from './tab-claims.js';
-import { reassociateFloatingGroups } from './floating-groups.js';
+import { reassociateFloatingGroups, preMarkInheritedFromFloatingGroups } from './floating-groups.js';
 import { listItems } from '../storage/items.js';
 /* B-014 */
 import { initWindowOrdinals } from './window-ordinals.js';
@@ -42,6 +42,24 @@ export async function initializeLiveState(readyPromise) {
     initWindowOrdinals(),
     readyPromise.then(() => listItems()),
   ]);
+  /* B-132 §65.3: cold-start re-population of inheritedTabs from
+     tj:floatingGroups. MUST run AFTER buildLiveTabIndex (needs the live
+     tab index to resolve position/URL matches) and BEFORE reconcileClaims
+     (Phase 2 reads inheritedTabs to skip URL-collision claim-jumps on
+     pre-existing floating tabs — see background/tabs/tab-claims.js:169-178).
+
+     B-132 R4 [qa-reviewer] M-2 fix: graceful degradation. If
+     readPartition('floatingGroups') throws (corrupt partition, transient
+     storage error), we still want reconcileClaims + reassociateFloatingGroups
+     to run — the worst case is the claim-jump bug may resurface for this
+     cold start, but the rest of the app initializes. Pre-fix behavior
+     would skip both downstream steps and leave claimsMirror = {} for
+     the SW lifetime. */
+  try {
+    await preMarkInheritedFromFloatingGroups();
+  } catch (err) {
+    console.warn('[tab-junkie] B-132 preMarkInheritedFromFloatingGroups failed; proceeding with empty inheritedTabs', err);
+  }
   await reconcileClaims(items);
   // B-001d AC10: re-associate floating groups after claims are established
   await reassociateFloatingGroups(getLiveTabIndex(), getClaimsMirror());

@@ -549,3 +549,447 @@ Top-level diffs: `shared/messages.js` (constants + typedefs), `background/storag
 **No escalation required.** The R1 LOCKED 8-AC block is internally consistent; R2 was able to produce a complete chapter without re-opening AC text. The sole load-bearing R2 question (R2-VERIFY 1) was disambiguated to Case 2 with full C-1a/C-1b compliance, which the R1 block explicitly accommodated ("Case 2 adds ~half-effort-unit for the schema-bump compliance").
 
 One minor R3-time UX caveat is filed (§63.15 — ATTACH to empty group rejects at SW write time; UAT may surface this as confusing, in which case R3 adds a hit-test-time guard so the indicator never shows "drop is allowed" on empty groups). This is a polish-backlog candidate, not an R1 revision.
+
+---
+
+## [code-reviewer] — B-134 R4 anchor (Full M-tier)
+
+**Date**: 2026-04-29
+**Reviewer**: [code-reviewer] (Sonnet)
+**Commit**: `c3e7503` on `feature/sprint-40-drag-reorder`
+**Files reviewed (8 source + 4 tests)**: `shared/messages.js` (+74), `background/storage/shapes.js` (+21), `background/storage/migration.js` (+22), `background/tabs/floating-groups.js` (+289), `background/tabs/floating-members.js` (+21), `background/messages/storage-handlers.js` (+95), `sidepanel/sidepanel.js` (+672), `sidepanel/sidepanel.css` (+28), `tests/b134-tab-drag-reorder.test.js` (NEW), `tests/floating-shape.test.js` (+57), `tests/migration-steps.test.js` (+59), `tests/chrome-mock.js` (+21).
+
+### Verdict
+
+**APPROVE for R5.** No CRITICAL or HIGH findings. The build is clean, hits all R2 contracts, and the source-text discipline closely mirrors B-122/B-030/B-031 patterns. Twenty-six tests pass; the full suite (1772/1772) shows zero regressions. A handful of MEDIUM/LOW observations are recorded for follow-up consideration; none gate R5.
+
+### CRITICAL (must fix before R5)
+
+_None_
+
+### HIGH (must fix before R5)
+
+_None_
+
+### MEDIUM (fix if time permits)
+
+| # | Item | File | Finding | Fix |
+|---|------|------|---------|-----|
+| M-1 | Failed `moveFloatingTab` race-fail still writes a no-op | `background/tabs/floating-groups.js:399-413` | When `sourceIdx === -1` (race fail), the mutator sets `ok = false` and returns the unchanged `arr`. `writeTransaction` will still validate + perform a `chrome.storage.local.set` of the unchanged array. Wasteful but not harmful; the post-write `markInherited`/`pruneInherited` is correctly gated on `ok` via the handler-level `if (!ok) return { moved: false, reason: 'ERR_RACE' }`. | Short-circuit before `writeTransaction` by performing the source-record existence probe outside the mutator (parallel to the `targetGroupId` parent-item probe at lines 388-397), or throw a sentinel inside the mutator that writeTransaction's StorageError path can recognise. |
+| M-2 | Test gap: SW-side parity-mismatch path for `reorderFloatingMembers` is unexercised | `tests/b134-tab-drag-reorder.test.js` | `reorderFloatingMembers(groupId, orderedTabIds)` returns `false` when (a) `_resolveRecordIndexByTabId` returns -1 for any supplied tabId, or (b) `storageBucketSize !== supplied.size`. T7 covers tab-vanished via `moveFloatingTab`, but **no test** asserts the reorder-handler's race behavior — e.g., supplying an `orderedTabIds` that includes a tabId not in the group, or an `orderedTabIds` that misses a tabId currently in the group. | Add T-extra: seed two floating records in group G, call `reorderFloatingMembers(G, [tab1])` (under-supply) and `reorderFloatingMembers(G, [tab1, tab2, tab3])` (over-supply with stale tabId) — both should return false and leave storage untouched. |
+| M-3 | Test gap: `_validateTabDropPreflight` cross-window guard branch unexercised at runtime | `tests/b134-tab-drag-reorder.test.js:635-651` | T21 source-text-pins all three guards' presence, but no integration test invokes `_validateTabDropPreflight` with a state whose `pendingMode === 'REORDER_OPEN'` and `pendingTargetWindowId !== sourceWindowId`. The gen-counter mismatch branch is also unexercised. Source-text pins detect _disappearance_, not _logic regressions_. | Either (a) extract `_validateTabDropPreflight` to a module-level export so tests can call it directly with synthetic state, or (b) accept that this is a sidepanel-side concern and rely on UAT-13 / UAT-14 (R5) for behavior coverage. Option (b) is acceptable given the B-122 precedent of source-text pins for sidepanel-internal helpers. |
+| M-4 | `MOVE_FLOATING` re-anchors `parentItemId` to the destination group's first item, deviating from R2 §63.8.2 pseudocode | `background/tabs/floating-groups.js:382-397` and `:455-464` | R2 §63.8.2 (chapter line 734) states "For MOVE_FLOATING and DETACH: re-use the source record's parentItemId". R3 instead **always** resolves `newParentItemId` from the destination group's first item when `targetGroupId !== null`, which means MOVE_FLOATING re-anchors the parent. This is arguably correct (the floating record now lives under a new group, so its parent should be that group's first item, not the now-unrelated source group's item), but it deviates from the documented design. T6 passes because the test asserts `parentItemId === itemB.id` (the destination group's item). | Either (a) update R2 §63.8.2 in R6 to reflect the actual semantics, or (b) change R3 to preserve `sourceRecord.parentItemId` for MOVE_FLOATING. The current behavior matches what the renderer expects (the floating row appears under the parent item in `targetGroupId`'s section), so option (a) is the cleaner reconciliation. Surface to [solution-architect] R6 for documentation update. |
+
+### LOW (defer)
+
+| # | Item | File | Finding | Notes |
+|---|------|------|---------|-------|
+| L-1 | `_resolveRecordIndexByTabId` invoked twice per reorder (outside + inside mutator) | `background/tabs/floating-groups.js:307-313` and `:332-337` | The outer parity-check loop walks records read OUTSIDE the writeTransaction (line 298), and the mutator re-walks them INSIDE. The two loops are functionally redundant (the outer loop is defensive belt-and-braces; the inner loop is canonical). Cost is bounded (≤ 5 records per group typical). | Keep both — the outer parity check provides an early-exit on stale data without consuming a write transaction slot. |
+| L-2 | `chrome-mock`'s `tabs.get(missingId)` returns `null` instead of rejecting | `tests/chrome-mock.js:199-202` | Production Chrome rejects `chrome.tabs.get(invalidId)` with an error; the mock returns `null`. T7 exercises the null branch (`if (!liveTab) return false`) rather than the throw branch. Both branches converge on the same return value, so the bug-hunting coverage is equivalent — but the test hides the throw path. | Pre-existing chrome-mock divergence. Note in test comment; do not change. |
+| L-3 | `_floatingRecordCompare` falls back to `(windowId, tabIndex)` for legacy records mid-renumber | `background/tabs/floating-groups.js:484-492` | When MOVE_FLOATING moves a record from a bucket containing legacy v2 records (no sortOrder), the renumber sorts those records by `(windowId, tabIndex)` and stamps `sortOrder` on each. This is the design-intended opportunistic upgrade per R2 §63.8.3. | Working as intended; behavior covered by T14 + T15. |
+| L-4 | `_buildTabDragRectCache` reads `getBoundingClientRect` for every floating row at dragstart | `sidepanel/sidepanel.js:5945-6011` | Dragstart-time cost is O(groups + floating-rows + open-tabs-rows). Bounded in practice (≤ 50 groups × 5 floating ≈ 250 rect reads). | Within the ≤ 200 ms budget. Same pattern as B-031 / B-122. |
+| L-5 | Drag mode-exclusivity guards rely on dragstart selector dispatch + state null-check; cross-handler stuck-state risk | `sidepanel/sidepanel.js:4322` and `:4630` | The defense-in-depth at line 4322 (`if (_itemDragState || _groupDragState)`) only fires when a previous drag left state non-null due to an error path. A symmetric guard at the item-drag (`if (_tabDragState || _groupDragState)`) and group-drag (`if (_tabDragState || _itemDragState)`) entry points is missing — the existing item/group-drag dragstart code presumes mode-exclusivity without reciprocal checks. | Pre-existing pattern in B-030/B-031. Could be tightened, but no observed failure mode in tests. Leave for a future drag-handler refactor sprint. |
+
+### Notes / observations
+
+- **Architecture / patterns (item 1):** `_tabDragState`, `_tabDragRectCache`, drag handlers compose correctly with `_groupDragState` / `_itemDragState`. Mode-exclusivity is enforced at dragstart-tab-drag-branch via the explicit guard at `sidepanel/sidepanel.js:4322`. The dragover dispatcher at `:4565-4599` and drop dispatcher at `:4626-4714` route via `if (_tabDragState)` first, mirroring the B-031 pattern. No mode-violation possible in the steady state.
+
+- **DRY (item 2):** Three drag pipelines (item / group / tab) share structural parallelism (`_buildXDragRectCache`, `_scheduleXDragTick`, `_xDragTick`, `_cleanupXDragDom`) but diverge in hit-test logic per surface. A shared base helper would risk over-abstraction; current mirrored structure is acceptable per B-122 precedent.
+
+- **Performance (item 3):** `_buildTabDragRectCache` is bounded (see L-4). `_computeTabDropTarget` is O(groups) for the floating-zone scan + O(1) for the Open Tabs cluster lookup (Map.get). The rAF tick coalesces dragover events at frame cadence. Skip-no-op (sidepanel.js:6043-6048) eliminates redundant DOM writes when target is unchanged.
+
+- **Dead code / TODO / console.log (item 4):** Zero TODOs, zero `console.log`. One `console.warn` at sidepanel.js:4710 in the drop error-handler — acceptable per existing B-033 / B-001a precedent.
+
+- **Test quality (item 5):** T1-T26 cover all 8 ACs:
+  - AC1 (REORDER_OPEN literal index) → T1
+  - AC2 (cross-window REJECT) → T2 + T22 (source-text)
+  - AC3 (REORDER_FLOATING atomic sortOrder) → T3
+  - AC4 (ATTACH + markInherited) → T4
+  - AC5 (DETACH + pruneInherited) → T5
+  - AC6 (MOVE_FLOATING atomic) → T6
+  - AC7 (race-guards) → T7 + T21 (source-text)
+  - AC8 (cleanup + UAT) → T19 + T20 (drag-state + cache)
+  - **Coverage gap M-2** (SW-side reorder parity mismatch).
+
+- **C-1a + C-1b compliance (item 6):**
+  - `KNOWN_VERSION = 3` → `background/storage/migration.js:76` ✓
+  - `defaultShape(PARTITION_META)` returns `{ schemaVersion: 3, ... }` → `background/storage/shapes.js:105` ✓
+  - v2→v3 no-op governance step → `background/storage/migration.js:108-112` ✓
+  - Lazy migration: `assertShape` PARTITION_FLOATING_GROUPS tolerates missing `sortOrder` → `background/storage/shapes.js:255-259` ✓; `buildFloatingMembers` falls back to `(windowId, tabIndex)` when sortOrder absent → `background/tabs/floating-members.js:150-160` ✓
+  - SW module-cache flush note in CHANGELOG — out of R3 scope; release-manager's responsibility at sprint close. No new pref keys introduced (denseLayout was added in S30 B-092), so the SW-cache flush note may apply only to the schema-version migration path.
+
+- **Strategy A implementation (R3-VERIFY 1, item 7):** `_resolveRecordIndexByTabId` defined at `background/tabs/floating-groups.js:254-266`; used in both `reorderFloatingMembers` (lines 309 outer parity check + 333 inside mutator) AND `moveFloatingTab` (line 409 inside mutator). ✓
+
+- **Cascade-prune sibling-grep (item 8):** B-134 introduces no new saved-item delete paths; both new write surfaces (`reorderFloatingMembers`, `moveFloatingTab`) write to `tj:floatingGroups` only. Existing cascade-prune sites (`MSG_DELETE_ITEM`, `MSG_BULK_DELETE_ITEMS`, `MSG_DELETE_GROUP`) remain unchanged. No B-129 sibling-grep risk. ✓
+
+- **Race-guard symmetry (item 9):** `_validateTabDropPreflight` covers all three guards (A: chrome.tabs.get; B: gen counters; C: cross-window REORDER_OPEN). Defensive double-check at storage layer: `moveFloatingTab` re-checks the live tab via `chrome.tabs.get` at line 376. ✓ Test M-3 notes the runtime guard B/C branches are not exercised at runtime, only source-text-pinned.
+
+- **Empty-state coverage (item 10, CLAUDE.md C-9):**
+  - Zero floating tabs in target group + zero saved items → ATTACH rejected (T10) ✓
+  - Zero floating tabs in target group + ≥ 1 saved item → ATTACH accepted (T4) ✓
+  - Same-position no-op → T18 (algorithm) + T11 (handler idempotency) ✓
+  - Cross-window REJECT → T2 + T22 (source-text) ✓
+  - Empty Open Tabs section → not directly tested; hit-test handles it via `cluster=null` fallback at sidepanel.js:6261 ✓
+
+- **Cross-cutting concerns (item 11):**
+  - `MSG_REORDER_FLOATING_MEMBERS` and `MSG_MOVE_FLOATING_TAB` in `MUTATION_BROADCASTS` → `background/messages/storage-handlers.js:141-142` ✓
+  - Both messages in `WRITE_MESSAGE_TYPES` (safe-mode block) → `background/messages/storage-handlers.js:171-172` ✓
+  - `inheritedTabs` side-effects fire post-write only: `background/messages/storage-handlers.js:746-751` — `markInherited` / `pruneInherited` called AFTER `await moveFloatingTab(...)` resolves successfully ✓
+
+### R5 readiness
+
+R5 may proceed. [test-engineer] should consider M-2 (SW-side parity-mismatch test) as an additive coverage candidate during R5 test authoring. M-3 may be folded into UAT (cross-window cancel + broadcast-race retry visual). M-4 should be surfaced to [solution-architect] at R6 for R2 chapter reconciliation (whether to update §63.8.2 pseudocode or change the implementation).
+
+---
+
+## [security-reviewer] — B-134 R4 anchor (Full M-tier)
+
+**Date**: 2026-04-29
+**Branch / commit**: `feature/sprint-40-drag-reorder` @ `c3e7503`
+**Scope**: Security review of B-134 R3 build (drag-and-drop reorder for open tabs and floating tabs).
+**Files audited**: `manifest.json`, `shared/messages.js`, `background/messages/storage-handlers.js`, `background/tabs/floating-groups.js`, `background/tabs/floating-members.js`, `background/storage/migration.js`, `background/storage/shapes.js`, `sidepanel/sidepanel.js` (drag handlers / hit-test / preflight).
+
+### CRITICAL (must fix before R5)
+
+_None._
+
+### HIGH (must fix before R5)
+
+_None._
+
+### MEDIUM (fix if time permits)
+
+| # | Item | File | Finding | Fix |
+|---|------|------|---------|-----|
+| M-1 | `orderedTabIds` lacks upper-bound length cap | `background/messages/storage-handlers.js:702-709` + `background/tabs/floating-groups.js:285-322` | The handler validates non-empty + dedup + element types, but does not impose an upper bound on `orderedTabIds.length` analogous to `MAX_BULK_INPUTS = 500` (B-025/B-030 precedent). A malformed (or malicious internal) caller passing an array of `>= 1e6` numbers forces `_resolveRecordIndexByTabId` to scan storage records once per supplied id (O(records × supplied)) before the `storageBucketSize !== supplied.size` parity check rejects. Memory bounded (the array does not get persisted), but CPU on the SW thread is not. Local-only extension trust boundary mitigates real-world impact (only the popup/sidepanel can dispatch this), but defense-in-depth is the project standard at write-message validators (cf. MAX_BULK_INPUTS at `shared/export-schema.js`). | Add an explicit guard: `if (p.orderedTabIds.length > MAX_BULK_INPUTS) return { reordered: false, reason: 'ERR_VALIDATION' };` before the per-element loop at `storage-handlers.js:705`. Alternatively cap at a smaller floating-bucket-realistic constant (e.g., 50) since real-world floating-member buckets are bounded by user-spawned opener-chain children. |
+| M-2 | `insertIndex` lacks upper-bound check | `background/messages/storage-handlers.js:736-740` + `background/tabs/floating-groups.js:368-370` | `MSG_MOVE_FLOATING_TAB` validates `insertIndex` is finite + non-negative, but not bounded above. The `moveFloatingTab` mutator clamps via `Math.max(0, Math.min(insertIndex, tgtRecords.length))` at `floating-groups.js:444`, so the persisted record is always in-bucket-range; HOWEVER the unclamped value is also tested against `>= clampedIdx` at line 452 in a renumber loop that uses `r.sortOrder >= clampedIdx`, which is correct because clamping happens before. No actual storage corruption surface, but the missing upper cap means `insertIndex = Number.MAX_SAFE_INTEGER` is silently accepted at the message boundary instead of rejected with ERR_VALIDATION — divergence from the project's general "tight typed boundary" policy. | Add `|| p.insertIndex > MAX_BULK_INPUTS` (or a smaller realistic cap) to the validator at `storage-handlers.js:736-740`. Inert change because clamping already enforces correctness, but tightens the wire contract. |
+| M-3 | `MSG_REORDER_FLOATING_MEMBERS` payload — `groupId` length unbounded | `background/messages/storage-handlers.js:699-701` | The validator accepts any non-empty string for `groupId`. Other write messages in the codebase that store groupId values gate via the storage-layer validator's MAX_NAME = 256 cap on the *group's name*, but the `groupId` itself (a ulid) has no length cap on the message wire. A ~1 MB string would fail the parity check at `floating-groups.js:298-322` (no record matches), so no persistence — just wasted SW cycles + a transient large-string allocation. Consistent with M-1: defense-in-depth at the trust boundary. Same pattern repeats at `MSG_MOVE_FLOATING_TAB` for both `sourceGroupId` and `targetGroupId` (`storage-handlers.js:722-728`). | Add a length cap (e.g., 64 or MAX_NAME) to all three groupId fields in the new validators. Low blast radius, hardens against accidental client-side bugs sending unbounded strings. |
+
+### LOW (defer)
+
+| # | Item | File | Finding |
+|---|------|------|---------|
+| L-1 | Race-guard at storage layer cannot detect cross-window source mid-drag | `background/tabs/floating-groups.js:374-380` | `moveFloatingTab` calls `chrome.tabs.get(tabId)` to verify the tab is still alive, but does NOT verify it remained in the source window for op 5 (MOVE_FLOATING). The drop-handler preflight at `sidepanel/sidepanel.js:6300-6325` checks cross-window in `_validateTabDropPreflight`, which is the primary guard. If a tab is dragged between windows by some other means after dragstart but before drop (e.g., user uses keyboard shortcut to move the tab while drag is in flight), the preflight catches it via the broadcast-race generation counter (`_cachedOpenTabsGen`/`_cachedFloatingMembersGen` advance when LiveTabIndex changes). Storage-layer second-line defense exists indirectly via `_resolveRecordIndexByTabId` re-checking `(windowId, tabIndex)` geometry against the LiveTabIndex inside the mutator; if windowId no longer matches, sourceIdx is -1 and the mutator returns `ok=false`. So this is well-defended, just opaque. Recommend adding a comment cross-referencing the three-layer guard for future readers. |
+| L-2 | `errorEnvelope` does not strip `cause` field for unknown errors | `background/messages/storage-handlers.js:189-197` | Pre-existing pattern (not introduced by B-134). The unknown-error path emits `{code, message: 'Internal error', cause: err?.message}` — `cause` carries the original error message verbatim (e.g., `chrome.tabs.move` failure strings). Not a B-134 regression; B-134's new handlers explicitly catch internal failures and return typed envelopes (no path through `errorEnvelope`). No action for this sprint. Document for future review. |
+| L-3 | Schema v3 governance bump requires SW module-cache flush note in CHANGELOG | `background/storage/migration.js:76` + `background/storage/shapes.js:96-105` | Per CLAUDE.md C-1a (Sprint 30 B-092 precedent), schema-version increments require an explicit "extension toggle OFF→ON after update" note in CHANGELOG so users flush the SW module cache. R6 [solution-architect] / sprint-close [release-manager] should ensure this is added. NOT a B-134 R3 build defect — the source code changes are correct. Flag for sprint-close diligence. |
+
+### Notes / observations
+
+- **Manifest unchanged** — `manifest.json` shows existing permissions only (`tabs`, `tabGroups`, `storage`, `sidePanel`, `search`); no new permissions requested. `chrome.tabs.move` is covered by the existing `tabs` permission. C-6 + R1 AC8 + R2 §63.11 verified clean.
+- **CSP / eval / new Function / dynamic script** — Zero new occurrences in the diff. No CSP relaxation. Confirmed via grep on the 21-file diff.
+- **XSS surface clean** — All tab title/URL rendering goes through `textContent` (`sidepanel.js:1611-1612`, `:1894`, `:2898`, `:2902`, `:3416-3417`, `:3449`). The B-134 changes do not introduce new innerHTML / outerHTML / template-string interpolation of tab.title or tab.url. The `setData('text/plain', ...)` calls at `sidepanel.js:4371` (tab drag) and `:4434` (item drag) carry only `String(tabId)` / item id strings; no PII serialized into dataTransfer. Drop indicator is positioned via CSS transform — no string interpolation.
+- **`chrome.tabs.move` uses `tabId` only** — no URL injection surface (`sidepanel.js:4670`). Confirmed C-7 allow-list direction is unaffected.
+- **Sender identity verified** — `registerStorageHandlers` at `storage-handlers.js:768-771` rejects any sender whose `id !== chrome.runtime.id`, which covers external web pages and other extensions. Both new messages route through this gate. The `tj/*` namespace is exclusively claimed by this dispatcher (`:779`); other listeners do not see them.
+- **`WRITE_MESSAGE_TYPES` correctly includes both new messages** — `storage-handlers.js:171-172`. Safe-mode write-block honors them. Verified.
+- **Atomic writes** — Both `reorderFloatingMembers` (`floating-groups.js:324-340`) and `moveFloatingTab` (`floating-groups.js:400-474`) wrap mutations in a single `writeTransaction`. Cross-group MOVE_FLOATING renumbers source AND target buckets inside one mutator (lines 419-422 + 449-453 + 466-469), so partial state is not persistable. C-1b lazy migration (no-op step v2→v3) correctly relies on validators tolerating the missing optional `sortOrder` (`shapes.js:251-259`) and `buildFloatingMembers` falling back to `(windowId, tabIndex)` (`floating-members.js:151-160`).
+- **C-1a/C-1b compliance** — `KNOWN_VERSION = 3` (`migration.js:76`), `defaultShape(PARTITION_META)` returns `{ schemaVersion: 3 }` (`shapes.js:105`), `MIGRATION_STEPS` has both v1→v2 (B-121) and v2→v3 (B-134) no-op steps with correct fromVersion/toVersion contiguity (`migration.js:91-113`). Static F2 contiguity check at `migration.js:127-135` would have thrown on a broken chain — passes.
+- **inheritedTabs side-effect ordering correct** — `markInherited` (ATTACH) and `pruneInherited` (DETACH) fire AFTER `moveFloatingTab` resolves true (`storage-handlers.js:742-751`). MOVE_FLOATING (op 5) is correctly a no-op on inheritedTabs (the dragged tab was already in the set). Verified against R2 §63.9.2 invariant.
+- **Cascade-prune sibling-grep (B-129 carry-forward)** — B-134 introduces no new delete paths. Existing cascade coverage at `storage-handlers.js:226-237` (MSG_DELETE_ITEM), `:259-274` (MSG_BULK_DELETE_ITEMS), `:286-310` (MSG_DELETE_GROUP) correctly invokes `pruneFloatingGroupsByParentItemId` for any saved item whose deletion would orphan a floatingGroups record. Records written by B-134's ATTACH/MOVE_FLOATING (which carry `parentItemId`) are correctly cleaned up by the same cascade. Verified.
+- **Race guard third branch (F-5)** — `_validateTabDropPreflight` at `sidepanel.js:6300-6325` checks: (A) tab still alive via `chrome.tabs.get`, (B) broadcast-race via generation counters `cachedFloatingMembersGen` / `cachedOpenTabsGen`, (C) cross-window for REORDER_OPEN. Storage-layer mutator does its own re-check at `floating-groups.js:374-380` + `_resolveRecordIndexByTabId` window/index geometry (`:254-266`). Defense-in-depth verified.
+- **Drag image / setDragImage** — Native browser API, no string-interpolation surface in B-134. The B-025 multi-item drag ghost (`sidepanel.js:4469-4490`) is unchanged and uses `_buildMultiDragGhost` which itself uses `textContent`. Drop indicator (`itemDragIndicatorEl`) is a stable child element positioned via CSS transform; no innerHTML writes. Per R2 §63.14.3, ghost-quality assessment deferred to UAT — no security implication.
+- **Drag-state mode-exclusivity verified** — `dragstart` handler at `sidepanel.js:4318-4348` selects exactly one of `_tabDragState`/`_itemDragState`/`_groupDragState` per drag based on data-attribute selector dispatch. Mode-exclusivity guard at `:4322-4325` bails if any other state is non-null at dragstart, preventing concurrent-state corruption.
+- **Wire-shape errors do not leak internals** — Both new handlers return `{reordered:false, reason:'ERR_VALIDATION'|'ERR_RACE'}` / `{moved:false, reason:'ERR_VALIDATION'|'ERR_RACE'}` — fixed strings, no payload echo, no stack trace, no file paths. Verified at `storage-handlers.js:699-753`.
+- **Sender-identity whitespace** — note that `registerStorageHandlers` checks `sender.id !== chrome.runtime.id` (`storage-handlers.js:768`). For B-134 message types (which start with `tj/` per `:779`), only this dispatcher claims them; foreign-extension messages with a `tj/*` type would be rejected at the sender-id gate. Verified.
+
+### Verdict
+
+**APPROVED for R5.** Zero CRITICAL or HIGH findings. Three MEDIUM defense-in-depth recommendations (M-1/M-2/M-3 — payload upper bounds) and three LOW observations (L-1 cross-window guard documentation, L-2 pre-existing errorEnvelope cause field, L-3 sprint-close CHANGELOG note). Recommend [frontend-engineer] address M-1 + M-2 + M-3 before R5 (small, low-risk additions that align with the project's tight-typed-boundary policy and `MAX_BULK_INPUTS` precedent), but none are blockers — race guards downstream of the validators already prevent any storage-corruption or DoS outcome in the realistic local-only-extension threat model.
+
+---
+
+## [qa-reviewer] — B-132 R4 anchor (Full M-tier)
+
+**Date**: 2026-04-29
+**Author**: [qa-reviewer]
+**Scope**: Sprint 40 B-132 — cold-start floating-tab claim-jump fix. Three production files (`background/tabs/floating-groups.js`, `background/tabs/index.js`, `background/tabs/tab-claims.js`) + new test file `tests/b132-cold-start-inheritance.test.js` (8 tests) + 1 comment-only edit to `tests/floating-position.test.js`.
+**Diff verified via**: `git diff HEAD background/tabs/ tests/floating-position.test.js` + Read of `tests/b132-cold-start-inheritance.test.js`.
+**R2 chapter**: `docs/design/65-b-132-cold-start-claim-jump-fix.md`. **R1 LOCKED**: 8 ACs above.
+
+### CRITICAL (must fix before R5)
+_None_
+
+### HIGH (must fix before R5)
+_None_
+
+### MEDIUM (fix if time permits)
+
+| # | Item | File | Finding | Fix |
+|---|------|------|---------|-----|
+| M-1 | Missing R3-V STOP-and-escalate triggers — three pre-existing tests carry the same URL-collision pattern that R2 §65.10 explicitly addressed for `floating-position.test.js:68-91`, but R3 only commented the latter. | `tests/floating-multi.test.js:45-74` (AC11 second case — floating record at `https://x.com` + saved item `someClaimedItem` at `https://x.com`); `tests/floating-ready-gate.test.js:23-45` (AC10 — floating record + saved item both at `https://live.com`); `tests/b018-persistence.test.js:106-131` (GAP-2 — floating record + saved item both at `https://parent.com`) | All three seed a `tj:floatingGroups` record AND a saved item with the same URL — exactly the shape R1 LOCKED §314-327 enumeration flagged for STOP-and-escalate. The tests stay mechanically green only because they bypass `initializeLiveState` and call `reconcileClaims` directly (helper never runs → empty `inheritedTabs` → gate is dead code). In production with the helper, behavior would invert: the floating tab would be marked inherited, Phase 2 would skip it, the saved item would NOT be claimed, and the prune branch in `reassociateFloatingGroups` would NOT fire. The unit-level contract these tests pin is still load-bearing for the no-inheritance code path, but R3 omitted the clarifying-comment treatment R2 §65.10 explicitly applied to `floating-position.test.js:68-91`. | Add a clarifying comment block (mirroring the one at `tests/floating-position.test.js:68-77`) to each of the three tests, noting that the test bypasses the cold-start helper and that the asserted behavior is the unit-level no-inheritance contract; production behavior with the helper invokes the gate. No assertion change. ~3 LOC × 3 sites = ~9 LOC of comment-only addition. |
+| M-2 | Defensive `try`/`catch` around the new cold-start helper. | `background/tabs/index.js:50` (`await preMarkInheritedFromFloatingGroups();`) | The helper invokes `readPartition(PARTITION_FLOATING_GROUPS)` (line 593) which can throw `StorageError` per `background/storage/partitions.js:71-82` if the partition is corrupt. An unwrapped throw propagates to `initializeLiveState`, which is `.catch()`-wrapped at `background/service-worker.js:49-51` — so the SW does not crash, but `reconcileClaims` and `reassociateFloatingGroups` never run, leaving `claimsMirror = {}` for the entire SW lifetime (until next reload). Pre-B-132, the same risk existed for `reassociateFloatingGroups` (post-reconcile), so this is not a NEW class of risk; B-132 adds a SECOND failure surface that can prevent `reconcileClaims` from running at all. The pre-existing `reassociateFloatingGroups` failure mode is asymmetric (claims established, only re-association skipped) whereas the new helper failure blocks every downstream step. | Either (a) wrap the helper call in `try { await preMarkInheritedFromFloatingGroups(); } catch (e) { console.warn('[tab-junkie] B-132 helper failed', e); }` so subsequent `reconcileClaims` still runs — graceful degradation to pre-fix behavior under storage corruption; OR (b) document explicitly that the helper is allowed to fail-loud since corruption is already a SEV2 condition. R2 §65.4 says "writes ZERO storage" but does not address read-side failure. Recommend (a) for defensive parity with the rest of the cold-start orchestration. |
+
+### LOW (defer)
+
+| # | Item | File | Finding | Fix |
+|---|------|------|---------|-----|
+| L-1 | `claimedTabIds` guard is dead code at cold-start time. | `background/tabs/floating-groups.js:598` (`const claimedTabIds = new Set(Object.values(claimsMirror));`) and line 628 (`!claimedTabIds.has(matchedTabId)`) | At the moment the helper runs, `claimsMirror` is module-scope `{}` (only populated by `reconcileClaims` line 200). So `claimedTabIds` is always an empty Set at helper invocation time, making the `!claimedTabIds.has(matchedTabId)` guard always true. R2 §65.6 case (ii) describes a hypothetical where `chrome.storage.session` survives reload AND `claimsMirror` hydrates earlier — but R2 §65.2 confirmed that scenario does not occur (session storage is wiped on extension reload). The guard is defensive and correct under the documented contract; it just never triggers in practice. | Either (a) keep as defensive coding (current state) — fine; OR (b) add a one-line comment noting the guard is dead-but-defensive, mirroring the §65.6 case-2 hypothetical. No code change required for correctness. |
+| L-2 | Helper does not log when no records resolve. | `background/tabs/floating-groups.js:592-632` | The helper has no observability: a cold start with N records and zero matches looks identical to a cold start with zero records (both no-op). For UAT debugging when something goes wrong post-reload, a single `console.debug` (gated to be silent in production via the existing `console.warn` precedent in `tab-claims.js:125`) noting "B-132 helper marked N tabs inherited" would aid R5 UAT reproducibility. | Optional: add `if (markedCount > 0) console.debug('[tab-junkie] B-132 pre-marked', markedCount, 'inherited tabs from cold-start');`. Defer if production-noise concern outweighs UAT diagnostic value — CLAUDE.md says "no `console.log` debug noise" but `console.warn`/`console.debug` precedents exist (`tab-claims.js:125`, `service-worker.js:50`). |
+| L-3 | T-132-G is source-text pin only (R2 §65.12 R3-V-5 sanctioned fallback). | `tests/b132-cold-start-inheritance.test.js:324-347` | The ordering invariant test uses `readFileSync` of `background/tabs/index.js` and `indexOf` substring matches to assert the call order. This is brittle to any future refactor (e.g., extracting `initializeLiveState` to a smaller orchestrator function, or wrapping the helper invocation in a debug-only conditional). R2 §65.12 R3-V-5 explicitly accepted this fallback because the harness does not expose an `initializeLiveState` integration spy. T-132-A + T-132-E exercise the production sequence in test code by calling `preMarkInheritedFromFloatingGroups` → `reconcileClaims` → `reassociateFloatingGroups` directly, so the behavioral coverage is pinned even without a true integration test. | Defer. Optional future work: expose a `__getInitializeLiveStateLog` spy hatch in `background/tabs/index.js` for test-only ordering pin; or refactor to a sequenced-step array that the test harness can introspect. Neither blocks B-132. |
+
+### Notes / observations
+
+- **Mode (b) primary fix (AC1) coverage is solid.** T-132-A pins the helper marking the floating tabId via position match; T-132-E pins the full cold-start sequence (helper → reconcile → reassociate) preserving the floating UX without claim-jump. These two together exercise the bug's failure surface and the fix mechanism end-to-end inside the chrome-mock.
+- **Mode (a) shallow regression guard (AC2)** — T-132-F simulates the post-cold-start middle-click by directly invoking `markInherited(601)` rather than walking the full `tab-events.js`/`opener-chain.js` runtime path. This is faithful to the pattern B-125 uses (`tests/b125-claim-jump-fix.test.js:91`), but the AC2 contract that explicitly worried me is whether the middle-click → `appendFloatingGroup` → `markInherited` chain itself stays uncorrupted. The test instead seeds the post-chain state. Recommendation: R5 [test-engineer] explicitly walks the post-cold-start middle-click on a real tab during UAT (U-132-2 below) — the unit test alone does not exercise the chain.
+- **AC3 deep-chain carve-out** is documented in the helper's JSDoc (`floating-groups.js:581-588`) and in R2 §65.7. The user-facing recovery path ("close and re-spawn from bookmarked parent") is workable but not yet documented in `docs/user-manual/`. R7 [technical-writer] should land that note.
+- **B-121 / B-125 contract preservation verified by inspection** — `tests/b121-floating-group-render.test.js` T-121-A through T-121-O use distinct parent/child URLs that do not collide with any other saved item; helper invocation would mark the floating tabId but Phase 2 has no candidate to gate (no URL match), so no behavioral change. `tests/b125-claim-jump-fix.test.js` T1-T5 exercise the runtime `reevaluateTab` path which B-132 does not modify. Both test families stay green by construction.
+- **Empty-state coverage (CLAUDE.md C-9) is complete** — T-132-B (empty `tj:floatingGroups`), T-132-C (records with no live-tab match), T-132-A (URL-collision happy path), T-132-E (no-collision, helper marks but Phase 2 no-op), T-132-D (gate-with-mark mechanism). The four R2 §65.9 C-9 enumerated states are pinned.
+- **No new UI; no console.log debug noise; no UI regression possible** — the fix is entirely SW-side. The two new test cases that touch chrome-mock state confirm the helper writes ZERO storage (T-132-H) — this is a nice load-bearing pin against future regressions where someone might "optimize" by caching `inheritedTabs` to disk.
+- **Helper handles edge cases gracefully** — the `if (!record || typeof record !== 'object') continue` guard at line 601 handles malformed records; the `records.length === 0` early return at line 594 handles the empty partition; the position-match loop with `break` correctly stops at first match (consistent with `reassociateFloatingGroups`); the URL-fallback uses `safeNormalizeForMatch` (same normalizer as the rest of the module — no normalization mismatch).
+- **Race-guard analysis (R2 §65.8) is sound.** The `chrome.tabs.onUpdated` race window between `buildLiveTabIndex` and the helper resolution is < 1 ms and the failure mode (early `reevaluateTab` claim-jump) is the SAME pre-existing race that existed before B-132 — the fix narrows the window without introducing a new race surface.
+- **Multi-window safety verified** — `buildLiveTabIndex` calls `chrome.tabs.query({})` with no window filter, so all windows' tabs are in `liveTabIndex`. The helper iterates the entire Map. Multi-window cold-start works correctly.
+- **`floating-position.test.js:68-91` clarifying comment is helpful and accurate** — explains that the test pins the unit-level contract (gate's empty-set behavior is preserved; not the production cold-start behavior). The cross-reference to T-132-F is concrete and easy to follow.
+
+### UAT must explicitly walk
+
+For [test-engineer] R5 UAT plan (`docs/UAT_B-132.md`):
+
+- **U-132-1 (AC1 primary fix repro)**: Reproduce the user's bug pre-fix, then verify the fix.
+  1. Open Edge with the unpacked extension on `release/v2` (pre-B-132 commit).
+  2. Save a bookmark `S` whose URL is, e.g., `https://example.com/popular-page`.
+  3. Open a different bookmark in a group `G`, middle-click a link inside it that navigates to `https://example.com/popular-page`. Verify the new tab appears as a floating member of `G`.
+  4. Reload the extension via `chrome://extensions` → Reload.
+  5. **Pre-fix**: the floating tab disappears from `G` and the bookmark `S` shows as live (claim-jump). Confirm via the sidepanel.
+  6. Switch to the B-132 build. Repeat steps 2-4.
+  7. **Post-fix**: the floating tab REMAINS in `G` after reload; bookmark `S` shows as NOT live. Confirm via the sidepanel.
+- **U-132-2 (AC2 shallow regression guard)**: Post-reload middle-click still inherits.
+  1. With the B-132 build loaded and a bookmarked tab open, reload the extension.
+  2. After reload completes, middle-click a link in the bookmarked tab.
+  3. Verify the new tab appears as a floating member of the bookmark's group.
+- **U-132-3 (AC3 deep-chain carve-out)**: Document the known-acceptable degradation.
+  1. With B-132 build, set up a deep chain pre-reload: grandparent (claimed) → parent (floating) → child (about to spawn).
+  2. Reload the extension.
+  3. After reload, middle-click a link inside the parent (former-floating) tab.
+  4. Verify the new child tab lands in Open Tabs (NOT in the originating group). This is the AC3 carve-out — confirm no console errors.
+  5. Verify the user's recourse (close child, re-middle-click from grandparent) works.
+- **U-132-4 (R2-VERIFY 1 empirical confirmation)**: Confirm `chrome.storage.session` wipe on Edge reload.
+  1. Open `chrome://extensions` (Edge equivalent) → SW inspect.
+  2. In the SW console: `await chrome.storage.session.set({ qaProbe: 'before-reload' })`.
+  3. Click Reload on the extension card.
+  4. Re-inspect the SW; in console: `await chrome.storage.session.get('qaProbe')`.
+  5. Expected: `{}` (key absent — store wiped). Document the empirical verdict in the UAT log per R2 §65.2 follow-up.
+- **U-132-5 (no-regression smoke test on B-121 / B-125 flows)**: Walk the existing B-121 / B-125 UAT scripts with the B-132 build to confirm nothing regressed in the runtime opener-chain path.
+- **U-132-6 (multi-window cold-start)**: With two browser windows open, each containing a bookmarked tab + floating member, reload the extension. Confirm both windows' floating members survive.
+- **U-132-7 (no-floating-state regression)**: With NO `tj:floatingGroups` records (fresh profile or all closed), reload the extension. Confirm cold-start completes normally (sidepanel renders, items show live state, no console errors). This pins T-132-B's empty-state guarantee under real Chrome conditions.
+- **U-132-8 (URL-collision happy path with multiple candidates)**: If two live tabs share the same URL and one is in `tj:floatingGroups` while the other is not, confirm the non-inherited one is the one that gets auto-claimed by the saved item (the gate's "shift-and-skip-while-inherited" behavior leaves the next-best candidate eligible).
+
+---
+
+## [security-reviewer] — B-132 R4 anchor (Full M-tier)
+
+**Date**: 2026-04-29
+**Branch / commit**: `feature/sprint-40-drag-reorder` (B-132 R3 work uncommitted; reviewed via `git diff HEAD`).
+**Scope**: Security review of B-132 R3 build — cold-start claim-jump fix. Three production files (~117 LOC), one new test file (391 LOC), one comment-only test edit.
+**Files audited**:
+- `background/tabs/floating-groups.js` (+83) — NEW `preMarkInheritedFromFloatingGroups()` export
+- `background/tabs/index.js` (+7) — cold-start ordering insertion
+- `background/tabs/tab-claims.js` (+22) — Phase 2 inheritance gate
+- `tests/floating-position.test.js` (+10 comment-only, no assertion change)
+- `tests/b132-cold-start-inheritance.test.js` (NEW, 391 LOC, 8 tests)
+- Cross-checked: `manifest.json` (unchanged), `shared/messages.js` (unchanged), `background/tabs/tab-events.js`, R2 chapter `docs/design/65-b-132-cold-start-claim-jump-fix.md`, R0 chapter `docs/design/64-b-132-r0-spike.md`.
+
+### CRITICAL (must fix before R5)
+
+_None._
+
+### HIGH (must fix before R5)
+
+_None._
+
+### MEDIUM (fix if time permits)
+
+_None._
+
+### LOW (defer)
+
+| # | Item | File | Finding |
+|---|------|------|---------|
+| L-1 | Phantom-tabId guard relies on Set semantics, not explicit type-check | `background/tabs/floating-groups.js:628-630` | The helper guards with `if (matchedTabId !== null && !claimedTabIds.has(matchedTabId))`, then calls `markInherited(matchedTabId)`. `matchedTabId` is sourced from `liveTabIndex` `Map<tabId, entry>` keys via the `for...of` loop at `:606-611` and `:617-623`, so by construction it can only be a real live `tabId` (Chrome-allocated number) — the Map key set IS the live-tab universe. The "phantom" risk surface (e.g., `markInherited` accepting a stale or re-used tabId) is fully mitigated by this construction. No code change needed. Documenting for future reviewers — if `liveTabIndex`'s key shape ever changes (e.g., string-keyed lookup, weak-ref values), this construction-level guarantee disappears and an explicit `typeof matchedTabId === 'number' && Number.isFinite(matchedTabId)` check would be required. |
+| L-2 | `markInherited` set never bounded; theoretically unbounded growth across SW lifetime | `background/tabs/tab-claims.js:30,38-40` | `inheritedTabs` is a module-scoped `Set<number>` that grows as new floating tabs spawn (B-125 runtime path) and shrinks as tabs close (`pruneInherited`). B-132 adds a NEW entry-point that adds at cold-start. Maximum cardinality is bounded by live tabs in the browser (Chrome itself caps practical browsing at hundreds of tabs), so DoS via Set growth is not a realistic threat in the local-only-extension model. No action — flagging because B-132 introduces a second adder and the symmetry table at R2 §65.6 is the authoritative invariant. |
+| L-3 | URL fallback uses first-match, no priority for windowId over windowless match | `background/tabs/floating-groups.js:614-624` | The URL-fallback inner loop `for (const [tabId, entry] of liveTabIndex) { if (safeNormalizeForMatch(entry.url) === normalizedStored) { matchedTabId = tabId; break; } }` returns the FIRST tab whose normalized URL matches, regardless of windowId. If two tabs in different windows share the URL (e.g., user has the same wiki page open twice), the helper marks whichever the iterator surfaces first. This is the same algorithm `reassociateFloatingGroups` uses at `floating-groups.js:137-144` (verified — identical), so the pair stays consistent and the wrong-tab-marked outcome is benign (the wrong tab gets gated against auto-claim — soft degradation, not security or data-integrity concern). No action; the symmetry with `reassociateFloatingGroups` is the correctness anchor. |
+
+### Notes / observations
+
+- **Manifest unchanged.** Confirmed via `git diff HEAD -- manifest.json` (empty diff). No new permissions requested. The fix is pure SW-internal init reordering. C-6 + R1 AC8 + R2 §65.9 verified clean.
+- **CSP / eval / new Function / innerHTML / outerHTML.** Zero new occurrences. `git diff HEAD` over the three production files shows no `eval`, no `new Function`, no `innerHTML`, no dynamic script construction. Confirmed by direct grep on the diff.
+- **No new message contracts.** `shared/messages.js` unchanged (empty diff). The fix introduces no `MSG_*` types and adds no SW-to-sidepanel broadcasts. C-2 verified clean.
+- **Storage write surface — ZERO new writes.** The new helper `preMarkInheritedFromFloatingGroups` (`floating-groups.js:592-632`) contains ZERO `writeTransaction` calls and ZERO `chrome.storage.*.set` calls. Verified via `grep -n "writeTransaction\|chrome\.storage\..*\.set"` against the helper body — only reads (`readPartition(PARTITION_FLOATING_GROUPS)` at `:593`). The Phase 2 gate in `tab-claims.js:174-198` is a read-side filter; it consumes from the existing `urlToTabs` candidate Map and writes back to `claimsMirror` exactly as before — no new write surface. Test T-132-H at `tests/b132-cold-start-inheritance.test.js:353-391` deterministically pins zero-write behavior via byte-equivalent JSON snapshots before/after. C-1a/C-1b correctly N/A — no schema bump (per R2 §65.9, R1 AC8).
+- **No network calls / telemetry / new console.log.** Verified by grep — zero `console.log` additions in the diff. The single `console.warn` at `tab-events.js:114` is pre-existing. No `fetch`, no `XMLHttpRequest`, no remote URLs introduced. Privacy posture unchanged.
+- **`inheritedTabs` lifecycle hardening.**
+  - **Phantom-tabId guard:** the helper marks ONLY `matchedTabId` values pulled from `liveTabIndex` keys (Chrome-allocated tabIds for live tabs). Construction-level guarantee — `liveTabIndex` is `Map<tabId, entry>` populated by `buildLiveTabIndex` from `chrome.tabs.query({})`. No phantom-tabId path exists; see L-1.
+  - **Existing pruning entry-points unaffected:** `pruneInherited` at `tab-events.js` (single-tab close) and the `chrome.windows.onRemoved` cascade are byte-identical post-B-132. The diff shows zero changes to `tab-events.js` related to pruning. The B-132 cold-start helper plays nicely with the existing pruning surface — every entry the helper adds is paired with a future `pruneInherited` when the tab closes (Set semantics + tabId stability across SW lifetime per R2 §65.6 verification table).
+  - **`reevaluateTab` gate (B-125) preserved:** `tab-claims.js:270-272` still contains the inheritance-skip branch. The B-132 fix mirrors this gate into Phase 2 of `reconcileClaims` rather than replacing it. Two gates, one Set, no contention. `__resetTabClaims` at `tab-claims.js:81-88` correctly clears `inheritedTabs` for test symmetry (B-125 §59.2.4 invariant preserved).
+- **Cold-start race conditions analyzed.**
+  - **Pre-mark-then-reconcile is single async chain.** `initializeLiveState` at `background/tabs/index.js:35-54` is a serial `async` function with sequential `await` points. There is no `Promise.all` between `preMarkInheritedFromFloatingGroups` (line 50) and `reconcileClaims` (line 51). JS-side, the two cannot interleave. R2 §65.8 race-guard analysis confirmed.
+  - **`chrome.tabs.onUpdated` mid-cold-start race already documented.** Per R2 §65.8 R-1: a `chrome.tabs.onUpdated` event firing during the < 1 ms window between `buildLiveTabIndex` resolving and `preMarkInheritedFromFloatingGroups` resolving could trigger a debounced `reevaluateTab` that doesn't see the new mark. This race window is 100 ms gated by the existing `setTimeout(..., 100)` debounce at `tab-events.js:105`, and the helper's < 1 ms execution time means the event would have to fire in the interleaving window AND the debounce would have to expire BEFORE the helper resolves — physically possible but practically negligible. Same posture as pre-B-132 cold-start window; B-132 narrows rather than introduces. No new architecture needed; documented at R2 §65.8 as acceptable.
+  - **Single-pass cold-start sequence.** No re-entry: `initializeLiveState` is called exactly once from `background/index.js` (verified via grep — single call site). The helper is also called exactly once per cold-start. No re-entry risk.
+- **Allow-list direction (C-7) — same justification as B-125 §59.7.** The Phase 2 gate at `tab-claims.js:174-198` is a skip-list ("skip auto-claim if `inheritedTabs.has(candidate)`") — a deny-list direction in CLAUDE.md C-7's framing. R2 §65.9 explicitly invokes the §59.7 same-class ruling: blast radius of false-positive is "tab not auto-claimed" (soft degradation, not security or data-integrity issue). The §59.7 [security-reviewer] ruling applies verbatim — no escalation needed. Verified.
+- **AC3 deep-chain carve-out clearly documented.** Three documentation surfaces all align:
+  - **R0 spike chapter** §64.6 — architectural rationale (`openerMap` ephemeral, persisting it diverges from Chrome's own contract).
+  - **R2 chapter** §65.7 — explicit "structurally infeasible to fix without persisting `openerMap`" framing with reference citations to `opener-chain.js:6-9` and `:12`.
+  - **Production code comment** at `floating-groups.js:581-588` — pin in the helper's JSDoc reading: *"It does NOT reconstruct pre-reload opener-chain relationships (openerMap is ephemeral — background/tabs/opener-chain.js:6-9 documents this as Chrome's own contract). A NEW middle-click inside a former-floating tab post-reload thus creates a new tab whose opener-walk returns null and which lives in Open Tabs. This is the AC3 known-acceptable degradation."*
+  A future security-conscious reader sees three independent statements that this is structural (Chrome's own contract) rather than a vulnerability waiting to be patched. Documentation hygiene is excellent.
+- **Cross-cutting import/attack-surface analysis.**
+  - **`markInherited` import direction.** `floating-groups.js:33` adds `import { markInherited, getClaimsMirror } from './tab-claims.js';`. Both modules already live in the trusted SW context (`background/tabs/`). Confirmed via `grep -n "from.*floating-groups" background/tabs/tab-claims.js` — empty (no reverse import), so no circular-import edge. Both modules are SW-internal and not reachable from the sidepanel/popup IPC surface. Zero new attack surface introduced by the import.
+  - **No new internal state exposed.** The helper is `async function ...(): Promise<void>` — zero return. The sole side effect is the `markInherited` call, which adds to the existing module-scoped `inheritedTabs` Set in `tab-claims.js`. No new exported state, no new SW-global, no new IPC-reachable channel. The set is already encapsulated behind `markInherited` / `isInherited` / `pruneInherited` / `__resetTabClaims` (no direct export of the Set itself — verified at `tab-claims.js:30-88`).
+  - **No new sender/receiver paths.** No `chrome.runtime.onMessage` listeners added. No `chrome.runtime.sendMessage` calls. No broadcasts. The fix is purely internal SW orchestration.
+- **R2 Correctness Checklist (C-1..C-12) sign-off** — R2 §65.9 enumerated all 12 with N/A for C-1a/C-1b (no schema change), C-2 (no message contracts), C-5 (no manifest), C-6 (no permissions), C-8 (no new browser API), C-10 (no DOM/positioning), C-11 (no popup), C-12 (no manifest declaration). Applied checks (C-3 SW cold-start, C-4 ID stability, C-7 allow-list, C-9 empty-state) all closed at design time. Independently verified by direct code Read against R3 build — every claim holds.
+- **Test coverage observations.** `tests/b132-cold-start-inheritance.test.js` (391 LOC, 8 tests) covers AC1 happy path (T-132-A), AC1 empty state (T-132-B), AC1 partial state (T-132-C), AC5 gate mechanism (T-132-D), AC1+AC4+AC5 integration (T-132-E), AC2 shallow regression guard (T-132-F), AC6 ordering invariant via source-text pin (T-132-G), and zero-write contract (T-132-H). Test fixture URLs use unique hostnames (`parent.example`, `collide.example`, `nowhere.example`, `elsewhere.example`, `b.example`, `x.example`) — no PII, no real-world URLs that could leak in test logs. The comment-only edit to `tests/floating-position.test.js:67-77` adds context without changing any assertion (verified via `git diff HEAD`). T-132-G at `:324-347` reads `background/tabs/index.js` source text and asserts call-site ordering — a structural regression guard that catches future refactors. Defense-in-depth.
+
+### Verdict
+
+**APPROVED for R5.** Zero CRITICAL, zero HIGH, zero MEDIUM findings. Three LOW observations (L-1 phantom-tabId construction guarantee, L-2 unbounded `inheritedTabs` Set growth posture, L-3 URL fallback windowless match symmetry with `reassociateFloatingGroups`) — all documenting structural correctness rather than recommending changes. The B-132 fix is a textbook surgical SW-init reorder + read-side gate addition: zero new write paths, zero new message contracts, zero new permissions, zero new attack surface, zero new console noise. The AC3 deep-chain carve-out is documented with three reinforcing surfaces (R0/R2/inline JSDoc) so a future reviewer cannot mistake it for an unpatched vulnerability. Race-guard posture is strictly additive — B-132 narrows the cold-start race window rather than widening it.
+
+## [code-reviewer] — B-132 R4 anchor (Full M-tier)
+
+**Scope reviewed**: working-tree diff vs HEAD on `feature/sprint-40-drag-reorder` for B-132 R3 — 5 files (~117 production LOC + ~401 test LOC).
+- `background/tabs/floating-groups.js` (+83) — new exported `preMarkInheritedFromFloatingGroups()` + import of `markInherited`/`getClaimsMirror`.
+- `background/tabs/index.js` (+7) — cold-start ordering: `await preMarkInheritedFromFloatingGroups()` between Promise.all and `reconcileClaims(items)`.
+- `background/tabs/tab-claims.js` (+22) — Phase 2 inheritance gate: shift-and-skip `while` pattern.
+- `tests/floating-position.test.js` (+10 comment-only) — explanatory R3-DECISION block per R2 §65.10.
+- `tests/b132-cold-start-inheritance.test.js` (+391, NEW) — eight tests T-132-A..H.
+
+### CRITICAL (must fix before R5)
+
+_None._
+
+### HIGH (must fix before R5)
+
+_None._
+
+### MEDIUM (fix if time permits)
+
+_None._
+
+### LOW (defer)
+
+| # | Item | File | Finding | Fix |
+|---|------|------|---------|-----|
+| L-1 | Stale line-ref in code comment | `background/tabs/floating-groups.js` (JSDoc on `preMarkInheritedFromFloatingGroups`) AND `background/tabs/tab-claims.js` (inline comment in Phase 2) | Both comment blocks claim "the B-125 reevaluateTab gate at line 250 above" / "the B-125 (§59.3) gate at background/tabs/tab-claims.js:250 — runtime path". The actual runtime gate sits at `tab-claims.js:270` (`if (inheritedTabs.has(tabId)) return;`). Line 250 is the `@param {number} tabId` line of the JSDoc preceding `reevaluateTab`. The fix correctly mirrors the B-125 mechanism — only the cited line numbers drifted. | Update both comment blocks to cite `tab-claims.js:270` (or simply `reevaluateTab`'s inheritedTabs gate, no line number — reduces future drift). Defer-acceptable: comments only, no behavioral impact. |
+| L-2 | DRY: position+URL match logic duplicated between two cold-start helpers | `floating-groups.js:120-144` (`reassociateFloatingGroups`) and `floating-groups.js` (`preMarkInheritedFromFloatingGroups`) | The R3 helper duplicates the position-then-URL match loop from `reassociateFloatingGroups` verbatim (~21 LOC). The two helpers have different result contracts (one sets `matchedTabId` for marking; the other tracks `resolvedFloatingTabIds` for prune-decisions), so a naive shared extraction would fight both call sites. Acceptable as-is for an M-tier bug fix; the R2 §65.4 explicit "mirrors §60.4.3" framing makes the duplication an intentional algorithmic parity. | Optional follow-up: extract `_findLiveTabForRecord(record, liveTabIndex) -> tabId|null` returning the position-or-URL match. Both helpers would call it and apply their own claim-state branching. Out-of-scope for this bug fix; flag for a future cleanup item if/when the matcher gains a third caller. |
+| L-3 | Source-text pin (T-132-G) is broad to refactor noise | `tests/b132-cold-start-inheritance.test.js:325-347` | The test pins relative ordering of four `indexOf` substrings: `Promise.all([`, `preMarkInheritedFromFloatingGroups()`, `reconcileClaims(items)`, `reassociateFloatingGroups(`. Brittle to: (a) renaming `preMarkInheritedFromFloatingGroups` (correctly catches a re-name without re-wire); (b) splitting `Promise.all` into a different concurrency primitive (`await x; await y;`) — would fail with a misleading message; (c) inlining `items` into `reconcileClaims(await listItems())` would change the substring. For (b) and (c) the test would fail for the *wrong* reason — not because B-132 regressed, but because the cold-start fan-out evolved. R3-V-5 sanctioned this fallback when no spy hook exists. | Defer-acceptable. The R2 §65.12 R3-V-5 path documented this as a fallback. If a future sprint adds an `initializeLiveState` spy hook (e.g., via DI), the test should be rewritten to assert call ordering through the spy, not the source text. |
+
+### Notes / observations
+
+- **Architecture / patterns (checklist 1)** — `preMarkInheritedFromFloatingGroups` mirrors the `reassociateFloatingGroups` algorithm exactly per R2 §65.4: same position-match loop (mirrors `floating-groups.js:126-131`), same URL fallback (mirrors `:134-143`), same `safeNormalizeForMatch` import. Verified line-by-line. Result-handling diverges as designed: `reassociateFloatingGroups` writes to `resolvedFloatingTabIds`/`legacyResolvedParentItemIds` (prune sets); `preMark` calls `markInherited` (in-memory mark only). The divergence is correct because the two helpers fire on different cold-start phases and have different invariants per R2 §65.6.
+
+- **Circular dependency check (R3-V-1)** — Verified PASS. `floating-groups.js:33` imports `markInherited`, `getClaimsMirror` from `./tab-claims.js`. `tab-claims.js` imports `live-tab-index.js`, `shared/url.js`, `drift.js` only — no `floating-groups.js` import. One-way dependency. Both imports are confirmed used: `markInherited` at the helper's body, `getClaimsMirror` at the `claimedTabIds` Set construction.
+
+- **Phase 2 gate correctness (checklist 1)** — `tab-claims.js:184-192`: `while (available.length > 0)` shift-and-skip pattern is correct. Handles the all-candidates-inherited case as designed: `claimedTabId` stays null, `available` is fully consumed, the saved item is left unclaimed. The `while` does not break on the first inherited candidate; it pops and continues, which is the contract per R2 §65.5 ("Pop the inherited candidate so the next-best candidate can be claimed"). Loop preserves Phase 1 sortOrder ordering.
+
+- **Performance (checklist 3)** — Cold-start helper: one `readPartition(PARTITION_FLOATING_GROUPS)` (typically ≤ 5 records per R0 §64.4) × O(N_liveTabs) per record = bounded < 1 ms added per R2 §65 budget. The Phase 2 `while`/shift retains the prior big-O: O(items × candidates_per_url) — the gate adds only an O(1) Set lookup per skip. No performance concerns.
+
+- **Dead code / TODOs / console.log (checklist 4)** — None. Three `/* B-132 §… */` reference comments in production code; one structured JSDoc block on the new exported helper. No `console.*` calls. No leftover scaffolding.
+
+- **AC↔Test mapping (checklist 5)** — Verified the eight tests cover seven of the eight ACs explicitly + AC3 by carve-out documentation:
+  - AC1 (Mode-b URL-collision fix): T-132-A (helper marks tabId), T-132-B (empty no-op), T-132-C (no-match no-op), T-132-E (full integration)
+  - AC2 (Mode-a shallow regression guard): T-132-F (post-cold-start middle-click + `reevaluateTab`)
+  - AC3 (deep-chain carve-out): documented in JSDoc on `preMarkInheritedFromFloatingGroups` + R0 §64.6 reference; not directly tested (per AC3 — not testable; structural carve-out).
+  - AC4 (parent claim survives): T-132-E asserts `getClaimsMirror()['item-parent'] === 500`.
+  - AC5 (Phase 2 gate fires): T-132-D (gate-mechanism unit), T-132-E (integration).
+  - AC6 (No regressions, source-text pin): T-132-G (substring ordering on `index.js`).
+  - AC7 (new test file scope): the file itself satisfies AC7.
+  - AC8 (zero storage writes from helper): T-132-H asserts byte-equivalent `tj:floatingGroups` + `tj:tabClaims` payloads pre/post.
+- AC3 carve-out documentation lives in the JSDoc block on `preMarkInheritedFromFloatingGroups` and uses the R1 LOCKED carve-out language verbatim ("AC3 known-acceptable degradation; the user's recourse is to re-spawn from the bookmarked parent"). Acceptable per AC3 PASS clause (a).
+
+- **T-132-D actually exercises the while/shift loop** — verified: `markInherited(400)` then `reconcileClaims([{ id: 'item-collide', url: 'https://collide.example/' }])`. Single candidate, single inherited; the loop body executes the skip branch exactly once and exits with `claimedTabId === null`. No test seeds two candidates with one inherited (multi-candidate skip-then-claim) — but T-132-D + the Phase 2 logic in isolation (the `while` is straight-line correct) make this a non-blocker. R5 [test-engineer] may consider adding a multi-candidate test as a defense-in-depth against future loop-body changes; LOW priority.
+
+- **`floating-position.test.js:68-91` R3-DECISION compliance (checklist 9)** — verified PASS: only a 10-line comment block was added (lines 68-77); the test body at `:78-101` is byte-identical to pre-R3 (confirmed via `git diff HEAD`). The comment correctly explains why the unit test still pins useful behavior post-fix (no-inheritance branch). R2 §65.10 contract honored.
+
+- **`inheritedTabs` invariant (checklist 7)** — `if (matchedTabId !== null && !claimedTabIds.has(matchedTabId)) markInherited(matchedTabId)`. The double-guard (matched + unclaimed) is correct. At the cold-start invocation site, `claimsMirror` is empty `{}` because `reconcileClaims` has not yet run — so `claimedTabIds` will be EMPTY and every matched record passes the `!claimedTabIds.has(matchedTabId)` guard. The guard is therefore inert at the cold-start call site but semantically robust if the helper is ever reused after a partial reconcile. Not a bug; defense-in-depth.
+
+- **Cold-start ordering invariant (checklist 8)** — `index.js:50-51`: `await preMarkInheritedFromFloatingGroups();` followed by `await reconcileClaims(items);`. The `await` is necessary — the helper's mark on the module-scoped `inheritedTabs` Set must complete before Phase 2 reads it. Sequence verified. The R2 §65.3 ordering contract is met. T-132-G pins this in source text.
+
+- **Cross-cutting with B-134 (checklist 10)** — verified no symbol collision: B-134 added `_resolveRecordIndexByTabId` (private), `reorderFloatingMembers`, `moveFloatingTab`, `_floatingRecordCompare` (private). B-132 added `preMarkInheritedFromFloatingGroups`. All export names distinct. Both touch `floating-groups.js`'s top-level imports — B-132 adds `markInherited`, `getClaimsMirror`; B-134 added `ulid`. No conflict. The file builds cleanly at the import layer.
+
+- **No B-125 regression on `reevaluateTab` runtime path** — checklist 10 confirmed via T-132-F. The runtime `markInherited` from `tab-events.js` continues to gate the new tab through `tab-claims.js:270`. The new cold-start gate at `:184-192` is a separate code path within the same module-scoped `inheritedTabs` Set; both gates use the same Set (correct — one persistence target, two write surfaces).
+
+- **Test isolation hygiene** — every test in `b132-cold-start-inheritance.test.js` uses `__resetMock`, `__resetLiveTabIndex`, `__resetTabClaims` via `beforeEach`. `__resetTabClaims` includes `inheritedTabs.clear()` at `tab-claims.js:87` (B-125 already established this hygiene), so cross-test inheritance bleed is prevented.
+
+- **Non-blocker: helper signature symmetry** — `reassociateFloatingGroups(liveTabIndex, existingClaims)` takes the index and claims as arguments (testable via DI). `preMarkInheritedFromFloatingGroups()` takes zero arguments and pulls both via module-level `getLiveTabIndex()` + `getClaimsMirror()`. The asymmetry is harmless — the helper is a fire-once cold-start step with no DI need — but R5 testers must seed via `buildLiveTabIndex` before calling. Acceptable; not worth changing.
+
+- **Convergence with [security-reviewer] and [qa-reviewer] B-132 R4** — both reviewers also returned ZERO CRITICAL/HIGH/MEDIUM and only LOW observations on structural posture rather than behavior. Three-way agreement on: (a) the SW-init reorder is correct, (b) zero new write paths / zero attack surface added, (c) AC3 carve-out is properly documented in three reinforcing surfaces (R0/R2/inline JSDoc).
+
+### Verdict
+
+**APPROVED for R5.** Zero CRITICAL, HIGH, or MEDIUM findings. Three LOW observations (L-1 stale line-refs in comments, L-2 algorithmic duplication intentional per R2 §65.4, L-3 source-text-pin brittleness sanctioned by R3-V-5) — all defer-acceptable; none gate R5. Algorithm parity with `reassociateFloatingGroups` per R2 §65.4 is verified line-by-line. Phase 2 `while`/shift correctness verified (handles all-candidates-inherited and single-candidate cases). No circular dependency. No B-134 symbol collision. No B-125 regression. Test coverage maps to AC1, AC2, AC4, AC5, AC6, AC7, AC8 explicitly; AC3 covered by JSDoc carve-out per AC3 PASS clause (a). Recommend [frontend-engineer] update the L-1 line-refs in a low-priority follow-up sweep; nothing else.
+
+---
+
+## [qa-reviewer] — B-134 R4 anchor (Full M-tier)
+
+**Date**: 2026-04-29
+**Author**: [qa-reviewer]
+**Scope**: Round 4 QA review of B-134 R3 build (commit `c3e7503`). Full M-tier.
+**Inputs reviewed**: `docs/design/63-b-134-tab-drag-reorder.md` (1,103 lines, all 17 sections), `docs/BACKLOG.md` row B-134 R1 LOCKED, source delta vs `release/v2` (8 source + 4 test files, ~6,156 LOC), full test suite output (1,772 / 1,772 PASS).
+**Method**: error-handling completeness audit, C-9 empty-state enumeration walk, accessibility per WCAG AA + keyboard-first rule, theme-token contrast spot check on 14 themes, race-guard regression risk under realistic chrome event traffic.
+
+### CRITICAL (must fix before R5)
+
+_None._
+
+### HIGH (must fix before R5)
+
+| # | Item | File | Finding | Fix |
+|---|------|------|---------|-----|
+| 1 | Race-guard B fires on every background `liveState` broadcast → most drops will fail in real-world UAT | `sidepanel/sidepanel.js:6310-6314` (`_validateTabDropPreflight` Guard B) + `sidepanel/sidepanel.js:6356-6359` + `background/tabs/tab-events.js:76,82,96,112,138,202,257,260` | `_setCachedFloatingMembers` and `_setCachedOpenTabs` increment their gen counters on EVERY assignment. `refetchAndPatchLiveState` (the `liveState` broadcast handler) calls both setters every time the SW broadcasts `liveState`. The SW broadcasts `liveState` on `tab/title-changed` (every page navigation), `tab/audible-changed` (every YouTube/etc. play/pause), `tab/updated`, `tab/created`, `tab/activated`, `tab/removed`, `window/focused`, `window/blurred`. Any of these firing during a multi-second drag (a single browser-window blur+refocus does it) bumps the gen → Guard B trips → toast "Tabs changed during drag — please retry." and the drop is aborted **even when nothing about the dragged tab changed**. UAT will hit this constantly: a user dragging while a sibling tab plays audio will fail every drop. | Make the gen counter increment **content-conditional**: bump only when the relevant projection actually changes (e.g., for `_cachedFloatingMembersGen`, hash the per-group `tabIds` arrays; bump only on diff). Alternatively, scope Guard B to "the dragged tab's sourceGroupId floating set" or "the dragged tab's sourceWindow Open Tabs set" — not the entire panel. R2 §63.10.2 said "broadcast race" should mean "another window or `chrome.tabs.onCreated`/onRemoved fired mid-drag" — the current implementation overshoots that intent and includes title-changes and focus-blurs. |
+| 2 | `MSG_REORDER_FLOATING_MEMBERS` ERR_RACE silently drops user's drag with no feedback | `sidepanel/sidepanel.js:4673-4685` (REORDER_FLOATING case) | The drop dispatcher awaits `sendMessage(MSG_REORDER_FLOATING_MEMBERS, ...)` and discards the response. If the SW returns `{reordered: false, reason: 'ERR_RACE'}` (live tab vanished mid-drop, or the storage tabId set drifted), the user sees the indicator clear and the row stays in its old position with **no toast**. AC7 mandates "each guard fail surfaces a specific toast"; this branch has zero feedback. Same for `ERR_VALIDATION` (defensive case). | Inspect `resp.reordered` after the await; on `false` show a toast specific to the reason (default to "Tabs changed during drag — please retry."). Mirror the existing `MSG_MOVE_FLOATING_TAB` handling at `sidepanel.js:4697-4705` for uniformity. |
+| 3 | REJECT indicator does not follow pointer once mode is REJECT | `sidepanel/sidepanel.js:6043-6048` (skip-no-op) + `sidepanel/sidepanel.js:6056-6066` (REJECT branch) | The skip-no-op short-circuit compares `target.mode + targetGroupId + insertIndex + targetWindowId`. When the user drags into W2 and stays there, hitting different rows, all four fields are identical (mode='REJECT', targetGroupId=null, insertIndex=0, targetWindowId=W2) → tick early-returns → REJECT indicator stays **frozen at the first Y position the pointer entered W2 at**, regardless of where the pointer moves inside W2. The user sees a stuck red indicator while hovering W2 rows; the visual contract "indicator follows pointer in REJECT mode" silently breaks. | Either (a) exclude REJECT mode from the skip-no-op check (always re-position when in REJECT), or (b) include `_pendingTabPointerY` (or quantized form) in the skip-no-op key for REJECT mode only. Option (a) is simpler; perf cost is one transform write per rAF tick. |
+| 4 | REORDER_FLOATING does not exclude the dragged row from midline math (R2 §63.4.4 mandate violated) | `sidepanel/sidepanel.js:6167-6172` (`_computeTabDropTarget` floating-zone insertIndex computation) + R2 §63.4.4 | R2 §63.4.4 explicitly mandates: "REORDER_FLOATING: same midline math, but **with the dragged row excluded** (so dropping onto the dragged row's own slot returns the same insertIndex it started at)." R3 builds `rowMidlines` from ALL floating rows in the zone (including the dragged source row) at `sidepanel.js:5978-5982` and never excludes it during hit-test. Effect: when the user hovers over the dragged row's own original position, the indicator paints either above or below that slot depending on midline crossing — the same-position visual feedback is wrong. The drop-payload helper `_computeReorderFloatingPayload` does adjust for the source position, so the **stored** order is correct, but the **indicator** does not match the **outcome**. | In `_computeTabDropTarget` REORDER_FLOATING branch (or in `_buildTabDragRectCache`), filter out the row whose `tabId === _tabDragState.draggedTabId` from the source group's `rowMidlines`/`rowTabIds` arrays. Apply only when `groupId === sourceGroupId`; ATTACH/MOVE_FLOATING into a different group keep all target-bucket midlines intact. |
+
+### MEDIUM (fix if time permits)
+
+| # | Item | File | Finding | Fix |
+|---|------|------|---------|-----|
+| 5 | No grab/grabbing cursor on `.item-row[data-tab-id]` — drag affordance invisible | `sidepanel/sidepanel.css:282,293` (existing `.group-drag-handle` cursor) + (no new rule for tab rows) | Group-drag handles have `cursor: grab`/`grabbing`. Open Tabs rows and floating rows now have `draggable=true` per R3 build but no cursor change on hover. Browser default cursor stays as `auto`. **Discoverability**: a user has no visual signal that tab rows are draggable — they have to guess. Keyboard alternative (R1 AC8) is also out-of-scope for v1, so the only path is mouse-drag, but the affordance is invisible. | Add CSS: `.item-row[data-tab-id]:not([data-item-id]) { cursor: grab; }` and `#item-list.is-tab-dragging .item-row[data-tab-id] { cursor: grabbing; }`. The defensive selector `:not([data-item-id])` excludes saved-bookmark rows that may carry `data-tab-id` when claimed. |
+| 6 | ATTACH to empty group: indicator paints valid drop, then SW rejects with toast — confusing UX | `sidepanel/sidepanel.js:6164-6200` (hit-test ATTACH branch, no client-side empty-group filter) + `background/tabs/floating-groups.js:392-397` (SW empty-group reject) + R2 §63.15 caveat | The hit-test paints the green ATTACH indicator in any group's floating zone, regardless of whether the group has saved items. The SW rejects with toast "Cannot attach to an empty group." User sees: (a) drag from Open Tabs, (b) hover over Group X, (c) green indicator confirms drop is valid, (d) release, (e) toast says no. R2 §63.15 acknowledges this and proposes the alternative of disabling ATTACH on empty groups at hit-test time — that path was deferred to "if UAT flags this". This is the UAT round; flagging. | At `_buildTabDragRectCache` time (or via a synchronous read of `_cachedItems` at hit-test time), exclude floating zones for groups that have zero saved items. The user then sees a `null` hit-test (no indicator) over empty groups — clearer "this isn't a drop target" UX. |
+| 7 | `_computeReorderFloatingPayload` returning `[]` (cache miss) silently no-ops the drop | `sidepanel/sidepanel.js:6285-6286` + drop dispatcher `sidepanel.js:4679` | If `_cachedFloatingMembers[sourceGroupId]` is empty or doesn't contain the dragged tabId (e.g., cache cleared mid-drag by an unrelated `liveState` broadcast that found zero members), `_computeReorderFloatingPayload` returns `[]`. Dispatcher `if (orderedTabIds.length === 0) return;` silently aborts — no toast, no indicator clear-with-feedback. The user has no idea their drag did nothing. | Show a toast on the empty-payload branch: `showToast('Tabs changed during drag — please retry.')` — matches Guard B verbiage so user has consistent recovery instructions. |
+| 8 | ATTACH side-effect race: floating record persists in storage briefly before `markInherited` fires; `chrome.tabs.onUpdated` in that microsecond window can claim the tab | `background/messages/storage-handlers.js:742-751` (post-write side-effect ordering) | `moveFloatingTab` `await writeTransaction(...)` resolves → SW returns from the mutator → `markInherited(p.tabId)` runs synchronously after the await. Between writeTransaction resolution and `markInherited`, the event loop can deliver a queued `chrome.tabs.onUpdated` (e.g., the dragged tab finished loading mid-drag). If that update's URL matches a saved bookmark in another group, auto-claim logic at `tab-claims.js` would claim the tab BEFORE `markInherited` locks it out. Window is microseconds; the precedent (B-013 opener-chain spawn) has the same shape. **Risk: LOW frequency, MEDIUM severity** — a single tab could end up claimed under the wrong group with B-134's drag never fully landing. | Either (a) move `markInherited` to run inside `moveFloatingTab` immediately AFTER writeTransaction resolves, before the function returns, or (b) eagerly call `markInherited` BEFORE the writeTransaction starts and call `pruneInherited` only on rollback. Option (b) is cleaner: lock fires before storage settles. R6 [solution-architect] should pin the chosen pattern in §63.9.2. |
+| 9 | No automated test exercises end-to-end `_computeTabDropTarget` hit-test geometry — hit-test correctness depends on source-text pins (T22) only | `tests/b134-tab-drag-reorder.test.js:599-720` (T19-T26) | Test plan covers SW-side storage (T1-T15) thoroughly but the hit-test (`_computeTabDropTarget`) is only verified via source-text regex assertions (T22). No test constructs a synthetic DOM, populates `_tabDragRectCache`, and exercises the priority-order branches (1-6). Bugs like Finding #4 (REORDER_FLOATING includes dragged row in midlines) cannot be caught by source-text pins; they require behavioral assertions against synthetic geometry. | R5 [test-engineer] should add a small jsdom-driven harness or a pure-helper extraction (`_computeInsertIndex(midlines, y, excludeTabId?)`) testable directly. The pure-helper extraction is a 30-LOC refactor. Acceptable to defer to a polish item if UAT thoroughly walks the geometry. |
+
+### LOW (defer)
+
+| # | Item | File | Finding | Fix / Disposition |
+|---|------|------|---------|--------------------|
+| 10 | Tab rows do not announce drag affordance via ARIA — keyboard-only / SR users have no signal | `sidepanel/sidepanel.js:2854-2926` (`buildOpenTabRow`), `2951-3007` (`buildFloatingTabRow`) | `aria-label` on floating rows is "floating tab — <title>"; on Open Tabs rows it's the standard buildItemRowAriaLabel. `draggable="true"` is the HTML attribute but most screen readers don't announce it. Per WCAG 2.1.2 (no keyboard trap) the row remains keyboard-reachable for click; per WCAG 2.5.7 (Dragging Movements, AAA) the drag should have a single-pointer alternative — R1 AC8 explicitly waives this for v1. **Disposition: ACCEPT for v1 per AC8** but file a P3 polish item for keyboard-driven drag in a future sprint. | Backlog item — out-of-scope per R1 AC8. |
+| 11 | Drop indicator color `var(--accent)` vs reject `var(--danger)` — contrast across 14 themes not formally measured | `sidepanel/sidepanel.css:301-307,325-327` + `shared/themes.css` (16 occurrences of `--danger` across 14 themes) | All 14 themes define `--danger`; typical hex values are red-spectrum and visually distinct from the accent token. Spot-check confirms acceptable in default light + default dark. Formal WCAG measurement against the panel background per theme would catch any near-miss. | Defer to UAT-time visual walk across all 14 themes. UAT case 14 covers this. |
+| 12 | Cross-window REJECT toast says "Cross-window drag is not supported yet" — copy hint | `sidepanel/sidepanel.js:4648,4663` | "Yet" could imply imminent B-135 delivery. Consider "Cross-window drag is not supported in this version." | Defer to copy polish; non-blocking. |
+| 13 | DETACH `pruneInherited` makes the tab eligible for auto-claim immediately — could surprise users | `background/messages/storage-handlers.js:749-750` + `background/tabs/tab-claims.js` (auto-claim on URL match) | After DETACH, the tab is no longer locked out; if its current URL matches a saved bookmark in any group, the next `chrome.tabs.onUpdated` may claim it under that other group. The user moves a tab from G1 floating area to Open Tabs, expecting it to stay free; instead it could re-attach as a saved-claim under G2. **By design** per R1 ACs, but worth surfacing in UAT as expected-behavior check. | UAT case 8; not a code fix. |
+| 14 | `is-tab-dragging` class on `#item-list` only sets `user-select: none`; no source-row dimming or visual cue | `sidepanel/sidepanel.css:333-335` + R2 §63.5 | Item-drag (`is-item-dragging`) has multi-row dimming; group-drag has `dragging-src` class. Tab-drag has neither. The user can lose track of which row they're dragging. The browser-default ghost helps. | Add `#item-list.is-tab-dragging .item-row[data-tab-id][data-dragging] { opacity: 0.4; }` and set `data-dragging` on source row at dragstart, clear on cleanup. Polish item. |
+| 15 | `MSG_REORDER_FLOATING_MEMBERS` and `MSG_MOVE_FLOATING_TAB` broadcast SCOPE.ITEMS even on ERR_VALIDATION / ERR_RACE soft-rejects | `background/messages/storage-handlers.js:686-687,711,743,815-836` | Handler returns success-shape envelope `{reordered: false, reason: ...}` — `dispatch` returns success → broadcast block fires `broadcast(SCOPE.ITEMS, ...)` for every soft-reject. Wasted re-fetch in every other open sidepanel; not a correctness bug. | Skip broadcast when `data?.moved === false` or `data?.reordered === false`. Polish; defer if time-pressured. |
+
+### Notes / observations
+
+- **R3 build quality (R4 baseline)** — overall implementation is clean and faithful to R2 §63 chapter. Drag-state shape, mode-exclusivity guards, hit-test priority order, race-guard preflight all match the design. SW helpers correctly implement Strategy A (resolve via `(windowId, tabIndex)`) per §63.14.1. Schema bump complies with C-1a (KNOWN_VERSION 2→3, defaultShape 3, no-op migration step) and C-1b (lazy validator + appendFloatingGroup stamps sortOrder).
+- **Test count delta** — baseline 1,732 → 1,772 = +40 tests, exceeding the §63.13 estimate of +25-30. T-coverage maps to AC1-AC8.
+- **C-9 empty-state walk** — R2 §63.15 + §63.11.C-9 enumerate 10 cases. R3 implements 7 cleanly (single-member same-position no-op T11; ATTACH to empty group ERR_RACE T10; saved-bookmark row inert; group header inert; sub-group zone separation; cross-window REJECT; multi-select tab-rows out of scope). The remaining 3 (Finding #6 confusing UX, Finding #7 cache-miss silence, Finding #2 ERR_RACE silence) are above.
+- **Cross-surface coverage** — confirmed `newtab/newtab.js` and `popup/popup.js` carry zero changes. Sidepanel-only v1 scope holds.
+- **Theme regression** — `var(--accent)` and `var(--danger)` exist in all 14 themes (`shared/themes.css:96-1014`); spot-check on default light + default dark shows acceptable contrast. UAT to walk all 14.
+- **Performance** — `_buildTabDragRectCache` is O(N_groups + N_floating + N_openTabs) once per dragstart; `_tabDragTick` is O(1) when cache is warm + skip-no-op fires. No B-052 (search) or B-021 (filter) interaction.
+- **Toast noise during drag** — every Guard B trip fires a toast (`role="alert" aria-live="assertive"` announces immediately to screen readers). Mitigated by Finding #1 fix.
+- **Keyboard alternative preserved** — existing keyboard paths intact: B-007 dialog parent-picker for groups; native browser tab-strip shortcuts for tab order. R1 AC8 waives a B-134 keyboard reorder for v1.
+- **Confirmation dialog correctly absent** — drag operations are reversible (drop wrong → drag back). No data deleted; tabs remain open. Verified — no dialog opens for any of the 5 ops.
+
+### UAT must explicitly walk
+
+R5 [test-engineer] UAT plan should include (in addition to the AC1-AC8 stock cases):
+
+1. **UAT-RACE-1 (Guard B over-trip)** — Open one tab playing audio. Start dragging a different tab. Hold drag for 5 seconds. Release. Expected: drop succeeds. **If toast says "Tabs changed during drag — please retry"**, Finding #1 is in play.
+2. **UAT-RACE-2 (window blur)** — Start dragging a tab. Click another browser window briefly to blur the sidepanel's window. Click back. Drop. Expected: drop succeeds OR a clear toast explains the abort. Finding #1 likely fires here too.
+3. **UAT-REJECT-1 (REJECT indicator follow)** — Drag W1 Open Tab over W2 Open Tabs section. Move pointer between W2 rows. Expected: red REJECT indicator follows pointer. **Finding #3 — indicator stays stuck.**
+4. **UAT-REORDER-FLOATING-1 (same-position)** — Drag a floating row to its own slot. Release. Expected: no visible change, no toast, no broken state.
+5. **UAT-REORDER-FLOATING-2 (indicator on source slot)** — Drag a floating row, hover over its OWN current position. Expected: indicator should sit at the same slot. **Finding #4 — indicator misplaces by one row.**
+6. **UAT-EMPTY-GROUP-1 (ATTACH to empty group)** — Drag an Open Tab over a group with zero saved items. Expected: indicator does NOT paint as valid OR toast says "Cannot attach to an empty group" cleanly. Finding #6.
+7. **UAT-AFFORDANCE-1 (cursor)** — Hover an Open Tab row + a floating row without dragging. Expected: cursor changes to grab. **Finding #5 — cursor stays as default arrow.**
+8. **UAT-DETACH-1 (auto-claim after detach)** — Set up: tab with URL X is floating member of Group A (parent URL Y). Group B has saved bookmark URL X. DETACH the floating tab from A. Within 2 seconds, observe whether the tab gets auto-claimed under B. Expected per R1: yes, auto-claim eligible (Finding #13 surface).
+9. **UAT-MOVE-FLOATING-1 (cross-group inheritance preserved)** — Floating tab in G1 (inherited). Drag to G2's floating zone. Expected: tab now floating under G2 with new parentItemId; `inheritedTabs.has(tabId)` still true. Verify by triggering a `chrome.tabs.onUpdated` URL matching a G3 saved bookmark — tab must remain in G2.
+10. **UAT-RACE-A1 (tab close mid-drag)** — Start dragging a floating tab. While dragging, close the tab via `chrome.tabs.remove` (DevTools console). Release. Expected: toast "Tab closed during drag — drop cancelled."
+11. **UAT-CROSS-WIN-1 (cross-window snap-back)** — W1 + W2 with different tabs. Drag W1 Open Tab over W2's Open Tabs region. Expected: indicator paints reject (red); on release, toast "Cross-window drag is not supported yet."
+12. **UAT-SCROLL-1 (scroll-during-drag invalidation)** — Start drag. Scroll the sidepanel mid-drag. Continue dragging. Drop. Expected: hit-test resolves correctly post-scroll (cache invalidates).
+13. **UAT-A11Y-1 (toast announcement)** — With VoiceOver/Narrator enabled, perform UAT-RACE-1. Expected: toast text is announced.
+14. **UAT-THEME-1 (14-theme indicator contrast)** — Walk all 14 themes. For each: trigger an ATTACH drag and a cross-window REJECT drag. Verify both indicators (accent + danger) clearly visible against panel background.
+15. **UAT-CONFIRM-1 (no destructive confirmation)** — Confirm no dialog opens for any of the 5 ops. (Negative test.)
+16. **UAT-MULTI-WINDOW-CONCURRENT (broadcast race genuine)** — Open the sidepanel in two browser windows. In W2, drag a floating tab. While dragging, in W1 use bulk-delete or a saved-bookmark drag to mutate items. Release the W2 drag. Expected: clean toast, no broken state.
+17. **UAT-DRAGGED-ROW-VISUAL** — During drag, observe whether the source row visually de-emphasizes. Expected (per Finding #14): browser-default ghost only.
+18. **UAT-ESCAPE-CANCEL** — Start drag, press Escape mid-drag. Verify dragend fires, `_tabDragState` cleared, indicator hidden, no stuck class on `#item-list`.
+19. **UAT-MOUSELEAVE-CANCEL** — Start drag, move pointer outside the browser window mid-drag, release outside. Verify dragend fires cleanly, no stuck state.
+20. **UAT-AUTOCLAIM-SUPPRESS** — Drag an Open Tab whose URL matches a saved bookmark in another group, ATTACH to a third group. Verify: the source group does not auto-claim it (per AC4 + B-125 inheritedTabs lock); the third group has the floating record.

@@ -171,9 +171,29 @@ export async function reconcileClaims(items) {
     if (!normalized) continue;
     const available = urlToTabs.get(normalized);
     if (available && available.length > 0) {
-      const tabId = available.shift();
-      reconciled[item.id] = tabId;
-      claimedTabIds.add(tabId);
+      /* B-132 §65.5: skip opener-chain-inherited candidates. The
+         inheritedTabs Set is populated at cold-start by
+         preMarkInheritedFromFloatingGroups in floating-groups.js, and at
+         runtime by appendFloatingGroup in tab-events.js per §59.3. The
+         skip mirrors the B-125 reevaluateTab gate at line 250 above —
+         both prevent auto-claim of a tab that is "spoken for" by a parent
+         floating group. Pop the inherited candidate so the next-best
+         candidate can be claimed; if every candidate is filtered, the
+         saved item remains unclaimed. */
+      let claimedTabId = null;
+      while (available.length > 0) {
+        const candidate = available[0];
+        if (inheritedTabs.has(candidate)) {
+          available.shift();
+          continue;
+        }
+        claimedTabId = available.shift();
+        break;
+      }
+      if (claimedTabId !== null) {
+        reconciled[item.id] = claimedTabId;
+        claimedTabIds.add(claimedTabId);
+      }
     }
   }
 
