@@ -1,0 +1,61 @@
+# Sprint 39.1 — B-130 R4 Findings (v1.33.1 hotfix)
+
+_Pre-created at sprint kickoff per S39 retrospective action item (toolchain hygiene)._
+
+## [security-reviewer] — B-130 v1.33.1 hotfix
+
+### CRITICAL
+_None_
+
+### HIGH
+_None_
+
+### MEDIUM
+_None_
+
+### LOW
+_None_
+
+### Notes / observations
+
+- **Threat-surface verdict: clean.** This hotfix is a pure surface-reduction change — one DOM element + one CSS rule removed per surface (sidepanel + newtab), replaced by a `border-left-style: dotted` override on the existing `.item-row[data-live]` border. Net change: fewer DOM nodes per floating row, fewer CSS rules, identical token plumbing.
+- **Manifest / permissions (checklist 1):** zero changes. `git diff release/v2 -- manifest.json` returns empty.
+- **CSP / eval / dynamic script injection (checklist 2):** zero changes. Diff scan for `innerHTML|outerHTML|eval(|new Function|fetch(|XMLHttpRequest` returns zero matches across all five touched files.
+- **`textContent` vs `innerHTML` (checklist 3):** N/A — the JS edits only DELETE `createElement('div')` + `setAttribute('aria-hidden')` + `appendChild` calls (the now-removed bar element). No new string-interpolation-into-DOM paths introduced. The defensive re-attach block in `patchFloatingMembersSections` was simplified, not replaced — Save CTA defensive path retained as before.
+- **Message passing (checklist 4):** zero changes. No new `chrome.runtime.sendMessage` / `onMessage.addListener` shapes or types in the diff.
+- **Storage (checklist 5):** zero changes. No new `chrome.storage.*` write surfaces; no schema-shape changes; `KNOWN_VERSION` not incremented (correct — no schema change).
+- **Network (checklist 6):** zero changes. No `fetch` / `XMLHttpRequest` introduced.
+- **Telemetry / PII logging (checklist 7):** zero changes. No new `console.log` calls in diff (only existing surrounding code unchanged).
+- **Surface-reduction analysis (checklist 8):** confirmed safe. The `.item-floating-bar` / `.newtab-floating-bar` elements were purely visual — `aria-hidden="true"`, no event handlers, no data attributes carrying state, no role declarations. Their removal does NOT eliminate any defensive null-check, message-listener, or auth/identity boundary. The `--floating-bar-color` design token is RETAINED (sidepanel.css), so any future per-theme override remains a one-token change without re-introducing the element.
+- **Drift bar regression guard (checklist 9):** PASS. `.item-drift-bar` rule at `sidepanel/sidepanel.css:601` is untouched in the diff. The only diff-occurrences of the string `item-drift-bar` are inside CSS comment blocks (rationale text explaining WHY B-130 was needed). No behavior change.
+- **Active-state regression guard (checklist 10):** PASS. `[data-active="true"]` rules at `sidepanel/sidepanel.css:487` and `:495` are untouched. The only diff-occurrences of `data-active` are inside CSS comment blocks (rationale text). The `aria-*` matches in the diff are likewise all inside comments / test-file rationale comments — no behavior change.
+- **`aria-hidden` removal sanity check:** the bar element carried `aria-hidden="true"` in both surfaces. Removing the element removes the attribute trivially — no a11y regression because the element was already AT-invisible. AT users were never informed of a separate bar; the floating-tab cue for AT remains the `aria-label` prefix `"floating tab — …"` which is unchanged.
+- **Test file hardening:** `tests/b124-floating-visual.test.js` was updated to ASSERT the `.item-floating-bar` / `.newtab-floating-bar` rules and class assignments are GONE — `assert.doesNotMatch` lines are present in T-124-A, T-124-A.2, T-124-F, T-124-I. This is a positive defense-in-depth posture: any future accidental re-introduction of the element will fail tests immediately.
+- **Branch hygiene:** confirmed working on `hotfix/v1.33.1-b-130`, untouched. No commits, no source modifications by this reviewer.
+
+## [code-reviewer] — B-130 v1.33.1 hotfix
+
+### CRITICAL
+_None_
+
+### HIGH
+_None_
+
+### MEDIUM
+_None_
+
+### LOW
+| # | File | Finding | Fix |
+|---|------|---------|-----|
+| L-1 | `tests/b124-floating-visual.test.js:1-44` | File-level docstring header is stale relative to the post-B-130 test bodies. Lines 18-19 describe T-124-A as "`.item-floating-bar` element exists in `buildFloatingTabRow` output" — the rewritten T-124-A now asserts the OPPOSITE (the element/rule are removed and replaced by a CSS border-style override). Lines 30-31 describe T-124-F as "newtab parity: `_buildFloatingTabRow` includes the dotted-bar element" — the rewritten T-124-F now asserts the bar element is removed. Lines 36-38 describe T-124-I as "floating-row override transparents the inherited live-bar so the dotted-bar paints alone; bar selector is `position: absolute; left: 0`" — the rewritten T-124-I now asserts NOT-transparent + dotted-style on the existing border + zero `.item-floating-bar` rule. The header drifts from the actual contracts the file pins, which is exactly the kind of doc-vs-implementation gap that downstream readers (next-sprint test-engineer, security-reviewer reading the file standalone) will trip over. T-124-A.2 (newly added in R3) is also missing from the coverage list. | Update the header block to reflect the post-B-130 contracts. Add a "B-130 hotfix rewrite" note documenting the shape change (separate-bar element → border-style override on existing live-indicator) and add T-124-A.2 to the coverage list. |
+| L-2 | `sidepanel/sidepanel.css:625-628` | The new `.item-row[data-floating="true"]` rule overrides `border-left-style` (longhand) in addition to `border-left-color`. This structurally weakens the B-123 §61 placeholder invariant ("indicator variants override ONLY `border-left-color` — never width / style / padding") that `tests/b123-row-alignment.test.js:96-144` (T2) pins for `[data-live]` and `[data-active]`. T-124-I (lines 472-476) correctly forbids the SHORTHAND `border-left:` redeclare, but does NOT forbid `border-left-style:` longhand on `[data-floating]`. Practically safe — the 3 px width is unchanged so content x-position is preserved (the alignment guarantee B-123 was protecting). But this is the first variant rule in the codebase to mutate something other than `border-left-color`, and a future maintainer adding e.g. `border-left-width` here would silently re-introduce the pre-B-123 alignment asymmetry. | No code change required for B-130 ship. Optional follow-up: extend T-124-I with explicit `assert.doesNotMatch(overrideBody, /border-left-width:/)` and `assert.doesNotMatch(overrideBody, /padding-left:/)` to lock the same width/padding-immutability invariant onto the `[data-floating]` rule that B-123 T2 locks onto `[data-live]`/`[data-active]`. R6 [solution-architect] should also note in the §61 chapter that B-130 deliberately broadens the placeholder contract to permit `border-left-style:` mutation while preserving the width/padding immutability invariant. |
+
+### Notes / observations
+- **AC2 cleanup completeness — clean.** `grep -nr "floating-bar"` across `sidepanel/`, `newtab/`, `components/`, `shared/`, `background/`, `popup/` returns only (a) explanatory comments referencing the historical `.item-floating-bar` / `.newtab-floating-bar` element by name, and (b) the retained `--floating-bar-color` token at `shared/themes.css:67` and its consumer at `sidepanel/sidepanel.css:627`. No orphaned element creation, no orphaned CSS rule, no orphaned defensive re-attach in `patchFloatingMembersSections`. Production-code comment hygiene is acceptable — comments are concise (5-14 lines) and explicitly frame historical references as B-130 hotfix context.
+- **Newtab right-side-only verdict — justified.** Verified `newtab/newtab.css` `.newtab-item-row` has no inherited `border-left` indicator (the rule sets `border: none`, `padding: 8px 14px`, no border-left declarations). Newtab live-state cue is the right-side `.newtab-indicator-live` dot inside `.newtab-item-indicators` — that dot is unchanged by B-130. **Open question for product-owner awareness (NOT a finding):** newtab does NOT have a non-color cue distinguishing floating-with-live-indicator from saved-with-live-indicator after B-130 (the right-side dot fires identically for both). However, this is consistent with R2 §61.3.2 — newtab signals floating-vs-saved via (i) the right-side `.newtab-indicator-live` dot (already present), (ii) the hover-reveal `.newtab-floating-save` CTA (retained), (iii) the row's `aria-label` "floating tab —" prefix (retained). The visual-distinction gap on newtab is a known accepted tradeoff at R2 — not introduced by B-130.
+- **Active+floating row interaction:** with B-130, an active+floating row paints `var(--floating-bar-color)` (defaults to `var(--live-indicator)`) on the border-left, NOT `var(--active-border)`. The active-row color cue on the LEFT EDGE is fully replaced by the floating cue. The `[data-active]` background tint at `sidepanel.css:488` (`background: var(--active-bg)`) is preserved and is the surviving active-row cue on floating rows. This is structurally tighter than the pre-hotfix L-7 deferred concern (S39 design-doc line 475) — pre-hotfix the bar still painted dotted-green; post-hotfix same outcome via a different mechanism. No regression vs S39 close behavior.
+- **Source order — verified.** `.item-row[data-floating="true"]` at line 625 is correctly placed AFTER `[data-live="true"]` (line 483) and `[data-active="true"]` (line 487). Cascade resolves to the floating rule's `border-left-color` and `border-left-style` declarations on equal-specificity selectors via source order.
+- **Comment hygiene — clean.** The rewritten leading comment at `sidepanel/sidepanel.css:611-624` is accurate, concise, and cites the design doc chapter (§61.X-as-built). The `buildFloatingTabRow` JSDoc at `sidepanel/sidepanel.js:2865-2880` correctly summarizes the B-130 simplification with a parenthetical note about the prior shape. The inline comment at `sidepanel.js:2899-2902` cleanly replaces the pre-hotfix bar-element-creation block. The inline comment at `sidepanel.js:3108-3112` (in `patchFloatingMembersSections`) correctly explains why the defensive re-attach is no longer needed AND notes the Save CTA defensive re-attach is retained below. No outdated "B-124 §61.3.1" framing left behind.
+- **Test quality — strong.** 1,732/1,732 pass (1,731 baseline + T-124-A.2 new). T-124-A correctly pins the override body for both `border-left-style: dotted` AND `border-left-color: var(--floating-bar-color)` AND the `.item-floating-bar` rule absence. T-124-A.2 correctly pins both the `buildFloatingTabRow` cleanup AND the `patchFloatingMembersSections` defensive-re-attach cleanup (thorough JS-side sweep). T-124-I correctly asserts the new shape, explicitly rejects the pre-hotfix `border-left-color: transparent` shape, and retains the B-123 placeholder shorthand-redeclare guard. T-124-F correctly pins the right-side-only verdict for newtab. T-124-B/C/D/E/G/H/J/K were not updated but no update was needed — none of them assert the bar element existence; they cover aria-label, Save CTA, MSG_PROMOTE_TAB, drift-skip, theme token, focus-within, cross-surface aria parity, zero-group fallback. All consistent with post-hotfix architecture. No other test files reference the bar selectors (verified via `grep -l "item-floating-bar\|newtab-floating-bar" tests/*.test.js` → only `tests/b124-floating-visual.test.js`).
+- **Performance — net-positive.** Net-zero CSS change (one rule shape: `border-left-color: transparent` → `border-left-style: dotted; border-left-color: var(...)` — same selector specificity, same cascade depth). JS removed an `appendChild` per floating row in `buildFloatingTabRow` AND in `patchFloatingMembersSections` defensive-re-attach — micro-perf improvement on render and patch hot paths. No new permissions, no new message types, no storage schema impact.
+- **`.newtab-item-row` `position: relative` retention:** kept after the bar element removal — comment at `newtab/newtab.css:305-311` justifies retention as a positioning anchor for future absolute children. Acceptable — removing it would risk affecting any future absolute child (focus rings already use `outline-offset`, but a future overlay could need it).
