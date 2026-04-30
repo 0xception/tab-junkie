@@ -14,32 +14,28 @@ Seven-item sprint: 1 P1 anchor (B-137 schema v3→v4 migration adopting `floatin
 
 ## Active Items
 
-### [B-137] Floating-tab `floatingTabId` join-key adoption (P1 — anchor)
-- **Tier**: Full (M)
-- **Status**: 🔄 R1 [product-manager] in flight (Wave 0)
-- **Assigned To**: [product-manager] for R1 (Wave 0)
-- **Feature Context**: `tj:floatingGroups` records currently use `(windowId, tabIndex)` position heuristic to join to LiveTabIndex in `buildFloatingMembers`. The B-121 v2 schema added a `floatingTabId` ulid which is stored on the record but never used as the join key. Bug post-S40 spike Issue 2 (sibling-title displacement) + Issue 3 (race toast) both trace to this fragile join. B-137 replaces the position join with `floatingTabId`-based identity-stable resolution.
-- **Handoff Notes for R1 [product-manager]**:
-  - **Authoritative spec inputs**: `docs/findings/post-s40-smoke-triage.md` Issue 2 + B-131 re-eval section (already classified data-model gap with HIGH confidence). `docs/design/60-b-121-floating-tab-render.md` for current schema + `buildFloatingMembers` resolver. `docs/design/63-b-134-tab-drag-reorder.md` §63.18.2 for the parentItemId re-anchor R6 reconciliation. `docs/BACKLOG.md` row B-137 has the user story + dependencies.
-  - Apply B-118 source-citation gate (every claim cites `file:line` or `R2-VERIFY`).
-  - Apply DoR Gate 7 destructive-action confirmation status (likely N/A — schema migration is reversible via lazy fallback).
-  - Apply B-119/B-126 fix-scope test-assertion enumeration mandatory subsection at R2-time, not R1.
-  - Target 6-8 ACs covering: (a) v3→v4 schema bump (`liveTabId: number|null` field on each record); (b) write-path: `appendFloatingGroup` stamps `liveTabId`; (c) read-path: `buildFloatingMembers` uses `liveTabId` first, falls back to position+URL ONLY for cold-start re-bind; (d) `_resolveRecordIndexByTabId` (B-134 R3) refactored to O(1) via the new join; (e) cold-start re-bind populates `liveTabId` on legacy v3 records; (f) lazy migration: legacy v3 records resolve via fallback until next write; (g) C-1a + C-1b governance compliance (KNOWN_VERSION 3→4, defaultShape v4, MIGRATION_STEPS v3→v4 no-op step, CHANGELOG SW flush note); (h) regression guards for B-121, B-125, B-130, B-132, B-134 contracts.
-- **Files Changed**: TBD by R3 (estimate ~150-200 prod LOC + ~15-20 tests)
-- **Parallel Opportunity**: R1 can run parallel with the B-139..B-143 R1 bundle
+_B-137 closed DONE 2026-04-30 — moved to "Completed This Sprint" below._
 
-### [B-138] Post-B-137 `(windowId, tabIndex)` callers cleanup (P2 — Wave 1)
-- **Tier**: Fast Track (XS)
-- **Status**: 🔄 R1 auto-derive at R3 (no Wave 0 work; foldable into B-137 R3)
-- **Feature Context**: After B-137 lands, audit remaining position-heuristic callers; remove redundant code; ensure `liveTabId` is the single source of truth.
-- **Handoff Notes for R3**: B-137 R3 [frontend-engineer] decides at R3-time whether to fold B-138 into B-137 R3 commit (recommended if same files touched) OR keep as separate Fast Track R3 sequenced after B-137 close.
-- **Files Changed**: TBD
+_B-138 DEFERRED (position-fallback retained intentionally for legacy v3 records during transition; see B-137 As-Built §66.18.11). Remains backlog for future sprint when v3 cohort confirmed empty._
 
 _B-139..B-143 bundle DONE 2026-04-30 — moved to "Completed This Sprint" below._
 
 ---
 
 ## Completed This Sprint
+
+### ✅ B-137 — `tj:floatingGroups` schema v3→v4 migration (P1 anchor · Full M)
+- **Status**: DONE 2026-04-30 — Full pipeline complete. R1 LOCKED → R2 chapter 66 (1,129 lines incl. As-Built) → R3 build (~242 net LOC + 15 tests) → R4 (3 reviewers PROCEED — 0 CRIT/HIGH; 1 MEDIUM routed to UAT) → R5 (UAT_B-137.md 15 cases + 2 cheap-fix tests) → R6 As-Built §66.18 + R7 docs.
+- **Files Changed**: 5 source (`background/storage/{migration.js, shapes.js}` · `background/tabs/{floating-groups.js, floating-members.js, tab-events.js}`); 9 test (15 new tests + fixture updates across `floating-shape, floating-position, floating-multi, b132-cold-start-inheritance, b134-tab-drag-reorder, migration-steps, b013-opener-chain, b018-persistence, b121-floating-group-render`); 2 R5-added tests (`floating-multi.test.js` qa L-2 H-2 dedup + `migration-fresh-install.test.js` qa L-3 defaultShape literal pin); design `docs/design/66-b-137-floating-tab-id-join-key.md` (R2 + §66.18 As-Built); `docs/UAT_B-137.md` (15 cases). Plus R7 docs: CHANGELOG / user-manual.
+- **What shipped**: schema v3→v4 lazy migration adopting `floatingTabId`-derived `liveTabId` as primary live-tab join key. 3-tier read join (a `liveTabId` direct → b position fallback → c URL fallback). Cold-start `reassociateFloatingGroups` extends prune-only writeTransaction to also lazy-rewrite legacy v3 records. `_resolveRecordIndexByTabId` (B-134 R3 helper) refactored to O(1) for v4 records. **Subsumes B-131** (sibling-title displacement); **structurally eliminates Issue 3** (race-toast on rapid floating reorder).
+- **C-1a + C-1b compliance**: KNOWN_VERSION 3→4 ✓ defaultShape(PARTITION_META) v4 ✓ no-op MIGRATION_STEPS v3→v4 ✓ lazy migration option 2 ✓ CHANGELOG SW module-cache flush note included in v1.35.0 entry.
+- **R4 verdict**: code APPROVE 0 findings · security PROCEED 0 CRIT/HIGH/MEDIUM 1 LOW (advisory) · qa PROCEED 0 CRIT/HIGH 1 MEDIUM (UAT-1 mandatory; closed by R5) 4 LOW (2 closed by R5 cheap-fixes, 1 by R6 As-Built JSDoc, 1 by UAT).
+- **B-141 self-application gate**: did NOT fire (R3 verified all R2-cited line numbers matched reality; documentation drift only). First successful Sprint 41 self-application.
+- **Tests**: 1,782 → 1,799 (+17 across the B-137 lifecycle).
+
+### ✅ B-138 — Post-B-137 `(windowId, tabIndex)` callers cleanup (Fast Track XS, **DEFERRED**)
+- **Status**: DEFERRED 2026-04-30 — position-fallback retained intentionally for legacy v3 records during transition. Per B-137 R6 As-Built §66.18.11, B-138 is recommended for future sprint (S45+) once observation window confirms zero v3 cohort. R5 UAT-15 verifies the fallback REMAINS active as a regression guard for the deferred state.
+- **No code shipped**; row stays `backlog | TBD` post-S41 close (re-flipped from `in-progress | 41`).
 
 ### ✅ B-139..B-143 — CLAUDE.md process-gate bundle (Fast Track XS, 5 items)
 - **Status**: DONE 2026-04-30 — Fast Track DoD met. R1 LOCKED (Wave 0 bundle) → R3 build (single CLAUDE.md edit pass per R3 ordering note) → R4 [code-reviewer] CLEAN + [security-reviewer] CLEAN (qa skipped per Fast Track tier).
@@ -59,6 +55,54 @@ _B-139..B-143 bundle DONE 2026-04-30 — moved to "Completed This Sprint" below.
 ## Blockers
 
 *None.*
+
+---
+
+## Gate 4 — Release Checklist (verified 2026-04-30)
+
+- ✅ All R4 review findings resolved — 0 CRIT/HIGH on B-137; MEDIUMs/LOWs closed at R5 (cheap-fix tests + UAT-1) or R6 As-Built (qa L-1 JSDoc) or routed to UAT-13. Documented in `docs/findings/sprint-41.md` + As-Built §66.18.4.
+- ✅ All R5 automated tests passing — **1,799/1,799 PASS**. Net delta from S40 baseline 1,782: +17 tests.
+- ✅ UAT plan authored: `docs/UAT_B-137.md` (15 cases). Manual UAT by product-owner pending — NOT blocking close per established pattern.
+- ✅ No open blockers
+- ✅ R6 As-Built §66.18 appended to `docs/design/66-b-137-floating-tab-id-join-key.md` (chapter 923 → 1,129 lines)
+- ✅ `docs/SOLUTION_DESIGN.md` TOC updated for chapter 66 to "R2 + R6 Close"
+- ✅ `manifest.json` permissions reviewed — no additions
+- ✅ `./build.sh` clean (release-manager will re-run with version bump)
+- ✅ Rollback plan documented in As-Built §66.18.10 (single-revert; lazy self-rolls-back)
+- ✅ R7 docs updated: `CHANGELOG.md` v1.35.0 entry **with mandatory C-1a SW module-cache flush note** for `tj:floatingGroups` v3→v4 schema bump (B-137) + `docs/user-manual/managing-items.md` extended with "Reliable title rendering (v1.35.0 onward)" subsection. STORE_LISTING.md unchanged (no surgical-update threshold met). README.md does not exist on this branch.
+- ✅ `BACKLOG.md` updated — B-137 → `done | 41`; B-138 reverted to `backlog | TBD` (DEFERRED disposition); B-139..B-143 → `done | 41`.
+- ✅ `BACKLOG_BOARD.md` updated — progress recalculated; status summary refreshed.
+- ✅ `SPRINT.md` "Completed This Sprint" section reflects all 6 finished items + B-138 DEFERRED entry.
+
+**Gate 4 status: PASS** — sprint may close.
+
+---
+
+## Sprint Retrospective — Sprint 41 (Gate 7)
+
+### Velocity
+- **Planned**: 7 items / ~7 effort units (1×P1/M anchor + 1×P2/XS B-138 + 5×P3/XS B-139..B-143)
+- **Completed**: 6 shipped + 1 DEFERRED (B-138 intentional defer) / ~6.5 effort units
+- **Carried over**: B-138 reverts to backlog with documented disposition (DEFERRED); not a slip — position-fallback intentionally retained
+- **Test count delta**: 1,782 → 1,799 (+17 tests across the sprint)
+
+### What Went Well
+- **R0 spike from post-S40 carried into S41 cleanly** — the spike's HIGH-confidence root cause for Issue 2 + Issue 3 (`(windowId, tabIndex)` join fragility) directly drove B-137's design without R0/R1 friction.
+- **Wave 1 Fast Track bundle worked smoothly** — 5 CLAUDE.md process gates in one R3 [frontend-engineer] agent + one R4 reviewer pair (mirrors S39 B-127/B-128/B-129 + v1.33.1 B-130 patterns).
+- **B-141 self-application gate worked correctly** — first self-applied test of the new "STOP-and-escalate on R2-spec-incorrect" extension; R3 confirmed line-number drift was JSDoc-only (not silent adaptation), so gate did NOT fire (correctly).
+- **Cross-reviewer convergence at R4 was minimal** — R3 build was clean enough that no Wave 3a fix-round needed (vs S40 which had 4 HIGH findings requiring fix-round). Validates that careful R2 design (chapter 66 = 923 lines) catches problems pre-build.
+- **Toolchain hygiene continues** — `docs/findings/sprint-41.md` pre-created at kickoff; 0 file-write denials across all R4/R5 agent runs.
+- **Schema-bump compliance pattern matured** — third sprint applying full C-1a + C-1b lazy-migration recipe (S38 v1→v2, S40 v2→v3, S41 v3→v4); all three landed clean.
+
+### What to Improve
+- **B-138 disposition routing** — at sprint kickoff B-138 was filed as Wave 1 piggyback assuming "post-B-137 cleanup" would be possible same-sprint. R2/R3 correctly identified that the position-fallback must be retained for legacy v3 records. The disposition flipped from "fold into B-137 R3" → "DEFERRED" mid-sprint without explicit [scrum-master] routing. Improvement: when an item's tier/disposition can flip on R2 outcome, R1 should explicitly enumerate the disposition-flip conditions, so sprint planning knows to expect the deferral. Filed as B-144 candidate for next CLAUDE.md retro.
+- **R5 UAT plan is the single source of B-131 user-visible repro coverage** — qa-reviewer flagged at R4 that the unit T1 test verifies the position-collision MECHANISM but not the user-visible PATH. R5 UAT-1 closes this, but the gap was discovered late. Improvement: when R3 introduces a structural fix for a previously-reported user-visible bug, R3 (or R5) should always include a unit test that walks the actual user-visible reproduction path, not just the mechanism. Filed as B-145 candidate.
+
+### Action Items for Next Sprint
+- [ ] **B-144 candidate**: CLAUDE.md R1 charter addition — when an item's tier/disposition can flip based on R2 outcome (e.g., "fold into anchor" vs "deferred"), R1 must enumerate the disposition-flip conditions so [scrum-master] expects the routing change. Filed as P3/XS Fast Track for S42.
+- [ ] **B-145 candidate**: CLAUDE.md R3 charter addition — when R3 ships a structural fix for a previously-reported user-visible bug, R3 must include a unit test walking the user-visible reproduction path (not just the structural mechanism). Filed as P3/XS Fast Track for S42.
+- [ ] B-138 watch — after one or two sprints of v4 production observation, check whether v3 cohort has fully turned over (via UAT or telemetry-equivalent — extension storage inspection); when zero v3 cohort confirmed, B-138 cleanup becomes safe to schedule.
+
 
 ---
 

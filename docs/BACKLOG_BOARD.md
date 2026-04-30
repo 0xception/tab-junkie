@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-30 · **Version:** 2.41.1 · **Total Items:** 142 · **Sprint 41 active. Wave 1 Fast Track bundle DONE: B-139..B-143 (5 CLAUDE.md process gates, both reviewers CLEAN). Anchor B-137 R2 in flight; B-138 cleanup awaiting B-137 R3. Branch: `feature/sprint-41-floating-tab-id` off release/v2.**
+**Updated:** 2026-04-30 · **Version:** 2.41 · **Total Items:** 142 · **Sprint 41 closing. 6 items shipped (B-137 anchor + B-139..B-143 CLAUDE.md gates) + 1 DEFERRED (B-138 cleanup retained for future sprint per As-Built §66.18.11). Gate 4 + Gate 7 + release v1.35.0 in flight. Branch: `feature/sprint-41-floating-tab-id` off release/v2.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  94% (133/142)  [S41 active · B-139..B-143 DONE · B-137 R2 in flight · B-138 awaits B-137 R3]
+Overall Progress    ███████████████████░  94% (134/142)  [S41 closing · 6 items done + B-138 DEFERRED · release v1.35.0 in flight]
 ```
 
 ### Legend
@@ -277,16 +277,18 @@ Overall Progress    ██████████████████░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 133 | 94% |
-| 🔄 In Progress | 2 | 1% |
-| ⬜ To Do | 4 | 3% |
+| ✅ Done | 134 | 94% |
+| 🔄 In Progress | 0 | 0% |
+| ⬜ To Do | 5 | 4% |
 | 🧊 Icebox | 3 | 2% |
 
-(Done count: 133 code-shipping. B-131 reclassified `superseded-by-B-137`.)
+(Done count: 134 code-shipping. B-131 reclassified `superseded-by-B-137`. B-138 reverted to `backlog | TBD` post-S41 — DEFERRED per B-137 As-Built §66.18.11.)
 
-**In Progress breakdown (2 items, both Sprint 41)**:
-- 🔴 **B-137** (P1/M Full · anchor) — `tj:floatingGroups` v3→v4 join-key adoption; R1 LOCKED, R2 [solution-architect] in flight
-- 🟡 **B-138** (P2/XS Fast Track) — post-B-137 cleanup; awaiting B-137 R3
+**In Progress breakdown**: _0 items in flight._
+
+**To-Do breakdown (5 items)**:
+- 🟡 **P2** (3): B-041 sync tab order (L) · B-076 MIGRATION_STEPS hook (S) · **B-138** post-B-137 cleanup (XS, DEFERRED)
+- ⚪ **P3** (2): **B-135** cross-window Open Tabs drag (deferred from B-134 v1) · B-086 sidepanel UI/UX umbrella (M)
 
 **To-Do breakdown (8 items)**:
 - 🔴 **P1** (1 — Sprint 41 anchor candidate): **B-137** floatingGroups schema v3→v4 (adopt `floatingTabId` as primary live-tab join key; subsumes B-131)

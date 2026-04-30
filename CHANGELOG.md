@@ -2,6 +2,21 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.35.0] — 2026-04-29
+
+Sprint 41 — Floating-tab data-model evolution (1 user-visible item): 1 P1/M reliability fix that eliminates two latent floating-tab defects from prior sprints.
+
+### Fixed
+- **Floating tabs now reliably render the correct title and metadata (B-137)** — eliminates the issue where opening a new tab from a bookmark within a group sometimes showed an unrelated sibling item's title in the floating row (the root cause of B-131 and the post-Sprint 40 sibling-title displacement reports). Floating-tab rows now consistently display the title, URL, and favicon belonging to the actual live tab they represent, regardless of how many siblings exist in the same group.
+- **Drag-reordering floating tabs no longer fires false race-toasts (B-137)** — reordering floating tabs within a group via drag-and-drop is now a clean operation; the spurious "another window changed this group, drag aborted" toast that occasionally appeared during legitimate same-window reorders has been structurally eliminated. The genuine cross-window race-guard from v1.34.0 is preserved — it only fires now when a real concurrent edit occurs.
+
+### Architecture
+- **Schema migration `tj:floatingGroups` v3 → v4 (lazy, non-destructive)** — `tj:floatingGroups` records gain a stable identity field that survives tab-index shifts, so floating-tab rows can no longer be confused with their siblings during render or reorder. `KNOWN_VERSION` bumped 3 → 4 with a no-op migration step. Legacy v3 records (without the new identity field) are read transparently via a read-side compatibility shim plus a position+URL fallback; cold-start re-association lazily rewrites legacy records as they are encountered. No data rewrite on update. Per CLAUDE.md C-1a, an extension toggle OFF → ON cycle is required after this update to flush the service-worker module cache (see "Note" below).
+- **Manifest permissions** — unchanged. **Manifest entries** — unchanged.
+
+### Note
+- **Schema bump v3 → v4 — extension toggle required.** After updating to v1.35.0, toggle the extension OFF then ON in your browser's extensions page (`edge://extensions` or `chrome://extensions`), or fully restart the browser. This flushes the service-worker module cache and ensures the new floating-tab data model is recognized. **Floating-tab title rendering and drag-reorder may behave inconsistently until this is done.** Pre-v1.35.0 `tj:floatingGroups` records remain readable; the new write path stamps the new identity field going forward.
+
 ## [1.34.1] — 2026-04-30 — B-136 hotfix
 
 Fast Track S hotfix restoring B-134 Op 1 (Open Tabs drag-reorder user-visible behavior).

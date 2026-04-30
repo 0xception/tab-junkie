@@ -174,6 +174,10 @@ Floating tabs persist across extension reloads (for example, when Tab Junkie upd
 
 **Known limitation — deep opener chains:** if a floating tab was itself spawned from another floating tab (multiple hops deep from the original bookmarked parent), it may land in the **Open Tabs** section instead of its originating group after an extension reload. This is because the opener-chain context only goes one hop deep across reloads. **Workaround:** close the affected tab and re-spawn it from the bookmarked parent — it will rejoin the correct group automatically.
 
+### Reliable title rendering (v1.35.0 onward)
+
+When you open a new tab from a bookmark inside a group, the floating-tab row that appears in the panel will reliably show the new tab's title, URL, and favicon. (In v1.34.0 / v1.34.1, the row occasionally displayed an unrelated sibling item's title instead — that defect is fixed in v1.35.0.) Drag-reordering floating tabs within a group is also a clean operation in v1.35.0 — the false "another window changed this group" toast that sometimes appeared during legitimate same-window reorders no longer fires.
+
 ---
 
 ## Empty states and error feedback
