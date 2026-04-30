@@ -38,14 +38,7 @@ Five-item sprint: 2 P1 floating-tab bugs (B-131 + B-132) + 1 P2 drag-reorder fea
 
 ## Active Items
 
-### [B-131] Floating tab title-displacement bug (P1 — verify-first)
-- **Tier**: TBD (verify-first determines)
-- **Status**: 🔄 R1 verify-first → next round in flight (Wave 0)
-- **Assigned To**: [product-manager] for Wave 0 verify-first agent
-- **Feature Context**: product-owner reports floating-tab row briefly shows wrong title (sibling item's) on initial open, then corrects on tab activation. May no longer reproduce post-v1.33.1.
-- **Handoff Notes for Wave 0**: load v1.33.1 unpacked extension; attempt repro per the BACKLOG triage notes; produce verdict (repro/not-repro/intermittent). If not-repro: write static-analysis review of suspected `buildFloatingTabRow` / `patchFloatingMembersSections` descriptor mapping for any latent race; close as `wontfix-not-repro` if clean. If repro: write full R1 ACs and route to R2.
-- **Files Changed**: TBD
-- **Parallel Opportunity**: Wave 0 verify can run parallel with B-132 R0 + B-133 R1
+_B-131 closed `wontfix-not-repro` 2026-04-30 — moved to "Completed This Sprint" below._
 
 ### [B-132] Floating tabs land in Open Tabs after extension reload (P1 — anchor #1)
 - **Tier**: TBD (likely Spike-First M/XL pending R0 spike)
@@ -85,7 +78,14 @@ Five-item sprint: 2 P1 floating-tab bugs (B-131 + B-132) + 1 P2 drag-reorder fea
 
 ## Completed This Sprint
 
-*None yet.*
+### ❌ B-131 — Floating tab title-displacement (closed `wontfix-not-repro`)
+- **Status**: CLOSED 2026-04-30 — `wontfix-not-repro` per product-owner decision after Wave 0 [product-manager] verify-first analysis
+- **Verdict**: structurally cannot reproduce in v1.33.1. Strict tabId-keyed mapping at every layer (LiveTabIndex tabId-keyed; `buildFloatingMembers` first-match-wins on tabId; row reuse keyed by tabId; patch path row-scoped by tabId) — no pathway for cross-row title bleed.
+- **Likely actual observation**: empty-title window during `chrome.tabs.onCreated` (Chrome delivers `tab.title === ''` initially → first paint falls back to URL string or `'Untitled tab'`, NOT a sibling's title). Different (much smaller) UX concern. Not filed as new item per product-owner decision: "if this comes back up naturally, i will open a new bug."
+- **B-130 hotfix impact**: orthogonal. Hotfix removed `.item-floating-bar` element + defensive re-attach + CSS; touched zero title-rendering paths.
+- **Confidence**: HIGH (Wave 0 [product-manager] static-analysis verdict).
+- **Files Changed**: none (no code change). Analysis recorded in `docs/findings/sprint-40.md`.
+- **Sprint capacity impact**: ~M-tier item closed in Wave 0 → freed capacity for B-132 + B-134 + B-133.
 
 ---
 

@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-30 · **Version:** 2.40 · **Total Items:** 134 · **Sprint 40 active — kicked off 2026-04-30. 4 items in flight: B-131 (P1 verify-first) + B-132 (P1 R0 spike candidate) + B-133 (P3 Fast Track XS) + B-134 (P2 M Full · R1 LOCKED). B-135 filed as deferred stub (no sprint work). Branch: `feature/sprint-40-drag-reorder` off release/v2.**
+**Updated:** 2026-04-30 · **Version:** 2.40.1 · **Total Items:** 134 · **Sprint 40 active. Wave 0 outcome: B-131 closed `wontfix-not-repro` (structurally cannot reproduce in v1.33.1 per static analysis). 3 items in flight: B-132 (P1 R0 spike) + B-133 (P3 Fast Track XS R1) + B-134 (P2 M Full · R1 LOCKED). B-135 filed as deferred stub (no sprint work). Branch: `feature/sprint-40-drag-reorder` off release/v2.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  92% (123/134)  [S40 active · 4 items in flight + 1 deferred stub]
+Overall Progress    ██████████████████░░  93% (124/134)  [S40 active · 3 in flight + 1 wontfix-closed (B-131) + 1 deferred stub]
 ```
 
 ### Legend
@@ -277,13 +277,14 @@ Overall Progress    ██████████████████░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 123 | 92% |
-| 🔄 In Progress | 4 | 3% |
+| ✅ Done | 124 | 93% |
+| 🔄 In Progress | 3 | 2% |
 | ⬜ To Do | 4 | 3% |
 | 🧊 Icebox | 3 | 2% |
 
-**In Progress breakdown (4 items, all Sprint 40)**:
-- 🔴 **B-131** (P1) — floating tab title-displacement; Wave 0 verify-first in flight
+(Done count includes 1 `wontfix-not-repro` closure in S40 — B-131. Code-shipping done count is 123.)
+
+**In Progress breakdown (3 items, all Sprint 40)**:
 - 🔴 **B-132** (P1) — floating tabs route to Open Tabs after reload; Wave 0 R0 spike in flight
 - 🟡 **B-134** (P2/M Full) — drag-and-drop reorder; R1 LOCKED, awaiting Wave 2 R2
 - ⚪ **B-133** (P3/XS Fast Track) — Open Tabs dotted-green visual consolidation; Wave 0 R1 in flight
