@@ -608,33 +608,23 @@ html, body {
   pointer-events: none;
 }
 
-/* --- B-124 §61.3.1: dotted left bar for floating-tab rows ------------- */
-/* Floating rows are built via buildFloatingTabRow → buildOpenTabRow,
-   which sets `data-live="true"` on the row. The base `.item-row[data-live]`
-   rule paints a SOLID green border-left at left:0. B-124 replaces that
-   solid bar with a 3 px DOTTED bar (still in the live-indicator hue) so
-   floating rows are visually distinguishable from saved-bookmark live rows.
-   The override below transparents the inherited solid border, and the
-   absolute-positioned `.item-floating-bar` child paints the dotted stroke
-   on top at left:0. Active+floating rows still need the active-row
-   indicator: when both `data-active` and `data-floating` are true, the
-   active border-left declaration sets a colored solid border AND the
-   absolute-positioned `.item-floating-bar` paints over it — the dotted
-   bar wins visually because it occupies the same 3 px column. The active
-   background tint remains visible across the rest of the row.
-   See docs/design/61-b-124-floating-visual.md §61.3.1. */
+/* --- B-130 §61.X-as-built: dotted style on the existing live-indicator -- */
+/* B-124 (Sprint 39) originally added a SEPARATE absolute-positioned
+   `.item-floating-bar` child element to render the floating-tab dotted
+   stroke. Product-owner feedback after S39 close: that bar visually
+   collided with the dotted-orange drift bar (`.item-drift-bar`, B-101)
+   which sits in the same x-column. B-130 (v1.33.1 hotfix) REPLACES the
+   separate-bar approach by re-styling the row's existing `border-left`
+   (painted by `.item-row[data-live]`) to render DOTTED instead of SOLID.
+   No new element, no new x-column — the floating cue lives in the same
+   slot as the saved-bookmark live cue, just dotted. The
+   `--floating-bar-color` token is RETAINED (defaults to
+   `var(--live-indicator)`) so a future per-theme green-vs-other-hue
+   tweak remains a one-token change.
+   See docs/design/61-b-124-floating-visual.md §61.X-as-built (B-130). */
 .item-row[data-floating="true"] {
-  border-left-color: transparent;
-}
-
-.item-floating-bar {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  border-left: 3px dotted var(--floating-bar-color);
-  pointer-events: none;
+  border-left-style: dotted;
+  border-left-color: var(--floating-bar-color);
 }
 
 /* --- B-124 §61.3.3: hover-revealed Save-as-bookmark CTA on floating rows */

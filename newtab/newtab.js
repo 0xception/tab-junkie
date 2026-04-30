@@ -1014,14 +1014,13 @@ function _buildFloatingTabRow(member) {
   if (member.active) row.dataset.active = 'true';
   if (member.audible) row.dataset.audible = 'true';
 
-  /* B-124 §61.3.2: dotted left bar — absolute-positioned child at left:0
-     within the (relatively-positioned) row. The newtab row is a flex
-     container; the bar is positioned out-of-flow so it does not perturb
-     the favicon/text layout. */
-  const bar = document.createElement('span');
-  bar.className = 'newtab-floating-bar';
-  bar.setAttribute('aria-hidden', 'true');
-  row.appendChild(bar);
+  /* B-130 hotfix: the previous `.newtab-floating-bar` left-side dotted
+     element has been removed. Newtab rows have no inherited left-side
+     border indicator (sidepanel does), so newtab signals live / active /
+     drifted state via the right-side `.newtab-indicator-*` dots. The
+     floating-tab visual cue on newtab is the right-side
+     `.newtab-indicator-live` dot + the hover-reveal Save CTA + the
+     "floating tab —" aria-label prefix. */
 
   /* Favicon (or letter-avatar fallback). */
   const favIconUrl = isSafeFaviconUrl(member.favIconUrl) ? member.favIconUrl : null;

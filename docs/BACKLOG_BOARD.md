@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-29 · **Version:** 2.39 · **Total Items:** 128 · **Sprint 39 closing — all 6 items DONE (B-123 + B-127 + B-128 + B-129 + B-124 + B-122); Gate 4 + Gate 7 + release v1.33.0 in flight. Branch: `feature/sprint-39-polish` off release/v2.**
+**Updated:** 2026-04-30 · **Version:** 2.39.1 · **Total Items:** 131 · **Sprint 39 + v1.33.1 hotfix shipped (B-130 done). 2 P1 floating-tab bugs filed for next-sprint triage: B-131 (initial title-displacement) + B-132 (post-reload routing regression to Open Tabs).**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████████████████░  95% (122/128)  [S39 closing · 6 items done · release v1.33.0 in flight]
+Overall Progress    ██████████████████░░  94% (123/131)  [S39 + v1.33.1 hotfix done · 7 items shipped · 2 P1 bugs queued for next sprint]
 ```
 
 ### Legend
@@ -277,12 +277,17 @@ Overall Progress    ███████████████████░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 122 | 95% |
+| ✅ Done | 123 | 94% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 3 | 2% |
+| ⬜ To Do | 5 | 4% |
 | 🧊 Icebox | 3 | 2% |
 
-**In Progress breakdown**: _Sprint 39 closing — 0 items in flight._
+**In Progress breakdown**: _0 items in flight._
+
+**To-Do breakdown (5 items)**:
+- 🔴 **P1** (2 — newly filed 2026-04-30): **B-131** floating tab opens with wrong title initially (title-displacement race in `buildFloatingTabRow` / patch path) · **B-132** floating tabs route to Open Tabs section instead of originating group after extension reload (likely SW-memory loss of `openerMap` or `inheritedTabs`)
+- 🟡 **P2** (2): B-041 sync tab order (L) · B-076 MIGRATION_STEPS hook (S)
+- ⚪ **P3** (1): B-086 sidepanel UI/UX umbrella (M)
 
 **To Do breakdown (3 items, S40+ candidates)**:
 - **🟡 P2 (2)**: B-041 (sync tab order, L · pre-S33 — last big v2 feature), B-076 (MIGRATION_STEPS hook, S · pre-S33)

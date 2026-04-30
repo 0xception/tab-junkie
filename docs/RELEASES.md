@@ -4,6 +4,45 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.33.1 hotfix — B-130 floating-tab indicator simplification (2026-04-30)
+
+**Tagged on `hotfix/v1.33.1-b-130` — pending PR merge to release/v2. Tag: `v1.33.1`.**
+
+Fast Track XS hotfix simplifying the v1.33.0 B-124 floating-tab visual implementation. Replaces the separate `.item-floating-bar` / `.newtab-floating-bar` element introduced in B-124 R3 with a `border-left-style: dotted` override on the existing live-state indicator.
+
+### What's new (user-visible)
+
+- **Floating-tab cue is now the existing left-most indicator (B-130)** — under v1.33.0 a separate dotted-green bar was rendered just inside the row's left edge for floating tabs. Because the dotted-orange drift indicator (`.item-drift-bar`) sits in the same x-column, the new bar visually collided with — and read as a *replacement of* — the drift indicator. v1.33.1 removes the separate bar entirely. The existing live-state indicator on a floating row now renders dotted-green directly (saved-with-active-live continues to render solid-green). The drift indicator retains its independent identity. No behavior change beyond the visual cleanup.
+
+### Developer-visible cleanup
+
+- **Removed `.item-floating-bar` element + CSS rule (sidepanel)** — `sidepanel/sidepanel.js` `buildItemRow` no longer appends the dedicated bar element on `[data-floating="true"]` rows; `sidepanel/sidepanel.css` rule removed. Floating state is now communicated entirely via `[data-floating="true"]` selectors targeting the existing `border-left` declaration.
+- **Removed `.newtab-floating-bar` element + CSS rule (newtab)** — newtab's right-side dot indicators already cover the live-state cue per R2 §61.3.2; the left-side bar was redundant on this surface and is dropped without replacement. `newtab/newtab.js` no longer constructs the element; `newtab/newtab.css` rule removed.
+- **`--floating-bar-color` CSS token retained** — the future yellow-bar swap remains a one-token change. The token is now consumed by the `[data-floating="true"]` `border-left-color` override instead of the removed bar element's `background-color`.
+
+### Architecture
+
+- **No storage schema changes**, no manifest changes, no message-contract changes, no new permissions. CSS / DOM-shape change only.
+- No `DEFAULT_PREFERENCES` additions — no SW module-cache flush required.
+
+### Quality
+
+- **Tests**: 1,731 → **1,732 passing** (+1 — `T-124-A.2` JS-side cleanup pin verifying `buildItemRow` no longer appends `.item-floating-bar`). T-124-A + F + I rewritten to pin the new architecture.
+- **Build**: `./build.sh` clean (360 K zip, 87 files, exit 0).
+- **R4 findings**: 0 CRITICAL / 0 HIGH / 0 MEDIUM. 2 LOW deferred (stale docstring header in test file; doc-note about placeholder-contract broadening). `[security-reviewer]` 0 findings.
+
+### Pending UAT
+
+- B-130 UAT folded into the existing B-124 UAT-1..UAT-13 carry-forward — verifies floating-tab visual on both surfaces post-cleanup.
+
+### Rollback
+
+- **Code-only revert**: single atomic `git revert <hotfix-commit-sha>` reverses v1.33.1, returning to the v1.33.0 separate-bar implementation. No storage schema migrations to reverse. `git tag -d v1.33.1` deletes the local tag (if not yet pushed).
+- **Reinstall path**: download the v1.33.0 zip from the prior tag and load unpacked from `chrome://extensions` (or `edge://extensions`).
+- **GitHub Release**: skipped per product-owner direction (tag `v1.33.1` + zip exist for manual publish later).
+
+---
+
 ## v1.33.0 — Polish + drag UX (2026-04-29)
 
 **Tagged on `feature/sprint-39-polish` — pending PR merge to release/v2 + v2 merge to main. Tag: `v1.33.0`.**

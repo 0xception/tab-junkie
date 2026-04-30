@@ -2863,9 +2863,12 @@ function buildOpenTabRow(tab /* , { multiWindow } */) {
  *   - `data-parent-item-id="<itemId>"`: identifies the parent saved item.
  *
  * B-124 §61.3 + §61.4 + §61.8 layered on top:
- *   - `.item-floating-bar` child element paints a 3 px dotted left bar
- *     in `var(--floating-bar-color)` (defaults to `var(--live-indicator)`),
- *     replacing the solid live-bar painted by `.item-row[data-live]`.
+ *   - The row's `border-left` (painted by `.item-row[data-live]`) is
+ *     re-styled DOTTED in `var(--floating-bar-color)` via the
+ *     `.item-row[data-floating="true"]` CSS override (B-130 hotfix
+ *     replaced an earlier separate `.item-floating-bar` element so the
+ *     floating cue lives in the same x-column slot as the saved-bookmark
+ *     live cue and no longer collides with the dotted-orange drift bar).
  *   - `.floating-row-save-cta` button reveals on `:hover`/`:focus-within`
  *     and dispatches MSG_PROMOTE_TAB to promote the floating tab into a
  *     saved bookmark of the parent's group.
@@ -2893,13 +2896,10 @@ function buildFloatingTabRow(member) {
     row.dataset.parentItemId = member.parentItemId;
   }
 
-  /* B-124 §61.3.1: dotted left bar — absolute-positioned child at left:0
-     so it paints on top of the inherited live-row 3 px solid border-left
-     (transparented by the data-floating override). */
-  const bar = document.createElement('div');
-  bar.className = 'item-floating-bar';
-  bar.setAttribute('aria-hidden', 'true');
-  row.appendChild(bar);
+  /* B-130 hotfix: the dotted-bar visual cue is now painted via the
+     `.item-row[data-floating="true"]` CSS override (border-left-style:
+     dotted + border-left-color: var(--floating-bar-color)). No separate
+     bar element is needed. */
 
   /* B-124 §61.3.3 + §61.4: Save-as-bookmark CTA. The CTA mounts inside the
      existing `.item-indicators` container (RHS of the row alongside the
@@ -3105,15 +3105,11 @@ function patchFloatingMembersSections(nextFloatingMembers) {
            (with the "live tab" suffix), so re-override here to keep the
            floating-tab label stable across title/active/audible patches. */
         _applyFloatingRowAriaLabel(row, member);
-        /* Defensive: ensure the dotted-bar + Save CTA exist on this row
-           even if a prior code path stripped them (the row was originally
-           built via buildFloatingTabRow which adds both). */
-        if (!row.querySelector('.item-floating-bar')) {
-          const bar = document.createElement('div');
-          bar.className = 'item-floating-bar';
-          bar.setAttribute('aria-hidden', 'true');
-          row.appendChild(bar);
-        }
+        /* B-130 hotfix: the dotted-bar cue is CSS-only via the
+           `.item-row[data-floating="true"]` override; no element to
+           defensively re-attach. The Save CTA defensive re-attach is
+           retained below in case a prior code path stripped it (the row
+           was originally built via buildFloatingTabRow). */
         if (!row.querySelector('.floating-row-save-cta')) {
           const saveCta = document.createElement('button');
           saveCta.type = 'button';
