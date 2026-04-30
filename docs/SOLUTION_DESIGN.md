@@ -81,6 +81,6 @@
 - [§60 — B-121 — Floating-Tab Runtime Render Pipeline (R2 Architecture)](design/60-b-121-floating-tab-render.md)
 - [§61 — B-124 — Floating-Tab Visual Distinction (R2 + R6 Close)](design/61-b-124-floating-visual.md)
 - [§62 — B-122 — Sub-Group Drag-to-Root (R2 + R6 Close)](design/62-b-122-drag-to-root.md)
-- [§63 — B-134 — Drag-and-Drop Reorder for Open Tabs and Floating Tabs (R2 Architecture)](design/63-b-134-tab-drag-reorder.md)
+- [§63 — B-134 — Drag-and-Drop Reorder for Open Tabs and Floating Tabs (R2 + R6 Close)](design/63-b-134-tab-drag-reorder.md)
 - [§64 — B-132 R0 Spike (Floating Tabs Land in Open Tabs After Extension Reload)](design/64-b-132-r0-spike.md)
-- [§65 — B-132 — Cold-Start Claim-Jump Fix (R2 Design)](design/65-b-132-cold-start-claim-jump-fix.md)
+- [§65 — B-132 — Cold-Start Claim-Jump Fix (R2 + R6 Close)](design/65-b-132-cold-start-claim-jump-fix.md)

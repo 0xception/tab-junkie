@@ -40,26 +40,11 @@ Five-item sprint: 2 P1 floating-tab bugs (B-131 + B-132) + 1 P2 drag-reorder fea
 
 _B-131 closed `wontfix-not-repro` 2026-04-30 — moved to "Completed This Sprint" below._
 
-### [B-132] Floating tabs land in Open Tabs after extension reload (P1 — anchor #1)
-- **Tier**: TBD (likely Spike-First M/XL pending R0 spike)
-- **Status**: 🔄 R0 [solution-architect] in flight (Wave 0)
-- **Assigned To**: [solution-architect] for R0 discovery spike
-- **Feature Context**: post-extension-reload, opener-chain-spawned tabs route to Open Tabs section instead of originating group. Suspected: SW-memory loss of `openerMap` (B-013/B-018) or `inheritedTabs` (B-125), or cold-start `tj:floatingGroups` re-bind regression.
-- **Handoff Notes for Wave 0**: read B-121/B-125 As-Built + the existing `background/tabs/opener-chain.js` + `background/tabs/floating-groups.js` cold-start re-association code. Distinguish failure mode (a) post-reload spawn only vs (b) pre-existing floating tabs also affected. Produce R0 output: feasibility verdict, suspected root cause(s) with `file:line` citations, sub-item candidates if scope splits, recommended Tier (M Full vs XL Spike-First with R0 captured).
-- **Files Changed**: TBD
-- **Parallel Opportunity**: Wave 0 R0 can run parallel with B-131 verify + B-133 R1
+_B-132 closed DONE 2026-04-30 — moved to "Completed This Sprint" below._
 
 _B-133 closed DONE 2026-04-30 — moved to "Completed This Sprint" below._
 
-### [B-134] Drag-and-drop reorder for open + floating tabs (P2 — anchor #2)
-- **Tier**: Full (M)
-- **Status**: ✅ R1 LOCKED at brainstorm 2026-04-30 → R2 [solution-architect] next (Wave 2)
-- **Assigned To**: pending Wave 0 completion → [solution-architect] for Wave 2 R2
-- **Feature Context**: 5 drag operations (Open Tabs reorder, within-floating reorder, ATTACH, DETACH, cross-group MOVE). Open Tabs reorder mirrors to browser tab strip via `chrome.tabs.move`; floating-tab membership changes are TJ-metadata only.
-- **R1 LOCKED Output**: full 8-AC block in BACKLOG.md row B-134 (R1 design Q&A locked at brainstorm per product-owner answers).
-- **Handoff Notes for R2**: **R2-VERIFY 1 (CRITICAL) is the first action** — read `background/storage/shapes.js` + `buildFloatingMembers` iteration logic to disambiguate Case 1 (records carry ordering field) vs Case 2 (need to add `sortOrder` + comply with C-1a/C-1b). R2 chapter format: new `docs/design/63-b-134-tab-drag-reorder.md`. Reuse B-122 §62.3-§62.9 patterns (drop-target hit-test, sectionBottoms cache extension, F-5 race-guard third branch).
-- **Files Changed**: TBD by R3
-- **Parallel Opportunity**: R2 can run parallel with B-132 R2 (both M tier; CLAUDE.md P-3 allows 2 M parallel)
+_B-134 closed DONE 2026-04-30 — moved to "Completed This Sprint" below._
 
 ### [B-135] Cross-window Open Tabs drag (P3 — deferred stub)
 - **Tier**: N/A — deferred stub, NO Sprint 40 work
@@ -70,6 +55,27 @@ _B-133 closed DONE 2026-04-30 — moved to "Completed This Sprint" below._
 ---
 
 ## Completed This Sprint
+
+### ✅ B-134 — Drag-and-drop reorder for open + floating tabs (P2 anchor · Full M)
+- **Status**: DONE 2026-04-30 — Full pipeline complete. R1 LOCKED at brainstorm → R2 chapter 63 (1,103 lines) → R3 build (~1,300 LOC + 26 tests) → R4 (4 HIGH, 12 MEDIUM, 14 LOW across 3 reviewers) → Wave 3a fix-round (4 HIGH closed) → R5 UAT plan (19 cases) + 1 gap test → R6 As-Built §63.18 + R7 docs.
+- **Files Changed**: 8 source (`shared/messages.js` · `background/storage/{shapes.js, migration.js}` · `background/tabs/{floating-groups.js, floating-members.js}` · `background/messages/storage-handlers.js` · `sidepanel/{sidepanel.js, sidepanel.css}`); 4 test (`tests/b134-tab-drag-reorder.test.js` new (32 tests T1-T31), `tests/floating-shape.test.js`, `tests/migration-steps.test.js`, `tests/chrome-mock.js`); design `docs/design/63-b-134-tab-drag-reorder.md` (R2 + §63.18 As-Built); `docs/UAT_B-134.md` (19 cases). Plus R7 docs: CHANGELOG / STORE_LISTING / docs/user-manual/managing-items.md.
+- **What shipped**: 5 drag ops in sidepanel — (1) Open Tabs reorder same window via `chrome.tabs.move`; (2) within-floating reorder via new `MSG_REORDER_FLOATING_MEMBERS`; (3) ATTACH (Open→Floating) via new `MSG_MOVE_FLOATING_TAB` + `markInherited(tabId)` lock; (4) DETACH (Floating→Open) + `pruneInherited(tabId)`; (5) cross-group MOVE atomic single-message. Cross-window REJECT silent. 3-branch race-guard (B-122 §62.9 F-5 pattern).
+- **Schema bump**: `tj:floatingGroups` v2 → v3 — added `sortOrder: number` per record. Lazy migration; legacy v2 records readable via `(windowId, tabIndex)` fallback. C-1a (`KNOWN_VERSION` + `defaultShape`) + C-1b (eager / lazy / no-op chosen: lazy) compliance verified. SW module-cache flush note in CHANGELOG v1.34.0.
+- **Wave 3a fix-round resolutions** (4 HIGH closed): H-1 race-guard B over-trip → content-conditional gen bumps via signature setter guards · H-2 `MSG_REORDER_FLOATING_MEMBERS` ERR_RACE silent fail → toast on race + validation · H-3 REJECT indicator stuck-position → exclude REJECT from skip-no-op · H-4 REORDER_FLOATING midline math includes dragged row → exclude in both `_computeTabDropTarget` and `_resolveTabDragIndicatorY`.
+- **R5 UAT plan**: `docs/UAT_B-134.md` — 19 cases (UAT-1..UAT-19) covering all 5 ops + 4 Wave 3a regression guards + edge cases.
+- **Tests**: 1,734 → 1,778 (+44 across the B-134 lifecycle).
+- **Deferred MEDIUMs/LOWs** documented in As-Built §63.18 — payload upper-bound hardening (security M-1/M-2/M-3), parentItemId re-anchor reconciliation (decided in favor of as-built per §63.18.2), 4 qa polish items.
+
+### ✅ B-132 — Cold-start claim-jump fix (P1 anchor · Full M)
+- **Status**: DONE 2026-04-30 — Full pipeline complete. R0 spike chapter 64 (1,103 lines) → R1 (8 ACs) → R2 chapter 65 (1,047 lines) → R3 build (~117 LOC + 8 tests) → R4 (0 CRIT/HIGH/MEDIUM from code+security; 2 MEDIUM from qa) → Wave 3a fix-round (qa M-1 + M-2 closed) → R5 UAT plan (9 cases) → R6 As-Built §65.14.
+- **Files Changed**: source `background/tabs/{floating-groups.js, index.js, tab-claims.js}`; tests `tests/b132-cold-start-inheritance.test.js` (new, 8 tests T-132-A..H), comment-only edits to `tests/floating-multi.test.js`, `tests/floating-position.test.js`, `tests/floating-ready-gate.test.js`, `tests/b018-persistence.test.js`; design `docs/design/64-b-132-r0-spike.md` (R0) + `docs/design/65-b-132-cold-start-claim-jump-fix.md` (R2 + §65.14 As-Built); `docs/UAT_B-132.md` (9 cases).
+- **What shipped**: Mode (b) URL-collision claim-jump fix — new `preMarkInheritedFromFloatingGroups()` helper runs at cold-start BEFORE `reconcileClaims`, populating `inheritedTabs` Set from persisted `tj:floatingGroups` records. New Phase 2 gate in `reconcileClaims` skips candidates already in `inheritedTabs` (mirrors B-125 `reevaluateTab` gate pattern). Pre-existing floating tabs survive extension reload without claim-jumping.
+- **AC3 deep-chain carve-out**: post-reload multi-hop opener-spawned tabs land in Open Tabs section (structural — `openerMap` is in-memory only). Documented across THREE surfaces (R0 §64.6, R2 §65.7, inline JSDoc on helper). Future-reader cannot mistake for unpatched vulnerability.
+- **R2-VERIFY 1**: `chrome.storage.session` wipe behavior on extension reload — confirmed at R2 §65.2 via internal consistency analysis (deferred to UAT-4 for empirical SW-console verification; fix correct under either verdict).
+- **Wave 3a fix-round resolutions** (2 MEDIUM closed): qa M-1 → comment blocks on 3 sibling tests with same URL-collision pattern · qa M-2 → try/catch wrap on cold-start helper for graceful degradation.
+- **R5 UAT plan**: `docs/UAT_B-132.md` — 9 cases (UAT-1..UAT-9) covering Mode-b primary fix + Mode-a regression + AC3 carve-out + R2-VERIFY 1 empirical.
+- **No schema bump, no new permissions, no new message contracts**.
+- **Tests**: 1,769 → 1,778 (+9 across the B-132 lifecycle: 8 in T-132-A..H + 1 commented edit pin).
 
 ### ✅ B-133 — Open Tabs dotted-green indicator (Fast Track XS)
 - **Status**: DONE 2026-04-30 — Fast Track DoD met. R3 build complete + R4 [code-reviewer] CLEAN + R4 [security-reviewer] CLEAN (qa skipped per Fast Track tier).
@@ -94,6 +100,55 @@ _B-133 closed DONE 2026-04-30 — moved to "Completed This Sprint" below._
 ## Blockers
 
 *None.*
+
+---
+
+## Gate 4 — Release Checklist (verified 2026-04-30)
+
+- ✅ All R4 review findings resolved — 4 HIGH on B-134 closed in Wave 3a fix-round (H-1 race-guard scoping; H-2 ERR_RACE toast; H-3 REJECT cache key; H-4 midline excludes dragged row); 2 MEDIUM on B-132 closed in Wave 3a (qa M-1 sibling-test comments; qa M-2 try/catch wrap); MEDIUMs documented as deferred in As-Built sections + `docs/findings/sprint-40.md`.
+- ✅ All R5 automated tests passing — **1,778/1,778 PASS**. Net delta from S39 baseline 1,734: +44 tests.
+- ✅ UAT plans authored: `docs/UAT_B-132.md` (9 cases), `docs/UAT_B-134.md` (19 cases). Manual UAT by product-owner pending — NOT blocking close per established pattern.
+- ✅ No open blockers
+- ✅ R6 As-Built sections appended: `docs/design/63-b-134-tab-drag-reorder.md` §63.18 + `docs/design/65-b-132-cold-start-claim-jump-fix.md` §65.14
+- ✅ `docs/SOLUTION_DESIGN.md` TOC updated for chapters 63 + 64 + 65
+- ✅ `manifest.json` permissions reviewed — no additions
+- ✅ `./build.sh` clean (release-manager will re-run with version bump)
+- ✅ Rollback plans documented in As-Built §63.18 + §65.14
+- ✅ R7 docs updated: `CHANGELOG.md` v1.34.0 entry **with mandatory C-1a SW module-cache flush note** for `tj:floatingGroups` v2→v3 schema bump (B-134) + `STORE_LISTING.md` surgical bullets + `docs/user-manual/managing-items.md` extended (drag-reorder section + B-132 reload-limitation note + visual-taxonomy clarification)
+- ✅ `BACKLOG.md` updated — all 5 items: B-131 `wontfix` | 40, B-132 `done` | 40, B-133 `done` | 40, B-134 `done` | 40, B-135 `backlog | TBD` (deferred stub)
+- ✅ `BACKLOG_BOARD.md` updated — progress 96% (127/134); status summary recalculated
+- ✅ `SPRINT.md` "Completed This Sprint" section reflects all 4 finished items + 1 wontfix closure
+
+**Gate 4 status: PASS** — sprint may close.
+
+---
+
+## Sprint Retrospective — Sprint 40 (Gate 7)
+
+### Velocity
+- **Planned**: 5 items / ~8.5–13 effort units (1×P1 verify-first + 1×P1 M-Spike-First + 1×P3 XS + 1×P2 M + 1 deferred stub)
+- **Completed**: 4 items / ~7-8 effort units (B-131 closed in Wave 0 saved ~3 units; B-132 came back M Full not XL Spike-First; B-134 hit the 4 HIGH finding fix-round adding ~0.5 unit)
+- **Carried over**: 0 items (B-135 deferred stub stays in backlog as planned)
+- **Test count delta**: 1,734 → 1,778 (+44 tests across the sprint)
+
+### What Went Well
+- **R0 spike merged for B-132** — discovery completed in Wave 0 alongside R1 work; verdict came back M Full (not XL Spike-First), saving sprint capacity. Pattern: when a P1 bug touches a known-tricky subsystem, R0-in-Wave-0 is faster than serial R0→R1.
+- **B-131 verify-first saved ~3 effort units** — Wave 0 [product-manager] static-analysis verdict (HIGH confidence: structurally cannot reproduce) closed the bug as `wontfix-not-repro` without sinking R2/R3 effort. Pattern worth keeping for any P1 bug where repro is uncertain post-fix-of-related-issue.
+- **R1 LOCKED at brainstorm for B-134** — saved an entire round-trip; R2 chapter 63 dropped in directly per the locked design. Visual-companion offer wasn't needed (decision-tree style) but the brainstorm Q1-Q5 sequence was crisp.
+- **Cross-reviewer convergence at R4 surfaced 4 HIGH findings cleanly** — qa-reviewer caught the gen-counter over-trip (H-1) which would have been a UX-blocker had it shipped. Validates the "3 reviewers in parallel" Gate 1 pattern.
+- **Toolchain hygiene fix shipped** (S39 retro action item) — `docs/findings/sprint-40.md` pre-created at kickoff; agents wrote findings without permission-prompt friction. 0 file-write denials this sprint.
+- **Schema-bump compliance worked** — C-1a + C-1b governance applied cleanly for `tj:floatingGroups` v2→v3 lazy migration; SW module-cache flush note in CHANGELOG v1.34.0 per precedent.
+
+### What to Improve
+- **Gen-counter over-trip near-miss** — H-1 (race-guard B over-trips on title/audible/active changes) was a substantial UX bug that almost shipped. R3 didn't think about cache-write granularity vs drag-state stability when implementing the gen counter pattern. Improvement: when introducing in-memory cache invalidation for drag-state guards, R2 should explicitly enumerate "what counts as a relevant change" for each guard. Filed as B-136 candidate for Sprint 41 retro piggyback (CLAUDE.md R2 charter addition).
+- **B-134 R3 docstring vs R2 deviation (parentItemId re-anchor)** — code-reviewer M-4 flagged a deviation from R2 §63.8.2 pseudocode. R6 reconciliation decided in favor of the as-built behavior (more correct), but the deviation surfaced at R4 not at R3. Improvement: R3 STOP-and-escalate (B-127) should also fire when R3 finds R2 spec is incorrect, not just when deferring AC-locked behavior. Filed as B-137 candidate for Sprint 41 retro piggyback.
+- **R2-VERIFY 1 deferred to UAT** — chrome.storage.session wipe-on-reload empirical confirmation pushed to UAT-4. Acceptable since fix is correct under either verdict, but ideally R2 would have a way to verify environment behavior without UAT round-trip. Improvement: consider adding an "R2 environment probe" pattern — small standalone scripts that R2 can run via the SW console to empirically verify Chrome/Edge behavior without requiring UAT. Defer to backlog triage.
+
+### Action Items for Next Sprint
+- [ ] **B-136 candidate**: CLAUDE.md R2 charter addition — for any drag-state / cache invalidation contract, R2 must enumerate "what changes count as gen-counter-relevant" to prevent the H-1 over-trip class.
+- [ ] **B-137 candidate**: CLAUDE.md R3 STOP-and-escalate (B-127) extension — fire when R3 finds R2 spec is incorrect, not just for AC-locked deferrals. Mirrors B-127 origin (B-121 silent deferral). Filed as P3/XS Fast Track for Sprint 41.
+- [ ] Pre-existing S39 retro candidates **B-138/B-139** (R3 cross-surface diff self-check + R3 deferred-to-UAT cheap-fix check) still pending file. Bundle with B-136/B-137 in Sprint 41 retro Wave 1 piggyback.
+
 
 ---
 

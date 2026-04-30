@@ -846,3 +846,73 @@ test('B-134 T30 (R4 H-4): REORDER_FLOATING midline math excludes the dragged row
     '_resolveTabDragIndicatorY must filter midlines for REORDER_FLOATING mirror',
   );
 });
+
+/* =========================================================================
+   T31 — R4 [code-reviewer] M-2 SW-side parity-mismatch coverage for
+   reorderFloatingMembers. Three branches:
+     (a) under-supply — orderedTabIds is missing a tabId currently in storage
+     (b) over-supply  — orderedTabIds includes a stale/unknown tabId
+     (c) duplicate    — orderedTabIds contains the same tabId twice
+
+   All three must return false and write ZERO storage mutations.
+   ========================================================================= */
+
+test('B-134 T31 (R4 [code-reviewer] M-2): reorderFloatingMembers race-paths return false on parity mismatch', async () => {
+  const g = await createGroup({ name: 'G1', color: COLOR, parentId: null, sortOrder: 0 });
+  const item = await createItem({ title: 'parent', url: 'https://parent.example', groupId: g.id });
+
+  __setMockTabs([
+    { id: 200, url: 'https://x.example', windowId: 1, active: false, audible: false, index: 0 },
+    { id: 201, url: 'https://y.example', windowId: 1, active: false, audible: false, index: 1 },
+  ]);
+  await buildLiveTabIndex();
+
+  await appendFloatingGroup({
+    groupId: g.id, parentItemId: item.id,
+    windowId: 1, tabIndex: 0, url: 'https://x.example', savedAt: 1000,
+  });
+  await appendFloatingGroup({
+    groupId: g.id, parentItemId: item.id,
+    windowId: 1, tabIndex: 1, url: 'https://y.example', savedAt: 2000,
+  });
+
+  /* Snapshot pre-state for each branch: the records written above. */
+  const preSnapshot = JSON.stringify(__getRawStore('tj:floatingGroups'));
+
+  /* Branch (a): under-supply — missing tab 201 in the orderedTabIds. The
+     storageBucketSize parity check at floating-groups.js:322 should catch
+     this and return false. */
+  const okUnder = await reorderFloatingMembers(g.id, [200]);
+  assert.equal(okUnder, false, 'under-supply must return false');
+  assert.equal(
+    JSON.stringify(__getRawStore('tj:floatingGroups')),
+    preSnapshot,
+    'under-supply must NOT mutate storage',
+  );
+
+  /* Branch (b): over-supply — orderedTabIds includes a stale tabId 999 not
+     currently in the group. _resolveRecordIndexByTabId returns -1 for 999;
+     the early-return at floating-groups.js:310 catches this. */
+  const okOver = await reorderFloatingMembers(g.id, [200, 201, 999]);
+  assert.equal(okOver, false, 'over-supply with stale tabId must return false');
+  assert.equal(
+    JSON.stringify(__getRawStore('tj:floatingGroups')),
+    preSnapshot,
+    'over-supply must NOT mutate storage',
+  );
+
+  /* Branch (c): duplicate — orderedTabIds contains tab 200 twice. The
+     supplied.size dedup check at floating-groups.js:290 catches this. */
+  const okDup = await reorderFloatingMembers(g.id, [200, 200]);
+  assert.equal(okDup, false, 'duplicate tabIds must return false');
+  assert.equal(
+    JSON.stringify(__getRawStore('tj:floatingGroups')),
+    preSnapshot,
+    'duplicate must NOT mutate storage',
+  );
+
+  /* Verify the happy path still works against the same fixture (proves the
+     parity checks are surgical, not flaky). */
+  const okHappy = await reorderFloatingMembers(g.id, [201, 200]);
+  assert.equal(okHappy, true, 'happy path must succeed after race-fail probes');
+});

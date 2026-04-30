@@ -147,11 +147,16 @@ For bulk Save-to-group operations (multiple Open Tabs rows saved at once), the c
 
 When you open a saved bookmark and click a link from that page, the new tab automatically inherits its parent's group — even though you have not bookmarked it yet. These inherited tabs are called **floating tabs**: they live alongside saved bookmarks in the same group, but they disappear when you close them. Tab Junkie marks the difference visually so you can tell at a glance which rows are persistent and which are ephemeral.
 
+The same visual taxonomy applies across saved bookmarks, floating tabs, and the Open Tabs section:
+
 | Row type | Left-edge bar | What it means |
 |----------|---------------|---------------|
 | Saved bookmark with a live tab | Solid green vertical bar | The bookmark is saved and its tab is currently open. Persists across browser restarts. |
-| Floating tab | Dotted green vertical bar | The tab is open and assigned to a group via opener-chain inheritance, but is **not** saved. Disappears when the tab closes. |
+| Floating tab (under a group) | Dotted green vertical bar | The tab is open and assigned to a group via opener-chain inheritance, but is **not** saved. Disappears when the tab closes. |
+| Open Tabs row | Dotted green vertical bar | The tab is open but not assigned to any group and not saved. Disappears when the tab closes. |
 | Saved bookmark, tab not open | No bar | The bookmark is saved but no tab is currently open for it. |
+
+In short: **solid green = persistent (saved), dotted green = ephemeral (will disappear when the tab closes)**.
 
 ### Saving a floating tab
 
@@ -162,6 +167,12 @@ Floating tabs also participate in the right-click menu's **Save to group** actio
 ### Screen reader cue
 
 Floating-tab rows announce as **"floating tab — \<title\>"** so the saved-vs-ephemeral distinction is conveyed without color. Saved bookmarks with a live tab continue to announce as **"live tab — \<title\>"**.
+
+### Floating tabs and extension reloads
+
+Floating tabs persist across extension reloads (for example, when Tab Junkie updates to a new version) and stay in their originating group as expected.
+
+**Known limitation — deep opener chains:** if a floating tab was itself spawned from another floating tab (multiple hops deep from the original bookmarked parent), it may land in the **Open Tabs** section instead of its originating group after an extension reload. This is because the opener-chain context only goes one hop deep across reloads. **Workaround:** close the affected tab and re-spawn it from the bookmarked parent — it will rejoin the correct group automatically.
 
 ---
 
@@ -236,6 +247,24 @@ To pull a sub-group out of its parent and make it a top-level group again, drag 
 Dropping the sub-group over the **Open Tabs** section is rejected (so it does not accidentally land "after the last group"). The keyboard alternative is unchanged: open the group's edit dialog and set **Parent group** to *Top-level (no parent)*.
 
 If another window edits the dragged sub-group's parent at the same time you are dragging it, the drag aborts and a toast explains why — your view stays consistent with the latest data.
+
+### Reordering open tabs and floating tabs
+
+You can drag open-tab rows and floating-tab rows to change their order, and you can drag tabs *between* the Open Tabs section and a group to attach or detach them.
+
+| Drag gesture | Effect |
+|--------------|--------|
+| Drag an Open Tabs row up or down within the Open Tabs section | Reorders the tab in the section **and** in the browser's native tab strip — the change is mirrored to the actual tab order in your browser window |
+| Drag a floating-tab row up or down within its group | Reorders the floating tab inside that group |
+| Drag an Open Tabs row into a group's floating area (between the saved bookmarks and the next group) | **Attach** — the open tab becomes a floating member of that group. It stays in the group until you close the tab. |
+| Drag a floating-tab row out of its group and drop it on the Open Tabs section | **Detach** — the floating tab leaves its group and becomes a regular Open Tabs row again |
+| Drag a floating-tab row from one group's floating area into another group's floating area | **Move** — the floating tab switches which group it floats under, in a single atomic step |
+
+The same horizontal drop-line indicator used for bookmark reorder shows exactly where the tab will land. Press **Escape** at any time to cancel the drag without making any changes.
+
+**Same-window only.** Drag-and-drop reorder works within a single browser window. Dragging an open-tab row from one window into another window's Tab Junkie panel is rejected — use right-click → *Save to group* to bring a tab from another window into a group instead.
+
+**Sidepanel and standalone window only.** Drag-and-drop reorder is available in the side panel and the standalone window. The new tab page does not yet support drag reorder for open or floating tabs.
 
 ### Auto-scroll during drag
 

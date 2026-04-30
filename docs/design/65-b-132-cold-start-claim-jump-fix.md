@@ -1044,4 +1044,169 @@ empirical verification (R2 has reasoned but not run code):
 - **No escalation back to R1**: R2 has not discovered any AC issue
   requiring revision.
 
+---
+
+## §65.14 As-Built (R6 Close)
+
+**Closed:** 2026-04-29 · **Sprint:** 40 (anchor #1) · **Branch:** `feature/sprint-40-drag-reorder`
+**Tier:** Full (M) · **Pipeline rounds executed:** R0 (spike, §64) → R1 (LOCKED) → R2 → R3 → R4 (parallel × 3) → Wave 3a fix-round → R5 → R6
+**Closing version:** v1.34.0 (release/v2 only — no main merge per established branching strategy)
+
+### §65.14.1 — Files actually changed vs. R2 expected (§65.11 build plan)
+
+| File | Expected (R2 §65.11) | Actual (R6) | Notes |
+|------|---------------------|-------------|-------|
+| `background/tabs/floating-groups.js` | NEW exported `preMarkInheritedFromFloatingGroups()` (~25 LOC); add `markInherited` import from `tab-claims.js` | ✅ done — +83 LOC | Overshoot driven by JSDoc block including the AC3 deep-chain carve-out citation (§65.7 / §64.6) + the position-then-URL-fallback algorithm comment block. JSDoc format mirrors `reassociateFloatingGroups` for symmetry. Imports added: `markInherited`, `getClaimsMirror`. |
+| `background/tabs/index.js` | Insert `await preMarkInheritedFromFloatingGroups()` between `Promise.all([...])` and `await reconcileClaims(items)` (~3 LOC) | ✅ done — +7 LOC at `index.js:50` | Wave 3a [qa-reviewer] M-2 added a `try/catch` wrap on the helper call so subsequent `reconcileClaims` still runs under storage corruption — graceful degradation to pre-fix behavior. The `console.warn` on catch matches the existing cold-start error logging at `service-worker.js:50`. |
+| `background/tabs/tab-claims.js` | Phase 2 gate: extend `urlToTabs` candidate-consumption loop to skip `inheritedTabs.has(candidate)` (~10 LOC) | ✅ done — +22 LOC at `tab-claims.js:174-198` | `while`/shift-skip pattern handles all-candidates-inherited and single-candidate cases. Loop preserves Phase 1 sortOrder ordering. |
+| `tests/floating-position.test.js` | Comment-only edit at `:68-91` per R3-DECISION (R2 §65.10) | ✅ done — +10 LOC comment block, byte-identical assertion body | Verified via `git diff HEAD` — only the 10-line clarifying-comment block was added; the test body at `:78-101` is byte-identical. |
+| `tests/floating-multi.test.js` | Wave 3a additive (was not in R2 plan) — [qa-reviewer] M-1 clarifying-comment block | ✅ done at `:45-74` | Mirrors the `floating-position.test.js:68-77` clarifying-comment template. No assertion change. |
+| `tests/floating-ready-gate.test.js` | Wave 3a additive — [qa-reviewer] M-1 clarifying-comment block | ✅ done at `:23-45` | Same pattern. No assertion change. |
+| `tests/b018-persistence.test.js` | Wave 3a additive — [qa-reviewer] M-1 clarifying-comment block | ✅ done at `:106-131` | Same pattern. No assertion change. |
+| `tests/b132-cold-start-inheritance.test.js` | NEW file with **6** test cases T-132-A..F (~250 LOC) | ✅ done — **8 tests** in 391 LOC (T-132-A through T-132-H) | R3 added two extras beyond R2 budget: T-132-G (ordering invariant via source-text pin per R3-V-5 fallback) and T-132-H (zero-storage-write contract — load-bearing pin against future "optimization" regressions). |
+
+**Totals (B-132 only):** 3 production files (+112 LOC); 1 new test file (+391 LOC, 8 tests); 4 comment-only test-file edits (+~30 LOC of comments, zero assertion changes).
+
+### §65.14.2 — Deviations from R2 plan
+
+Two material deviations recorded — both Wave 3a fix-round upgrades from "deferred" to "fixed in-build" per [qa-reviewer] convergence:
+
+1. **[qa-reviewer] M-1: clarifying-comment block extension to 3 sibling tests.** R2 §65.10 explicitly enumerated `tests/floating-position.test.js:68-91` for the R3-DECISION clarifying comment, but the same URL-collision pattern appears in three additional pre-existing tests (`floating-multi.test.js:45-74`, `floating-ready-gate.test.js:23-45`, `b018-persistence.test.js:106-131`). R3 only commented the first. R4 [qa-reviewer] flagged the gap; Wave 3a added the comment block to all three siblings.
+
+   **Rationale:** under the new contract, all four tests stay mechanically green only because they bypass `initializeLiveState` and call `reconcileClaims` directly (helper never runs → empty `inheritedTabs` → gate is dead code). In production with the helper, behavior would invert. Future readers must see the clarifying comment to understand why the unit-level contract is still load-bearing despite the production behavior change. Comment-only addition; ~9 LOC across 3 test files; zero assertion changes.
+
+2. **[qa-reviewer] M-2: defensive `try/catch` around the new cold-start helper call.** R2 §65.4 said the helper "writes ZERO storage" but did not address read-side failure (`readPartition(PARTITION_FLOATING_GROUPS)` can throw `StorageError` per `background/storage/partitions.js:71-82`). Without the wrap, an unwrapped throw propagates to `initializeLiveState`, blocking subsequent `reconcileClaims` and `reassociateFloatingGroups` for the entire SW lifetime.
+
+   **Fix:** wrap the helper call in `try { await preMarkInheritedFromFloatingGroups(); } catch (e) { console.warn('[tab-junkie] B-132 helper failed', e); }` at `background/tabs/index.js:50`. Graceful degradation to pre-fix behavior under storage corruption: subsequent `reconcileClaims` still runs; the only loss is the cold-start `inheritedTabs` re-population (a known SEV2 condition that already required a fresh start). Pattern matches the existing `service-worker.js:50` catch on `initializeLiveState` itself.
+
+   **Rationale:** symmetric defense-in-depth across the cold-start orchestration. Pre-B-132, `reassociateFloatingGroups` failure was asymmetric (claims established, only re-association skipped); B-132 added a second failure surface that without the wrap could block every downstream step. The wrap restores the graceful-degradation pre-condition.
+
+These two upgrades were closed in commit `965cd76` (Wave 3a checkpoint). Convergent [qa-reviewer] signals motivated each upgrade.
+
+### §65.14.3 — R2-VERIFY 1 outcome (§65.2)
+
+**Pre-R5 status:** `chrome.storage.session` wipe-on-reload is documented behavior per Chrome MV3 spec; B-132 fix is correct under either empirical outcome (verdict A wipe vs. verdict B persist).
+
+**R5 [test-engineer] empirical confirmation:** UAT case U-132-4 walks the test in Edge SW console (`set qaProbe; reload; get qaProbe → undefined`). UAT plan filed at `docs/UAT_B-132.md` (R5 [test-engineer] output). Final empirical verdict pending product-owner UAT walk-through; **fix correctness is independent of the verdict per §65.2**, so this does not block R6 close.
+
+### §65.14.4 — R3-VERIFY marker outcomes (§65.12)
+
+| # | Marker | R6 verification |
+|---|--------|-----------------|
+| **R3-V-1** | Circular-import direction | **PASS.** `floating-groups.js:33` adds `import { markInherited, getClaimsMirror } from './tab-claims.js';`. Reverse import absent (verified: `grep -n "from.*floating-groups" background/tabs/tab-claims.js` returns empty). One-way dependency confirmed. |
+| **R3-V-2** | `inheritedTabs` Set re-export | **PASS.** No re-export needed. `markInherited` (write-API) is consumed by `floating-groups.js`; `inheritedTabs` Set itself remains module-private inside `tab-claims.js` (only accessible via the `markInherited` / `isInherited` / `pruneInherited` / `__resetTabClaims` exports). The Phase 2 gate has direct lexical access (lives in same module). Encapsulation invariant preserved. |
+| **R3-V-3** | `tests/b018-persistence.test.js` R4-H2 fixture | **PASS.** Fixture URLs `https://parent.com` (saved item) + `https://parent.com` (floating record) — same-URL collision, but the test bypasses `initializeLiveState` so the helper never runs. R3-DECISION applied: clarifying-comment block added in Wave 3a [qa-reviewer] M-1 deviation. Test stays mechanically green and pins useful unit-level behavior. |
+| **R3-V-4** | Empirical session-storage wipe | **DEFERRED to R5.** UAT case U-132-4 in `docs/UAT_B-132.md` walks the test. Fix is correct under either empirical outcome per §65.2. |
+| **R3-V-5** | T-132-G ordering pin feasibility | **PASS — fallback applied.** Test harness does not expose an `initializeLiveState` integration spy; T-132-G uses the source-text-pin fallback (asserts substring ordering on `background/tabs/index.js`). Brittle to refactors per [code-reviewer] L-3, but the behavioral coverage is provided by T-132-A + T-132-E (which exercise the production sequence end-to-end via direct calls). Sanctioned by R2 §65.12 R3-V-5. |
+
+### §65.14.5 — R4 reviewer findings (B-132 anchor)
+
+R4 launched all three reviewers in parallel against the working-tree diff for B-132 R3 (committed in `965cd76`).
+
+**[code-reviewer]** — 0 CRIT / 0 HIGH / 0 MEDIUM / **3 LOW**. L-1 stale line-refs in code comments (cite `tab-claims.js:250` instead of the actual `:270` runtime gate); L-2 algorithmic duplication between `preMarkInheritedFromFloatingGroups` and `reassociateFloatingGroups` (intentional per R2 §65.4 algorithmic parity); L-3 source-text pin brittleness sanctioned by R3-V-5. **All three deferred** as defer-acceptable observations on structural posture rather than behavior. Verdict: **APPROVED for R5**.
+
+**[security-reviewer]** — 0 CRIT / 0 HIGH / 0 MEDIUM / **3 LOW**. L-1 phantom-tabId guard relies on Set semantics (mitigated by construction — `liveTabIndex` Map keys ARE the live-tab universe); L-2 `inheritedTabs` Set unbounded-growth posture (bounded by Chrome's tab cap; not a realistic threat); L-3 URL-fallback first-match (symmetric with `reassociateFloatingGroups` algorithm — soft degradation, not security concern). **All three deferred.** Verdict: **APPROVED for R5** with note that AC3 carve-out is properly documented across three reinforcing surfaces (R0/R2/inline JSDoc) preventing future-reviewer mistake-as-vulnerability misread.
+
+**[qa-reviewer]** — 0 CRIT / 0 HIGH / **2 MEDIUM** / 3 LOW. M-1 missing R3-V STOP-and-escalate triggers on 3 sibling tests (closed in Wave 3a — see §65.14.2 deviation #1); M-2 missing defensive `try/catch` on cold-start helper (closed in Wave 3a — see §65.14.2 deviation #2). L-1 dead-code `claimedTabIds` guard at cold-start (defensive correctness per R2 §65.6 case (ii) hypothetical — keep as-is); L-2 helper has no observability (`console.debug` candidate; defer); L-3 T-132-G source-text pin brittleness (R3-V-5 sanctioned). Three LOWs deferred. Verdict: **APPROVED for R5** post-fix-round.
+
+Full deduplicated R4 tables in `docs/findings/sprint-40.md` ([code-reviewer] / [security-reviewer] / [qa-reviewer] B-132 R4 anchor sections).
+
+### §65.14.6 — R2 Correctness Checklist closure verification (C-1..C-12)
+
+| # | Check | R6 closure verdict |
+|---|-------|--------------------|
+| C-1a | Storage schema versioned (governance) | **N/A — confirmed.** No schema shape change. `tj:floatingGroups`, `tj:tabClaims`, `tj:meta` shapes unchanged. No `KNOWN_VERSION` bump. |
+| C-1b | Data-migration strategy chosen (data) | **N/A — confirmed.** No schema change. |
+| C-2 | Message contracts typed | **N/A — confirmed.** `shared/messages.js` unchanged. No new `MSG_*` types. |
+| C-3 | SW cold-start safe | **PASS — confirmed.** Helper invoked exactly once per cold-start in `initializeLiveState`; no re-entry surface. Wave 3a `try/catch` adds graceful-degradation under storage corruption. |
+| C-4 | ID stability | **PASS — confirmed.** Helper marks live `tabId` values pulled directly from `liveTabIndex` Map keys (Chrome-allocated); no phantom-tabId surface. |
+| C-5 | Manifest file references resolvable | **N/A — confirmed.** No `manifest.json` edits. |
+| C-6 | Permission minimization | **N/A — confirmed.** Zero permission additions. |
+| C-7 | Allow-list direction | **PASS — confirmed.** Phase 2 gate is a skip-list (deny-list direction in C-7's framing); blast radius of false-positive is "tab not auto-claimed" (soft degradation, not security or data-integrity issue). Same-class ruling as B-125 §59.7 — explicitly sanctioned by R2 §65.9. |
+| C-8 | SW-context feasibility | **N/A — confirmed.** Helper uses SW-reachable APIs only (`readPartition`, in-memory Maps). |
+| C-9 | Empty-state design | **PASS — confirmed.** Four enumerated states pinned: empty `tj:floatingGroups` (T-132-B); records with no live-tab match (T-132-C); URL-collision happy path (T-132-A); no-collision (T-132-E). Plus T-132-D for gate-with-mark mechanism. |
+| C-10 | Off-screen rect feasibility | **N/A — confirmed.** No DOM/positioning. |
+| C-11 | Popup-lifecycle message ordering | **N/A — confirmed.** SW-side fix. No popup involvement. |
+| C-12 | Manifest declaration runtime-mutability | **N/A — confirmed.** No manifest declaration changes. |
+
+**No C-1..C-12 violations detected at R6 close.**
+
+### §65.14.7 — AC3 deep-chain carve-out documentation surfaces
+
+Per R2 §65.7 and §65.14.5 [security-reviewer] commendation, the AC3 known-acceptable degradation is documented across **three reinforcing surfaces** so a future reviewer cannot mistake it for an unpatched vulnerability:
+
+1. **R0 spike chapter §64.6** — architectural rationale (`openerMap` ephemeral; persisting it diverges from Chrome's own contract).
+2. **R2 chapter §65.7** — explicit "structurally infeasible to fix without persisting `openerMap`" framing with citations to `opener-chain.js:6-9` and `:12`.
+3. **Production code JSDoc** at `background/tabs/floating-groups.js:581-588` — pin in the helper's documentation: *"It does NOT reconstruct pre-reload opener-chain relationships (openerMap is ephemeral — background/tabs/opener-chain.js:6-9 documents this as Chrome's own contract). A NEW middle-click inside a former-floating tab post-reload thus creates a new tab whose opener-walk returns null and which lives in Open Tabs. This is the AC3 known-acceptable degradation."*
+
+**User-facing documentation:** R7 [technical-writer] is responsible for landing the user-recovery note ("close child, re-spawn from bookmarked parent") in `docs/user-manual/` if user-facing UX docs cover this flow.
+
+### §65.14.8 — Test count delta (final)
+
+- **Pre-S40 baseline** (after Sprint 39 + v1.33.1 hotfix close): **1,732 tests passing**.
+- **B-132 R3 contribution:** +8 tests in `b132-cold-start-inheritance.test.js` (T-132-A through T-132-H).
+- **Wave 3a fix-round:** comment-only edits to 3 sibling tests + 1 R2-planned `floating-position.test.js` clarifying comment. **Zero new test cases**, zero assertion changes.
+- **B-132 total delta: +8 tests.**
+- **Zero regressions** in the pre-existing suite at every checkpoint. `tests/b121-floating-group-render.test.js` (T-121-A through T-121-O), `tests/b125-claim-jump-fix.test.js` (T1-T5), `tests/b099-drift-fix.test.js`, `tests/b018-persistence.test.js`, `tests/floating-session-wipe.test.js`, `tests/floating-url-fallback.test.js`, `tests/floating-shape.test.js`, `tests/floating-multi.test.js`, `tests/floating-ready-gate.test.js`, `tests/floating-position.test.js` — all green by construction (test fixtures use unique URLs that do not collide with the fix's gate behavior, OR bypass `initializeLiveState` so the helper never runs).
+
+### §65.14.9 — Rollback plan (single-revert)
+
+The B-132 R3 work is consolidated in Wave 3a checkpoint commit `965cd76` (which also closes B-134's 4 HIGH findings — see §63.18.8 for B-134's separate rollback procedure).
+
+```bash
+# Identify the B-132 commit on release/v2 (after sprint merge):
+git log --oneline release/v2 | grep -E "B-132 R3|S40 checkpoint"
+
+# Revert the B-132 R3 portion only (extract from the Wave 3a commit if needed via cherry-pick):
+git revert <965cd76-equivalent-on-release-v2>  # full Wave 3a
+# OR for B-132-only rollback (more surgical):
+# - Revert background/tabs/floating-groups.js (drop preMarkInheritedFromFloatingGroups)
+# - Revert background/tabs/index.js (drop the cold-start ordering insertion)
+# - Revert background/tabs/tab-claims.js (drop the Phase 2 gate)
+# - Delete tests/b132-cold-start-inheritance.test.js
+# - Drop the comment-only edits from 4 test files
+```
+
+**Code rollback removes:**
+- `preMarkInheritedFromFloatingGroups` export from `background/tabs/floating-groups.js`.
+- Cold-start ordering insertion + `try/catch` wrap from `background/tabs/index.js`.
+- Phase 2 inheritance gate from `background/tabs/tab-claims.js:174-198`.
+- `tests/b132-cold-start-inheritance.test.js` (NEW file — deleted entirely).
+- Clarifying-comment blocks from `tests/floating-position.test.js`, `tests/floating-multi.test.js`, `tests/floating-ready-gate.test.js`, `tests/b018-persistence.test.js`.
+
+**No storage rollback required:**
+- No schema change; no data migration; no `tj:meta.schemaVersion` bump.
+- Existing `tj:floatingGroups` records (v2 schema) read identically with or without the fix.
+
+**No SW module-cache flush required:**
+- No schema-version bump (per C-1a — the cache-flush note applies only to schema-version transitions). Standard SW restart on rollback is sufficient.
+
+**`inheritedTabs` Set rollback:**
+- The Set is ephemeral (SW-memory only). On rollback, the set continues to exist (it predates B-132 from B-125), but the cold-start population step is removed. Empty `inheritedTabs` at SW boot returns to pre-B-132 behavior — Mode (b) URL-collision claim-jump returns. This is the intended rollback behavior (un-fixing the bug).
+
+**User-visible rollback impact:**
+- Mode (b) URL-collision claim-jump regression returns: pre-existing floating tabs whose URL collides with a saved bookmark get auto-claimed at cold start, dominating the visual diff.
+- Mode (a) shallow-chain post-reload spawn continues to work (B-125 runtime gate intact).
+- Mode (a) deep-chain post-reload — already a known-acceptable degradation; unchanged by rollback.
+- **No data loss; SEV2 rollback** (re-introduces the user-reported bug B-132 was filed to fix).
+
+### §65.14.10 — Schema / contract / permission impact
+
+Confirmed by direct re-read of the diff:
+- **Storage schema:** **UNCHANGED.** No new `tj:*` partition. No `schemaVersion` bump. No `DEFAULT_PREFERENCES` extension. No SW module-cache toggle-OFF/ON note required for B-132.
+- **Message contracts:** **UNCHANGED.** No new `MSG_*` types. No broadcast contract additions. The pre-existing `tab/opener-inherited` broadcast at `tab-events.js:174` (B-125 / B-013 path) fires unchanged.
+- **Manifest permissions:** **UNCHANGED.** No new `permissions` or `host_permissions` entries.
+- **Validation surfaces:** Phase 2 gate is a read-side filter — no new validators.
+
+### §65.14.11 — Open follow-ups (deferred to backlog)
+
+- **[code-reviewer] L-1 — stale line-refs in code comments.** Both the `floating-groups.js` JSDoc and the `tab-claims.js` Phase 2 inline comment cite `tab-claims.js:250` (the `@param` line of `reevaluateTab`) instead of the actual `:270` runtime gate. Comments-only fix; defer to a future cleanup sweep. Removing the line-number citation entirely (referring to "`reevaluateTab`'s inheritedTabs gate" by name) avoids future drift.
+- **[code-reviewer] L-2 — algorithmic duplication.** Position-then-URL match logic duplicated between `preMarkInheritedFromFloatingGroups` and `reassociateFloatingGroups`. Extraction to `_findLiveTabForRecord(record, liveTabIndex) -> tabId|null` is a candidate cleanup if a third caller appears.
+- **[code-reviewer] L-3 — T-132-G source-text-pin brittleness.** Sanctioned by R3-V-5 fallback. Future sprint can refactor to a DI-based ordering spy when the harness gains the capability.
+- **[qa-reviewer] L-1 — `claimedTabIds` dead-but-defensive guard.** Optional one-line comment cross-referencing R2 §65.6 case (ii) hypothetical. Cosmetic only.
+- **[qa-reviewer] L-2 — helper observability.** Optional `console.debug` on non-zero match count for UAT diagnostic value. Weighed against CLAUDE.md "no `console.log` debug noise" rule; defer.
+- **R7 [technical-writer] — user-facing AC3 carve-out note.** If `docs/user-manual/` covers post-extension-reload floating-tab behavior, land a short note: "After reloading the extension, opener-chain inheritance is preserved for shallow chains (one hop). Deep multi-hop chains require re-spawning from the bookmarked parent."
+
+---
+
 **End of §65.**

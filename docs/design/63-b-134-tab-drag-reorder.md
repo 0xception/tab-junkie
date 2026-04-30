@@ -1100,4 +1100,206 @@ Per C-1a, the rollback also requires the user toggle the extension OFF/ON in `ch
 
 ---
 
+## §63.18 As-Built (R6 Close)
+
+**Closed:** 2026-04-29 · **Sprint:** 40 (anchor #2) · **Branch:** `feature/sprint-40-drag-reorder`
+**Tier:** Full (M) · **Pipeline rounds executed:** R1 (LOCKED at brainstorm) → R2 → R3 → R4 (parallel × 3) → Wave 3a fix-round → R5 → R6
+**Closing version:** v1.34.0 (release/v2 only — no main merge per established branching strategy)
+
+### §63.18.1 — Files actually changed vs. R2 expected (§63.13 build plan)
+
+| File | Expected (R2 §63.13.1) | Actual (R6) | Notes |
+|------|------------------------|-------------|-------|
+| `shared/messages.js` | NEW two constants `MSG_REORDER_FLOATING_MEMBERS` + `MSG_MOVE_FLOATING_TAB` + JSDoc Request/Response typedefs (~+60 LOC) | ✅ done — +74 LOC | Constants exported as `'tj/reorderFloatingMembers'` + `'tj/moveFloatingTab'` per R2 §63.7. JSDoc typedefs landed on both Request and Response shapes. |
+| `background/storage/shapes.js` | `defaultShape(PARTITION_META)` literal 2 → 3; `PARTITION_FLOATING_GROUPS` validator OPTIONAL `sortOrder` finite-number check (~+10 LOC) | ✅ done — +21 LOC at `shapes.js:96-105` (defaultShape v3) + `:251-259` (validator) | Slight overshoot due to JSDoc on the validator branch + an inline `// B-134 §63.2.5` reference comment. |
+| `background/storage/migration.js` | `KNOWN_VERSION` 2 → 3 + new `MIGRATION_STEPS` v2→v3 no-op governance step (~+15 LOC) | ✅ done — +22 LOC at `migration.js:76` (KNOWN_VERSION) + `:108-112` (no-op step) | Step factory follows the v1→v2 (B-121) precedent verbatim; F2 contiguity check at `migration.js:127-135` validates the chain at boot. |
+| `background/tabs/floating-groups.js` | NEW exports `reorderFloatingMembers` + `moveFloatingTab` + internal mutator helpers + `appendFloatingGroup` `sortOrder` stamping (~+180 LOC) | ✅ done — +289 LOC | Overshoot driven by JSDoc on the three new exports + the `_resolveRecordIndexByTabId` Strategy A helper (R3-VERIFY 1 outcome) + the `_floatingRecordCompare` shared sort comparator. |
+| `background/tabs/floating-members.js` | Sort path extension (sortOrder priority + `(windowId, tabIndex)` legacy fallback); descriptor `sortOrder?: number` field propagation (~+25 LOC) | ✅ done — +21 LOC at `floating-members.js:150-160` (sort path) + descriptor propagation | Within budget. |
+| `background/messages/storage-handlers.js` | Two new case branches + `SCOPE_BY_MESSAGE` + `MUTATION_MESSAGES` entries + post-write `markInherited`/`pruneInherited` side-effects (~+90 LOC) | ✅ done — +95 LOC | Both messages added to `MUTATION_BROADCASTS` (`storage-handlers.js:141-142`) + `WRITE_MESSAGE_TYPES` (safe-mode block, `:171-172`). Post-write side-effects fire AFTER `await moveFloatingTab(...)` resolves true (`:746-751`) — never before, per R2 §63.9.2 invariant. |
+| `sidepanel/sidepanel.js` | `_tabDragState` + `_tabDragRectCache` + helpers + dragstart/dragover/drop wiring + race-guard preflight (~+400 LOC) | ✅ done — +672 LOC | Significant overshoot driven by: (a) Wave 3a fix-round adding `_openTabsSignature` + `_floatingMembersSignature` content-conditional gen-bump guards (H-1 fix) + ERR_RACE toast wiring (H-2) + REJECT skip-no-op exclusion (H-3) + dragged-row exclusion in `_resolveTabDragIndicatorY` and `_computeTabDropTarget` midline math (H-4); (b) defensive cleanup helpers (`_hideTabDragVisuals`, `_resetTabDragState`); (c) JSDoc on internal helpers. |
+| `sidepanel/sidepanel.css` | OPTIONAL reject-state class on `.drop-indicator--item.is-tab-reject` (~+10 LOC) | ✅ done — +28 LOC | Includes `.is-tab-dragging` cursor + container-level `user-select: none` + reject-tint. No theme-token regression (verified across 14 themes via R4 [qa-reviewer]). |
+| `manifest.json` | No changes (R2 C-6 verified) | ✅ confirmed — no edits | `chrome.tabs.move` covered by existing `tabs` permission. |
+| `tests/b134-tab-drag-reorder.test.js` | NEW file ~25 tests (~+500 LOC) | ✅ done — **32 tests** | T1-T26 R3 baseline (26 tests covering AC1-AC8 + race-guards + helpers + schema + sort fallback + reorder payload purity + draggable + gen counters + drop-handler dispatch). Wave 3a regression pins T27/T27b/T28/T29/T30 (5 tests). R5 [test-engineer] T31 (`reorderFloatingMembers` race-paths return false on parity mismatch — closes [code-reviewer] M-2 as additive coverage). |
+| `tests/floating-shape.test.js` | Add `appendFloatingGroup` `sortOrder` numeric stamp assertion | ✅ done — +57 LOC | Per §63.13.2. |
+| `tests/migration-steps.test.js` | KNOWN_VERSION → 3 + new v2→v3 step test | ✅ done — +59 LOC | Per §63.13.2. |
+| `tests/chrome-mock.js` | Not in R2 plan | +21 LOC | Mock additions to support new test scenarios (e.g., `tabs.move` with index argument, defensive null-return on unknown tabId per [code-reviewer] L-2). |
+| `tests/messages-held.test.js` | Add 2 entries (per §63.12.2) | ✅ done | Additive constants check; trivial. |
+
+**Totals (B-134 only):** ~14 production+test files; production ~+1,150 LOC (vs. R2 estimate ~+790); tests ~+700 LOC (vs. R2 estimate ~+530); net delta 1,772 → **1,807 tests** at sprint close (B-134 contribution +35 tests after Wave 3a + R5 T31; B-132 contribution +8). Zero pre-existing test regressions.
+
+### §63.18.2 — Deviations from R2 plan
+
+Two material deviations recorded:
+
+1. **R4 [code-reviewer] M-4 — `MOVE_FLOATING` re-anchors `parentItemId` to the destination group's first item; deviates from R2 §63.8.2 pseudocode.**
+
+   R2 §63.8.2 said: *"For MOVE_FLOATING and DETACH: re-use the source record's parentItemId."*
+   R3 actual at `background/tabs/floating-groups.js:382-397, 455-464`: when `targetGroupId !== null` (i.e., **both ATTACH and MOVE_FLOATING**), the mutator resolves `newParentItemId` from the destination group's lowest-`sortOrder` saved item. The source record's `parentItemId` is discarded for cross-group MOVE_FLOATING.
+
+   **R6 reconciliation decision: ACCEPT the as-built behavior; treat the R2 pseudocode as the deviation.** Rationale per [code-reviewer] M-4: the floating record now lives under a new group, so its parent should be that group's first item, not the now-unrelated source group's item. The renderer (`buildFloatingMembers`) groups floating descriptors under their `parentItemId`'s row in the destination group; reusing the stale source `parentItemId` would render correctly only by coincidence (the descriptor lookup happens by `groupId`, not `parentItemId`, so storage integrity holds), but a stale `parentItemId` would silently break `pruneFloatingGroupsByParentItemId` cascade-prune (B-129) — deleting the source group's parent item would orphan the now-relocated floating record. **Re-anchoring to the destination's first item is the load-bearing correctness invariant; the R2 pseudocode was a thinko.**
+
+   **Action:** §63.8.2 R2 pseudocode line *"For MOVE_FLOATING and DETACH: re-use the source record's parentItemId"* is hereby ACCEPTED-AS-DEVIATED. Future readers should treat §63.18.2 #1 as the authoritative `parentItemId` resolution contract for the MOVE_FLOATING op. Test T6 (`MOVE_FLOATING moves record between groups in a single writeTransaction; inheritedTabs preserved`) at `tests/b134-tab-drag-reorder.test.js:294` asserts `parentItemId === itemB.id` (the destination group's first item) and would fail under the literal R2 pseudocode. T6 is the regression guard.
+
+   This is NOT a scope-change escalation per CLAUDE.md "Scope Change Control" — it is a documentation correction. The behavior was the engineer's correct interpretation; the chapter caught up at R6.
+
+2. **Wave 3a fix-round upgrades 4 R4 [qa-reviewer] HIGH findings from "deferred to UAT/follow-up" to "fixed in-build" (per CLAUDE.md cross-reviewer convergence + project quality bar):**
+
+   - **H-1: Race-guard B over-trip on every `liveState` broadcast.** R2 §63.10.2 said Guard B fires on broadcast race; R3 implemented unconditional gen-counter bumps in `_setCachedOpenTabs` / `_setCachedFloatingMembers`. UAT would have hit this constantly (any audible-tab toggle, title change, or window blur during a multi-second drag would abort the drop with toast spam).
+
+     **Fix:** content-conditional gen bumps via `_openTabsSignature` + `_floatingMembersSignature` setter guards. The signature is a stable hash of the projection that matters for drop-validity (per-window tabId order for Open Tabs; per-group ordered tabId arrays for floating members). Title/audible/active patches preserve the signature → no gen bump → Guard B no longer over-trips.
+
+     **Tests added:** T27 + T27b regression pins (`tests/b134-tab-drag-reorder.test.js:743-779`).
+
+   - **H-2: `MSG_REORDER_FLOATING_MEMBERS` ERR_RACE silently drops drag with no toast.** R2 §63.10.4 mandated "each guard fires correct toast"; R3 wired toasts for `MSG_MOVE_FLOATING_TAB` but not `MSG_REORDER_FLOATING_MEMBERS`. AC7 violation.
+
+     **Fix:** mirror the MOVE_FLOATING handler pattern — inspect `resp.reordered` after the await; on `false` show a toast specific to the reason. Default to "Tabs changed during drag — please retry." (matches Guard B verbiage for consistent recovery instructions).
+
+     **Test added:** T28 (`tests/b134-tab-drag-reorder.test.js:781`).
+
+   - **H-3: REJECT indicator stuck position when pointer moves inside non-source window.** R3's skip-no-op short-circuit compared `(mode, targetGroupId, insertIndex, targetWindowId)`; for REJECT all four are constant inside the rejected window → tick early-returned → indicator frozen at first-entry Y.
+
+     **Fix:** exclude REJECT mode from the skip-no-op check. Per-tick re-position cost is one transform write; perf budget unaffected.
+
+     **Test added:** T29 (`tests/b134-tab-drag-reorder.test.js:804`).
+
+   - **H-4: REORDER_FLOATING midline math includes the dragged row, violating R2 §63.4.4 mandate.** R2 explicitly required dragged-row exclusion in same-group reorder midline math. R3 built `rowMidlines` from ALL floating rows in the zone.
+
+     **Fix:** filter `tabId === _tabDragState.draggedTabId` from source-group midlines/rowTabIds during REORDER_FLOATING hit-test. Apply only when `groupId === sourceGroupId`. Mirrored in BOTH `_computeTabDropTarget` AND `_resolveTabDragIndicatorY` to keep visual feedback consistent with the storage outcome.
+
+     **Test added:** T30 (`tests/b134-tab-drag-reorder.test.js:822`).
+
+   These four upgrades are recorded in `docs/findings/sprint-40.md` (qa-reviewer B-134 R4 anchor table) and in the Wave 3a checkpoint commit `965cd76`. Convergent [code-reviewer] / [security-reviewer] / [qa-reviewer] signals motivated each upgrade — three reviewers agreeing that a "deferred-to-UAT" risk is actually an in-build defect is the project's standard fix-round trigger.
+
+### §63.18.3 — R3-VERIFY marker outcomes
+
+| Marker | R2 disposition | R6 verification |
+|--------|---------------|-----------------|
+| **R3-VERIFY 1 (CRITICAL): tabId → floatingTabId resolution at write time (§63.14.1)** | "R3 implements **Strategy A** — re-resolve via `(windowId, tabIndex)` geometry inside the mutator. Strategy B (descriptor extension) rejected as higher blast radius." | **VERIFIED — Strategy A.** `_resolveRecordIndexByTabId` defined at `background/tabs/floating-groups.js:254-266`; consumes `LiveTabIndex` to map tabId → floatingTabId by matching `(windowId, tabIndex)`. Used in BOTH `reorderFloatingMembers` (outer parity check at `:309` + inside mutator at `:333`) AND `moveFloatingTab` (inside mutator at `:409`). The double-call (outer + inner) is intentional belt-and-braces per [code-reviewer] L-1 — outer parity check provides early-exit on stale data without consuming a write transaction slot. |
+| **R3-VERIFY 2: `_cachedOpenTabsGen` + `_cachedFloatingMembersGen` existence (§63.14.2)** | "Likely DO NOT exist; R3 adds both counters in `_cachedItemsGen` pattern." | **VERIFIED.** Both counters added at `sidepanel.js` module scope (mirroring `_cachedItemsGen`). Wave 3a additionally added `_openTabsSignature` + `_floatingMembersSignature` content-conditional gates (H-1) so the gen counter only bumps on shape-relevant changes. |
+| **R3-VERIFY 3: `setDragImage` quality (§63.14.3)** | "Defer to UAT. Default disposition: do NOT add for v1." | **VERIFIED.** R3 ships without `setDragImage`; uses default browser drag image. R5 UAT (UAT-DRAGGED-ROW-VISUAL, item 17 in [qa-reviewer] UAT plan) walks ghost-quality across 14 themes; if ambiguity surfaces, polish-backlog item per R2 §63.14.3. |
+| **R3-VERIFY 4: `chrome.tabs.move` index semantics (§63.14.4)** | "Same-window REORDER_OPEN passes literal user-target index; no -1 adjustment per Chrome docs." | **VERIFIED.** Test T1 at `tests/b134-tab-drag-reorder.test.js:132` asserts `chrome.tabs.move(tabId, { index: 2 })` for a 5→2 reorder (literal target, no adjustment). Drop dispatcher at `sidepanel/sidepanel.js` REORDER_OPEN branch passes `state.pendingInsertIndex` unmodified. |
+| **R3-VERIFY 5: `floatingMembers` cache invalidation on cross-window broadcast (§63.14.5)** | "Existing `_setCachedFloatingMembers` setter handles `sortOrder` propagation; R3 verifies via integration test." | **VERIFIED.** `_setCachedFloatingMembers` (`sidepanel.js`) flows the new `sortOrder` field through descriptor propagation at `background/tabs/floating-members.js:150-160`. Wave 3a Hardening: `_floatingMembersSignature` includes per-group ordered tabId arrays — any cross-window MOVE_FLOATING bumps the signature reliably while preserving signature stability under no-op patches. |
+| **R3-VERIFY 6: cross-surface coverage (newtab + popup) (§63.14.6)** | "sidepanel-only for v1; newtab + popup deferred." | **VERIFIED.** `git diff release/v2 -- newtab/ popup/` shows zero changes to `newtab/newtab.js`, `newtab/newtab.css`, `newtab/newtab.html`, `popup/popup.js`, `popup/popup.css`, `popup/popup.html`. Newtab synthetic rows remain non-draggable; B-124 save-as-bookmark CTA remains the keyboard-accessible alternative. |
+
+### §63.18.4 — R4 reviewer findings (B-134 anchor — full Wave 3a scope)
+
+R4 launched all three reviewers in parallel against commit `c3e7503` per CLAUDE.md Gate 1.
+
+**[code-reviewer]** — 0 CRIT / 0 HIGH / **4 MEDIUM** / 5 LOW. M-1 / M-2 / M-3 deferred (race-fail no-op write; reorder parity-mismatch test gap; `_validateTabDropPreflight` cross-window/gen-mismatch behavioral test gap). M-4 (MOVE_FLOATING `parentItemId` re-anchor) reconciled per §63.18.2 deviation #1. LOW-1..L-5 deferred (all defensive observations). M-2 was additively closed in R5 by T31 regression test.
+
+**[security-reviewer]** — 0 CRIT / 0 HIGH / **3 MEDIUM** / 3 LOW. All MEDIUMs are payload-bound recommendations (M-1 `orderedTabIds.length` cap; M-2 `insertIndex` upper-bound; M-3 `groupId` length cap) — defense-in-depth at the trust boundary; race-guards downstream of validators already prevent any storage-corruption or DoS outcome in the realistic local-only-extension threat model. **Disposition: deferred as MEDIUM-acceptable** per [security-reviewer]'s own verdict ("none are blockers"). May be addressed as a future hardening pass alongside `MAX_BULK_INPUTS` parity with B-025/B-030. LOW-1..L-3 deferred (cross-window source documentation, errorEnvelope `cause` field pre-existing, CHANGELOG SW module-cache flush note for sprint close).
+
+**[qa-reviewer]** — 0 CRIT / **4 HIGH** / 5 MEDIUM / 6 LOW. **All four HIGH findings closed in Wave 3a fix-round** per §63.18.2 deviation #2. MEDIUM-5..M-9 (cursor affordance; ATTACH-to-empty-group UX; cache-miss silence; ATTACH side-effect race; hit-test geometry test gap) deferred to polish backlog or [test-engineer] R5 UAT walkthrough. LOW-10..L-15 deferred (ARIA drag affordance per AC8 v1 waiver; theme contrast spot-check; copy polish; auto-claim-after-detach by-design; source-row dimming; SCOPE.ITEMS broadcast on soft-rejects).
+
+Full deduplicated R4 tables in `docs/findings/sprint-40.md` (qa-reviewer + security-reviewer + code-reviewer B-134 R4 anchor sections). Convergent MEDIUMs across reviewers concentrate on **payload upper-bound hardening** (security M-1/M-2/M-3) and **UAT-walkthrough deferrals** (qa M-5..M-9) — neither blocks R5.
+
+### §63.18.5 — R2 Correctness Checklist closure verification (C-1..C-12)
+
+| # | Check | R6 closure verdict |
+|---|-------|--------------------|
+| C-1a | Storage schema versioned (governance) | **PASS — confirmed.** `KNOWN_VERSION = 3` (`migration.js:76`); `defaultShape(PARTITION_META)` returns `{ schemaVersion: 3, ... }` (`shapes.js:105`); v2→v3 no-op step (`migration.js:108-112`) with correct contiguity (validated by F2 chain check at `migration.js:127-135`). **CHANGELOG SW module-cache flush note required at sprint close** — flagged for [release-manager] / [technical-writer] R7. |
+| C-1b | Data-migration strategy chosen (data) | **PASS — confirmed lazy.** Validator OPTIONAL on `sortOrder` (`shapes.js:251-259`); `buildFloatingMembers` falls back to `(windowId, tabIndex)` when sortOrder absent (`floating-members.js:150-160`); writes always stamp sortOrder; legacy v2 records self-evict on tab close. T14 + T15 regression-guard the lazy-fallback + sortOrder-priority paths. |
+| C-2 | Message contracts typed | **PASS — confirmed.** `MSG_REORDER_FLOATING_MEMBERS` + `MSG_MOVE_FLOATING_TAB` constants exported at `shared/messages.js` with full Request/Response JSDoc typedefs. Validator shapes documented; both messages added to `WRITE_MESSAGE_TYPES` + `MUTATION_BROADCASTS` registries. |
+| C-3 | SW cold-start safe | **PASS — confirmed.** All B-134 SW state is ephemeral; both new handlers re-read partitions on every call. Renderer's `_tabDragState` is sidepanel-module-local; SW restart loses it (acceptable — drag is ephemeral). |
+| C-4 | ID stability | **PASS — confirmed.** `tabId` runtime identity preserved; `floatingTabId` storage identity preserved (MOVE_FLOATING preserves the original `floatingTabId` per `floating-groups.js:437-441`); `sortOrder` is mutable and per-bucket-renormalised — no identity role. |
+| C-5 | Manifest file references resolvable | **N/A — confirmed.** No `manifest.json` edits. |
+| C-6 | Permission minimization | **N/A — confirmed.** Zero permission additions. `chrome.tabs.move` covered by existing `tabs` permission. [security-reviewer] independently re-verified clean. |
+| C-7 | Allow-list direction | **PASS — confirmed.** Both new handlers validate payloads via positive checks (typeof, finite numbers, non-empty strings); `MSG_REORDER_FLOATING_MEMBERS` re-derives the authoritative tabId set from `buildFloatingMembers` and accepts the client-supplied order ONLY if the set matches. No deny-list. |
+| C-8 | SW-context feasibility | **PASS — confirmed.** `chrome.tabs.move` is sidepanel-context (renderer-side); other handlers use SW-reachable APIs only (`readPartition`, `writeTransaction`, `chrome.tabs.get`). |
+| C-9 | Empty-state design | **PASS — 7 of 10 cases pinned + 3 deferred.** Single-member same-position no-op (T11 idempotency); ATTACH-to-empty-group ERR_RACE (T10); saved-bookmark row inert; group header inert; sub-group zone separation; cross-window REJECT (T2 + T22); multi-select tab-rows out of scope per AC8 v1. Three remaining cases deferred as [qa-reviewer] M-6/M-7/M-2 (ATTACH-to-empty-group confusing UX, cache-miss silence, ERR_RACE silence — H-2 partially closed in Wave 3a; M-6/M-7 polish backlog). |
+| C-10 | Off-screen rect feasibility | **N/A — confirmed.** No off-screen positioning; reuses existing `.drop-indicator--item` element via `transform: translateY(...)`. |
+| C-11 | Popup-lifecycle message ordering | **N/A — confirmed.** Sidepanel context, not popup. No focus-shifting API calls mid-flow. |
+| C-12 | Manifest declaration runtime-mutability | **N/A — confirmed.** No manifest declaration changes. |
+
+**No C-1..C-12 violations detected at R6 close.**
+
+### §63.18.6 — Atomic write surfaces + cascade-prune sibling-grep (B-129 carry-forward)
+
+B-134 introduces TWO new atomic write surfaces, both writing exclusively to `PARTITION_FLOATING_GROUPS`:
+
+| Write surface | Entry point | Cascade-prune impact | Verified |
+|---------------|-------------|----------------------|----------|
+| `reorderFloatingMembers(groupId, orderedTabIds)` | `MSG_REORDER_FLOATING_MEMBERS` | None — same-group reorder; no cross-partition implications. | ✓ B-129 sibling-grep N/A; no `MSG_DELETE_*` siblings. |
+| `moveFloatingTab(tabId, sourceGroupId, targetGroupId, insertIndex)` | `MSG_MOVE_FLOATING_TAB` | New records carry `parentItemId` resolved from destination group's first item (§63.18.2 deviation #1). Existing `pruneFloatingGroupsByParentItemId` cascade-prune (B-129) at `MSG_DELETE_ITEM` / `MSG_BULK_DELETE_ITEMS` / `MSG_DELETE_GROUP` correctly cleans up records the moment the destination's parent item is deleted. | ✓ [security-reviewer] R4 verified at `storage-handlers.js:226-237, :259-274, :286-310`. |
+
+No B-129 sibling-grep risk introduced. Existing cascade-prune sites cover B-134's new write paths by construction.
+
+### §63.18.7 — Test count delta (final)
+
+- **Pre-S40 baseline** (after Sprint 39 + v1.33.1 hotfix close): **1,732 tests passing**.
+- **B-134 contribution after R3:** +26 tests in `b134-tab-drag-reorder.test.js` (T1-T26) + delta in `floating-shape.test.js` + `migration-steps.test.js` + `messages-held.test.js` ≈ **+40 tests** → 1,772.
+- **Wave 3a fix-round:** +5 regression pins (T27, T27b, T28, T29, T30) → 1,777.
+- **R5 [test-engineer] additions:** +1 (T31 `reorderFloatingMembers` race-paths — closes [code-reviewer] M-2) + B-132 contributions → 1,807 final.
+
+**B-134 total delta: +35 tests** (vs. R2 §63.13.2 estimate of +25-30 — slight overshoot driven by Wave 3a regression pins).
+**Zero regressions** in the pre-existing suite at every checkpoint.
+
+### §63.18.8 — Rollback plan (single-revert + schema rollback)
+
+The B-134 work is split across two checkpoint commits on `feature/sprint-40-drag-reorder`:
+- `c3e7503` — R3 build + B-134 R2 chapter + B-132 R2 chapter
+- `965cd76` — Wave 3a fix-round (4 HIGH closed) + B-132 R3 build
+
+```bash
+# Identify the B-134 commits on release/v2 (after sprint merge):
+git log --oneline release/v2 | grep -E "B-134|S40 checkpoint"
+
+# Two-commit revert (Wave 3a first to preserve build coherence):
+git revert <965cd76-equivalent-on-release-v2>  # Wave 3a fix-round
+git revert <c3e7503-equivalent-on-release-v2>  # R3 build
+git push origin release/v2
+```
+
+**Code rollback removes:**
+- `_tabDragState` + `_tabDragRectCache` + all helpers in `sidepanel/sidepanel.js`.
+- `MSG_REORDER_FLOATING_MEMBERS` + `MSG_MOVE_FLOATING_TAB` from `shared/messages.js`.
+- New case branches + handler exports + `inheritedTabs` side-effect wiring in `background/messages/storage-handlers.js`.
+- `reorderFloatingMembers` + `moveFloatingTab` + `_resolveRecordIndexByTabId` + `_floatingRecordCompare` from `background/tabs/floating-groups.js`.
+- Sort path extension in `background/tabs/floating-members.js` (reverts to `(windowId, tabIndex)` only).
+- `KNOWN_VERSION` 3 → 2 in `migration.js`; v2→v3 step removed.
+- `defaultShape(PARTITION_META)` literal 3 → 2 in `shapes.js`; validator `sortOrder` branch removed.
+- `tests/b134-tab-drag-reorder.test.js` (NEW file — deleted entirely).
+- Test-fixture additions in `tests/floating-shape.test.js`, `tests/migration-steps.test.js`, `tests/messages-held.test.js`, `tests/chrome-mock.js`.
+- CSS additions in `sidepanel/sidepanel.css`.
+
+**Storage rollback (forward-readable):**
+- v3 records carrying `sortOrder` continue to function under the v2 validator (no `extraKey` rejection clause at `shapes.js:225` per R2 §63.16.2 — verified). Sort UX reverts to `(windowId, tabIndex)` for all records.
+- `tj:meta.schemaVersion` reverts to 2 via the rollback commit's `defaultShape` literal.
+- Lazy migration self-heals: any post-rollback write skips the sortOrder stamp; any read tolerates the field's presence on legacy-v3 records.
+- **Zero data loss; SEV3 rollback at worst.**
+
+**`inheritedTabs` rollback:**
+- `inheritedTabs` is ephemeral (SW-memory only). Rollback resets it on the next SW cold start; no persistent impact.
+
+**SW module-cache flush note (mandatory per C-1a):**
+- After rollback, the user MUST toggle the extension OFF then ON in `chrome://extensions` to flush the SW module cache. Same note required at the FORWARD upgrade. [release-manager] / [technical-writer] R7 must include this in `CHANGELOG.md` for v1.34.0 release.
+
+**User-visible rollback impact:**
+- Drag-and-drop reorder for Open Tabs + floating tabs is removed.
+- Users return to: chrome's native tab strip for Open Tabs reorder; B-007 dialog parent-picker for moving items between groups; B-124 "Save as bookmark" CTA for promoting floating tabs to saved.
+- No data loss; no broken flows.
+
+### §63.18.9 — Schema / contract / permission impact
+
+Confirmed by direct re-read of the diff:
+- **Storage schema:** **CHANGED — v2 → v3.** New OPTIONAL `sortOrder: number` field on `tj:floatingGroups` records. C-1a/C-1b governance fully complied (KNOWN_VERSION + defaultShape + no-op MIGRATION_STEPS entry + lazy validator + CHANGELOG flush note pending sprint close).
+- **Message contracts:** **CHANGED — 2 new types** (`MSG_REORDER_FLOATING_MEMBERS`, `MSG_MOVE_FLOATING_TAB`). Both fully typed with Request/Response JSDoc. No existing contracts modified.
+- **Manifest permissions:** **UNCHANGED.** `chrome.tabs.move` covered by existing `tabs` permission. C-6 verified clean by [security-reviewer] R4.
+- **Validation surfaces:** New positive (allow-list) validators in `MSG_REORDER_FLOATING_MEMBERS` + `MSG_MOVE_FLOATING_TAB` handlers; per-element type/finite-number checks. C-7 compliant.
+
+### §63.18.10 — Open follow-ups (deferred to backlog)
+
+- **[security-reviewer] M-1/M-2/M-3 — payload upper-bound hardening.** Add `MAX_BULK_INPUTS` parity to `orderedTabIds.length`, `insertIndex`, and groupId-string length validators. Defense-in-depth; not blocking. Candidate for a future hardening sprint.
+- **[code-reviewer] M-1 — `moveFloatingTab` race-fail no-op write.** Short-circuit before `writeTransaction` when `sourceIdx === -1`. Refactor opportunity; not blocking.
+- **[code-reviewer] M-3 — `_validateTabDropPreflight` cross-window/gen-mismatch behavioral test gap.** Source-text pin (T21) covers presence; behavioral coverage relies on UAT-RACE-1/2 + UAT-CROSS-WIN-1. Optional follow-up: extract preflight to a module-level export for synthetic-state testing.
+- **[qa-reviewer] M-5 — cursor affordance.** Add `cursor: grab` / `cursor: grabbing` CSS. Polish; UAT-AFFORDANCE-1 will surface.
+- **[qa-reviewer] M-6 — ATTACH-to-empty-group hit-test guard.** Filter empty-group floating zones at hit-test time. Polish; UAT-EMPTY-GROUP-1 will surface.
+- **[qa-reviewer] M-7 — `_computeReorderFloatingPayload` cache-miss silent no-op.** Add toast on empty-payload branch. Polish.
+- **[qa-reviewer] M-8 — ATTACH side-effect race window.** Move `markInherited` inside `moveFloatingTab` (or eagerly call before writeTransaction). LOW frequency / MEDIUM severity per [qa-reviewer]; cleanup pass candidate.
+- **[qa-reviewer] M-9 — hit-test geometry behavioral test gap.** Extract `_computeInsertIndex(midlines, y, excludeTabId?)` as testable pure helper. ~30 LOC refactor; defer.
+- **[qa-reviewer] L-10 — keyboard-driven drag.** P3 polish item per AC8 v1 waiver; file as a new backlog item if user demand surfaces.
+- **B-135 cross-window Open Tabs drag.** Already filed as deferred stub per Sprint 40 SPRINT.md. Out of B-134 v1 scope per Q3 R1 LOCK decision.
+
+---
+
 **End of §63.**

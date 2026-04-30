@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-30 · **Version:** 2.40.2 · **Total Items:** 134 · **Sprint 40 active. Wave 0+1 progress: B-131 closed `wontfix-not-repro`; B-133 DONE (dotted-green visual consolidation, +2 tests); B-132 R1 LOCKED (8 ACs, M Full, AC3 deep-chain carve-out); B-134 R2 in flight (chapter 63). Branch: `feature/sprint-40-drag-reorder` off release/v2.**
+**Updated:** 2026-04-30 · **Version:** 2.40 · **Total Items:** 134 · **Sprint 40 closing — 4 items DONE (B-133 dotted-green + B-132 cold-start fix + B-134 drag-reorder + B-131 wontfix); B-135 cross-window drag deferred stub. Gate 4 + Gate 7 + release v1.34.0 in flight. Branch: `feature/sprint-40-drag-reorder` off release/v2.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  93% (125/134)  [S40 active · 2 in flight + B-133 DONE + B-131 wontfix-closed + 1 deferred stub]
+Overall Progress    ███████████████████░  95% (127/134)  [S40 closing · 4 items done + 1 deferred stub · release v1.34.0 in flight]
 ```
 
 ### Legend
@@ -277,16 +277,14 @@ Overall Progress    ██████████████████░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 125 | 93% |
-| 🔄 In Progress | 2 | 1% |
+| ✅ Done | 127 | 95% |
+| 🔄 In Progress | 0 | 0% |
 | ⬜ To Do | 4 | 3% |
 | 🧊 Icebox | 3 | 2% |
 
-(Done count includes 1 `wontfix-not-repro` closure in S40 — B-131. Code-shipping done count is 124.)
+(Done count includes 1 `wontfix-not-repro` closure in S40 — B-131. Code-shipping done count is 126.)
 
-**In Progress breakdown (2 items, both Sprint 40)**:
-- 🔴 **B-132** (P1/M Full) — floating tabs route to Open Tabs after reload; R1 LOCKED (8 ACs); awaiting R2 [solution-architect]
-- 🟡 **B-134** (P2/M Full) — drag-and-drop reorder; R1 LOCKED at brainstorm; R2 [solution-architect] in flight
+**In Progress breakdown**: _Sprint 40 closing — 0 items in flight._
 
 **To-Do breakdown (4 items)**:
 - 🟡 **P2** (2): B-041 sync tab order (L) · B-076 MIGRATION_STEPS hook (S)
