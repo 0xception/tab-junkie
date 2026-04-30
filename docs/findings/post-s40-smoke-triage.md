@@ -246,3 +246,102 @@ The `chrome.tabs.onMoved` gap also reveals an R0 spike-coverage gap: B-134's R2 
 ---
 
 _Spike completed by [solution-architect] on 2026-04-30. No code modified; no test changed; no BACKLOG/SPRINT updates. Output is this findings file only._
+
+---
+
+## [code-reviewer] — B-136 R4 (Fast Track)
+
+**Reviewed:**
+- `background/tabs/tab-events.js` (uncommitted diff — +53 LOC, new `chrome.tabs.onMoved` listener at lines 354–405)
+- `tests/chrome-mock.js` (uncommitted diff — `tabs.move` mock now renumbers siblings + fires `onMoved`; new `tabs.onMoved` event channel; `__resetMock` clears `onMoved._listeners`)
+- `tests/b134-tab-drag-reorder.test.js` (uncommitted diff — T1 extended to assert post-move LiveTabIndex + `buildOpenTabs` ordering; 4 new T1b tests for forward/backward/cross-window-isolation/no-op)
+
+**Test suite:** `node --test tests/b134-tab-drag-reorder.test.js` — 36/36 PASS (T1 extended + T1b×4 added; existing T2–T31 unchanged and green).
+
+---
+
+### CRITICAL
+_None_
+
+### HIGH
+_None_
+
+### MEDIUM
+_None_
+
+### LOW
+_None_
+
+### Notes / observations
+
+- **Architecture / patterns:** New `onMoved` listener mirrors the surrounding listeners in `tab-events.js` (`onUpdated:47-118`, `onActivated:192-203`, `onAttached:343-352`) — same shape: payload-shape guards, `getLiveTabIndex()` read, per-entry `updateTabEntry` patches, single `broadcast(SCOPE.LIVE_STATE, 'tab/<verb>', { requireClaimsReady: true })` at the end. The `for (const [id, entry] of index)` iteration with `id !== tabId` skip and `entry.windowId === windowId` filter is structurally identical to the deactivate loop in `onActivated:194-199`. Consistent house style.
+
+- **Local-renumber correctness:**
+  - Forward (`fromIndex < toIndex`): condition `entry.index > fromIndex && entry.index <= toIndex` matches the half-open interval `(fromIndex, toIndex]` and shifts each by `-1`. Worked example: from=0, to=2 → indices 1 and 2 shift to 0 and 1; moved tab takes index 2. Asserted by T1b forward test (PASS).
+  - Backward (`fromIndex > toIndex`): condition `entry.index >= toIndex && entry.index < fromIndex` matches `[toIndex, fromIndex)` and shifts each by `+1`. Worked example: from=2, to=0 → indices 0 and 1 shift to 1 and 2; moved tab takes index 0. Asserted by T1b backward test (PASS).
+  - No off-by-one. The `if (otherTabId === tabId) continue` early-skip prevents double-mutation of the moved tab itself.
+  - Cross-window guard `entry.windowId !== windowId continue` correctly scopes the renumber to the same window (since Chrome only fires `onMoved` for same-window moves). T1b cross-window-isolation test confirms.
+  - No-op guard `if (fromIndex === toIndex) return` correctly short-circuits before any iteration. T1b no-op test confirms.
+
+- **DRY:** No new helper extraction warranted. The renumber loop is 6 lines × 2 branches; abstracting into a shared `shiftSiblingIndices(windowId, range, delta)` helper would obscure the directionality of the predicate (forward = `>` and `<=`, backward = `>=` and `<`) without saving meaningful LOC. The two branches are intentionally symmetric and easy to audit at a glance.
+
+- **Performance:** O(window-size) per move, single in-memory pass over `LiveTabIndex`. Comment at `tab-events.js:374-375` explicitly justifies "synchronous + O(window-size) — matches the in-memory cost of `onUpdated`. Avoids the extra `chrome.tabs.query` await." Bounded by typical 50–100 tabs per window. No storage I/O, no SW-cold-start path. Confirmed.
+
+- **Dead code / commented-out / TODOs / `console.log`:** None. The listener body is straight-line code; comments at `:354-376` are reference documentation citing Chrome docs URL, the `open-tabs.js:34-63` source citation per B-118, and the spike findings file. No noise left behind.
+
+- **Broadcast scope:** `SCOPE.LIVE_STATE` + `requireClaimsReady: true` matches every other LiveTabIndex-mutating broadcast in the file (`tab/updated:112`, `tab/created:138`, `tab/activated:202`, `tab/removed:220, 303`, `tab/attached:350`, `window/blurred:240`, `window/focused:257, 260`). The `requireClaimsReady` gate is correct because `buildOpenTabs` returns `[]` until claims are reconciled (see `open-tabs.js:35`); broadcasting `tab/moved` before claims-ready would force consumers to no-op anyway.
+
+- **B-118 source-citation hygiene:** Listener docblock cites `background/tabs/open-tabs.js:34-63` for the `buildOpenTabs` failure mode and `docs/findings/post-s40-smoke-triage.md` Issue 1 for the full failure trace. Both citations verified — `buildOpenTabs` is exactly at lines 34-63 and Issue 1 is the spike-origin finding. Gate satisfied.
+
+- **Test quality — T1 extension (b134 line ~135-148):**
+  - Now registers the SW-side listener via `registerTabEventListeners(Promise.resolve())` and seeds claims via `await reconcileClaims([])` so `buildOpenTabs` returns non-empty (gated on `isClaimsReady`).
+  - Asserts `chrome.tabs._moveCalls` (preserved B-134 contract), then `LiveTabIndex.get(tabId).index` for the moved tab AND each sibling (B-136 AC2), AND `buildOpenTabs().map(t => t.tabId)` order (B-136 AC3). Three-level assertion is the right end-to-end coverage for Issue 1.
+
+- **Test quality — T1b ×4 (lines ~159-244):**
+  - Forward (line ~166): tab 100 (idx 0) → idx 2; verifies siblings 101, 102 shift 1→0, 2→1, and moved tab lands at 2.
+  - Backward (line ~185): tab 202 (idx 2) → idx 0; verifies siblings 200, 201 shift 0→1, 1→2, and moved tab lands at 0.
+  - Cross-window isolation (line ~204): two windows × two tabs each; moves a tab inside window 1 and asserts window 2 indices are untouched. Properly exercises the `entry.windowId !== windowId continue` guard.
+  - Same-position no-op (line ~227): `fromIndex: 0, toIndex: 0`; asserts state is unchanged. Properly exercises the `if (fromIndex === toIndex) return` guard.
+  - Each T1b test bypasses `chrome.tabs.move` entirely and directly invokes `chrome.tabs.onMoved.__fire(tabId, moveInfo)` — this isolates the listener body as the unit under test (independent of the chrome-mock's `move` implementation). Good test-isolation hygiene.
+
+- **chrome-mock changes — `tabs.move` realism:** The mock now renumbers same-window siblings before firing `onMoved`, matching Chrome's actual reorder semantics. `tabs.onMoved.__fire(tab.id, { windowId: fromWindowId, fromIndex, toIndex })` payload shape matches Chrome's documented `onMoved` event. Cross-window branch retains the prior B-134 behaviour (record index/windowId without firing `onMoved`) — correct, since Chrome dispatches `onDetached`/`onAttached` for cross-window moves. `__resetMock` is updated to clear `tabs.onMoved._listeners` (line 363) — listener accumulation across `beforeEach`-driven test runs is prevented.
+
+- **Listener-registration discipline:** Each B-136 test calls `registerTabEventListeners(Promise.resolve())` after `__resetMock` clears the listener arrays. The `beforeEach` at `b134-tab-drag-reorder.test.js:124-128` calls `__resetMock()` first, so listeners do not double-register across tests. Verified by the 36/36 green run — if listeners had accumulated, the renumber loop would fire multiple times per `onMoved` and the assertions would fail.
+
+- **Net assessment:** Surgical hotfix is clean. ~30 LOC of new SW listener code + symmetric ~35 LOC of mock parity + 5 test cases (1 extended + 4 new). Mirrors existing patterns, satisfies B-118 source-citation gate, satisfies the spike's prescribed local-renumber strategy, and the test extension proves the failure mode (Issue 1) is fixed end-to-end (LiveTabIndex stale → fresh, buildOpenTabs stale-sort → fresh-sort). No CRITICAL/HIGH/MEDIUM/LOW findings. **Recommend PROCEED — no R3 fix-cycle required.**
+
+---
+
+## [security-reviewer] — B-136 R4 (Fast Track)
+
+**Branch**: `hotfix/v1.34.1-b-136`
+**Diff scope**: `background/tabs/tab-events.js` (+53), `tests/chrome-mock.js` (+38, -3), `tests/b134-tab-drag-reorder.test.js` (+101, -1)
+**Reviewer**: [security-reviewer]
+**Date**: 2026-04-29
+
+### Verdict: **CLEAN** — no security findings (CRITICAL / HIGH / MEDIUM / LOW: none)
+
+### Checklist results
+
+| # | Check | Result | Evidence |
+|---|-------|--------|----------|
+| 1 | Manifest / permissions change | **NO** | `git diff HEAD manifest.json` is empty. `tabs` permission already on the allow-list at `manifest.json:6` and covers `chrome.tabs.onMoved`. No new permission required. |
+| 2 | CSP / `eval` / `new Function` / `innerHTML` / `outerHTML` | **NO** | Diff is pure listener registration + Map iteration + `updateTabEntry()` calls. Zero string-to-code or DOM-write surfaces introduced. |
+| 3 | New storage write surface | **NO** | Listener body writes only to in-memory `LiveTabIndex` via `updateTabEntry()` (`background/tabs/live-tab-index.js:52`). No `chrome.storage` write. No new partition key. `claimsMirror`, `inheritedTabs`, and `tj:drift` are untouched. |
+| 4 | Message-passing / new contract | **NO** | Reuses existing pattern: `broadcast(SCOPE.LIVE_STATE, 'tab/moved', { requireClaimsReady: true })`. Event name `'tab/moved'` is new but follows the established `'tab/<verb>'` convention used by `'tab/created'`, `'tab/updated'`, `'tab/removed'`, etc. (`background/tabs/tab-events.js:138, 220, 202`). No new sender/receiver shape; downstream `LIVE_STATE` consumers already handle ack-only broadcasts. |
+| 5 | `textContent` vs `innerHTML` for user strings | **N/A** | Listener does not touch DOM; no string interpolation into HTML at all. Tab `url` / `title` strings are not even read by this code path — only `windowId`, `fromIndex`, `toIndex` (all numbers). |
+| 6 | Network / telemetry / `console.log` | **NO** | Zero `fetch`, `XMLHttpRequest`, `console.*` calls in the diff. Listener is fully offline / silent. |
+| 7 | Listener payload validation | **PASS — defensive guards present** | Lines 380-383: `if (!moveInfo \|\| typeof moveInfo.windowId !== 'number') return;` and `if (typeof moveInfo.fromIndex !== 'number' \|\| typeof moveInfo.toIndex !== 'number') return;` correctly reject malformed payloads. Even though Chrome is the trusted dispatcher, this matches the project's established defensive posture (cf. C-3 cold-start safety). The `if (fromIndex === toIndex) return;` early-out at line 385 also avoids spurious renumber loops on degenerate input. |
+| 8 | Race condition: onMoved vs onRemoved | **PASS — no exploitable window** | `chrome.tabs.onRemoved` (`background/tabs/tab-events.js:208-224`) calls `removeTabEntry(tabId)` and Chrome guarantees event ordering (a closed tab cannot subsequently be moved). If `onRemoved` were to race ahead of an already-queued `onMoved`, `updateTabEntry()` (`background/tabs/live-tab-index.js:52-68`) gracefully creates a new partial entry rather than throwing — at worst a transient stale entry is re-created in-memory and is reaped on the next `pruneStaleTabs` pass. No persistent state corruption, no claim leak (claims are released by `releaseClaimByTab` in the `onRemoved` path independently of `LiveTabIndex`). Acceptable. |
+| 9 | Drift / claims / floating-groups interaction | **NO** | Listener does not touch `claimsMirror` (`background/tabs/tab-claims.js`), `inheritedTabs` set, `tj:drift` partition, or `tj:floatingGroups` records. It is a pure index-position update for the open-tabs list. Claim reconciliation is gated downstream via `requireClaimsReady: true` on the broadcast — the same gating used by every other `LIVE_STATE` event in this file. The position-join brittleness flagged for B-137 is unchanged by this hotfix (correctly out of scope). |
+
+### Additional observations
+
+- **Mock parity**: `tests/chrome-mock.js` extends `chrome.tabs.move` to dispatch `onMoved` with the same fromIndex/toIndex shift semantics the production listener mirrors. The mock and the listener share the same iteration pattern (`if t.index > fromIndex && t.index <= toIndex`) for forward moves and `if t.index >= toIndex && t.index < fromIndex` for backward moves — these match Chrome's documented shift behaviour. Symmetric mock + production logic minimizes the risk of test-only false-positives.
+- **Cross-window safety**: The local-renumber loop guards on `entry.windowId !== windowId` (lines 388, 397). Cross-window drags fire `onDetached`/`onAttached` (lines 329, 343), not `onMoved` — so the windowId scoping correctly prevents the renumber from leaking into other windows. The new test `B-136 T1b (AC2): chrome.tabs.onMoved listener ignores cross-window siblings during local renumber` exercises this path.
+- **No log noise**: Listener does not emit any `console.warn`/`console.log`. Consistent with the production-no-PII rule (`url`/`title` are not even referenced).
+
+### Conclusion
+
+B-136 is a textbook listener-registration hotfix with a near-zero security threat surface. No CRITICAL / HIGH / MEDIUM / LOW findings. Approved for [code-reviewer] sign-off and R5 test-suite confirmation.
+
