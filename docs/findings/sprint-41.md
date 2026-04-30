@@ -274,3 +274,25 @@ _None_
 ### Verdict
 
 **APPROVE** — clean Fast Track doc-edit bundle. All 5 items pass AC1-AC5 against their respective R1 LOCKED specs. Zero CRITICAL / HIGH / MEDIUM / LOW findings. Bundle is ready for sprint mark-done.
+
+---
+
+## [solution-architect] — B-137 R2 summary
+
+R2 chapter authored as `docs/design/66-b-137-floating-tab-id-join-key.md` (17 sections, ~1,140 LOC). Root index `docs/SOLUTION_DESIGN.md` TOC extended with §66 entry. R2 LOCKED 2026-04-29.
+
+**R2-VERIFY 1 (cold-start re-bind owner)** — LOCKED to `reassociateFloatingGroups` (`floating-groups.js:107-162`). Rationale: it already runs `pruneResolvedFloatingGroups` (existing write surface) and we extend the writeTransaction's mutator to ALSO patch matched-but-unclaimed records with their resolved `liveTabId`. The other helper `preMarkInheritedFromFloatingGroups` (B-132 §65.4) retains its pure-read-then-mark contract verbatim; T-132-H "writes ZERO storage" pin continues to pass. The third bookkeeping bucket (`staleLiveTabIdRecords: Map<floatingTabId, newLiveTabId>`) is added inside the existing iteration loop — single combined writeTransaction prunes resolved-claimed records AND patches resolved-unclaimed-stale records.
+
+**R2-VERIFY 2 (`moveFloatingTab` parity)** — LOCKED to extend the existing `floatingTabId` preservation block at `floating-groups.js:434-441` to also preserve `liveTabId`. ATTACH path uses caller-supplied `tabId`; MOVE_FLOATING preserves the source record's `liveTabId`. Cascade-grep against all 8 record-write surfaces enumerated in §66.10 — all spread/filter operations preserve `liveTabId` automatically; only the explicit-write sites (appendFloatingGroup, moveFloatingTab target push, pruneResolvedFloatingGroups patch branch) require explicit per-site edits.
+
+**R2-VERIFY 7 (`appendFloatingGroup` signature)** — LOCKED to caller-supplies `liveTabId` via the `entry` object. Rationale: `tab.id` is in scope at the call site `tab-events.js:156-163`, explicit at the call site, avoids redundant lookup. Input validator at `floating-groups.js:178-185` extends to require `liveTabId: number` (silent rejection on missing per existing pattern). Caller update is a single-line addition.
+
+**C-1a + C-1b compliance (full closure)**: KNOWN_VERSION 3→4 (`migration.js:76`); `defaultShape(PARTITION_META).schemaVersion` 3→4 (`shapes.js:105`); new no-op v3→v4 `MIGRATION_STEPS` entry (chain `1→2→3→4`); validator OPTIONAL `liveTabId` finite-number check (mirrors `sortOrder`/`floatingTabId`/`parentItemId` precedent); CHANGELOG SW module-cache flush note flagged for R7 [technical-writer]. Lazy migration strategy (option 2): writes always stamp; reads tolerate v3; cold-start re-bind via `reassociateFloatingGroups` lazy-rewrites legacy records.
+
+**Fix-scope test-assertion enumeration (§66.12)**: 14 test files affected. Class (a) gains-v4-assertion: floating-shape, floating-position, floating-multi, floating-url-fallback, b121-floating-group-render, b132-cold-start-inheritance, b134-tab-drag-reorder, migration-steps. Class (b) updates-v3-pin: floating-shape (arg additions), b134-tab-drag-reorder (mixed), migration-steps (KNOWN_VERSION value bump). Class (c) unaffected: most floating-position/floating-url-fallback tests, floating-session-wipe, floating-ready-gate, b125-claim-jump-fix, most b121/b132/b134 tests, migration-fresh-install, migration-normal.
+
+**R3 build plan**: ~136 production LOC across 5 files (migration.js, shapes.js, floating-groups.js, floating-members.js, tab-events.js); ~280 test LOC + ~15-20 new tests across 8 test files. Build sequence: schema → write → read → cold-start → helper → full suite (§66.13.3).
+
+**Top R3-VERIFY markers** (deferred to R3): URL-guard at tier (a) for stale-`liveTabId` (R2 LOCKS no-guard, R3 may add post-UAT); pruneResolvedFloatingGroups extend-in-place vs. new function (R2 prefers in-place); `_resolveRecordIndexByTabId` linear-scan vs. precomputed cache (R2 LOCKS linear).
+
+**Nothing escalates back to R1.** R1's 7 R2-VERIFY markers all resolved within R2 chapter; the 8 ACs are buildable as locked.
