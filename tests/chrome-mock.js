@@ -212,6 +212,26 @@ const tabs = {
     state.mockTabs.push(tab);
     return deepClone(tab);
   },
+  /* B-134 §63.13.2 — chrome.tabs.move mock. Records the call (for spy
+     assertions) and updates the in-memory mockTabs array's `index` fields
+     to mimic Chrome's same-window reorder. Cross-window moves are out of
+     scope for B-134 (rejected at sidepanel layer). */
+  _moveCalls: [],
+  async move(tabIds, props) {
+    tabs._moveCalls.push({ tabIds, props });
+    if (typeof tabIds !== 'number') return null; // multi-move out of scope
+    const tab = state.mockTabs.find((t) => t.id === tabIds);
+    if (!tab) {
+      throw new Error(`Tab ${tabIds} not found`);
+    }
+    if (props && typeof props.index === 'number') {
+      tab.index = props.index;
+    }
+    if (props && typeof props.windowId === 'number') {
+      tab.windowId = props.windowId;
+    }
+    return deepClone(tab);
+  },
   async remove(tabIds) {
     const ids = Array.isArray(tabIds) ? tabIds : [tabIds];
     for (const id of ids) {
@@ -303,6 +323,7 @@ export function __resetMock() {
   tabs.onRemoved._listeners.length = 0;
   tabs.onDetached._listeners.length = 0;
   tabs.onAttached._listeners.length = 0;
+  tabs._moveCalls.length = 0;
   windows.onCreated._listeners.length = 0;
   windows.onRemoved._listeners.length = 0;
   windows.onFocusChanged._listeners.length = 0;

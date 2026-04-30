@@ -113,6 +113,63 @@ test('B-121: appendFloatingGroup auto-stamps a floatingTabId (ulid)', async () =
   assert.equal(records[0].parentItemId, 'item-1');
 });
 
+test('B-134 §63.13.2: appendFloatingGroup stamps numeric sortOrder (schema v3)', async () => {
+  /* First record into an empty group → sortOrder: 0. */
+  await appendFloatingGroup({
+    groupId: 'g-sort',
+    parentItemId: 'item-sort',
+    windowId: 1,
+    tabIndex: 0,
+    url: 'https://first.example',
+    savedAt: 1000,
+  });
+  /* Second record into same group → sortOrder: 1 (max + 1). */
+  await appendFloatingGroup({
+    groupId: 'g-sort',
+    parentItemId: 'item-sort',
+    windowId: 1,
+    tabIndex: 1,
+    url: 'https://second.example',
+    savedAt: 2000,
+  });
+
+  const records = await readPartition(PARTITION_FLOATING_GROUPS);
+  assert.equal(records.length, 2);
+  for (const r of records) {
+    assert.equal(typeof r.sortOrder, 'number');
+    assert.ok(Number.isFinite(r.sortOrder), 'sortOrder must be finite');
+  }
+  const sorted = [...records].sort((a, b) => a.sortOrder - b.sortOrder);
+  assert.equal(sorted[0].sortOrder, 0);
+  assert.equal(sorted[1].sortOrder, 1);
+});
+
+test('B-134 §63.13.2: appendFloatingGroup sortOrder is per-bucket (different groups can both start at 0)', async () => {
+  await appendFloatingGroup({
+    groupId: 'g-A',
+    parentItemId: 'item-A',
+    windowId: 1,
+    tabIndex: 0,
+    url: 'https://a.example',
+    savedAt: 1000,
+  });
+  await appendFloatingGroup({
+    groupId: 'g-B',
+    parentItemId: 'item-B',
+    windowId: 1,
+    tabIndex: 1,
+    url: 'https://b.example',
+    savedAt: 2000,
+  });
+
+  const records = await readPartition(PARTITION_FLOATING_GROUPS);
+  assert.equal(records.length, 2);
+  /* Both records should carry sortOrder: 0 (per-bucket scope, §63.2.2). */
+  for (const r of records) {
+    assert.equal(r.sortOrder, 0);
+  }
+});
+
 test('B-121: appendFloatingGroup tolerates legacy `itemId` field on the way in', async () => {
   await appendFloatingGroup({
     groupId: 'g-2',

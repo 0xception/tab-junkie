@@ -63,8 +63,17 @@ const KNOWN_LEGACY_KEYS = ['junkie_bookmarks', 'junkie_groups', 'junkie_pinned_t
  * one-shot rewrite keeps the transaction bounded to PARTITION_META (matching
  * the F3 scaffold limitation) and avoids touching live floating-group data
  * during the cold-start window.
+ *
+ * v3 (B-134 §63.2.3) — `tj:floatingGroups` records gain an OPTIONAL
+ * `sortOrder: number` field used by `buildFloatingMembers` to order floating
+ * rows within a group. Lazy data migration (§63.2.4): the v2→v3 step is a
+ * no-op governance bump; legacy records sort by (windowId, tabIndex) fallback
+ * in `buildFloatingMembers`; new writes via `appendFloatingGroup` /
+ * `reorderFloatingMembers` / `moveFloatingTab` always stamp `sortOrder`.
+ * Legacy records self-evict naturally as their tabs close. C-1a + C-1b
+ * compliance is recorded explicitly in §63.2.3 / §63.2.4.
  */
-export const KNOWN_VERSION = 2;
+export const KNOWN_VERSION = 3;
 
 /**
  * Ordered array of migration steps. Each step upgrades the schema from
@@ -88,6 +97,17 @@ const MIGRATION_STEPS = [
   {
     fromVersion: 1,
     toVersion: 2,
+    migrate: (snapshot) => snapshot,
+  },
+  /* B-134 §63.2.3 / §63.2.4 — v2 → v3 governance bump. No-op migrate: lazy
+     data migration. `buildFloatingMembers` derives sort from (windowId,
+     tabIndex) for legacy records lacking `sortOrder`; new writes always
+     stamp `sortOrder`. Records self-evict via natural turnover. The
+     governance bump is required by C-1a even when the data migration is
+     lazy (C-1b option 2). */
+  {
+    fromVersion: 2,
+    toVersion: 3,
     migrate: (snapshot) => snapshot,
   },
 ];

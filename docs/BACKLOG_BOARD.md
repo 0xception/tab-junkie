@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-30 · **Version:** 2.39.3 · **Total Items:** 134 · **Sprint 39 + v1.33.1 hotfix shipped. Sprint 40 candidates (5): 2 P1 bugs (B-131 + B-132) + 1 P2 drag-reorder feature (B-134) + 1 P3 visual consolidation (B-133) + 1 P3 cross-window drag deferred stub (B-135).**
+**Updated:** 2026-04-30 · **Version:** 2.40 · **Total Items:** 134 · **Sprint 40 closing — 4 items DONE (B-133 dotted-green + B-132 cold-start fix + B-134 drag-reorder + B-131 wontfix); B-135 cross-window drag deferred stub. Gate 4 + Gate 7 + release v1.34.0 in flight. Branch: `feature/sprint-40-drag-reorder` off release/v2.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  92% (123/134)  [S39 + v1.33.1 hotfix done · Sprint 40 queue: 5 items in triage]
+Overall Progress    ███████████████████░  95% (127/134)  [S40 closing · 4 items done + 1 deferred stub · release v1.34.0 in flight]
 ```
 
 ### Legend
@@ -277,17 +277,18 @@ Overall Progress    ██████████████████░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 123 | 92% |
+| ✅ Done | 127 | 95% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 8 | 6% |
+| ⬜ To Do | 4 | 3% |
 | 🧊 Icebox | 3 | 2% |
 
-**In Progress breakdown**: _0 items in flight._
+(Done count includes 1 `wontfix-not-repro` closure in S40 — B-131. Code-shipping done count is 126.)
 
-**To-Do breakdown (8 items)**:
-- 🔴 **P1** (2 — Sprint 40 candidates): **B-131** floating tab opens with wrong title initially (verify-first; may no longer reproduce post-v1.33.1) · **B-132** floating tabs route to Open Tabs section instead of originating group after extension reload (likely SW-memory loss of `openerMap` or `inheritedTabs`)
-- 🟡 **P2** (3): **B-134** drag-and-drop reorder open + floating tabs (M Full · 5 ops · R1 LOCKED; Sprint 40 anchor candidate) · B-041 sync tab order (L) · B-076 MIGRATION_STEPS hook (S)
-- ⚪ **P3** (3): **B-133** consolidate ephemeral-state visual cue · **B-135** cross-window Open Tabs drag (deferred stub from B-134) · B-086 sidepanel UI/UX umbrella (M)
+**In Progress breakdown**: _Sprint 40 closing — 0 items in flight._
+
+**To-Do breakdown (4 items)**:
+- 🟡 **P2** (2): B-041 sync tab order (L) · B-076 MIGRATION_STEPS hook (S)
+- ⚪ **P3** (2): **B-135** cross-window Open Tabs drag (deferred stub from B-134) · B-086 sidepanel UI/UX umbrella (M)
 
 **To Do breakdown (3 items, S40+ candidates)**:
 - **🟡 P2 (2)**: B-041 (sync tab order, L · pre-S33 — last big v2 feature), B-076 (MIGRATION_STEPS hook, S · pre-S33)

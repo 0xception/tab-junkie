@@ -65,6 +65,16 @@ test('AC8: position match takes priority over URL match (record retained)', asyn
   assert.equal(raw.length, 1);
 });
 
+/* B-132 §65.10: this test invokes reconcileClaims DIRECTLY without
+   preMarkInheritedFromFloatingGroups (the cold-start helper added for
+   B-132 in background/tabs/floating-groups.js). In production,
+   initializeLiveState always pre-marks inherited tabs before reconcile,
+   so this exact "URL collision + unclaimed → claim-jump" sequence does
+   not arise. The test pins the unit-level reconcileClaims+reassociate
+   contract for the no-inheritance case, which is still load-bearing for
+   non-floating tabs (the gate's empty-set behavior is what's pinned —
+   still TRUE post-fix). T-132-F in tests/b132-cold-start-inheritance.test.js
+   pins the integrated cold-start behavior with the helper applied. */
 test('AC8: position match against an already-claimed tab still triggers prune', async () => {
   seedPartitions({
     floatingGroups: [

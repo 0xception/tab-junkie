@@ -2,6 +2,38 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.34.0] — 2026-04-30
+
+Sprint 40 — Floating-tab bug-fix anchor + drag-reorder feature (3 user-visible items): 1 P1 cold-start bug fix (B-132) + 1 P2/M drag-and-drop reorder feature (B-134) + 1 P3/XS visual-cue consolidation (B-133).
+
+### Added
+- **Drag-and-drop reorder for open and floating tabs (B-134)** — five new drag operations are now possible from the side panel:
+  - **Reorder open tabs within the same window** — drag rows in the Open Tabs section to change their order; the change mirrors to the browser's native tab strip in real time.
+  - **Reorder floating tabs within their group** — drag floating-tab rows up or down to change their order under their parent group.
+  - **Attach an open tab to a group** — drop an Open Tabs row onto a group's floating area to make it a floating member of that group (it stays in the group until you close it).
+  - **Detach a floating tab back to Open Tabs** — drag a floating tab out of its group and drop it on the Open Tabs section to make it a regular open-tab row again.
+  - **Move a floating tab between groups** — drag a floating-tab row from one group to another to switch which group it floats under, as a single atomic operation.
+  All five operations show the same horizontal drop-line indicator already used for bookmark reorder. The keyboard alternative for moving a floating tab between groups is unchanged (right-click → Save to group). **Cross-window drag is not supported in this release** (filed as B-135 for a future sprint); same-window only. Drag-and-drop directly onto a saved-bookmark row to promote-on-drop is also deferred to a later sprint.
+
+### Changed
+- **Open Tabs section rows now use a dotted green left-edge bar (B-133)** — Open Tabs rows pick up the same dotted-green visual cue introduced for floating tabs in v1.33.0, completing the visual taxonomy: a **solid** green left-edge bar means a *persistent* row (a saved bookmark whose tab is currently open), and a **dotted** green left-edge bar means an *ephemeral* row (an unsaved live tab — either floating under a group or sitting in Open Tabs). At a glance you can now tell which rows in the panel are persistent and which will disappear when their tab closes.
+
+### Fixed
+- **Floating tabs no longer disappear from their group after extension reload (B-132)** — when the extension reloaded (after an update or a manual *Reload extension* click), pre-existing floating tabs were sometimes incorrectly auto-claimed by an unrelated saved bookmark whose URL happened to match — and got pulled out of the group they were floating under. Floating tabs now stay in their originating group across extension reloads as expected.
+
+### Architecture
+- **Schema migration `tj:floatingGroups` v2 → v3 (lazy, non-destructive)** — `tj:floatingGroups` records gain a `sortOrder` field so floating-tab order survives reloads. `KNOWN_VERSION` bumped 2 → 3 with a no-op migration step. Legacy v2 records (without `sortOrder`) are read transparently via a read-side compatibility shim; new writes always stamp `sortOrder`. No data rewrite on update. Per CLAUDE.md C-1a, an extension toggle OFF → ON cycle is required after this update to flush the service-worker module cache (see "Note" below).
+- **Manifest permissions** — unchanged. **Manifest entries** — unchanged.
+
+### Known limitations
+- **Cross-window drag deferred** — dragging an Open Tabs row from one browser window into another window's Tab Junkie panel is rejected in v1 (the source-window/target-window mismatch is detected and the drop is cancelled). Filed as **B-135** for a future sprint.
+- **Drag-to-save deferred** — dropping an open-tab row directly onto a saved-bookmark area to promote it in one gesture is not supported; use the existing right-click → *Save to group* flow or hover a floating-tab row for the *Save as bookmark* button. Tracked under **B-041** for a future release.
+- **Sidepanel-only for v1** — drag-and-drop reorder is available in the side panel and standalone window only. The new tab page does not yet support drag reorder for open or floating tabs.
+- **Deep-chain opener tabs after extension reload** — the B-132 fix protects pre-existing floating tabs from being claim-jumped on reload. However, deeply-nested opener-spawned tabs (a tab spawned from a tab that was itself spawned from a bookmarked parent, multiple hops deep) may still land in the Open Tabs section after a reload because the opener-chain context is not persisted across service-worker restarts. Workaround: close the affected tab and re-spawn it from the bookmarked parent.
+
+### Note
+- **Schema bump v2 → v3 — extension toggle required.** After updating to v1.34.0, toggle the extension OFF then ON in your browser's extensions page (`edge://extensions` or `chrome://extensions`), or fully restart the browser. This flushes the service-worker module cache and ensures the new floating-tab ordering schema is recognized. **Drag-and-drop reorder will not work correctly until this is done.** Pre-v1.34.0 `tj:floatingGroups` records remain readable; the new write path stamps `sortOrder` going forward.
+
 ## [1.33.1] — 2026-04-30 — B-130 hotfix
 
 Fast Track XS hotfix simplifying the v1.33.0 B-124 floating-tab visual implementation.

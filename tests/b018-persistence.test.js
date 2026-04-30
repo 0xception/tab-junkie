@@ -103,6 +103,16 @@ test('GAP-1: legacy itemId-bearing record on read does NOT crash reassociate', a
 // GAP-2: Cold-start integration — matched-claimed records are pruned
 // ---------------------------------------------------------------------------
 
+/* B-132 §65.10 + R1 R3-DECISION: this test seeds a tj:floatingGroups
+   record AND a saved item with the same URL — the URL-collision shape
+   that R2 §65.10 explicitly addressed for floating-position.test.js:68-91.
+   The test stays mechanically green because it bypasses
+   initializeLiveState and calls reconcileClaims directly without
+   preMarkInheritedFromFloatingGroups, so the gate's empty-set behavior
+   is what's pinned (still TRUE post-fix, load-bearing for the
+   no-inheritance code path). T-132-F in
+   tests/b132-cold-start-inheritance.test.js pins the integrated
+   cold-start behavior with the helper applied. */
 test('GAP-2: reassociateFloatingGroups prunes records whose matched tab is already claimed', async () => {
   // Cold start state: parent saved item P is claimed by reconcileClaims
   // (URL match), and tj:floatingGroups also contains a record pointing at
