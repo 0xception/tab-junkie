@@ -669,6 +669,89 @@ export async function pruneFloatingGroupsByParentItemId(parentItemId) {
 }
 
 /**
+ * Cascade-prune floating-group records whose `liveTabId` matches a now-closed
+ * tab.
+ *
+ * Origin: `docs/findings/post-s41-pre-merge-triage.md` Issue A — pre-v1.35.0
+ * hotfix bundle Fix A. Closes the orphan-record failure mode that caused
+ * `MSG_REORDER_FLOATING_MEMBERS` to return ERR_RACE on every legitimate
+ * floating-tab reorder once a sibling floating tab had been closed.
+ *
+ * Failure mode this closes: pre-fix, `chrome.tabs.onRemoved` released the
+ * claim, dropped the inheritance marker, pruned the opener relationship, and
+ * removed the LiveTabIndex entry — but DID NOT prune the closed tab's
+ * `tj:floatingGroups` record. The record survived as an orphan. On the next
+ * floating reorder, `reorderFloatingMembers`'s `storageBucketSize` parity
+ * check (floating-groups.js:397-401) counted the orphan, the client-supplied
+ * set excluded it (`buildFloatingMembers` skips records whose match resolves
+ * to null), and parity failed → ERR_RACE → user-visible toast on every drag.
+ *
+ * Scope: only v4 records (those with a numeric `record.liveTabId` field) are
+ * pruned by tabId match. Legacy v3 records (no `liveTabId`) are NOT pruned
+ * here — at the moment of `chrome.tabs.onRemoved` the LiveTabIndex entry for
+ * the closed tab is gone, so a v3 `(windowId, tabIndex)` geometry match
+ * cannot be performed. Per the design's lazy-migration semantics, v3 records
+ * are short-lived: cold-start `reassociateFloatingGroups` rewrites them to
+ * v4 on first match. Records that fail to match any live tab on cold start
+ * are left in place per B-018 AC9.
+ *
+ * Cross-reference: this fix self-applies B-141 (R3-spec-incorrect-finding)
+ * to B-137 §66.1, which claimed to "structurally eliminate" Issue 3 from the
+ * post-S40 spike. B-137 closed the `_resolveRecordIndexByTabId` half of the
+ * race-toast trigger; the orphan-record half stayed open until this hotfix.
+ *
+ * @param {number} tabId — the closed live tabId (from `chrome.tabs.onRemoved`)
+ * @returns {Promise<number>} count of records pruned (for testability —
+ *   no console logging in the production path; callers may surface this in
+ *   diagnostics if needed)
+ */
+export async function pruneFloatingGroupsByLiveTabId(tabId) {
+  if (typeof tabId !== 'number' || !Number.isFinite(tabId)) return 0;
+
+  /* Pre-flight read — the common path on `chrome.tabs.onRemoved` is "tab
+     held no floating-group record", so a read-only fast-path avoids
+     invoking writeTransaction (and the AC4 storage-write invariant the
+     synchronous tab-event handler path is asserted against in
+     `tests/tab-events-no-storage-write.test.js`) when there is nothing to
+     prune. The read path uses `readPartition` — same contract used by
+     `reassociateFloatingGroups` above. */
+  const records = await readPartition(PARTITION_FLOATING_GROUPS);
+  if (!Array.isArray(records) || records.length === 0) return 0;
+
+  let willPrune = false;
+  for (const entry of records) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (typeof entry.liveTabId === 'number'
+      && Number.isFinite(entry.liveTabId)
+      && entry.liveTabId === tabId) {
+      willPrune = true;
+      break;
+    }
+  }
+  if (!willPrune) return 0;
+
+  let prunedCount = 0;
+  await writeTransaction([{
+    partition: PARTITION_FLOATING_GROUPS,
+    mutator: (current) => {
+      const arr = Array.isArray(current) ? current : [];
+      const next = arr.filter((entry) => {
+        if (!entry || typeof entry !== 'object') return true;
+        if (typeof entry.liveTabId === 'number'
+          && Number.isFinite(entry.liveTabId)
+          && entry.liveTabId === tabId) {
+          prunedCount += 1;
+          return false;
+        }
+        return true;
+      });
+      return next;
+    },
+  }]);
+  return prunedCount;
+}
+
+/**
  * B-132 §65.4: cold-start re-population of inheritedTabs from
  * tj:floatingGroups. For every record whose match resolves AND whose
  * matched tabId is NOT already claimed, call markInherited(matchedTabId)

@@ -22,7 +22,7 @@ import { detectDriftForTab, clearDrift } from './drift.js';
 import { listItems } from '../storage/items.js';
 import { broadcast, SCOPE } from '../broadcast.js';
 import { recordOpener, pruneOpener, pruneOpenersByWindow, walkOpenerChain } from './opener-chain.js';
-import { appendFloatingGroup } from './floating-groups.js';
+import { appendFloatingGroup, pruneFloatingGroupsByLiveTabId } from './floating-groups.js';
 /* B-014 */
 import { registerWindow, unregisterWindow } from './window-ordinals.js';
 
@@ -209,6 +209,16 @@ export function registerTabEventListeners(readyPromise) {
 
   /**
    * tabs.onRemoved: remove from LiveTabIndex, release claim.
+   *
+   * Origin (Fix A — pre-v1.35.0 hotfix bundle): also cascade-prune any
+   * `tj:floatingGroups` record whose `liveTabId` matches the closed tab.
+   * Without this prune, orphan records survive in storage and break
+   * subsequent floating-tab reorders via the `storageBucketSize` parity
+   * check at floating-groups.js:397-401 (returns ERR_RACE on every drag).
+   * B-141 self-application: R2 chapter 66 §66.1 claimed Issue 3 (race-toast
+   * on rapid floating reorder) was structurally eliminated by B-137; this
+   * fixes the orphan-record half that the original chapter scoped out.
+   * See `docs/findings/post-s41-pre-merge-triage.md` Issue A.
    */
   chrome.tabs.onRemoved.addListener((tabId) => {
     pruneOpener(tabId);
@@ -225,6 +235,13 @@ export function registerTabEventListeners(readyPromise) {
       broadcast(SCOPE.LIVE_STATE, 'tab/removed', { requireClaimsReady: true });
     }).catch((err) => {
       console.warn('[tab-junkie] releaseClaimByTab failed on tab removal', err);
+    });
+    /* Fix A — orphan-record cascade-prune. Fire-and-forget with try/catch
+       on the helper itself; mirror the B-132 `preMarkInheritedFromFloatingGroups`
+       graceful-degradation pattern so a storage error here never throws past
+       the listener boundary and never blocks the broadcast above. */
+    pruneFloatingGroupsByLiveTabId(tabId).catch((err) => {
+      console.warn('[tab-junkie] pruneFloatingGroupsByLiveTabId failed on tab removal', err);
     });
   });
 
@@ -289,6 +306,17 @@ export function registerTabEventListeners(readyPromise) {
       // closed by the window-removal event. Symmetric with the per-tab
       // onRemoved handler above.
       pruneInherited(tabId);
+      // Fix A (pre-v1.35.0 hotfix bundle): symmetric with the per-tab
+      // onRemoved handler above — cascade-prune any tj:floatingGroups
+      // record whose liveTabId matches a tab closed by the window-removal
+      // event. Per Chrome's contract, tabs.onRemoved fires for each tab in
+      // a closing window before windows.onRemoved, so the per-tab listener
+      // already handles the prune; this loop is belt-and-braces against
+      // any ordering edge case (matches the B-125 §59.5 pattern). See
+      // `docs/findings/post-s41-pre-merge-triage.md` Issue A.
+      pruneFloatingGroupsByLiveTabId(tabId).catch((err) => {
+        console.warn('[tab-junkie] pruneFloatingGroupsByLiveTabId failed on window removal', err);
+      });
     }
 
     /* B-014: drop the ordinal mapping regardless of claims readiness. The
