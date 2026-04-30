@@ -302,6 +302,12 @@ body {
   background: transparent;
   width: 100%;
   text-align: left;
+  /* B-124 §61.3.2: positioning context for the absolute-positioned
+     `.newtab-floating-bar` child (which paints the dotted left bar on
+     floating rows). Rows without `data-floating="true"` have no bar
+     child, so the positioned-ancestor declaration is inert in the
+     non-floating case. */
+  position: relative;
 }
 
 .newtab-item-row:hover {
@@ -456,6 +462,64 @@ body {
 }
 
 .newtab-floating-close:focus-visible {
+  outline: 2px solid var(--focus-ring, #5a8dee);
+  outline-offset: 1px;
+}
+
+/* --- B-124 §61.3.2: dotted left bar for floating rows on newtab ------- */
+/* Mirrors the sidepanel `.item-floating-bar` treatment — 3 px dotted
+   stroke in `var(--floating-bar-color)` (defaults to live-indicator). The
+   newtab row uses 14 px horizontal padding (no left-side border indicator
+   like the sidepanel), so the bar lives at left:0 without competing with
+   any inherited border-left rule. */
+.newtab-floating-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-left: 3px dotted var(--floating-bar-color);
+  pointer-events: none;
+}
+
+/* --- B-124 §61.3.3: hover/focus-within Save-as-bookmark CTA on newtab -- */
+/* Right-side icon button next to the existing close affordance. Hidden by
+   default; revealed on row hover or when any descendant gains focus
+   (keyboard parity). */
+.newtab-floating-save {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  margin-left: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #888);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  visibility: hidden;
+  opacity: 0;
+}
+
+.newtab-item-row[data-floating="true"]:hover .newtab-floating-save,
+.newtab-item-row[data-floating="true"]:focus-within .newtab-floating-save {
+  visibility: visible;
+  opacity: 1;
+}
+
+.newtab-floating-save:hover,
+.newtab-floating-save:focus-visible {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.06));
+  color: var(--text-primary, #222);
+  outline: none;
+}
+
+.newtab-floating-save:focus-visible {
   outline: 2px solid var(--focus-ring, #5a8dee);
   outline-offset: 1px;
 }

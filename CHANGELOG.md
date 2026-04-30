@@ -2,6 +2,23 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.33.0] — 2026-04-29
+
+Sprint 39 — Polish + process close-out (6 items): 1 P3/M floating-tab visual distinction + 1 P2/M sub-group drag-to-root + 1 P3/XS row-alignment fix + 3 XS CLAUDE.md process gates.
+
+### Added
+- **Floating-tab visual distinction (B-124)** — floating tabs (live tabs that have inherited a saved bookmark's group via the opener-chain feature, but are not themselves saved) now show a **dotted green vertical bar** on their left edge, while saved bookmarks with active live tabs show a **solid** green bar. At a glance you can tell which rows in a group are persistent (saved) vs. ephemeral (just-spawned). Applies to the side panel, the new tab page, and the standalone window. Hovering a floating-tab row reveals a **"Save as bookmark"** (`+`) button — click it to promote the floating tab to a saved bookmark in its current group, wiring through the existing promotion flow with no new permissions. Screen readers announce floating rows distinctly (`"floating tab — <title>"`) so the difference is conveyed without relying on color. WCAG AA contrast verified across all 14 themes (16/17 PASS — `solarized-light` retains the same accepted limitation as B-117 from Sprint 37). The bar color is parameterized via a new `--floating-bar-color` CSS token, so a future yellow-bar swap is a one-token change.
+- **Sub-group drag-to-root (B-122)** — drag a sub-group out of its parent and drop it anywhere outside an existing group to promote it back to a top-level group. This is the inverse of the existing drag-to-nest gesture (B-031). Drop between two top-level group headers to insert at that ordinal; drop above the first group to land at the top; drop below the last group to land at the bottom. The visual cue is the same drop-line you already see when reordering groups — no new visual primitive. Dropping the sub-group over the Open Tabs section is rejected (no accidental promotion to "after the last group"). Concurrent edits from another window are race-guarded: if a parallel edit changes the dragged group's parent mid-drag, the drag aborts with a toast. The keyboard alternative (edit-dialog parent picker → "Top-level (no parent)") is unchanged.
+
+### Improved
+- **Item-row left-edge alignment (B-123)** — bookmark rows in the side panel that have no live or active vertical-bar indicator now align horizontally with rows that do, producing a clean column instead of a jagged left edge. Pure CSS structural-placeholder fix; no behavior change.
+
+### Internal / process
+- **Three CLAUDE.md gate strengthenings (B-127, B-128, B-129)** — Sprint 38 retrospective action items closed: (1) STOP-and-escalate at R3 — `[frontend-engineer]` must escalate to `[scrum-master]` before silently deferring any AC-locked behavior to a follow-up item (B-121 R3 newtab close-button precedent); (2) C-1 schema-bump / migration-strategy split at R2 — the storage-schema correctness check is split into governance (C-1a, `KNOWN_VERSION` increment) and data-migration strategy (C-1b, eager / lazy / no-op choice documented), so a lazy data strategy no longer accidentally exempts the version bump (B-121 lazy-migration precedent); (3) cascade-prune sibling-grep at R3 — when R2 fix-scope adds a cascade-prune to one entry-point of a multi-entry-point write surface, R3 must grep for sibling entry-points and verify cascade parity before claiming complete (B-121 R3 single-delete-only cascade-prune precedent, missing `MSG_BULK_DELETE_ITEMS` + `MSG_DELETE_GROUP`).
+
+### Note
+- **No reload required.** All 6 Sprint 39 items are pure UI/UX or process changes — zero new pref keys, zero new manifest entries, zero storage schema changes. Update and use the new behavior immediately.
+
 ## [1.32.0] — 2026-04-29
 
 Sprint 38 — Bug-fix anchor sprint (4 items): 2 P0/P1 anchors (B-125 + B-121, merged R0 spike) + 2 XS internal/dev-only Fast Track items.

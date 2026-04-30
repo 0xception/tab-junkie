@@ -73,7 +73,7 @@ import {
    for a drag-reorder drop event. Pure, DOM-free, chrome-free (B-065 precedent).
    v2 re-implementation imports the same helper as S22 — backend code
    didn't need to change (bugs were entirely in sidepanel drag handlers). */
-import { computeItemReorder, computeMultiItemReorder, computeGroupReorder } from '../shared/sort-order.js';
+import { computeItemReorder, computeMultiItemReorder, computeGroupReorder, computeGroupPromote } from '../shared/sort-order.js';
 
 /* B-088 fix #1 — shared appliers for the theme attribute + dense-layout body
    class. Sidepanel keeps `currentTheme` module-local for the
@@ -357,8 +357,9 @@ const AUTO_SCROLL_MAX_SPEED = 20;
        validReorderTargetIds: Set<string>,
        cachedGroupsGen: number,
        pendingTargetGroupId: string|null,
-       pendingMode: 'REORDER_ABOVE'|'REORDER_BELOW'|'NEST'|'REJECT'|null,
+       pendingMode: 'REORDER_ABOVE'|'REORDER_BELOW'|'NEST'|'REJECT'|'PROMOTE'|null,
        pendingProposedMode: 'REORDER_ABOVE'|'REORDER_BELOW'|'NEST'|null,
+       pendingInsertAfterGroupId: string|null,   // B-122: anchor for PROMOTE
        rafHandle: number|null,
        scrollListener: Function|null,
      }
@@ -2861,10 +2862,18 @@ function buildOpenTabRow(tab /* , { multiWindow } */) {
  *   - `data-floating="true"`: selector hook for the runtime patch loop.
  *   - `data-parent-item-id="<itemId>"`: identifies the parent saved item.
  *
- * Visual treatment matches a live-claimed open-tab row exactly (Q5 LOCKED:
- * no italic / no muted text / no special bar). Visual distinction is
- * deferred to B-124. The X-button + MSG_CLOSE_TABS path is reused via the
- * `[data-tab-id]` selector; nothing extra is wired in this builder.
+ * B-124 §61.3 + §61.4 + §61.8 layered on top:
+ *   - `.item-floating-bar` child element paints a 3 px dotted left bar
+ *     in `var(--floating-bar-color)` (defaults to `var(--live-indicator)`),
+ *     replacing the solid live-bar painted by `.item-row[data-live]`.
+ *   - `.floating-row-save-cta` button reveals on `:hover`/`:focus-within`
+ *     and dispatches MSG_PROMOTE_TAB to promote the floating tab into a
+ *     saved bookmark of the parent's group.
+ *   - `aria-label` is overridden to `"floating tab — <title>"` (plus
+ *     active/audible/selected suffixes) so screen readers distinguish
+ *     ephemeral floating rows from bookmark-claimed live rows. The
+ *     "live tab" suffix from buildItemRowAriaLabel is intentionally
+ *     omitted (floating tabs are live but NOT bookmark-claimed).
  */
 function buildFloatingTabRow(member) {
   const row = buildOpenTabRow({
@@ -2883,7 +2892,113 @@ function buildFloatingTabRow(member) {
   if (typeof member.parentItemId === 'string' && member.parentItemId.length > 0) {
     row.dataset.parentItemId = member.parentItemId;
   }
+
+  /* B-124 §61.3.1: dotted left bar — absolute-positioned child at left:0
+     so it paints on top of the inherited live-row 3 px solid border-left
+     (transparented by the data-floating override). */
+  const bar = document.createElement('div');
+  bar.className = 'item-floating-bar';
+  bar.setAttribute('aria-hidden', 'true');
+  row.appendChild(bar);
+
+  /* B-124 §61.3.3 + §61.4: Save-as-bookmark CTA. The CTA mounts inside the
+     existing `.item-indicators` container (RHS of the row alongside the
+     window badge + audible icon) so the row layout stays consistent with
+     saved-bookmark live rows. CTA is hidden by default; CSS reveals it on
+     `:hover` and `:focus-within`. The button is keyboard-reachable via
+     Tab from the row (it lives inside the row so the row's tab-stop +
+     focus-within reveal pair handles keyboard users). */
+  const saveCta = document.createElement('button');
+  saveCta.type = 'button';
+  saveCta.className = 'floating-row-save-cta';
+  saveCta.setAttribute('aria-label', 'Save as bookmark');
+  saveCta.title = 'Save as bookmark';
+  saveCta.textContent = '+'; /* '+' bookmark-add affordance */
+  saveCta.addEventListener('click', _onFloatingSaveCtaClick);
+  let indicators = row.querySelector('.item-indicators');
+  if (!indicators) {
+    indicators = document.createElement('div');
+    indicators.className = 'item-indicators';
+    row.appendChild(indicators);
+  }
+  indicators.appendChild(saveCta);
+
+  /* B-124 §61.8: override the aria-label produced by
+     buildOpenTabRow → buildItemRowAriaLabel. The default is
+     `"<title>, active tab, live tab, ..."`. Replace with
+     `"floating tab — <title>, ..."`. The "live tab" suffix is dropped
+     because floating tabs are NOT bookmark-claimed (calling them "live"
+     would misrepresent the saved-vs-floating distinction the label
+     communicates). Suffix order mirrors buildItemRowAriaLabel:
+     active → audible → selected. */
+  _applyFloatingRowAriaLabel(row, member);
+
   return row;
+}
+
+/**
+ * B-124 §61.8: shared aria-label override for floating rows. Used by
+ * buildFloatingTabRow on initial build and by patchFloatingMembersSections
+ * when patching an existing row in place (the patch path otherwise leaves
+ * the row carrying its previous title, which would be stale if the live
+ * tab navigated). Mirrors the buildItemRowAriaLabel suffix ordering.
+ */
+function _applyFloatingRowAriaLabel(row, member) {
+  const title = member.title || member.url || 'Untitled tab';
+  const parts = [`floating tab — ${title}`];
+  if (member.active) parts.push('active tab');
+  if (member.audible) parts.push('playing audio');
+  /* Selection state: floating rows participate in selection via the same
+     `tab:<tabId>` key Open-Tabs rows use (buildOpenTabRow already enrolls
+     them via _createItemSelect). */
+  if (_selection.has('tab:' + member.tabId)) parts.push('selected');
+  row.setAttribute('aria-label', parts.join(', '));
+}
+
+/**
+ * B-124 §61.4: click handler for the floating-row Save-as-bookmark CTA.
+ * Dispatches MSG_PROMOTE_TAB with the floating row's tabId + the parent
+ * group's id (resolved from the enclosing .group-section's data-group-id
+ * per §61.2.2 simplest-of-two-options recommendation). Mirrors the
+ * Open-Tabs Save flow at sidepanel.js:6233 — duplicate detection is
+ * deferred to the SW: ERR_DUPLICATE_URL from MSG_PROMOTE_TAB is
+ * translated to a toast post-dispatch (see error block below). The
+ * floating-group reassociation pipeline only excludes tabs already
+ * claimed by another saved item (background/tabs/floating-members.js:111),
+ * so a floating tab's URL CAN match a saved bookmark in a different
+ * group; the SW catches that case via createItem's duplicate check and
+ * surfaces ERR_DUPLICATE_URL. The Open-Tabs Save CTA additionally runs a
+ * pre-dispatch _findDuplicateSavedItem + openConfirmDialog soft-warn
+ * (B-059 contract); that UX parity is intentionally deferred for the
+ * floating CTA per R2 §61.4 scope.
+ */
+function _onFloatingSaveCtaClick(ev) {
+  ev.stopPropagation();
+  const row = ev.currentTarget.closest('.item-row[data-floating="true"]');
+  if (!row) return;
+  const tabId = Number(row.dataset.tabId);
+  if (!Number.isFinite(tabId)) return;
+  /* §61.9 C-9 empty-state defense: read the enclosing group's id at
+     click-time. If the group has been deleted between hover and click
+     (narrow race), fall back to `null` (Ungrouped). */
+  const section = row.closest('.group-section[data-group-id]');
+  let groupId = section?.dataset.groupId || null;
+  if (groupId && !_cachedGroups.some((g) => g.id === groupId)) {
+    groupId = null;
+  }
+  sendMessage(MSG_PROMOTE_TAB, { tabId, groupId }).catch((err) => {
+    const code = err?.code;
+    /* Mirrors the error translation table at sidepanel.js:6238. */
+    if (code === ERR_SAFE_MODE) {
+      showToast('Cannot save while in safe mode');
+    } else if (code === ERR_DUPLICATE_URL) {
+      showToast('A bookmark with this URL already exists');
+    } else if (code === ERR_VALIDATION) {
+      showToast(err?.message || 'Cannot save this tab');
+    } else {
+      showToast('Couldn’t save tab — try again');
+    }
+  });
 }
 
 /**
@@ -2985,6 +3100,35 @@ function patchFloatingMembersSections(nextFloatingMembers) {
         row.dataset.floating = 'true';
         if (typeof member.parentItemId === 'string' && member.parentItemId.length > 0) {
           row.dataset.parentItemId = member.parentItemId;
+        }
+        /* B-124 §61.5.1(c): _patchOpenTabRow re-applies buildItemRowAriaLabel
+           (with the "live tab" suffix), so re-override here to keep the
+           floating-tab label stable across title/active/audible patches. */
+        _applyFloatingRowAriaLabel(row, member);
+        /* Defensive: ensure the dotted-bar + Save CTA exist on this row
+           even if a prior code path stripped them (the row was originally
+           built via buildFloatingTabRow which adds both). */
+        if (!row.querySelector('.item-floating-bar')) {
+          const bar = document.createElement('div');
+          bar.className = 'item-floating-bar';
+          bar.setAttribute('aria-hidden', 'true');
+          row.appendChild(bar);
+        }
+        if (!row.querySelector('.floating-row-save-cta')) {
+          const saveCta = document.createElement('button');
+          saveCta.type = 'button';
+          saveCta.className = 'floating-row-save-cta';
+          saveCta.setAttribute('aria-label', 'Save as bookmark');
+          saveCta.title = 'Save as bookmark';
+          saveCta.textContent = '+';
+          saveCta.addEventListener('click', _onFloatingSaveCtaClick);
+          let indicators = row.querySelector('.item-indicators');
+          if (!indicators) {
+            indicators = document.createElement('div');
+            indicators.className = 'item-indicators';
+            row.appendChild(indicators);
+          }
+          indicators.appendChild(saveCta);
         }
       } else {
         row = buildFloatingTabRow(member);
@@ -4256,6 +4400,12 @@ itemListEl.addEventListener('dragstart', (e) => {
          separately from `pendingMode` so a REJECT (validity-derived)
          doesn't poison the NEST↔REORDER boundary math. */
       pendingProposedMode: null,
+      /* B-122 §62.2.4 — anchor groupId for the PROMOTE insertion point.
+         null = insert at top of list; string = insert after that
+         top-level group. Set in `_groupDragTick`'s promote-intercept
+         branch only when the dragged group is a sub-group AND the
+         pointer falls outside any valid REORDER/NEST target. */
+      pendingInsertAfterGroupId: null,
       rafHandle: null,
       scrollListener: null,
     };
@@ -4465,8 +4615,13 @@ itemListEl.addEventListener('drop', async (e) => {
     _groupDragState = null;
 
     /* Validate pending mode — REJECT / null → abort silently (indicator
-     already cleared by cleanup). */
-    if (!state.pendingMode || state.pendingMode === 'REJECT' || !state.pendingTargetGroupId) {
+     already cleared by cleanup). PROMOTE is also valid: it has no
+     `pendingTargetGroupId`, so the `!state.pendingTargetGroupId` check
+     would otherwise reject it; carve PROMOTE out explicitly. */
+    if (!state.pendingMode || state.pendingMode === 'REJECT') {
+      return;
+    }
+    if (state.pendingMode !== 'PROMOTE' && !state.pendingTargetGroupId) {
       return;
     }
 
@@ -4491,6 +4646,26 @@ itemListEl.addEventListener('drop', async (e) => {
             showToast('Couldn\u2019t save group order \u2014 try again');
             return;
           }
+        } else if (state.pendingMode === 'PROMOTE') {
+          /* B-122 \u00a762.9 F-5: third race-guard branch. PROMOTE requires
+             the dragged group to STILL have a parent (otherwise a
+             concurrent action already promoted it; PROMOTE would be a
+             no-op). Also re-validate the insertion anchor is still a
+             top-level group. */
+          if ((freshDragged.parentId ?? null) === null) {
+            showToast('Couldn\u2019t save group order \u2014 try again');
+            return;
+          }
+          if (state.pendingInsertAfterGroupId !== null) {
+            const anchorStillTopLevel = freshGroups.some(
+              (g) => g.id === state.pendingInsertAfterGroupId
+                && (g.parentId ?? null) === null,
+            );
+            if (!anchorStillTopLevel) {
+              showToast('Couldn\u2019t save group order \u2014 try again');
+              return;
+            }
+          }
         } else {
           const freshSourceParent = freshDragged.parentId ?? null;
           const targetStillSibling = freshGroups.some(
@@ -4508,12 +4683,21 @@ itemListEl.addEventListener('drop', async (e) => {
       }
     }
 
-    const updates = computeGroupReorder(
-      _cachedGroups,
-      state.draggedGroupId,
-      state.pendingMode,
-      state.pendingTargetGroupId,
-    );
+    /* B-122 §62.5: PROMOTE goes through `computeGroupPromote` (different
+       inputs from `computeGroupReorder`); both dispatch through the
+       same `MSG_BULK_REORDER_GROUPS` write boundary. */
+    const updates = state.pendingMode === 'PROMOTE'
+      ? computeGroupPromote(
+        _cachedGroups,
+        state.draggedGroupId,
+        state.pendingInsertAfterGroupId,
+      )
+      : computeGroupReorder(
+        _cachedGroups,
+        state.draggedGroupId,
+        state.pendingMode,
+        state.pendingTargetGroupId,
+      );
     if (updates.length === 0) return;
 
     /* D-4: NEST onto a collapsed target — expand optimistically so the
@@ -5047,6 +5231,13 @@ function _cleanupItemDragDom() {
 function _buildGroupDragRectCache() {
   const rects = new Map();
   const sectionBottoms = new Map();
+  /* B-122 §62.2.4 — top-level groupIds in DOM order + their section.top
+     edges. Consumed by `_computeGroupPromoteTarget` to map a pointer Y
+     to "insert after which top-level group, or null for top of list".
+     Computing this once at dragstart (and on cache rebuild) keeps the
+     rAF tick O(1) for promote-target lookups. */
+  const topLevelOrder = [];
+  const topLevelTopY = new Map();
   const headers = itemListEl.querySelectorAll('.group-section > .group-header[data-group-id]');
   for (const header of headers) {
     const id = header.dataset.groupId;
@@ -5054,12 +5245,24 @@ function _buildGroupDragRectCache() {
     rects.set(id, header.getBoundingClientRect());
     const section = header.parentElement;
     if (section && section.classList.contains('group-section')) {
-      sectionBottoms.set(id, section.getBoundingClientRect().bottom);
+      const sectionRect = section.getBoundingClientRect();
+      sectionBottoms.set(id, sectionRect.bottom);
+      /* Only top-level groups participate in PROMOTE insertion-point
+         math. Look up the cached group entry to filter; if not found
+         (stale cache), default to false so no spurious promote slots
+         are exposed. */
+      const cachedGroup = _cachedGroups.find((g) => g.id === id);
+      if (cachedGroup && (cachedGroup.parentId ?? null) === null) {
+        topLevelOrder.push(id);
+        topLevelTopY.set(id, sectionRect.top);
+      }
     }
   }
   _groupDragRectCache = {
     rects,
     sectionBottoms,
+    topLevelOrder,
+    topLevelTopY,
     containerRect: itemListEl.getBoundingClientRect(),
     invalid: false,
   };
@@ -5081,6 +5284,45 @@ function _groupDragTick() {
   const target = _computeGroupDropTarget(_pendingGroupPointerX, _pendingGroupPointerY);
 
   if (!target) {
+    /* B-122 §62.2.1 promote-intercept: when the pointer is NOT over a
+       valid REORDER/NEST target, AND the dragged group is a sub-group,
+       map the pointer to a top-level promote target. This is the
+       inverse of B-031's NEST drag: B-031 nests INTO a parent, B-122
+       promotes OUT of one. */
+    const promote = _computeGroupPromoteTarget(_pendingGroupPointerX, _pendingGroupPointerY);
+    if (promote) {
+      /* Skip-no-op for PROMOTE: if both mode + insertAfterGroupId are
+         unchanged from last tick, no DOM write needed. */
+      if (_groupDragState.pendingMode === 'PROMOTE'
+        && _groupDragState.pendingInsertAfterGroupId === promote.insertAfterGroupId) {
+        return;
+      }
+      _hideGroupDragVisuals();
+      _groupDragState.pendingTargetGroupId = null;
+      _groupDragState.pendingMode = 'PROMOTE';
+      _groupDragState.pendingProposedMode = null;
+      _groupDragState.pendingInsertAfterGroupId = promote.insertAfterGroupId;
+
+      /* Indicator translateY math (§62.2.4):
+         - insertAfterGroupId === null → anchor at first top-level
+           section's top edge.
+         - else → anchor at the named group's section bottom. */
+      const containerRect = _groupDragRectCache.containerRect;
+      const scrollTop = itemListEl.scrollTop;
+      let py;
+      if (promote.insertAfterGroupId === null) {
+        const firstId = _groupDragRectCache.topLevelOrder[0];
+        const topY = _groupDragRectCache.topLevelTopY.get(firstId);
+        py = (topY ?? containerRect.top) - containerRect.top + scrollTop;
+      } else {
+        const bottomY = _groupDragRectCache.sectionBottoms.get(promote.insertAfterGroupId);
+        py = (bottomY ?? containerRect.top) - containerRect.top + scrollTop;
+      }
+      groupReorderIndicatorEl.style.transform = `translateY(${py}px)`;
+      groupReorderIndicatorEl.style.opacity = '1';
+      return;
+    }
+
     /* No valid target under pointer — hide indicator + clear any
        previously-applied class on the pending target. Also clear
        `pendingProposedMode` (B-084) so the next hover over a header
@@ -5090,6 +5332,7 @@ function _groupDragTick() {
     _groupDragState.pendingTargetGroupId = null;
     _groupDragState.pendingMode = null;
     _groupDragState.pendingProposedMode = null;
+    _groupDragState.pendingInsertAfterGroupId = null;
     return;
   }
 
@@ -5100,12 +5343,15 @@ function _groupDragTick() {
   }
 
   /* Clear prior visuals before applying new ones — mutual exclusivity:
-     at most ONE of {REORDER line, NEST highlight, REJECT highlight}
-     active at any time. */
+     at most ONE of {REORDER line, NEST highlight, REJECT highlight,
+     PROMOTE line} active at any time. */
   _hideGroupDragVisuals();
 
   _groupDragState.pendingTargetGroupId = target.targetGroupId;
   _groupDragState.pendingMode = target.mode;
+  /* B-122: any non-PROMOTE target clears the PROMOTE anchor so a
+     subsequent transition into PROMOTE starts fresh. */
+  _groupDragState.pendingInsertAfterGroupId = null;
 
   if (target.mode === 'REJECT') {
     /* Apply the rejection indicator class to the target header. Keeps the
@@ -5288,10 +5534,113 @@ function _computeGroupDropTarget(x, y) {
   /* REORDER_ABOVE / REORDER_BELOW. */
   if (!_groupDragState.validReorderTargetIds.has(targetGroupId)) {
     /* Target is not a sibling — can't REORDER into a different bucket via
-       drag (no promote-by-drag at this layer). */
+       drag (no promote-by-drag at this layer; B-122 picks up via
+       _computeGroupPromoteTarget when this returns null). */
     return null;
   }
   return { targetGroupId, mode: proposedMode };
+}
+
+/**
+ * B-122 §62.2.2 + §62.3 — PROMOTE drop-target detection.
+ *
+ * Called from `_groupDragTick` ONLY when:
+ *   1. `_groupDragState.isSubGroupDrag === true` (only sub-groups can be
+ *      promoted; depth-0 groups have nothing to promote to)
+ *   2. `_computeGroupDropTarget(x, y)` returned null (no valid REORDER
+ *      / NEST target under the pointer — the negative-space fallthrough)
+ *
+ * Returns either:
+ *   { mode: 'PROMOTE', insertAfterGroupId: string|null }
+ *     where insertAfterGroupId is the top-level group id immediately above
+ *     the insertion point (null when inserting at the very top of the list).
+ *   OR null when no valid promote target.
+ *
+ * Hit-test (priority order):
+ *   - Pointer X outside `#item-list` horizontally → null (defensive,
+ *     prevents global-page drops from registering).
+ *   - No top-level groups exist → null (defensive; shouldn't be reachable
+ *     from a sub-group drag because the sub-group's parent is by
+ *     definition top-level — but defense-in-depth).
+ *   - Pointer Y above the first top-level header's top → insertAfterGroupId
+ *     = null.
+ *   - Pointer Y between two top-level group bottoms → insertAfterGroupId
+ *     = the upper group's id.
+ *   - Pointer Y below the last top-level group's section bottom →
+ *     insertAfterGroupId = lastTopLevelId.
+ */
+function _computeGroupPromoteTarget(x, y) {
+  if (!_groupDragState) return null;
+  if (!_groupDragState.isSubGroupDrag) return null;
+  if (!_groupDragRectCache) return null;
+
+  const { containerRect, topLevelOrder, topLevelTopY, sectionBottoms } = _groupDragRectCache;
+
+  /* Defensive: pointer X must be inside the item list horizontally. */
+  if (x < containerRect.left || x > containerRect.right) return null;
+
+  /* B-122 R4 fix-round (M-4 / qa M-2): explicitly reject the Open Tabs
+     section as a promote target. The Open Tabs section sits below all
+     `.group-section` elements in DOM order, so without this guard the
+     "below last sectionBottom" branch silently returns
+     `{mode:'PROMOTE', insertAfterGroupId: lastTopLevelId}` whenever the
+     pointer is released over Open Tabs — the indicator anchors at the
+     last top-level group's bottom (far above the actual pointer) and the
+     drop produces an unintended promotion. R2 §62.9 F-1 deferred this
+     UX risk to UAT; pre-emptive fix mirrors the
+     `_computeGroupDropTarget` Open-Tabs guard at line 5462. */
+  const hit = document.elementFromPoint(x, y);
+  if (hit?.closest?.('.open-tabs-section')) return null;
+
+  /* Defensive: no top-level groups (shouldn't be reachable from a
+     sub-group drag, but guard regardless). */
+  if (topLevelOrder.length === 0) return null;
+
+  /* Above the first top-level header → insert at top of list. */
+  const firstId = topLevelOrder[0];
+  const firstTop = topLevelTopY.get(firstId);
+  if (firstTop != null && y < firstTop) {
+    return { mode: 'PROMOTE', insertAfterGroupId: null };
+  }
+
+  /* Below the last top-level section's bottom → append to end. */
+  const lastId = topLevelOrder[topLevelOrder.length - 1];
+  const lastBottom = sectionBottoms.get(lastId);
+  if (lastBottom != null && y > lastBottom) {
+    return { mode: 'PROMOTE', insertAfterGroupId: lastId };
+  }
+
+  /* Between two top-level groups: find the largest sectionBottom < y.
+     Iterate in DOM order and pick the last group whose bottom is above
+     the pointer. */
+  let anchorId = null;
+  for (let i = 0; i < topLevelOrder.length; i++) {
+    const id = topLevelOrder[i];
+    const bottom = sectionBottoms.get(id);
+    if (bottom == null) continue;
+    if (bottom < y) {
+      anchorId = id;
+    } else {
+      /* The pointer is inside or above this group's section. If
+         `anchorId` was set on a prior iteration, the pointer falls in
+         the gap between `anchorId`'s bottom and this group's top
+         (PROMOTE-after-anchor). If `anchorId` is still null, the
+         pointer is INSIDE the first top-level group's section — that
+         case is handled by `_computeGroupDropTarget` (REORDER/NEST on
+         a real header), so the null return here is correct. */
+      break;
+    }
+  }
+  if (anchorId === null) {
+    /* Pointer is INSIDE the first top-level group's section but
+       _computeGroupDropTarget already returned null (no REORDER/NEST
+       target under pointer). Fall back to "insert at top". This covers
+       the F-1 edge: pointer over the parent's own header in
+       REORDER_ABOVE zone, where the parent is already filtered from
+       validReorderTargetIds. */
+    return { mode: 'PROMOTE', insertAfterGroupId: null };
+  }
+  return { mode: 'PROMOTE', insertAfterGroupId: anchorId };
 }
 
 /* Clear any active group-drag visuals — REORDER indicator + both header

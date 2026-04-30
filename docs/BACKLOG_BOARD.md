@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-29 · **Version:** 2.38 · **Total Items:** 125 · **Sprint 38 closed 2026-04-29 — 4 items shipped: B-125 (P0/M) claim-jump fix + B-121 (P1/M) floating-tab render + B-120 + B-126 (XS Fast Track). v1.32.0 release pending. PR #41 (v1.31.0) still open against release/v2.**
+**Updated:** 2026-04-29 · **Version:** 2.39 · **Total Items:** 128 · **Sprint 39 closing — all 6 items DONE (B-123 + B-127 + B-128 + B-129 + B-124 + B-122); Gate 4 + Gate 7 + release v1.33.0 in flight. Branch: `feature/sprint-39-polish` off release/v2.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  93% (116/125)  [S38 closed 2026-04-29 · v1.32.0 release pending · 0 in-progress]
+Overall Progress    ███████████████████░  95% (122/128)  [S39 closing · 6 items done · release v1.33.0 in flight]
 ```
 
 ### Legend
@@ -122,9 +122,22 @@ Overall Progress    ██████████████████░░
 
 ---
 
+## Sprint 39 — Polish + drag UX (active)
+
+> 6/6 done · Sprint 39 closing 2026-04-29 (release/v2 fast-forwarded after PR #41 merge; new branch `feature/sprint-39-polish`)
+
+✅ B-124 — Floating-tab visual distinction (anchor #1) · ⚪ · M [S39 — Full DONE · dotted green bar + parameterized for future yellow swap · WCAG AA across 14 themes · hover save-CTA + distinct ARIA]
+✅ B-122 — Sub-group drag-to-root (anchor #2) · 🟡 · M [S39 — Full DONE · root drop = anywhere outside group · same drag-line indicator · Open-Tabs reject-guard pre-emptive Wave 3a fix]
+✅ B-123 — Item-row alignment (Wave 1 polish) · ⚪ · XS [S39 — Fast Track DONE · sidepanel-only fix per R1 R2-VERIFY · 6 new tests T1-T6]
+✅ B-127 — R3 STOP-and-escalate gate for AC-locked deferrals (CLAUDE.md edit) · ⚪ · XS [S39 — Fast Track DONE · S38 retro HIGH action #1]
+✅ B-128 — Split C-1 schema-bump vs data-migration (CLAUDE.md edit) · ⚪ · XS [S39 — Fast Track DONE · S38 retro MEDIUM action #2]
+✅ B-129 — R3 cascade-prune sibling-grep gate (CLAUDE.md edit) · ⚪ · XS [S39 — Fast Track DONE · S38 retro MEDIUM action #3]
+
+---
+
 ## Sprint 38 — Bug-fix anchor sprint (closed)
 
-> 4/4 done · 0 in progress · Sprint 38 closed 2026-04-29 (v1.32.0 release pending; UAT for B-125 + B-121 deferred to product owner; carried-forward UAT from S36+S37 still open)
+> 4/4 done · 0 in progress · Sprint 38 closed 2026-04-29 (v1.32.0 shipped via PR #41 merge to release/v2; UAT for B-125 + B-121 deferred to product owner; carried-forward UAT from S36+S37 still open)
 
 ✅ B-125 — Tab claim ownership jump on URL navigation (anchor #1) · 🔴 · M [S38 — Spike-First · `inheritedTabs` Set + reevaluateTab gate · 5 new tests]
 ✅ B-121 — Floating tab opener-chain inheritance regression (anchor #2) · 🟠 · M [S38 — Spike-First · `floatingMembers` on `MSG_LIST_ITEMS` · schema v1→v2 lazy-migration · 13 new tests · 1 CRIT + 4 HIGH fix-and-reproceed clean]
@@ -264,13 +277,13 @@ Overall Progress    ██████████████████░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 116 | 93% |
+| ✅ Done | 122 | 95% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 6 | 5% |
+| ⬜ To Do | 3 | 2% |
 | 🧊 Icebox | 3 | 2% |
 
-**In Progress breakdown**: _none — Sprint 38 closed 2026-04-29._
+**In Progress breakdown**: _Sprint 39 closing — 0 items in flight._
 
-**To Do breakdown (6 items, S39+ candidates)**:
-- **🟡 P2 (3)**: B-041 (sync tab order, L · pre-S33), B-076 (MIGRATION_STEPS hook, S · pre-S33), B-122 (sub-group drag-to-root, S · S37 follow-up)
-- **⚪ P3 (3)**: B-086 (sidepanel UI/UX umbrella, M · pre-S33), B-123 (item-row alignment, XS · S37 follow-up), B-124 (floating-tab visual distinction, S · S37 follow-up · design Q&A at R1 · depends on B-121)
+**To Do breakdown (3 items, S40+ candidates)**:
+- **🟡 P2 (2)**: B-041 (sync tab order, L · pre-S33 — last big v2 feature), B-076 (MIGRATION_STEPS hook, S · pre-S33)
+- **⚪ P3 (1)**: B-086 (sidepanel UI/UX umbrella, M · pre-S33)

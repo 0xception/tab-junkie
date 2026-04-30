@@ -415,3 +415,98 @@ export function computeGroupReorder(groups, draggedId, mode, targetId) {
 
   return updates;
 }
+
+/**
+ * B-122 — pure helper for sub-group → top-level promotion.
+ *
+ * Pure, DOM-free, chrome-free. Sibling to `computeGroupReorder`; distinct
+ * because PROMOTE has different inputs (no targetId; instead an
+ * `insertAfterGroupId` insertion-anchor in the top-level bucket).
+ *
+ * Behaviour:
+ *   - Dragged group's parentId is set to null.
+ *   - Dragged group's sortOrder is computed so it falls immediately after
+ *     `insertAfterGroupId` in the top-level bucket (or first if null).
+ *   - Top-level bucket is renumbered to consecutive (idx * 1000) values.
+ *   - Source bucket (the former parent's children) is renumbered to close
+ *     the gap left by the dragged group.
+ *
+ * Returns the MINIMAL update set — buckets unchanged from pre-drop state
+ * are not included (matches B-008 / B-031 minimality contract).
+ *
+ * Edge cases:
+ *   - draggedId not found → []
+ *   - draggedId is already top-level (parentId == null) → [] (no-op; UI
+ *     should never call with a top-level group, but defense-in-depth)
+ *   - insertAfterGroupId not in top-level bucket → [] (caller error)
+ *   - insertAfterGroupId === draggedId → [] (cannot insert after self)
+ *
+ * @param {GroupRow[]} groups
+ * @param {string} draggedId
+ * @param {string|null} insertAfterGroupId  null = insert at top of list
+ * @returns {GroupReorderUpdate[]}
+ */
+export function computeGroupPromote(groups, draggedId, insertAfterGroupId) {
+  if (!Array.isArray(groups) || typeof draggedId !== 'string') return [];
+  if (insertAfterGroupId === draggedId) return [];
+
+  const dragged = groups.find((g) => g && g.id === draggedId);
+  if (!dragged) return [];
+
+  const sourceParentId = dragged.parentId ?? null;
+  /* Already top-level — nothing to promote. */
+  if (sourceParentId === null) return [];
+
+  /* Top-level bucket sorted by sortOrder, EXCLUDING the dragged group
+     (it's being inserted as a sibling). */
+  const topLevel = groups
+    .filter((g) => (g.parentId ?? null) === null && g.id !== draggedId)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+
+  /* Resolve the insertion index. */
+  let insertIdx;
+  if (insertAfterGroupId === null) {
+    insertIdx = 0;
+  } else {
+    const anchorIdx = topLevel.findIndex((g) => g.id === insertAfterGroupId);
+    if (anchorIdx < 0) return []; /* anchor not in top-level bucket → caller error */
+    insertIdx = anchorIdx + 1;
+  }
+
+  /* Build the new top-level order with dragged inserted at insertIdx. */
+  const newTopLevel = topLevel.slice();
+  newTopLevel.splice(insertIdx, 0, dragged);
+
+  const updates = [];
+
+  /* Destination pass — top-level bucket renumbered to idx * 1000. The
+     dragged group always gets a parentId: null update because PROMOTE
+     by definition crosses the parent boundary. */
+  for (let idx = 0; idx < newTopLevel.length; idx++) {
+    const g = newTopLevel[idx];
+    const nextSort = idx * 1000;
+    const isDragged = g.id === draggedId;
+    const needsSort = (g.sortOrder ?? 0) !== nextSort;
+    if (isDragged) {
+      const update = { id: g.id, sortOrder: nextSort, parentId: null };
+      updates.push(update);
+    } else if (needsSort) {
+      updates.push({ id: g.id, sortOrder: nextSort });
+    }
+  }
+
+  /* Source-bucket pass — renumber the former-parent's children to close
+     the gap left by the dragged group. */
+  const sourceSiblings = groups
+    .filter((g) => (g.parentId ?? null) === sourceParentId && g.id !== draggedId)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  for (let idx = 0; idx < sourceSiblings.length; idx++) {
+    const g = sourceSiblings[idx];
+    const nextSort = idx * 1000;
+    if ((g.sortOrder ?? 0) !== nextSort) {
+      updates.push({ id: g.id, sortOrder: nextSort });
+    }
+  }
+
+  return updates;
+}

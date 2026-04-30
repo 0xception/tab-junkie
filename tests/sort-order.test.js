@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { computeItemReorder, computeGroupReorder, computeMultiItemReorder } from '../shared/sort-order.js';
+import { computeItemReorder, computeGroupReorder, computeMultiItemReorder, computeGroupPromote } from '../shared/sort-order.js';
 
 /* ---------- fixtures ---------- */
 
@@ -572,4 +572,141 @@ test('B-025 pure-helper: multi-drop onto Ungrouped (destGroupId=null) flips grou
   assert.equal(byId.get('c').sortOrder, 0);
   assert.equal(byId.get('d').sortOrder, 1000);
   assert.equal(byId.get('e').sortOrder, 2000);
+});
+
+/* =========================================================================
+   B-122 — pure-helper tests for `computeGroupPromote` (sub-group →
+   top-level promotion via drag). Sibling to `computeGroupReorder`;
+   different inputs (no targetId, instead `insertAfterGroupId`).
+
+   Fixture (mirrors makeGroupsWithNesting):
+     Top-level: g-p (has 2 children), g-q, g-r
+     Sub-groups of g-p: g-c1, g-c2
+
+   Coverage:
+     T1 (AC1) — promote g-c1 to top of list (insertAfterGroupId = null)
+     T2 (AC3) — promote g-c1 to AFTER a top-level group
+     T3 — defensive returns: unknown id, top-level dragged, anchor not
+          in top-level bucket, anchor === draggedId
+     T4 — source-bucket renumber correctness when promoting middle child
+   ========================================================================= */
+
+function makeGroupsForPromote() {
+  /* Same shape as makeGroupsWithNesting but local to keep the suite
+     self-contained. */
+  return [
+    { id: 'g-p',  parentId: null,  sortOrder: 0 },
+    { id: 'g-q',  parentId: null,  sortOrder: 1000 },
+    { id: 'g-r',  parentId: null,  sortOrder: 2000 },
+    { id: 'g-c1', parentId: 'g-p', sortOrder: 0 },
+    { id: 'g-c2', parentId: 'g-p', sortOrder: 1000 },
+  ];
+}
+
+test('B-122 T1 (AC1): computeGroupPromote(groups, subGroupId, null) → dragged at top of list with parentId: null', () => {
+  const groups = makeGroupsForPromote();
+  /* Promote g-c1 to top of list (insertAfterGroupId = null) → top-level
+     becomes [g-c1, g-p, g-q, g-r] at 0, 1000, 2000, 3000. */
+  const updates = computeGroupPromote(groups, 'g-c1', null);
+  const byId = new Map(updates.map((u) => [u.id, u]));
+
+  /* Dragged: parentId flips to null + sortOrder = 0 (top of list). */
+  assert.equal(byId.get('g-c1').parentId, null, 'g-c1 parentId flipped to null');
+  assert.equal(byId.get('g-c1').sortOrder, 0, 'g-c1 lands at top (sortOrder 0)');
+
+  /* Top-level renumber: g-p was at 0 (idx 0) → now idx 1 → 1000 (changed). */
+  assert.equal(byId.get('g-p').sortOrder, 1000, 'g-p shifts down to sortOrder 1000');
+  /* g-q was at 1000 (idx 1) → now idx 2 → 2000 (changed). */
+  assert.equal(byId.get('g-q').sortOrder, 2000, 'g-q shifts down to sortOrder 2000');
+  /* g-r was at 2000 (idx 2) → now idx 3 → 3000 (changed). */
+  assert.equal(byId.get('g-r').sortOrder, 3000, 'g-r shifts down to sortOrder 3000');
+
+  /* Source bucket (former parent g-p's children) renumbered: g-c2 was at
+     1000 (idx 1) → now idx 0 → 0. */
+  assert.equal(byId.get('g-c2').sortOrder, 0, 'g-c2 closes the gap left by g-c1');
+  /* g-c2 keeps parentId — source-bucket updates are sortOrder-only. */
+  assert.equal(byId.get('g-c2').parentId, undefined,
+    'g-c2 parentId not in update (sortOrder-only renumber)');
+});
+
+test('B-122 T2 (AC3): computeGroupPromote(groups, subGroupId, "g-q") → dragged inserted after g-q', () => {
+  const groups = makeGroupsForPromote();
+  /* Promote g-c1 after g-q → top-level becomes [g-p, g-q, g-c1, g-r]
+     at 0, 1000, 2000, 3000. */
+  const updates = computeGroupPromote(groups, 'g-c1', 'g-q');
+  const byId = new Map(updates.map((u) => [u.id, u]));
+
+  /* Dragged: parentId flips to null; sortOrder lands at idx 2 → 2000. */
+  assert.equal(byId.get('g-c1').parentId, null, 'g-c1 parentId flipped to null');
+  assert.equal(byId.get('g-c1').sortOrder, 2000, 'g-c1 lands at index 2 (after g-q)');
+
+  /* g-p (idx 0) and g-q (idx 1) keep their existing sortOrders → no
+     update emitted (minimal-set contract). */
+  assert.equal(byId.has('g-p'), false, 'g-p unchanged at idx 0; no update emitted');
+  assert.equal(byId.has('g-q'), false, 'g-q unchanged at idx 1; no update emitted');
+
+  /* g-r was at 2000 (idx 2) → now idx 3 → 3000 (changed). */
+  assert.equal(byId.get('g-r').sortOrder, 3000, 'g-r shifts down to idx 3');
+
+  /* Source bucket: g-c2 closes the gap. */
+  assert.equal(byId.get('g-c2').sortOrder, 0, 'g-c2 closes the gap left by g-c1');
+});
+
+test('B-122 T3a: unknown draggedId returns []', () => {
+  const groups = makeGroupsForPromote();
+  assert.deepEqual(computeGroupPromote(groups, 'nope', null), []);
+});
+
+test('B-122 T3b: top-level group as draggedId returns [] (no parent to promote from)', () => {
+  const groups = makeGroupsForPromote();
+  /* g-p is already top-level — defense-in-depth no-op. */
+  assert.deepEqual(computeGroupPromote(groups, 'g-p', null), []);
+});
+
+test('B-122 T3c: insertAfterGroupId not in top-level bucket returns [] (caller error)', () => {
+  const groups = makeGroupsForPromote();
+  /* g-c2 is NOT top-level — promoting "after a sub-group" is incoherent. */
+  assert.deepEqual(computeGroupPromote(groups, 'g-c1', 'g-c2'), []);
+});
+
+test('B-122 T3d: insertAfterGroupId === draggedId returns [] (cannot insert after self)', () => {
+  const groups = makeGroupsForPromote();
+  assert.deepEqual(computeGroupPromote(groups, 'g-c1', 'g-c1'), []);
+});
+
+test('B-122 T3e: non-array groups input returns [] (defensive)', () => {
+  assert.deepEqual(computeGroupPromote(null, 'g-c1', null), []);
+  assert.deepEqual(computeGroupPromote(undefined, 'g-c1', null), []);
+});
+
+test('B-122 T4: promote middle child renumbers source bucket correctly with idx*1000 spacing', () => {
+  /* Three sub-groups under g-p: c1 @ 0, c2 @ 1000, c3 @ 2000. Promote c2
+     to top of list → source becomes [c1 @ 0, c3 @ 1000]; c3 must drop
+     from 2000 → 1000. */
+  const groups = [
+    { id: 'g-p',  parentId: null,  sortOrder: 0 },
+    { id: 'g-q',  parentId: null,  sortOrder: 1000 },
+    { id: 'g-c1', parentId: 'g-p', sortOrder: 0 },
+    { id: 'g-c2', parentId: 'g-p', sortOrder: 1000 },
+    { id: 'g-c3', parentId: 'g-p', sortOrder: 2000 },
+  ];
+  const updates = computeGroupPromote(groups, 'g-c2', null);
+  const byId = new Map(updates.map((u) => [u.id, u]));
+
+  /* Dragged + top-level. */
+  assert.equal(byId.get('g-c2').parentId, null);
+  assert.equal(byId.get('g-c2').sortOrder, 0);
+
+  /* Source-bucket: c1 stays at 0 (no update); c3 drops to 1000. */
+  assert.equal(byId.has('g-c1'), false, 'g-c1 unchanged at idx 0; no update emitted');
+  assert.equal(byId.get('g-c3').sortOrder, 1000, 'g-c3 closes gap, idx 2000 → 1000');
+});
+
+test('B-122 T5: all emitted sortOrder values are integer multiples of 1000 (B-008 pattern)', () => {
+  const groups = makeGroupsForPromote();
+  const updates = computeGroupPromote(groups, 'g-c1', 'g-q');
+  for (const u of updates) {
+    assert.equal(u.sortOrder % 1000, 0,
+      `sortOrder ${u.sortOrder} for ${u.id} must be a multiple of 1000`);
+  }
 });

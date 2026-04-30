@@ -4,6 +4,57 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.33.0 — Polish + drag UX (2026-04-29)
+
+**Tagged on `feature/sprint-39-polish` — pending PR merge to release/v2 + v2 merge to main. Tag: `v1.33.0`.**
+
+Sprint 39: 6-item polish + retro-piggyback sprint. 2 anchors (B-124 P3/M floating-tab visual + B-122 P2/M sub-group drag-to-root) + 4 XS Fast Track items (B-123 row alignment + B-127/B-128/B-129 CLAUDE.md process gates). All items pipeline-complete; product-owner B-124 + B-122 UAT carried forward per S35/S36/S37/S38 pattern.
+
+### What's new (user-visible)
+
+- **Floating-tab visual distinction (B-124, P3)** — floating tabs (live tabs that have inherited a saved bookmark's group via the opener-chain feature, but are not themselves saved) now show a **dotted green vertical bar** on their left edge, while saved bookmarks with active live tabs show a **solid** green bar. Hovering a floating-tab row reveals a **"Save as bookmark"** (`+`) button — click it to promote the floating tab to a saved bookmark in its current group, wiring through the existing `MSG_PROMOTE_TAB` flow with no new permissions. Distinct ARIA label (`"floating tab — <title>"`) for screen readers. WCAG AA contrast verified across all 14 themes (16/17 PASS — `solarized-light` retains the same accepted limitation as B-117 from Sprint 37). Bar color parameterized via a new `--floating-bar-color` CSS token (defaults to `var(--live-indicator)` — one-token swap to yellow possible). Surfaces: sidepanel + newtab + standalone.
+- **Sub-group drag-to-root (B-122, P2)** — drag a sub-group out of its parent and drop it anywhere outside an existing `.group-section` to promote it back to a top-level group (inverse of the existing drag-to-nest gesture B-031). Drop between two top-level group headers to insert at that ordinal; drop above the first group to land at the top; drop below the last group to land at the bottom. Same drop-line indicator as drag-reorder (no new visual primitive). Open Tabs section is rejected as a drop target (no accidental promotion to "after the last group"). Race-guarded against concurrent edits from another window. Wires through existing `MSG_BULK_REORDER_GROUPS` (no new message contract). Keyboard alternative (edit-dialog parent picker → "Top-level (no parent)") unchanged.
+- **Item-row left-edge alignment (B-123, P3)** — bookmark rows in the side panel that have no live or active vertical-bar indicator now align horizontally with rows that do, producing a clean column instead of a jagged left edge. Pure CSS structural-placeholder fix (`border-left: 3px solid transparent` + `padding-left: 9px`); no behavior change. Sidepanel-only (newtab uses right-side dot, popup uses favicon overlay — no left-side indicators); T6 pins the no-op verdict on newtab/popup as a future-regression guard.
+
+### Internal / process
+
+- **Three CLAUDE.md gate strengthenings (B-127 + B-128 + B-129, S38 retro action items)** —
+  - **B-127 R3 STOP-and-escalate gate**: `[frontend-engineer]` MUST escalate to `[scrum-master]` before silently deferring any AC-locked behavior to a follow-up item. Cites Sprint 38 B-121 R3 silent newtab close-button deferral as the blocking precedent.
+  - **B-128 C-1 schema-bump vs data-migration split**: the storage-schema correctness check is split into governance (C-1a, `KNOWN_VERSION` increment + `defaultShape` update + CHANGELOG SW-flush note) and data-migration strategy (C-1b, eager / lazy / no-op choice documented). A lazy data strategy no longer accidentally exempts the version bump. Cites Sprint 38 B-121 lazy-migration + missed `KNOWN_VERSION` bump as the blocking precedent.
+  - **B-129 R3 cascade-prune sibling-grep gate**: when R2 fix-scope adds a cascade-prune to one entry-point of a multi-entry-point write surface (`MSG_DELETE_*`, `MSG_BULK_*`, `MSG_*_GROUP`, etc.), R3 MUST grep for sibling entry-points and verify cascade parity before claiming complete. Cites Sprint 38 B-121 R3 single-delete-only cascade-prune (missing `MSG_BULK_DELETE_ITEMS` + `MSG_DELETE_GROUP`) as the blocking precedent.
+
+### Architecture
+
+- **No storage schema changes**, no new manifest permissions, no new message contracts. B-124 added the `--floating-bar-color` CSS token (additive); B-122 reused the existing `MSG_BULK_REORDER_GROUPS` contract verbatim.
+- **No `DEFAULT_PREFERENCES` additions** — no SW module-cache flush required after this update (unlike v1.32.0 schema bump). Update and use the new behavior immediately.
+- **B-124 As-Built**: `docs/design/61-b-124-floating-visual.md` §61.10. **B-122 As-Built**: `docs/design/62-b-122-drag-to-root.md` §62.11. Root index TOC extended with both chapters.
+
+### Quality
+
+- **Tests**: 1,663 → **1,731 passing** (+68 net — 10 B-124 visual + 34 B-124 contrast matrix + 6 B-123 alignment + 9 B-122 sort-order + 7 B-122 drag-to-root + 2 R5 fix-round adds). Zero regressions. 3.07 s suite runtime.
+- **Build**: `./build.sh` clean (360 K zip, 87 files, exit 0).
+- **R4 findings**: 0 CRITICAL / 0 HIGH across all 6 items. Wave 3a fix-round resolved 4 MEDIUMs (Open-Tabs reject-guard, docstring inaccuracy, aria-label cross-surface parity, WCAG contrast tests) and the surviving LOWs were deferred per `docs/findings/sprint-39.md`. B-127 + B-128 + B-129 each shipped with 0 findings (self-applying meta-process gates held under self-recursion).
+- **Storage schema**: unchanged. **Permissions**: unchanged. **Manifest entries**: unchanged.
+
+### Mid-flight scope adjustments
+
+- **B-122 R2 §62.9 F-1 deferred-to-UAT upgraded to in-build pre-emptive fix** — Open-Tabs reject-guard was correctly deferred at R2 but flagged for pre-emptive fix by both `[code-reviewer]` (M-2) and `[qa-reviewer]` (M-4) at R4. Per the new R3 self-check pattern surfaced in S39 retro (filed as B-131 candidate for S40), the fix-round added the guard + R5 added T7 regression test. Cost: ~0.3 effort unit.
+- **B-124 R3 cross-surface aria-label divergences** — 3 newtab/sidepanel divergences against R2 §61.8 spec (newtab adding URL, newtab interpolating CTA title, sidepanel docstring contradicting actual behavior) all caught at R4 + resolved in fix-round. Cause: cross-surface implementation done in same agent session without re-checking the R2 spec for each surface. S39 retro filed B-130 candidate for S40 to add an R3 cross-surface diff self-check.
+
+### Pending UAT
+
+- **B-124 UAT-1..UAT-13 pending** (`docs/UAT_B-124.md`).
+- **B-122 UAT-1..UAT-10 pending** (`docs/UAT_B-122.md`).
+- **Carried forward**: S36 (B-107..B-115) + S37 (B-117 UAT-1..UAT-10) + S38 (B-125 UAT-1..UAT-8 + B-121 UAT-1..UAT-15) — should clear before any v2 → main merge. Not blocking S39 close per established pattern.
+
+### Rollback
+
+- **Code-only revert**: single atomic `git revert <release-commit-sha>` reverses the v1.33.0 release commit. No storage schema migrations to reverse. `git tag -d v1.33.0` deletes the local tag (if not yet pushed).
+- **Reinstall path**: download the v1.32.0 zip from the prior tagged release and load unpacked from `chrome://extensions` (or `edge://extensions`).
+- **GitHub Release**: skipped per product-owner direction (tag `v1.33.0` + zip exist for manual publish later).
+
+---
+
 ## v1.32.0 — Bug-fix Anchor Sprint (2026-04-29)
 
 **Tagged on `feature/sprint-36-ui-polish` — pending PR #41 merge to release/v2 + v2 merge to main. Tag: `v1.32.0`.**

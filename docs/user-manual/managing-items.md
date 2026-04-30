@@ -143,6 +143,28 @@ For bulk Save-to-group operations (multiple Open Tabs rows saved at once), the c
 
 ---
 
+## Floating tabs (saved vs. ephemeral rows)
+
+When you open a saved bookmark and click a link from that page, the new tab automatically inherits its parent's group — even though you have not bookmarked it yet. These inherited tabs are called **floating tabs**: they live alongside saved bookmarks in the same group, but they disappear when you close them. Tab Junkie marks the difference visually so you can tell at a glance which rows are persistent and which are ephemeral.
+
+| Row type | Left-edge bar | What it means |
+|----------|---------------|---------------|
+| Saved bookmark with a live tab | Solid green vertical bar | The bookmark is saved and its tab is currently open. Persists across browser restarts. |
+| Floating tab | Dotted green vertical bar | The tab is open and assigned to a group via opener-chain inheritance, but is **not** saved. Disappears when the tab closes. |
+| Saved bookmark, tab not open | No bar | The bookmark is saved but no tab is currently open for it. |
+
+### Saving a floating tab
+
+Hover any floating-tab row to reveal a small **+** ("Save as bookmark") button on the right. Click it to promote the floating tab to a saved bookmark in the same group it is currently floating under. The row's left-edge bar switches from dotted to solid the moment the save completes.
+
+Floating tabs also participate in the right-click menu's **Save to group** action (the same action used in the Open Tabs section), so you can promote them to a different group if you prefer.
+
+### Screen reader cue
+
+Floating-tab rows announce as **"floating tab — \<title\>"** so the saved-vs-ephemeral distinction is conveyed without color. Saved bookmarks with a live tab continue to announce as **"live tab — \<title\>"**.
+
+---
+
 ## Empty states and error feedback
 
 ### Empty bookmark list
@@ -200,6 +222,20 @@ You can drag a group header to reorder groups or nest one group inside another.
 A visual indicator shows which zone is active as you hover. Invalid drop targets — such as dropping a group onto itself, creating a circular reference, or trying to nest deeper than one level — are highlighted in red and the drop is rejected.
 
 **Nesting limit:** Tab Junkie supports one level of nesting. A group that already has sub-groups cannot be nested inside another group.
+
+### Promoting a sub-group back to top-level (drag-to-root)
+
+To pull a sub-group out of its parent and make it a top-level group again, drag the sub-group's header and drop it anywhere outside an existing group. The visual cue is the same horizontal drop-line you see when reordering groups.
+
+| Drop position | Effect |
+|---------------|--------|
+| Between two top-level group headers | Sub-group is promoted and inserted at that ordinal |
+| Above the first top-level group | Sub-group is promoted to the top of the list |
+| Below the last top-level group (in the empty space at the bottom) | Sub-group is promoted to the bottom of the list |
+
+Dropping the sub-group over the **Open Tabs** section is rejected (so it does not accidentally land "after the last group"). The keyboard alternative is unchanged: open the group's edit dialog and set **Parent group** to *Top-level (no parent)*.
+
+If another window edits the dragged sub-group's parent at the same time you are dragging it, the drag aborts and a toast explains why — your view stays consistent with the latest data.
 
 ### Auto-scroll during drag
 

@@ -79,3 +79,5 @@
 - [§58 — B-125 + B-121 R0 Spike (Tab-claims / Opener-chain / Floating-groups Pipeline)](design/58-b-125-b-121-r0-spike.md)
 - [§59 — B-125 — Claim-Jump Fix (R2 Design)](design/59-b-125-claim-jump-fix.md)
 - [§60 — B-121 — Floating-Tab Runtime Render Pipeline (R2 Architecture)](design/60-b-121-floating-tab-render.md)
+- [§61 — B-124 — Floating-Tab Visual Distinction (R2 + R6 Close)](design/61-b-124-floating-visual.md)
+- [§62 — B-122 — Sub-Group Drag-to-Root (R2 + R6 Close)](design/62-b-122-drag-to-root.md)
