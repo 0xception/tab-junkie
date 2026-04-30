@@ -2290,3 +2290,73 @@ Product-owner manual UAT in Edge for v1.30.0 + v1.31.0 + v1.32.0. Not blocking s
 - **Release tag**: v1.32.0 (cut on `release/v2`; `gh release create` skipped per established pattern)
 - **Storage schema**: `tj:floatingGroups` v1 → v2 (lazy migration; rollback documented at §60.14)
 - **Manifest permissions**: zero new permissions added
+
+---
+
+## Sprint 39 — Polish + drag UX (closed 2026-04-30)
+
+**Release**: v1.33.0 (cut tag on `release/v2` after PR #42 merge `e4de232`; `gh release create` skipped per established pattern)
+**Branch**: `feature/sprint-39-polish` off `release/v2`
+**Test delta**: 1,663 → 1,731 (+68)
+**Build**: `tab-junkie.zip` 360 KB / 87 files (`./build.sh` exit 0)
+
+### Items shipped (6)
+
+#### B-124 — Floating-tab visual distinction (P3/M, Full)
+- Dotted green left-bar on floating-tab rows in sidepanel + newtab + standalone via new `--floating-bar-color` CSS token (default aliases `var(--live-indicator)`; one-token swap to yellow possible).
+- Hover-revealed "Save as bookmark" CTA wires to existing `MSG_PROMOTE_TAB` (no contract change). Distinct ARIA `"floating tab — <title>"`.
+- WCAG AA matrix encoded as 34 contrast tests across 14 themes; 3 ACCEPTED_LIMITATIONS (solarized-light Dim 1 @ 2.970:1 + solarized-light Dim 2 @ 4.170:1 + solarized-dark Dim 2 @ 3.281:1 — all pre-existing palette gaps inherited from saved-bookmark row-action buttons).
+- Files: `shared/themes.css`, `sidepanel/sidepanel.css`, `sidepanel/sidepanel.js`, `newtab/newtab.css`, `newtab/newtab.js`, `tests/b124-floating-visual.test.js` (new, 10 tests), `tests/b124-floating-bar-contrast.test.js` (new, 34 tests), `docs/design/61-b-124-floating-visual.md` (R2 + §61.10 As-Built), `docs/UAT_B-124.md` (13 cases).
+- R4: 0 CRIT/HIGH; 4 MEDIUM (M-1 docstring, M-2 silent-degrade, M-3 contrast tests, M-4 cross-flag with B-122). All convergent MEDIUMs resolved in Wave 3a fix-round.
+
+#### B-122 — Sub-group drag-to-root (P2/M, Full)
+- Drag a sub-group out of its parent and drop anywhere outside `.group-section` → promotes to top-level via existing `MSG_BULK_REORDER_GROUPS` (no new message contract). Mid-list ordering supported. Same drop-line indicator as drag-reorder (Q2). Open Tabs section REJECTED as a drop target (Wave 3a fix per R4 cross-reviewer convergence).
+- F-5 race-guard third branch validates `freshDragged.parentId !== null` AND `pendingInsertAfterGroupId` still top-level.
+- Q4 outcome (above-own-parent → PROMOTE): NO explicit conditional needed; `validReorderTargetIds` already filters parent at depth-0.
+- Files: `shared/sort-order.js` (new pure helper `computeGroupPromote`), `sidepanel/sidepanel.js` (new `_computeGroupPromoteTarget` + race-guard branch + Open-Tabs reject-guard), `tests/sort-order.test.js` (+9 tests), `tests/b122-drag-to-root.test.js` (new, 7 tests including R5 T7 Open-Tabs guard regression), `docs/design/62-b-122-drag-to-root.md` (R2 + §62.11 As-Built), `docs/UAT_B-122.md` (10 cases).
+- R4: 0 CRIT/HIGH; 1 MEDIUM (M-4 Open-Tabs reject-guard, cross-flag with [qa-reviewer] M-2). Resolved in Wave 3a.
+
+#### B-123 — Item-row alignment (P3/XS, Fast Track)
+- Sidepanel rows without a live/active vertical indicator now align horizontally with rows that DO have one. Pure CSS structural-placeholder approach: base `.item-row` reserves `border-left: 3px solid transparent` + `padding-left: 9px`; live + active variants override only `border-left-color`; dense-mode preserves `padding-left: 9px`. Newtab + popup are no-op (no left-side indicators).
+- Files: `sidepanel/sidepanel.css`, `tests/b123-row-alignment.test.js` (new, 6 tests T1-T6 — sidepanel rule pins + newtab/popup no-op regression guards).
+- R4: 0 findings beyond 1 LOW (T6 pin scope; deferred).
+
+#### B-127 — R3 STOP-and-escalate gate (P3/XS, Fast Track · S38 retro action #1)
+- Added bullet to CLAUDE.md R3 Build section: when [frontend-engineer] considers deferring AC-locked behavior, MUST stop and escalate to [scrum-master]. Cites Sprint 38 B-121 R3 silently-deferred newtab close-button affordance as the blocking precedent.
+- Files: `CLAUDE.md` line 394.
+
+#### B-128 — C-1 schema-bump vs data-migration split (P3/XS, Fast Track · S38 retro action #2)
+- Split CLAUDE.md R2 Correctness Checklist C-1 into C-1a (governance: `KNOWN_VERSION` increment + `defaultShape` update + `CHANGELOG` flush note) and C-1b (data-migration strategy: eager / lazy / no-op). Cites Sprint 38 B-121 lazy-migration + missed `KNOWN_VERSION` bump as the blocking precedent.
+- Files: `CLAUDE.md` lines 365-366.
+
+#### B-129 — R3 cascade-prune sibling-grep gate (P3/XS, Fast Track · S38 retro action #3)
+- Added bullet to CLAUDE.md R3 Build section: when R2 fix-scope adds a cascade-prune to one entry-point of a multi-entry-point write surface, R3 MUST grep for sibling entry-points (`MSG_DELETE_*`, `MSG_BULK_*`, `MSG_*_GROUP`) before claiming complete. Cites Sprint 38 B-121 R3 single-delete-only cascade-prune as the blocking precedent.
+- Files: `CLAUDE.md` line 395.
+
+### Quality Summary
+
+- **R4**: 0 CRITICAL / 0 HIGH across all 6 items. 4 convergent MEDIUMs across the two anchors all resolved in Wave 3a fix-round (Open-Tabs reject-guard, docstring inaccuracy, aria-label cross-surface parity, WCAG contrast tests). LOW findings deferred to polish backlog.
+- **R5**: 2 UAT plans authored (`docs/UAT_B-124.md`, `docs/UAT_B-122.md`); R5 [test-engineer] added 2 gap-closing tests (T7 Open-Tabs guard regression, T-124-K deleted-group fallback).
+- **R6**: chapters 61 + 62 As-Built sections appended; `docs/SOLUTION_DESIGN.md` TOC updated.
+- **R7**: `CHANGELOG.md` v1.33.0 entry, `STORE_LISTING.md` surgical bullets, `docs/user-manual/managing-items.md` extended with floating-tab + drag-to-root sections.
+
+### Process Improvements (Gate 7 retrospective)
+
+**What went well**:
+- R0 spike not needed; R1 design Q&A pre-locked.
+- R4 cross-reviewer convergence as a Wave 3a fix-round signal worked cleanly.
+- WCAG matrix encoded as tests on first try (mirrored B-117 / B-105 precedent).
+- Self-applying retro items (B-127/B-128/B-129) shipped with 0 R4 findings.
+
+**What to improve / Next-sprint candidates**:
+- B-130 candidate: R3 cross-surface diff self-check (3 silent newtab/sidepanel divergences in S39 R3 found at R4).
+- B-131 candidate: R3 self-check on R2-deferred-to-UAT items (Open-Tabs reject-guard was deferred at R2 but cheap-fix at R3).
+- Toolchain hygiene: pre-create `docs/findings/sprint-NN.md` at sprint kickoff to bypass agent file-write permission friction.
+
+### Final State
+
+- **Tests**: 1,731/1,731 passing · zero regressions
+- **Release tag**: v1.33.0 (cut on `release/v2`; `gh release create` skipped per established pattern)
+- **Storage schema**: unchanged
+- **Manifest permissions**: zero new permissions added
+- **Sprints without rollback**: 15 (S23 → S39)
