@@ -794,3 +794,124 @@ The line citation `sidepanel.js:6261-6275` resolves correctly against the curren
 **Fix D is clean.** The surgical off-by-one removal is correctly diagnosed, correctly implemented (delete one adjustment line + bounds clamp directly on `insertIndex`), and correctly tested (T16/T17/T18 re-derived without assertion weakening; T46-T49 added with both regression-guard and forward-failure-reproduction coverage). The diagnosis correctly identifies the convention mismatch introduced by B-134 R4 H-4 and the masking effect of pre-Fix-C ERR_RACE behavior. Backward-drag claim verified — Fix D is genuinely a no-op for backward semantics. Full test suite passes 1,822/1,822. **Approved for merge from `[code-reviewer]`.**
 
 _Review completed by [code-reviewer] on 2026-04-29 against `feature/sprint-41-floating-tab-id` working-tree diff (Fix D delta on top of merged Fix A + Fix B + Fix C)._
+
+---
+
+## B-149 R0 Spike — drifted-claim-loss
+
+_Discovery spike completed 2026-04-29 by [solution-architect] against `feature/sprint-41-floating-tab-id` HEAD `9573e61`. Read-only — no code changes._
+
+### Codepath inventory
+
+- **Claims persistence**: `chrome.storage.session` under key `tj:tabClaims` (`background/tabs/tab-claims.js:16`). Read on cold start by `readClaims()` at `tab-claims.js:94-97`; written by `writeClaims()` at `tab-claims.js:103-105`.
+- **Reconcile (cold-start)**: `reconcileClaims()` at `background/tabs/tab-claims.js:121-212`. Phase 1 (lines 137-147) validates each persisted claim; Phase 2 (lines 149-198) auto-claims unclaimed items in sortOrder.
+- **Runtime URL-change path**: `reevaluateTab()` at `background/tabs/tab-claims.js:254-287`. The B-099 D-1 contract removed the URL-mismatch claim-release branch — claim is **preserved** across URL change at runtime.
+- **Release-claim sites (4 sanctioned, per B-125 §59 §X3)**: `tabs.onRemoved` (`tab-events.js:233`), `windows.onRemoved` cascade (`tab-events.js:333`), `MSG_DEMOTE_ITEM` (`storage-handlers.js:417`), `MSG_NAVIGATE_TO_ITEM` stale-claim repair (`storage-handlers.js:482`). Pinned by `tests/b125-claim-jump-fix.test.js:168-198` (T4).
+- **Cold-start orchestration**: `initializeLiveState()` at `background/tabs/index.js:35-66`. Sequence: `buildLiveTabIndex` → `preMarkInheritedFromFloatingGroups` → `reconcileClaims(items)` → `reassociateFloatingGroups`.
+- **SW lifecycle hooks**: NONE — `grep -rn "onSuspend\|onStartup" background/ shared/` returns zero matches. Service worker `background/service-worker.js` has no `chrome.runtime.onStartup` or `chrome.runtime.onSuspend` listener.
+- **Other writers of `chrome.storage.session`**: only `background/import/commit.js:106` does an explicit `chrome.storage.session.remove('tj:tabClaims')` on import-collection commit (intentional; non-suspect for B-149).
+- **`reassociateFloatingGroups`**: documented at `floating-groups.js:108-110` to NOT mutate `claimsMirror` — "Parent claims established by reconcileClaims are preserved unconditionally (AC7)." Confirmed by reading lines 200-275; the function only prunes `tj:floatingGroups` records and lazy-rewrites `liveTabId`.
+
+### Mechanism (a) — storage write failing silently
+
+**Evidence**:
+- `writeClaims()` at `tab-claims.js:103-105` is a single `await chrome.storage.session.set({ [SESSION_KEY]: claimsMirror })` — no try/catch swallow, errors propagate.
+- All callers (`reconcileClaims`, `releaseClaimByTab`, `reevaluateTab`, `claimTabForItem`) `await writeClaims()` — failures would surface as unhandled rejections in `tab-events.js` listener wrappers, which DO have catch handlers (e.g. `tab-events.js:236-238`, `:280-282`).
+- The whole-mirror-write pattern means every write rewrites the entire claims map; a partial-write race is structurally impossible.
+
+**Verdict**: **LOW probability**. No silent-failure path exists.
+
+### Mechanism (b) — Edge session-storage clearing
+
+**Evidence**:
+- §65.2 in `docs/design/65-b-132-cold-start-claim-jump-fix.md:66-135` confirms `chrome.storage.session` is cleared at the same boundaries that destroy the SW runtime: **browser restart, profile restart, AND extension reload**. The MDN/Chrome contract per §65.2 reasoning chain item 1 explicitly states `chrome.storage.session` survives **SW idle-timeout restarts within a browser session**.
+- `tab-claims.js:4-6` docstring: "Persisted in `chrome.storage.session` under key `tj:tabClaims` so claims survive SW restarts within the same browser session but are wiped on browser restart (AC8)."
+- B-149 user repro is "leaves the page idle for a few minutes" — no extension reload, no browser restart. Per the documented contract, `tj:tabClaims` should be intact when the SW respawns.
+- Edge is built on Chromium and shares `chrome.storage.session` semantics with Chrome — no documented Edge-specific divergence.
+
+**Verdict**: **LOW probability**. The storage layer behaves as documented across SW idle restarts. (Caveat: empirical UAT-time confirmation in Edge is still warranted as a secondary check — but this is not the load-bearing mechanism.)
+
+### Mechanism (c) — Phase 1 URL-match step evicts live drifted claims
+
+**Evidence**:
+- `tab-claims.js:141`: Phase 1 of `reconcileClaims` validates each persisted claim with `tabEntry && item && safeNormalizeForMatch(tabEntry.url) === safeNormalizeForMatch(item.url)`. If the URL-match check fails, the claim is pushed to `evictedItemIds` (`tab-claims.js:145`) and dropped from the reconciled map (`tab-claims.js:144-147`).
+- `tests/b110-drift-non-live-fix.test.js:242-261` (T5) explicitly pins this behavior: *"reconcileClaims clears drift when claim evicted via URL mismatch"* — comment at lines 251-253: *"Tab exists but holds a DIFFERENT URL than the saved item. Phase 1's `safeNormalizeForMatch(tabEntry.url) === safeNormalizeForMatch(item.url)` check fails → claim evicted."*
+- This **directly contradicts** the B-099 D-1 contract documented at `tab-claims.js:233-247`: *"the URL-mismatch claim-release branch has been removed. When a claimed tab navigates to a URL that no longer matches the claimed item, the claim is PRESERVED — the bookmark↔tab association now survives drift."* B-099's contract holds at runtime (`reevaluateTab`) but is silently violated at cold-start (`reconcileClaims` Phase 1).
+- The trigger: the SW idle-shutdown is undocumented but standard MV3 behavior — Chrome MV3 SW terminates after ~30s of inactivity. Any subsequent tab event respawns the SW, which runs `initializeLiveState` → `reconcileClaims` → Phase 1 evicts every drifted-but-live claim.
+- The user repro ("idle a few minutes") **exactly matches** the SW idle-timeout window.
+
+**Verdict**: **HIGH probability — this is the bug.** Phase 1's URL-match check is the precise mechanism that evicts live drifted claims, and the only documented trigger for cold-start `reconcileClaims` mid-session is the MV3 SW idle restart.
+
+### Mechanism (d) — Stray releaseClaimByTab caller
+
+**Evidence**:
+- `grep -rn "releaseClaimByTab"` returns 4 production call sites: `tab-events.js:233` (onRemoved), `tab-events.js:333` (windows.onRemoved cascade), `storage-handlers.js:417` (MSG_DEMOTE_ITEM), `storage-handlers.js:482` (MSG_NAVIGATE_TO_ITEM stale-claim repair). All 4 match the B-125 §59 X3 sanctioned list.
+- `tests/b125-claim-jump-fix.test.js:168-198` (T4) is a static-source assertion that the count is exactly 4. If a 5th call site existed, this test would fail. Test suite is currently 1822/1822 green (confirmed by `npm test`).
+- None of the 4 sanctioned sites fire on URL-change-without-tab-removal. `tabs.onRemoved` requires Chrome to fire onRemoved (idle does not trigger it). MSG_DEMOTE_ITEM and MSG_NAVIGATE_TO_ITEM require a user gesture.
+
+**Verdict**: **LOW probability** — there is no 5th call site, and the 4 known ones do not fire on idle.
+
+### Top hypothesis
+
+**Mechanism (c)** — `reconcileClaims` Phase 1's URL-match step at `tab-claims.js:141` evicts live drifted claims whenever a service-worker idle-shutdown forces a cold-start re-reconcile. The user-visible symptom (drifted tab loses claim association after a few minutes idle) maps directly to: SW idle-shutdown → tab event respawns SW → `initializeLiveState` runs → `reconcileClaims` Phase 1 sees `tabEntry.url !== item.url` → claim evicted. The runtime B-099 D-1 contract ("claim survives drift") is violated by the cold-start path.
+
+The defect is a contract conflict: B-099 (Sprint where drift was introduced) updated the **runtime** path to preserve claims across drift, but the **cold-start** Phase 1 retained the pre-B-099 URL-match validation. B-110 then **pinned** the buggy behavior into a regression-guard test (T5 at `b110-drift-non-live-fix.test.js:242-261`) by treating URL-mismatch eviction as the desired behavior for clearing drift records — which inadvertently froze the bug into the suite.
+
+### Fix sketch
+
+**File**: `background/tabs/tab-claims.js`
+**Function**: `reconcileClaims` Phase 1 (lines 137-147)
+**Change**: Drop the URL-match check from the Phase 1 survival predicate; keep only the live-tab existence check.
+
+```js
+// before:
+if (tabEntry && item && safeNormalizeForMatch(tabEntry.url) === safeNormalizeForMatch(item.url)) {
+  reconciled[itemId] = tabId;
+  claimedTabIds.add(tabId);
+} else {
+  evictedItemIds.push(itemId);
+}
+
+// after (sketch):
+if (tabEntry && item) {
+  // B-149: do NOT re-check URL match. B-099 D-1 contract preserves claims
+  // across URL drift at runtime — the cold-start path must preserve them too.
+  // Drift records (if any) are owned by detectDriftForTab and are independent
+  // of claim survival; they do NOT need to be cleared just because Phase 1
+  // sees a drifted tab.
+  reconciled[itemId] = tabId;
+  claimedTabIds.add(tabId);
+} else {
+  evictedItemIds.push(itemId);
+}
+```
+
+**LOC estimate**: ~3 lines of code changed (the predicate). ~10 lines of comment. **Trivially small.**
+
+**Knock-on**: B-110 T5 (`tests/b110-drift-non-live-fix.test.js:242-261`) currently asserts the buggy behavior and **must be inverted**: the test should now assert that a URL-mismatched claim **survives** Phase 1 (drift record may stay, but the claim must persist). The B-110 PRIMARY scenario (T4 — claim evicted because tab no longer in `LiveTabIndex`) is unaffected — it's the legitimate eviction case.
+
+### Test surface
+
+**Tests requiring update**:
+- `tests/b110-drift-non-live-fix.test.js:242-261` (T5) — INVERT: Phase 1 must now PRESERVE the URL-mismatched claim. Drift record may also survive (no longer paired with eviction). The test name should change from "reconcileClaims clears drift when claim evicted via URL mismatch" to something like "reconcileClaims preserves URL-mismatched claim across cold-start (B-149)".
+
+**Tests adding new coverage**:
+- New test in `tests/b149-drifted-claim-survives-cold-start.test.js` (or merge into b099-drift-fix.test.js) — pins the corrected behavior end-to-end:
+  1. Establish claim via reconcileClaims (Phase 2 first-claim).
+  2. Drift the tab via `reevaluateTab` + `detectDriftForTab` (claim preserved per B-099).
+  3. Simulate SW restart: `__resetTabClaims()` to clear the in-memory mirror, then re-call `reconcileClaims(items)` — `tj:tabClaims` is read back from `__getSessionStore`.
+  4. Assert: claim is **still present** in claimsMirror, drift record is **still present** in tj:drift, `buildLiveStates` returns `{ live: true, ... }` for the drifted item.
+
+**Regression guards already in place** (will pass without change):
+- `tests/b099-drift-fix.test.js:107-137` (T1) — runtime claim preservation across URL change. Independent of cold-start.
+- `tests/b125-claim-jump-fix.test.js:168-198` (T4) — 4-call-site invariant on `releaseClaimByTab`. Unaffected.
+- `tests/b132-cold-start-inheritance.test.js:254` and `:313` — parent claim survival across both cold-start and runtime. Unaffected (these don't involve URL drift).
+
+### Architectural assessment
+
+**Fix is contained.** No need to move `tj:tabClaims` to `chrome.storage.local`; no schema migration; no new partition. The defect is a 3-line predicate change plus one inverted test. The B-099 D-1 contract is the load-bearing invariant — the fix simply extends its scope from "runtime path only" to "both runtime and cold-start paths", which is what the B-099 chapter (`docs/design/46-b-099-drift-fix.md`) presumably always intended.
+
+**Tier**: S (small, single-file behavioral fix). Recommend Fast Track (R1 → R3 → R4 [code-reviewer] + [security-reviewer]). No new permissions, no schema change, no new message types.
+
+**Confidence**: **HIGH**. The mechanism is precisely identified by `file:line` evidence (`tab-claims.js:141`); the existing `tests/b110-drift-non-live-fix.test.js:242-261` directly pins the bug as desired behavior, providing unambiguous proof that the cold-start path is doing what B-099 D-1 says it should not. The only remaining empirical gap is confirming the SW idle-shutdown timing in Edge — but this is a secondary check; even if Edge's idle window differs from Chrome's, the same mechanism applies whenever the SW restarts in-session for any reason.
+

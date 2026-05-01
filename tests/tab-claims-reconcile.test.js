@@ -11,7 +11,7 @@ beforeEach(() => {
   __resetTabClaims();
 });
 
-test('AC2: reconcileClaims validates existing claims and drops invalid ones', async () => {
+test('AC2 (post-B-149): reconcileClaims drops claims for missing tabs but PRESERVES URL-mismatched-but-live claims (B-099 D-1 cold-start)', async () => {
   // Set up 2 tabs
   __setMockTabs([
     { id: 100, url: 'https://valid.com', windowId: 1, active: false, audible: false },
@@ -19,11 +19,15 @@ test('AC2: reconcileClaims validates existing claims and drops invalid ones', as
   ]);
   await buildLiveTabIndex();
 
-  // Seed session with 3 claims: 1 valid, 2 invalid
+  // Seed session with 3 claims: valid, stale-tab (legitimately invalid),
+  // and a URL-mismatched-but-live claim. Pre-B-149 the URL-mismatch was
+  // also classed "invalid" and evicted; B-149 fixes the cold-start path
+  // to enforce the B-099 D-1 contract (claim survives URL drift). The
+  // test now pins the corrected behavior.
   __setSessionStore('tj:tabClaims', {
     'item-valid': 100,    // valid: tab 100 exists and URL matches
     'item-stale-tab': 999, // invalid: tab 999 does not exist
-    'item-url-mismatch': 200, // invalid: tab 200 URL changed
+    'item-url-mismatch': 200, // post-B-149: SURVIVES (tab 200 is live)
   });
 
   const items = [
@@ -36,8 +40,12 @@ test('AC2: reconcileClaims validates existing claims and drops invalid ones', as
 
   const claims = __getSessionStore('tj:tabClaims');
   assert.equal(claims['item-valid'], 100, 'Valid claim should be retained');
-  assert.equal(claims['item-stale-tab'], undefined, 'Stale tab claim should be dropped');
-  assert.equal(claims['item-url-mismatch'], undefined, 'URL mismatch claim should be dropped');
+  assert.equal(claims['item-stale-tab'], undefined, 'Stale tab claim should be dropped (legitimate eviction — tab missing)');
+  assert.equal(
+    claims['item-url-mismatch'],
+    200,
+    'B-149: URL-mismatched-but-live claim must SURVIVE Phase 1 (B-099 D-1 contract enforced at the cold-start boundary)',
+  );
 });
 
 test('AC2: unclaimed items are re-claimed in sortOrder (first-unclaimed-wins)', async () => {
