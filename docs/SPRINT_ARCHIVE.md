@@ -2531,3 +2531,67 @@ Both filed as `backlog | TBD` with triage notes; R1 to investigate at next sprin
 - **Storage schema**: unchanged (still v3 from v1.34.0)
 - **Manifest permissions**: zero new permissions added
 - **Sprints + hotfixes without rollback**: 18 (S23 → v1.34.1)
+
+---
+
+## Sprint 41 — Floating-tab data-model evolution + 5 pre-merge fixes (closed 2026-05-01)
+
+**Release**: v1.35.0 (cut tag on `release/v2` after PR #46 merge `dcd7848`; `gh release create` skipped per established pattern)
+**Branch**: `feature/sprint-41-floating-tab-id` off `release/v2`
+**Test delta**: 1,782 → 1,826 (+44)
+**Build**: `tab-junkie.zip` 390 KB / 87 files (`./build.sh` exit 0)
+
+### Items shipped (1 anchor + 5 process gates + 5 pre-merge fixes + 1 deferred)
+
+#### B-137 — `tj:floatingGroups` schema v3→v4 migration (P1/M, Full)
+Anchor. Adopt `floatingTabId`-derived `liveTabId` as primary live-tab join key. Subsumes B-131 (sibling-title displacement). 3-tier read join (a `liveTabId` direct → b position → c URL fallback). Cold-start `reassociateFloatingGroups` extends prune-only writeTransaction to lazy-rewrite legacy v3 records. C-1a + C-1b compliance verified (KNOWN_VERSION 3→4, defaultShape v4, no-op MIGRATION_STEPS, lazy migration, CHANGELOG SW flush note). 17-section R2 chapter `docs/design/66-b-137-floating-tab-id-join-key.md` + §66.18 As-Built. UAT plan `docs/UAT_B-137.md` (15 cases).
+
+#### B-139..B-143 — CLAUDE.md process gates (5×P3/XS, Fast Track)
+- **C-13**: Chrome event-feedback completeness gate at R2 charter
+- **C-14**: Gen-counter content predicate enumeration at R2 charter
+- **B-141**: R3 STOP-and-escalate extension (R2-spec-incorrect findings)
+- **B-142**: R3 cross-surface diff self-check (2+ surfaces)
+- **B-143**: R3 deferred-to-UAT cheap-fix self-check (≤10 LOC threshold)
+
+R4 across the bundle: 0 findings any severity. B-141 self-application gate fired correctly during Sprint 41 (line drift was JSDoc-only, not silent adaptation).
+
+#### Pre-merge fixes (5 items, scope-discipline override per product-owner)
+
+After v1.35.0 release commit but BEFORE PR merge, smoke testing surfaced 5 distinct bugs. Each addressed via R0 spike (where needed) → R3 fix → R4 reviewers (code + security parallel; qa skipped per surgical scope). Each amendment preserved test-suite green throughout.
+
+- **Fix A (P0/Fast-Track-S)** — cascade-prune `tj:floatingGroups` on `chrome.tabs.onRemoved`. Closes "list changed during drag" toast on legitimate floating reorder (orphan-record cause). NEW `pruneFloatingGroupsByLiveTabId(tabId)` helper with `readPartition` pre-flight (preserves `tests/tab-events-no-storage-write.test.js` AC4). Extension fires from BOTH `chrome.tabs.onRemoved` AND `chrome.windows.onRemoved` per B-125 §59.5 belt-and-braces.
+- **Fix B (P0/Fast-Track-XS)** — section→strip insertIndex translation in `chrome.tabs.move` dispatch. NEW `_computeStripInsertIndex(state)` helper with `effectiveS = (dPos < S) ? S - 1 : S` formula. Closes user-visible off-by-N bug where N = number of claimed/floating tabs preceding the dragged tab in the strip.
+- **Fix C (P0/Fast-Track-S)** — two-layer dedup: (1) `appendFloatingGroup` no-op on duplicate `(liveTabId, parentItemId, groupId)` triple; (2) `reassociateFloatingGroups` cold-start dedup (extends-in-place per B-137 §66.7.5 precedent). Closes the user's actual smoke-test failure (5+ duplicate records pre-dating Fix A's prune-on-close).
+- **Fix D (P0/Fast-Track-XS)** — `_computeReorderFloatingPayload` off-by-one fix. Removed obsolete `currentIdx < insertIndex ? -1 : 0` adjustment that was correct for unfiltered insertIndex but was double-correcting forward drops post-B-134-R4-H-4 filtered-list semantics switch. Convention mismatch caught only after Fix C unblocked the actual reorder dispatch.
+- **B-149 (P0/Fast-Track-S)** — drop URL-match clause from `reconcileClaims` Phase 1 (`background/tabs/tab-claims.js:141`). Closes drifted-bookmark-tab-loses-tracking-after-SW-idle-restart bug. Pre-fix Phase 1 retained pre-B-099 URL-match validation that re-violated B-099 D-1 contract every cold-start. The bug had pinned itself at 3 test sites (`b110-drift-non-live-fix.test.js` T5+T6, `tab-claims-reconcile.test.js` AC2) — all corrected. NEW `tests/b149-drifted-claim-survives-cold-start.test.js` (4 tests) pins the corrected behavior.
+
+#### B-138 — DEFERRED
+Post-B-137 `(windowId, tabIndex)` callers cleanup. Position-fallback retained intentionally for legacy v3 records during transition. Future sprint when v3 cohort confirmed empty.
+
+### Quality Summary
+
+- **R4**: 0 CRITICAL across all items. Sprint 41 R3 build was structurally clean (no Wave 3a fix-round needed). Pre-merge bug-fix bundle averaged 0 CRIT/HIGH/MEDIUM with minor LOW deferrable findings.
+- **R5**: UAT plan authored (`docs/UAT_B-137.md` 15 cases). Pre-merge fix bundle test additions: T34-T39 (Fix A), Fix B-T1..T5, T40-T45 (Fix C), T46-T49 (Fix D), b149 T1..T4.
+- **R6**: chapter 66 As-Built §66.18 appended.
+- **R7**: CHANGELOG v1.35.0 entry with mandatory C-1a SW module-cache flush note. STORE_LISTING unchanged (no surgical-update threshold met). user-manual extended.
+
+### Process Improvements (Gate 7 retrospective)
+
+**What went well**:
+- R0 spike pattern proved robust across 3 invocations (post-S40 → S41 plan → post-S41 pre-merge) — produced sharp diagnoses that drove sprint shape decisions
+- B-141 self-application gate fired correctly (R2-spec-incorrect detection) during Sprint 41 work
+- Schema-bump compliance pattern matured: third sprint applying full C-1a + C-1b lazy-migration (S38 v1→v2, S40 v2→v3, S41 v3→v4) — all landed clean
+- Pre-merge bug-fix bundle (5 items) shipped via product-owner scope-discipline override + iterative smoke-test loop. Each fix R3 + R4 reviewer pair worked cleanly.
+
+**What to improve**:
+- B-137 R2 chapter 66 §66.1 claimed to subsume Issue 3 entirely but R5 only tested Trigger 1 (`_resolveRecordIndexByTabId` -1). Trigger 2 (storageBucketSize parity) was named in the post-S40 spike but never wired into AC matrix. Surfaced at v1.35.0 pre-merge UAT as Fix A. Improvement: when an item subsumes a multi-trigger R0 finding, R5 MUST enumerate every named trigger and confirm test coverage of each. Filed as B-150 candidate.
+- B-149 bug had pinned itself at 3 test sites as "regression guards" for the buggy behavior. Improvement: when fixing a long-standing bug, R3 must grep ALL test files for the pre-fix behavior assertion patterns, not just the spike-identified site. Filed as B-151 candidate.
+- Five pre-merge fixes on top of an "already-shipped" v1.35.0 release commit. Sprint structure didn't gracefully accommodate this iterative bug-fix loop. Per product-owner direction at end of S41, sprint ceremony reduced for bug-fix loops.
+
+### Final State
+
+- **Tests**: 1,826/1,826 passing · zero regressions
+- **Release tag**: v1.35.0 (cut on `release/v2`; `gh release create` skipped)
+- **Storage schema**: `tj:floatingGroups` v3 → v4 (lazy migration; rollback documented at §66.18.10)
+- **Manifest permissions**: zero new permissions added
+- **Sprints + hotfixes without rollback**: 18 (S23 → S41)
