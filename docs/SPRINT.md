@@ -18,8 +18,8 @@ Single-anchor sprint: 1 P2 anchor (B-041 snapshot push to Chrome tab strip + tab
 
 ### [B-041] Snapshot push: TJ → Chrome tab strip + tab groups
 - **Tier**: Full (M)
-- **Status**: requirements → architecture → build → code-review → security-review → qa-review → test-engineer → close → post-close
-- **Assigned To**: [product-manager] (R1)
+- **Status**: ✅ requirements → ✅ architecture → build → code-review → security-review → qa-review → test-engineer → close → post-close
+- **Assigned To**: [frontend-engineer] (R3)
 - **Blockers**: none
 - **Feature Context**:
   - One user action — Settings page → Chrome Integration → "Sync this window to Chrome" — pushes TJ's view of the current window onto Chrome's tab strip + tab groups.
@@ -77,8 +77,8 @@ S41 left B-138 (post-B-137 cleanup, XS) DEFERRED — explicitly not part of S42 
 
 | Round | Agent | Status | Notes |
 |-------|-------|--------|-------|
-| R1 | [product-manager] | pending | Locks ACs from spec §11 preview |
-| R2 | [solution-architect] | pending | Authors `docs/design/67-*.md` + 30-second SW-REPL probe for C-8 |
+| R1 | [product-manager] | ✅ DONE 2026-05-01 | 10 ACs locked in BACKLOG.md row; DoR-7 N/A; selector-audit N/A; source-citation gate cited 8 file:line references |
+| R2 | [solution-architect] | ✅ DONE 2026-05-01 | `docs/design/67-b-041-chrome-tab-group-sync.md` written (~280 lines, 11 sections + As-Built placeholder for R6); 14 R2 checklist items closed (C-1a, C-1b, C-2, C-7, C-8, C-13 all PASS; C-10 / C-11 / C-12 / C-14 N/A); 7 R2 risks resolved; `chrome.tabs.move` array form confirmed via MDN docs; SOLUTION_DESIGN.md TOC extended |
 | R3 | [frontend-engineer] | pending | Executes plan tasks 1–15 |
 | R4 | [code-reviewer] + [security-reviewer] + [qa-reviewer] | pending — parallel | Findings → `docs/findings/sprint-42.md` |
 | R5 | [test-engineer] | pending | +38 automated tests + UAT_B-041.md walkthrough in Edge |

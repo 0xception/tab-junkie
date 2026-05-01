@@ -85,3 +85,4 @@
 - [§64 — B-132 R0 Spike (Floating Tabs Land in Open Tabs After Extension Reload)](design/64-b-132-r0-spike.md)
 - [§65 — B-132 — Cold-Start Claim-Jump Fix (R2 + R6 Close)](design/65-b-132-cold-start-claim-jump-fix.md)
 - [§66 — B-137 — `tj:floatingGroups` v3→v4: `liveTabId` Adopted as Primary Live-Tab Join Key (R2 + R6 Close)](design/66-b-137-floating-tab-id-join-key.md)
+- [§67 — B-041 — Chrome Tab Group Sync (snapshot push, R2 lock)](design/67-b-041-chrome-tab-group-sync.md)
