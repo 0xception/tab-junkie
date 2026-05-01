@@ -310,24 +310,25 @@ function stripComments(html) {
   return html.replace(/<!--[\s\S]*?-->/g, '');
 }
 
-test('B-091 AC3: settings.html contains <main>, <h1>, and 5 <fieldset> elements', () => {
+test('B-091 AC3: settings.html contains <main>, <h1>, and 6 <fieldset> elements', () => {
   const html = stripComments(readFile('settings/settings.html'));
   // <main> presence (with role="main" attribute or as bare <main>).
   assert.ok(/<main\b[^>]*>/i.test(html), '<main> element must be present');
   // <h1>
   assert.ok(/<h1\b[^>]*>\s*Settings\s*<\/h1>/i.test(html), '<h1>Settings</h1> must be present');
-  // Exactly 5 <fieldset> blocks (ignore </fieldset> closing tags).
+  /* B-041 (S42 §3.5) — adds the Chrome Integration fieldset between Theme
+     and Data. Exactly 6 <fieldset> blocks (ignore </fieldset> closing tags). */
   const fieldsetMatches = html.match(/<fieldset\b/gi) || [];
-  assert.equal(fieldsetMatches.length, 5, 'exactly 5 <fieldset> elements');
+  assert.equal(fieldsetMatches.length, 6, 'exactly 6 <fieldset> elements');
 });
 
-test('B-091 AC4: section legend texts are [Display, Layout, Groups, Theme, Data] in DOM order', () => {
+test('B-091 AC4: section legend texts are [Display, Layout, Groups, Theme, Chrome Integration, Data] in DOM order', () => {
   const html = stripComments(readFile('settings/settings.html'));
   const legends = [...html.matchAll(/<legend\b[^>]*>([^<]+)<\/legend>/gi)].map((m) => m[1].trim());
   assert.deepEqual(
     legends,
-    ['Display', 'Layout', 'Groups', 'Theme', 'Data'],
-    'section order locked top-to-bottom',
+    ['Display', 'Layout', 'Groups', 'Theme', 'Chrome Integration', 'Data'],
+    'section order locked top-to-bottom (B-041 §3.5 inserts Chrome Integration before Data)',
   );
 });
 
