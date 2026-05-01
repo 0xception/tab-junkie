@@ -18,8 +18,8 @@ Single-anchor sprint: 1 P2 anchor (B-041 snapshot push to Chrome tab strip + tab
 
 ### [B-041] Snapshot push: TJ → Chrome tab strip + tab groups
 - **Tier**: Full (M)
-- **Status**: ✅ requirements → ✅ architecture → build → code-review → security-review → qa-review → test-engineer → close → post-close
-- **Assigned To**: [frontend-engineer] (R3)
+- **Status**: ✅ requirements → ✅ architecture → ✅ build → code-review → security-review → qa-review → test-engineer → close → post-close
+- **Assigned To**: R4 reviewers (next)
 - **Blockers**: none
 - **Feature Context**:
   - One user action — Settings page → Chrome Integration → "Sync this window to Chrome" — pushes TJ's view of the current window onto Chrome's tab strip + tab groups.
@@ -32,11 +32,12 @@ Single-anchor sprint: 1 P2 anchor (B-041 snapshot push to Chrome tab strip + tab
 - **Handoff Notes** (for [product-manager]):
   - Spec §11 contains an AC preview (10 numbered ACs). Re-author into a SPRINT.md acceptance-criteria block following the established R1 format with AC1..AC10 + DoR item-7 destructive-action note (N/A per spec — sync is reversible) + selector-audit note (N/A — no DOM rehome) + source-citation gate (cite `manifest.json:6`, `background/storage/migration.js:89`, `tests/chrome-mock.js`).
   - The original B-041 BACKLOG row carries a "confirmation dialog before execution" clause that conflicts with the spec's N/A destructive-action stance (sync is reversible — no data destruction). PM reconciles: drop the confirmation clause; narrow the row to top-level groups + current-window-only.
-- **Files Changed** (target — accumulated across the build round):
-  - Create: `background/sync/chrome-sync.js`, `background/sync/color-map.js`, `settings/settings-chrome-sync.js`
-  - Modify: `shared/messages.js`, `background/storage/migration.js`, `background/storage/shapes.js`, `background/storage/groups.js`, `background/messages/storage-handlers.js`, `tests/chrome-mock.js`, `settings/settings.html`, `settings/settings.js`, `manifest.json`
-  - Tests (new): ~7 test files / +38 tests target (1826 → ~1864)
-  - Docs: `docs/UAT_B-041.md`, `docs/design/67-b-041-chrome-tab-group-sync.md` (R6 close), `CHANGELOG.md`, `docs/RELEASES.md`
+- **Files Changed** (R3 actual — 1864/1864 PASS, +38 tests over 1826 baseline):
+  - Create (source): `background/sync/chrome-sync.js`, `background/sync/color-map.js`, `settings/settings-chrome-sync.js`
+  - Modify (source): `shared/messages.js`, `background/storage/migration.js`, `background/storage/shapes.js`, `background/storage/groups.js`, `background/messages/storage-handlers.js`, `background/tabs/tab-events.js`, `settings/settings.html`, `settings/settings.js`, `settings/settings.css`, `manifest.json` (1.35.0 → 1.36.0)
+  - Create (tests, 8 new files / +38 tests): `tests/sync-message-constant.test.js`, `tests/sync-schema-v5.test.js`, `tests/sync-color-map.test.js`, `tests/sync-chrome-mock-extensions.test.js`, `tests/sync-target-order.test.js`, `tests/sync-build-summary.test.js`, `tests/sync-chrome-sync.test.js`, `tests/sync-handler.test.js`
+  - Modify (tests — fix-scope updates per R2 §67.7 + B-091 AC3/AC4 contract bumps): `tests/chrome-mock.js`, `tests/migration-fresh-install.test.js`, `tests/migration-steps.test.js`, `tests/b091-settings-page.test.js`
+  - Docs: `docs/UAT_B-041.md` (new), `CHANGELOG.md`, `docs/RELEASES.md`, `docs/BACKLOG.md` (B-041 → done), `docs/BACKLOG_BOARD.md` (✅ + dashboard update)
 - **Parallel Opportunity**: R4 reviewers run in parallel after R3 build. No cross-item parallelization (single-anchor sprint).
 
 ---
@@ -79,7 +80,7 @@ S41 left B-138 (post-B-137 cleanup, XS) DEFERRED — explicitly not part of S42 
 |-------|-------|--------|-------|
 | R1 | [product-manager] | ✅ DONE 2026-05-01 | 10 ACs locked in BACKLOG.md row; DoR-7 N/A; selector-audit N/A; source-citation gate cited 8 file:line references |
 | R2 | [solution-architect] | ✅ DONE 2026-05-01 | `docs/design/67-b-041-chrome-tab-group-sync.md` written (~280 lines, 11 sections + As-Built placeholder for R6); 14 R2 checklist items closed (C-1a, C-1b, C-2, C-7, C-8, C-13 all PASS; C-10 / C-11 / C-12 / C-14 N/A); 7 R2 risks resolved; `chrome.tabs.move` array form confirmed via MDN docs; SOLUTION_DESIGN.md TOC extended |
-| R3 | [frontend-engineer] | pending | Executes plan tasks 1–15 |
+| R3 | [frontend-engineer] | ✅ DONE 2026-05-01 | Executed plan tasks 1–15 across 14 commits. Final test count: 1864/1864 PASS (+38 over 1826 baseline). Zero escalations; one fix-scope test-assertion update (B-091 AC3/AC4 — fieldset count + section order, not enumerated in R2 §67.7). Schema bump v4→v5 wired (KNOWN_VERSION + defaultShape + new MIGRATION_STEPS entry); validator + updateGroup allow-list extended; chrome-mock extended with tabGroups + multi-tab move; orchestrator + state collector + group resolver + applier + isSyncInFlight flag wired; SW handler + WRITE_MESSAGE_TYPES registered; Settings page fieldset + JS module + CSS variants in place; manifest version bumped 1.35.0 → 1.36.0; CHANGELOG + RELEASES populated; UAT_B-041.md drafted with 15 cases. |
 | R4 | [code-reviewer] + [security-reviewer] + [qa-reviewer] | pending — parallel | Findings → `docs/findings/sprint-42.md` |
 | R5 | [test-engineer] | pending | +38 automated tests + UAT_B-041.md walkthrough in Edge |
 | R6 | [solution-architect] | pending | §67 As-Built |
