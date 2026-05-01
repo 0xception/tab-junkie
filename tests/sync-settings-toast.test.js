@@ -213,3 +213,56 @@ test('AC8 plural-form: skip reason count > 1 uses plural noun', async () => {
   assert(lines.some((l) => /2 pinned tabs skipped/.test(l)), 'plural pinned');
   assert(lines.some((l) => /3 tabs closed mid-sync/.test(l)), 'plural tab-gone');
 });
+
+/* =========================================================================
+   H-1 [qa] — aria-busy + button-text swap during in-flight sync.
+   ========================================================================= */
+
+test('H-1 qa: button gets aria-busy + "Syncing…" during in-flight, restores after', async () => {
+  const doc = makeFakeDocument();
+  const { btn } = buildDom(doc);
+  const ORIGINAL_TEXT = btn.textContent;
+
+  /* Capture button state at SW-receive time so we observe the in-flight
+     pose, not just the post-completion pose. */
+  let inFlightAriaBusy = null;
+  let inFlightText = null;
+  let inFlightDisabled = null;
+
+  const send = makeSendMessage(async () => {
+    inFlightAriaBusy = btn.getAttribute('aria-busy');
+    inFlightText = btn.textContent;
+    inFlightDisabled = btn.disabled;
+    return { summary: {
+      windowId: 1, tabsReordered: 1, groupsCreated: 0, groupsUpdated: 0, skipped: [],
+    } };
+  });
+
+  initChromeSync({ doc, sendMessage: send });
+  btn.click();
+  await drain();
+
+  assert.equal(inFlightAriaBusy, 'true', 'aria-busy="true" set during in-flight');
+  assert.equal(inFlightText, 'Syncing…', 'button text swapped to "Syncing…" during in-flight');
+  assert.equal(inFlightDisabled, true, 'button disabled during in-flight');
+  /* After completion: state restored. */
+  assert.equal(btn.getAttribute('aria-busy'), null, 'aria-busy removed after completion');
+  assert.equal(btn.textContent, ORIGINAL_TEXT, 'button text restored after completion');
+  assert.equal(btn.disabled, false, 'button re-enabled after completion');
+});
+
+test('H-1 qa: aria-busy + text restored even when sync throws', async () => {
+  const doc = makeFakeDocument();
+  const { btn } = buildDom(doc);
+  const ORIGINAL_TEXT = btn.textContent;
+
+  const send = makeSendMessage(async () => { throw new Error('boom'); });
+
+  initChromeSync({ doc, sendMessage: send });
+  btn.click();
+  await drain();
+
+  assert.equal(btn.getAttribute('aria-busy'), null, 'aria-busy cleared on throw');
+  assert.equal(btn.textContent, ORIGINAL_TEXT, 'button text restored on throw');
+  assert.equal(btn.disabled, false, 'button re-enabled on throw');
+});
