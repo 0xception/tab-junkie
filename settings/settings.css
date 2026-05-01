@@ -489,3 +489,17 @@ body {
 /* `--danger` token already declared at the top of this file (lines 27/45/
    65/84) so the dialog-btn--danger / import-replace-emphasis rules above
    inherit the existing palette. No additional palette declaration needed. */
+
+/* B-041 (S42 §3.5) — Chrome Integration section help text + toast variants
+   for the chrome-sync result. The base .toast rule above sets the structural
+   layout; the variant attribute adds an accent border so success / partial /
+   error are distinguishable at a glance. */
+.settings-section-help {
+  font-size: 0.85em;
+  color: var(--text-secondary, #666);
+  margin: 0 0 8px 0;
+}
+
+.toast[data-variant="ok"]      { border-left: 4px solid #2ea44f; }
+.toast[data-variant="partial"] { border-left: 4px solid #d4a017; }
+.toast[data-variant="error"]   { border-left: 4px solid var(--danger, #d73a49); }
