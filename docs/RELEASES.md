@@ -13,6 +13,8 @@ Sprint 42: 1 P2/M anchor (B-041 Chrome tab group sync) closes the pre-S33 placeh
 ### What's new (user-visible)
 
 - **Chrome tab group sync (snapshot push, B-041, P2/M)** — A new "Sync this window to Chrome" button in **Settings → Chrome Integration** snapshot-pushes Tab Junkie's view of the current window into Chrome's tab strip and tab groups. TJ groups become Chrome tab groups (with title + mapped color); tabs are reordered in the strip to match TJ order; ungrouped Open Tabs are reordered but stay ungrouped in Chrome. Re-sync updates existing Chrome groups in place (no duplicates). If the user manually deletes a Chrome group between syncs, the next sync detects the stale mapping and creates a fresh group transparently. Push-only, snapshot-only, current-window only this release.
+- **Sync result toast (✓ / ⚠ / ✗ variants)** — green / yellow / red toast variants with non-color glyph prefixes for WCAG 1.4.1 compliance. Partial-success toast includes a **View details** expander that lists each skip reason and count (e.g., "1 pinned tab · 1 tab closed mid-sync"). Toast auto-dismisses after 4 seconds; manual × dismiss is supported. The toast surface (`#settings-toast`) is now coordinated through a shared singleton-timer module so a Sync toast can no longer prematurely dismiss an unrelated Import/Export toast.
+- **In-progress feedback on the Sync button** — while the operation is in flight the button shows "Syncing…" and sets `aria-busy="true"`, then restores on completion. Prevents double-clicks; announces busy-state to assistive tech.
 
 ### Architecture
 
@@ -28,7 +30,9 @@ Sprint 42: 1 P2/M anchor (B-041 Chrome tab group sync) closes the pre-S33 placeh
 
 ### Internal
 
-- Test count: ~+38 tests (1826 → 1864 / 100% PASS) across 8 new test files (`tests/sync-{message-constant,schema-v5,color-map,chrome-mock-extensions,target-order,build-summary,chrome-sync,handler}.test.js`).
+- Test count: 1826 → **1892 / 100% PASS** (+66 net: +38 R3 build · +25 R4 fix-round · +3 R5 gap-fill) across 11 new test files (`tests/sync-{message-constant,schema-v5,color-map,chrome-mock-extensions,target-order,build-summary,chrome-sync,handler,classify-error,settings-toast,toast-timer-shared}.test.js`).
+- New shared module: `settings/settings-toast-timer.js` — singleton timer coordinating `#settings-toast` between Sync (chrome-sync) and Import/Export flows. Resolved a ghost-timer race where one flow's auto-dismiss could clobber another's toast.
+- `_classifyError` now matches both chrome-mock synthetic strings and Chromium's actual `chrome.tabs.move` rejection format, with `tests/sync-classify-error.test.js` pinning the predicate set.
 
 ---
 

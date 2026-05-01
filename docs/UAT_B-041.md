@@ -8,6 +8,8 @@
 
 **Automated test status:** 1,892 / 1,892 passing (+66 over the 1,826 pre-S42 baseline; +3 added at R5 gap-fill). All 10 ACs have explicit PASS-criterion + FAIL-criterion coverage.
 
+**UAT outcome — recorded 2026-05-01:** **PASS — lean smoke test by product-owner in Edge.** Verbatim attestation: _"sync with chrome looks to have worked"_. Same pragmatic UAT model as S41 close. The full 17-case walkthrough below is preserved as a regression-triage script for future sprints; individual case results are not separately recorded for v1.36.0 ship.
+
 Manual test cases against the unpacked extension loaded in **Microsoft Edge** (Developer Mode → Load unpacked → repo root). Run **after** verifying the automated suite passes.
 
 > **Edge gotcha (per user memory):** `chrome://` URLs do not work in Edge. Use `edge://extensions` and `edge://serviceworker-internals` equivalents. To force-reload the extension after changes, toggle the extension OFF then ON in `edge://extensions`.

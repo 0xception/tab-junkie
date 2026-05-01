@@ -355,3 +355,81 @@ R6 [solution-architect] appends an `§67.12 As-Built` section recording:
 - Any new R6 precedents or retro-actions.
 
 The R6 As-Built section is not present at R2 lock; it is filled in after R5 testing passes and before sprint close.
+
+---
+
+## §67.12 As-Built (R6 close — 2026-05-01)
+
+### §67.12.1 Final shipped state
+
+- **Version**: v1.36.0 on `release/v2` (no `main` merge per established branching rule)
+- **Test count**: 1,826 → 1,892 PASS / 0 fail / +66 net (+38 R3 build · +25 R4 fix-round · +3 R5 gap-fill)
+- **Commits**: 28 total since `release/v2` (1 sprint kickoff · 2 R1+R2 + spec/plan setup · 14 R3 build · 1 R3 progress · 1 R4 progress · 6 R4 fix-round · 1 R4 fix-round close · 2 R5 gap-fill · 1 R5 close)
+- **Files changed**: 40 (3 new source modules · 4 new test surfaces · 8 new test files · 11 source files modified · 4 test files modified · ~10 doc files)
+- **UAT**: PASS via lean smoke test (product-owner attestation in Edge — same model as S41 close)
+
+### §67.12.2 Deviations from R2 chapter
+
+Three deviations recorded; all surfaced earlier than past sprints, all defensible:
+
+**D-1 — Fix-scope test enumeration miss (R2 §67.7)**.
+R2 §67.7 enumerated only the migration-pin tests for the fix-scope contract update. R3 build hit a mid-task discovery: `tests/b091-settings-page.test.js` carries two structural pins on the Settings page —
+- AC3 fieldset count (`Array.from(fieldsets).length === 5`)
+- AC4 section order (`['Display', 'Layout', 'Groups', 'Theme', 'Data']`)
+
+The new "Chrome Integration" fieldset breaks both. R3 updated both pins to 6 + `[..., 'Chrome Integration', 'Data']`. This is **the correct as-built behavior** (the new section IS the AC1 contract) but R2 §67.7 should have enumerated these tests at lock time. Three sprints in a row now have this enumeration class fire (S36 B-113 D-3, S37 B-117 R3, S42 B-041 R3) — see §67.12.4 retro precedent.
+
+**D-2 — `_classifyError` mock-vs-real Chrome string mismatch surfaced at R4**.
+R2 §67.6.1 noted `chrome.tabs.move` array atomicity as a 30-second SW-REPL probe; we picked the API confirmation route via MDN. We did NOT verify that the **rejection-message string contract** is stable. R4 [code-reviewer] M-4 + [security-reviewer] M-1 + [qa-reviewer] root-cause analysis converged on this gap. The R4 fix-round fixed `_classifyError` to bucket on substrings present in BOTH the chrome-mock synthetic strings (`Tab N not found`) AND realistic Chrome rejection strings (`No tab with id: N`), and re-aligned the chrome-mock layer to emit Chrome-realistic strings going forward. New `tests/sync-classify-error.test.js` (+11 tests) pins the predicate set.
+
+**D-3 — Toast architecture refactor surfaced at R4 (ghost timer)**.
+R2 §67.4.3 documented `settings/settings-chrome-sync.js` as reusing the existing `#settings-toast` DOM (B-049 / B-093 contract) but did NOT inventory the existing toast-timer ownership (`settings/settings-import-export.js:40` `_toastTimer`). R4 [code-reviewer] H-2 caught that two modules independently `setTimeout` against the shared DOM — a sync's 4s auto-dismiss could fire after an unrelated import/export action.
+
+Resolution at R4 fix-round: extracted a new shared module `settings/settings-toast-timer.js` that owns the single `_toastTimer` reference + provides `showToast`/`clearToastTimer` API. Both `settings-chrome-sync.js` and `settings-import-export.js` now consume the shared helper. The refactor was minimal (3 callsites in import-export per the fix-round agent's report) and shipped clean per CLAUDE.md "Shared File Governance" (multi-surface code consolidation).
+
+This is a NEW shared module that did not exist in the R2 plan — it should be enumerated in any future R2 for similar work that touches the Settings-page toast.
+
+### §67.12.3 New Chrome integration surface — modules summary
+
+| Module | Status | Lines (approx) | Test coverage |
+|---|---|---|---|
+| `background/sync/color-map.js` | NEW (R3) | 50 | `tests/sync-color-map.test.js` (10 cases) |
+| `background/sync/chrome-sync.js` | NEW (R3) — orchestrator + `_isSyncing` flag + `_classifyError` (R4-fixed) | ~310 | `tests/sync-chrome-sync.test.js` (10 integration cases) · `tests/sync-target-order.test.js` (5) · `tests/sync-build-summary.test.js` (3) · `tests/sync-classify-error.test.js` (11) |
+| `settings/settings-chrome-sync.js` | NEW (R3) — button + toast wiring | ~100 | `tests/sync-settings-toast.test.js` (10+ cases) |
+| `settings/settings-toast-timer.js` | **NEW (R4 fix-round D-3)** — shared singleton timer | ~75 | `tests/sync-toast-timer-shared.test.js` (5 cases) |
+| `tests/chrome-mock.js` | EXTENDED (R3 + R4) — `chrome.tabGroups` API + multi-tab move + Chrome-realistic error strings | +120 net | covered by `tests/sync-chrome-mock-extensions.test.js` |
+
+### §67.12.4 R6 retro precedents (for Sprint 42 Gate 7 retrospective + future sprints)
+
+**Precedent #1 — R2 fix-scope test enumeration must include structural pins on shared surfaces.**
+The `b091-settings-page.test.js` AC3/AC4 pin update (D-1 above) is the **third occurrence in three sprints** of this enumeration class firing at R3 instead of R2. R2 fix-scope checklists should explicitly call out:
+- DOM-structure pins (count of fieldsets, list of section names, etc.)
+- ARIA-contract pins
+- CSS-token pins
+- Selector-coverage pins
+
+CLAUDE.md "Fix-scope test-assertion enumeration" subsection should be amended to explicitly mention "DOM-structure assertions on shared surfaces" alongside the existing CSS-token-invariant precedent. **Action item**: file as backlog candidate for Sprint 43.
+
+**Precedent #2 — Browser-API rejection-string contract should be a discrete C-15 checklist item.**
+The `_classifyError` mock-vs-real divergence (D-2 above) shows that R2's existing C-8 (SW-context feasibility) covers API reachability but NOT rejection-string contract stability. A new C-15 entry could capture: "If error classification depends on the rejection's `message` string, R2 MUST verify the actual Chrome message format (via SW REPL probe) and document it in the chapter; mock layers MUST emit the verified format." **Action item**: file as backlog candidate.
+
+**Precedent #3 — Multi-module toast/dialog ownership must be inventoried at R2.**
+The ghost-timer race (D-3 above) only surfaced because a SECOND module touched the shared toast DOM. R2 should inventory all existing consumers of any shared DOM/state/timer surface BEFORE adding a new consumer. **Action item**: amend CLAUDE.md "Shared File Governance" subsection to require an explicit "shared-surface consumer inventory" subsection in R2 chapters that touch any element with `#settings-*` / `#sidepanel-*` / etc.
+
+### §67.12.5 Carry-over to S43 candidates
+
+The R4 deferred MEDs/LOWs (recorded in `docs/findings/sprint-42.md`) are the natural S43 polish queue:
+- `_isSyncing` re-entrancy refcounter (security L-1) — only matters if a second caller is added (e.g., auto-sync in S43).
+- Duplicate-URL last-writer-wins (code M-2 + sec L-2 + qa L-5 converged) — corner case; deferred until B-148 interleave work in S43+.
+- Zero-result toast copy ("nothing to sync" instead of `0 tabs · 0 groups`) (qa M-1).
+- UAT script keyboard + cold-start enrichment (qa M-5/M-6 — partially closed at R5 gap-fill).
+- Concurrent-sync guard (code M-1) — relevant when auto-sync ships.
+
+The most natural S43 anchor is **auto-sync (live mirror)** — the spec §10 explicitly identifies this as the next iteration. The snapshot architecture from B-041 generalizes cleanly: every TJ mutation hooks the same `syncToChrome` orchestrator with debounce. The new `_isSyncing` flag, the persisted `chromeTabGroupId` mapping, the toast surface, the color map — all reusable.
+
+### §67.12.6 Rollback plan validated
+
+§67.2.4 rollback steps were not exercised in production but the architecture supports the documented procedure:
+- v5 → v4 revert path: stored `schemaVersion === 5` triggers READ-ONLY safe mode under v4 code; user exports JSON; clears storage; re-imports.
+- Chrome-side: any v1.36.0-created tab groups survive the rollback as orphaned Chrome tab groups; user trivially ungroups them.
+- v1.35.x → v1.36.0 forward upgrade: zero data action required; `tj:groups` records lazy-stamp `chromeTabGroupId` on first sync.
