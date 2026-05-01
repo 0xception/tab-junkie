@@ -2595,3 +2595,75 @@ Post-B-137 `(windowId, tabIndex)` callers cleanup. Position-fallback retained in
 - **Storage schema**: `tj:floatingGroups` v3 → v4 (lazy migration; rollback documented at §66.18.10)
 - **Manifest permissions**: zero new permissions added
 - **Sprints + hotfixes without rollback**: 18 (S23 → S41)
+
+---
+
+## Sprint 42 — Chrome tab group sync (2026-05-01)
+
+**Theme:** One-way snapshot push of TJ's view of the current window onto Chrome's tab strip and tab groups.
+**Release:** v1.36.0 (release/v2 only — no main merge)
+**Branch:** `feature/sprint-42-chrome-sync` → merged to `release/v2` via PR #47 (merge commit `54f2852`)
+**Tag:** `v1.36.0` (tagged on `release/v2` HEAD; `gh release create` skipped per established pattern)
+
+### Completed Items
+
+#### [B-041] Snapshot push: TJ → Chrome tab strip + tab groups — ✅ DONE
+- **Tier**: Full (M)
+- **Closed**: 2026-05-01
+- **Pipeline**: R1 ✅ → R2 ✅ → R3 ✅ (15 plan tasks · 0 escalations) → R4 ✅ (3 reviewers parallel · 4 HIGHs in 6-commit fix-round) → R5 ✅ (coverage matrix · UAT script · +3 gap-fill tests) → R6 ✅ (As-Built §67.12 · 3 deviations recorded) → R7 ✅ (CHANGELOG + RELEASES + user-manual)
+- **What shipped**: Settings page → Chrome Integration → "Sync this window to Chrome" button. Reads TJ state for the window the Settings tab is in, reorders Chrome tab strip to match TJ order (groups in `sortOrder`, members in TJ `sortOrder`, then ungrouped Open Tabs), creates Chrome tab groups for each TJ group with ≥1 live tab in this window (matching titles + mapped colors), persists `chromeTabGroupId` on the TJ group record for in-place re-sync. Stale Chrome tab group IDs detected via `chrome.tabGroups.get` and replaced transparently. Pinned tabs and empty groups skipped silently. Best-effort failure handling with `SyncSummary` toast (✓/⚠/✗ glyph variants, View details expander, aria-busy in-progress feedback). Push-only, snapshot-only, current-window only. Auto-sync (continuous mirror), Chrome → TJ pull, multi-window, sub-group flattening, Chrome-group adoption all explicitly deferred.
+- **Files Changed**: 40 (3 new source modules: `background/sync/{chrome-sync,color-map}.js` + `settings/settings-chrome-sync.js` + `settings/settings-toast-timer.js` *(R4 fix-round D-3 emergence)*; 11 source modifications; 11 new test files; 4 test modifications; ~10 doc files including the new design chapter `docs/design/67-b-041-chrome-tab-group-sync.md`).
+- **Schema**: `tj:groups` v4 → v5 lazy migration. `KNOWN_VERSION` 4→5; `defaultShape(PARTITION_META).schemaVersion` 4→5; new no-op `MIGRATION_STEPS` v4→v5 entry. Validator `isGroup` extended to tolerate optional `chromeTabGroupId: number | null`. `updateGroup` allow-list extended. CHANGELOG ships SW module-cache flush note (toggle OFF→ON after update).
+- **Permissions**: zero added. `tabGroups` was already declared at `manifest.json:6` in a prior sprint.
+- **Documents**: spec `docs/superpowers/specs/2026-05-01-chrome-tab-group-sync-design.md` · plan `docs/superpowers/plans/2026-05-01-chrome-tab-group-sync.md` · architecture `docs/design/67-b-041-chrome-tab-group-sync.md` (R2 + R6 As-Built) · UAT `docs/UAT_B-041.md` · findings `docs/findings/sprint-42.md`.
+- **R6 deviations recorded** (As-Built §67.12.2): D-1 fix-scope test enumeration miss (b091 AC3/AC4 — third occurrence in three sprints) · D-2 `_classifyError` mock-vs-real Chrome string mismatch (caught at R4 fix-round) · D-3 ghost-timer toast architecture refactor surfaced new shared module `settings/settings-toast-timer.js`.
+- **Follow-ups created**: 3 Fast-Track-XS CLAUDE.md edit candidates filed as Sprint 43 candidates (Gate 7 action items #1, #2, #3 below).
+
+### Velocity
+
+- Planned: 1 anchor item (B-041 — P2/M Full Tier 2)
+- Completed: 1 anchor item · v1.36.0 ready and tagged
+- Carried over: 0
+- Pipeline duration: ~one calendar day (kickoff 2026-05-01 morning → tag/archive same evening)
+
+### Pipeline summary
+
+- **Brainstorm** (Q1–Q9 + reframe): 9 product-owner questions answered locking spec scope. Reframed mid-brainstorm to cover full window strip (groups + ungrouped Open Tabs) on a single Settings-page action. (Spec written + committed.)
+- **Plan**: 15-task TDD-structured implementation plan, ~70 individual steps, +38 tests target. (Plan written + committed.)
+- **R1**: 10 ACs locked in BACKLOG.md row · DoR-7 N/A · selector-audit N/A · 8 source-citation gate refs verified.
+- **R2**: §67 chapter (~280 lines + R6 As-Built later) · 14-item C-checklist (6 PASS · 4 N/A · rest verified) · 7 spec §7 risks resolved · `chrome.tabs.move` array form confirmed via MDN.
+- **R3 [frontend-engineer] subagent**: 14 task commits + 1 progress commit · 0 escalations · self-corrected b091 AC3/AC4 fix-scope miss in real time (test count after R3: 1864).
+- **R4** (3 parallel reviewer subagents): 0 CRIT · 4 HIGH · ~9 MED · ~9 LOW deduped. HIGHs all converged on UX/test gaps. Cross-reviewer convergence was the value-add (3 reviewers independently flagged the `_classifyError` mock-vs-real gap and the spec §8.2 tab-gone test gap).
+- **R4 fix-round subagent**: 6 fix commits (1 per HIGH/converged-MED) · +25 tests · `settings/settings-toast-timer.js` extracted as shared module · 0 regressions (test count after fix-round: 1889).
+- **R5 [test-engineer] subagent**: AC1-AC10 coverage matrix (every AC has explicit PASS + FAIL test) · +3 gap-fill tests (qa-reviewer M-4 ungrouped-only window · AC9 multi-window strengthening · v4→v5 direct-migration parity) · UAT_B-041.md rewritten 15→17 cases on B-134 precedent (test count after R5: 1892).
+- **R6 inline**: §67.12 As-Built · 3 deviations · 3 retro precedents flagged.
+- **R7 inline**: CHANGELOG + RELEASES augmented with R4 fix-round UX additions · user-manual `docs/user-manual/settings.md` extended ~50 lines covering Chrome Integration section, color mapping table, toast variants, in-progress feedback, what's-not-in-this-version notice, reversibility note.
+- **UAT**: PASS via lean smoke test in Edge (product-owner attestation: "sync with chrome looks to have worked"). Same lean-mode model as S41 close.
+
+### Process Improvements (Gate 7 retrospective)
+
+**What went well**:
+- Spec-first → plan-first → build pipeline held cleanly. Three-document funnel (spec, plan, R2 chapter) paid for itself with a 0-escalation R3.
+- R4 cross-reviewer convergence surfaced highest-impact issues. Three reviewers independently flagged the `_classifyError` gap and the tab-gone test gap.
+- Subagent dispatch cadence (5 dispatches at heavy-lift rounds + inline R1/R2/R6/R7) saved ~50% tokens vs full-pipeline subagent cadence with no quality cost.
+- R3 self-correction caught a R2 fix-scope miss in real time.
+- Lean-mode UAT precedent held — single-user product-owner smoke test sufficient for sprint-close in this codebase.
+
+**What to improve**:
+- **Fix-scope test enumeration must include DOM-structural pins (third sprint in three).** S36 B-113 D-3 + S37 B-117 R3 + S42 B-041 D-1 — three sprints in a row of pre-existing test pins missed at R2. CLAUDE.md "Fix-scope test-assertion enumeration" subsection lists CSS-token invariants but doesn't explicitly call out structural pins like fieldset count or section order. Action item #1 below.
+- **Browser-API rejection-string contract was assumed stable, wasn't.** R3 wrote tests against chrome-mock synthetic strings only; real Chrome rejection messages differ. Coverage was partly illusory until R4 fix-round caught it. Action item #2 below.
+- **Multi-module shared-DOM ownership wasn't inventoried at R2.** Adding `settings-chrome-sync.js` as a second consumer of `#settings-toast` (existing consumer: `settings-import-export.js`) created a ghost-timer race that a R2 inventory would have flagged. Action item #3 below.
+
+**Action Items for Sprint 43**:
+- [ ] **B-XXX (file at S43 kickoff)** — CLAUDE.md edit: extend "Fix-scope test-assertion enumeration" subsection to explicitly include DOM-structure assertions (fieldset counts, section orders, selector enumerations) on shared surfaces. Fast-Track XS.
+- [ ] **B-XXX (file at S43 kickoff)** — CLAUDE.md edit: add C-15 to R2 Correctness Checklist — "Browser-API rejection-string contract verification". Fast-Track XS.
+- [ ] **B-XXX (file at S43 kickoff)** — CLAUDE.md edit: extend "Shared File Governance" subsection to require explicit "shared-surface consumer inventory" in R2 chapters touching any element with `#settings-*` / `#sidepanel-*` / `#newtab-*` / etc. Fast-Track XS.
+
+### Final State
+
+- **Tests**: 1,892 / 1,892 passing · zero regressions · +66 over 1,826 baseline (38 R3 build · 25 R4 fix-round · 3 R5 gap-fill)
+- **Release tag**: v1.36.0 cut on `release/v2`; `gh release create` skipped
+- **PR**: #47 merged to `release/v2` (merge commit `54f2852`)
+- **Storage schema**: `tj:groups` v4 → v5 (lazy migration; rollback documented at §67.2.4 + §67.9 + §67.12.6)
+- **Manifest permissions**: zero new permissions added
+- **Sprints + hotfixes without rollback**: 19 (S23 → S42)
