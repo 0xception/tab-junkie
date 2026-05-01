@@ -623,3 +623,174 @@ All six tests have explanatory headers tying back to the spec at `docs/findings/
 Fix C is surgically scoped, structurally correct, defensively coded, and follows established project patterns. The single LOW-priority observation (line-citation drift in three internal references after Fix A shifted line numbers) is informational only and not blocking. Approved for merge from `[code-reviewer]`.
 
 _Review completed by [code-reviewer] on 2026-04-29 against `feature/sprint-41-floating-tab-id` working-tree diff (Fix C delta on top of merged Fix A + Fix B)._
+
+---
+
+## [security-reviewer] — Fix D R4
+
+**Item under review:** Fix D — `_computeReorderFloatingPayload` off-by-one fix. Pure-computation change in sidepanel context. Removes a `currentIdx < insertIndex ? insertIndex - 1 : insertIndex` adjustment that was correct for an unfiltered insertIndex but double-corrects when applied to the filtered (post-removal) insertIndex produced by `_computeTabDropTarget`'s REORDER_FLOATING branch (sidepanel.js:6261-6275, B-134 R4 H-4 fix).
+
+**Files reviewed (working-tree diff):**
+- `sidepanel/sidepanel.js` (+18/-4) — helper body change + rationale comment block
+- `tests/b134-tab-drag-reorder.test.js` (+85/-14) — T16-T18 input rebases + 4 new regression-guard tests (T46-T49)
+
+### Threat-surface analysis
+
+The change is a **pure-computation** edit inside `_computeReorderFloatingPayload`. The helper:
+- Reads from `_cachedFloatingMembers` (in-memory only; no storage I/O).
+- Returns an array of tab IDs to the caller (`MSG_REORDER_FLOATING_MEMBERS` dispatch site at sidepanel.js:4737-4749).
+- Does NOT touch DOM, chrome.* APIs, storage, network, or `eval`/`innerHTML`.
+- Does NOT log via `console.*`.
+
+The SW-side handler for `MSG_REORDER_FLOATING_MEMBERS` re-validates the client-supplied order against authoritative storage (per the helper's existing JSDoc and the project's defensive-validation discipline) — the client payload is treated as untrusted by the receiver. Threat surface for this delta is **near-zero**.
+
+### Checklist results
+
+**1. Manifest / permissions.** Pass. `git diff manifest.json` returns empty. No new permissions, no `host_permissions` change, no CSP relaxation, no new web-accessible resources.
+
+**2. CSP / `eval` / `new Function` / `innerHTML`.** Pass. `git diff` filtered for `console\.|innerHTML|eval|new Function|fetch\(|XMLHttpRequest|chrome\.permissions|chrome\.storage\.*\.set` returns zero matches in added lines. The change is arithmetic only (`Math.max(0, Math.min(insertIndex, tabIds.length))`).
+
+**3. Storage write surface.** Pass. The helper is a pre-dispatch index calculator. It does not call `chrome.storage.*`, does not mutate `_cachedFloatingMembers` (it splices a *copy* — `tabIds = members.map(...)`), and does not write to any IDB/persistent store. The downstream SW handler is unchanged by this fix and continues to enforce its own authoritative re-validation.
+
+**4. Network / telemetry / `console.log`.** Pass. No new occurrences in the diff. Local-only invariant preserved.
+
+**5. `MSG_REORDER_FLOATING_MEMBERS` payload integrity (orderedTabIds set membership).** Pass. The post-fix algorithm:
+```
+tabIds = members.map(m => m.tabId)        // copy of original IDs
+currentIdx = tabIds.indexOf(draggedTabId)
+if (currentIdx === -1) return []          // safety: dragged tab not in cache
+tabIds.splice(currentIdx, 1)              // remove dragged
+clamped = Math.max(0, Math.min(insertIndex, tabIds.length))
+tabIds.splice(clamped, 0, draggedTabId)   // re-insert dragged
+return tabIds
+```
+The `splice(currentIdx, 1)` followed by `splice(clamped, 0, draggedTabId)` is a structurally-symmetric remove-then-reinsert. The output `tabIds` has the same multiset as the input (one `draggedTabId` removed, one `draggedTabId` re-added), so:
+- No new IDs are introduced (the only ID inserted is `draggedTabId`, which was guaranteed present at line `currentIdx = tabIds.indexOf(...)`).
+- No IDs are lost (every member of `members.map(m => m.tabId)` survives except possibly `draggedTabId`, which is then re-added).
+- Length invariant: `out.length === members.length` (verified by T16-T18 + T46-T49 deepEqual assertions on 3-element and 5-element fixtures).
+
+The pre-fix and post-fix algorithms differ ONLY in the index where `draggedTabId` is re-inserted; set membership is identical. Verdict: payload integrity preserved.
+
+**6. Bounds (NaN / negative / very large `insertIndex`).** Pass with note. The clamp `Math.max(0, Math.min(insertIndex, tabIds.length))` handles:
+- **Negative `insertIndex`** → `Math.min(neg, tabIds.length)` returns the negative, then `Math.max(0, neg)` clamps to 0. Splice at 0 → prepend. Safe.
+- **Very large `insertIndex`** → `Math.min(huge, tabIds.length)` returns `tabIds.length`, then `Math.max(0, len)` returns `len`. Splice at `tabIds.length` → append. Safe.
+- **NaN `insertIndex`** → `Math.min(NaN, n)` returns NaN; `Math.max(0, NaN)` returns NaN; `Array.prototype.splice(NaN, 0, x)` coerces NaN → 0 (per ECMA §22.1.3.30 → ToInteger → ToNumber → +0). The dragged tab gets prepended. No crash, no exception, no payload corruption (still a permutation of the original IDs).
+- **`undefined`/`null` `insertIndex`** → `null` coerces to 0 (Math.min/max numeric coercion); `undefined` propagates as NaN, which behaves as above.
+
+The clamp is well-formed for all malformed inputs. The downstream SW validator will additionally reject any payload that isn't a strict permutation of the authoritative order, providing a defense-in-depth backstop.
+
+**7. Same-position no-op preservation.** Pass. T18 (rebased) and T48/T49 (new) cover this:
+- T18: `[1,2,3]`, drag `2`, drop at filtered index 1 (between 1 and 3, which is dragged-tab's own slot in filtered space) → `[1,2,3]`. True no-op.
+- The pre-fix algorithm also produced `[1,2,3]` for input `(idx 1 → 1)` (because `currentIdx (1) < insertIndex (1)` is false → no `-1` branch), so the no-op behavior is preserved across the fix. The user-visible "drop on own slot = no change" invariant continues to hold.
+
+**8. B-141 self-application — historical-comment-chain misled prior R3.** Confirmed worth flagging. Fix B's R3 report claimed `_computeReorderFloatingPayload` "ALREADY has the index-shift adjustment" — accurate as a literal reading of the code at the time, but **stale** as a correctness signal: the adjustment had become incorrect when B-134 R4 H-4 switched `_computeTabDropTarget` to filtered-list midlines (sidepanel.js:6261-6275). The pre-Fix-D adjustment was the *right answer for an unfiltered insertIndex*, which had been the contract before H-4. After H-4, the contract changed but the helper's index-arithmetic comment stayed.
+
+This is precisely the B-141 "R3-spec-incorrect-finding" pattern: an R3 author treated a multi-author-historical comment as authoritative without re-verifying against the current data-flow contract. The Fix D rationale block (sidepanel.js:6391-6404) now explicitly documents the filtered-list contract and the H-4 dependency — that's the correct corrective. **Recommend** that any future change to `_computeTabDropTarget`'s filtering convention treat the new comment as a *contract-binding* docstring and grep for `_computeReorderFloatingPayload` callers if the convention is ever flipped back. Not a blocker for Fix D itself — it's a precedent capture for future R2/R3 hygiene.
+
+### Cross-cutting
+
+**Stale-comment hygiene at sidepanel.js:6439-6441.** **Informational (LOW).** `_computeStripInsertIndex` carries a comment that says "mirrors the index-shift adjustment in `_computeReorderFloatingPayload` above — when D was BEFORE the unfiltered insert position S, removing D shifts the post-drop slot down by one." Post-Fix-D, the *helper* no longer carries that adjustment because its input is filtered. `_computeStripInsertIndex` does still carry an `effectiveS = (dPos < S) ? S - 1 : S` adjustment, which is correct *for the OPEN-tabs path* because `_computeTabDropTarget`'s OPEN-tabs branch does NOT filter (it operates on `cluster.rowMidlines` directly without dragged-row exclusion — see sidepanel.js:6312-6395 area). So the OPEN-tabs adjustment remains correct, but the comparison to "the index-shift adjustment in `_computeReorderFloatingPayload`" is now inaccurate (the helper no longer has one). This is a comment-only drift; the OPEN-tabs code is correct. Consider rephrasing to "(unfiltered-insertIndex convention; the floating-tab path uses a filtered-insertIndex convention and applies no further adjustment)" in a follow-up — not blocking for Fix D.
+
+**Test selector / chrome-mock surface.** Pass. T16-T18 + T46-T49 are pure-algorithm tests against `reorderPayloadAlgorithm` (a local mirror of the helper) on plain object fixtures. No `chrome-mock`, no DOM, no message-bus mocks. Deterministic; no flakiness vectors.
+
+**STOP-and-escalate hygiene.** Pass. The Fix D rationale comment block documents the H-4 dependency and the Fix-C unmasking — it's analytical context, not a deferral note. No AC-locked behavior is silently deferred.
+
+### Summary
+
+| Severity | Count |
+|----------|-------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 1 (informational — comment drift at sidepanel.js:6439-6441 referencing the now-removed adjustment in `_computeReorderFloatingPayload`; OPEN-tabs code is correct) |
+
+Threat surface for Fix D is near-zero: pure in-memory index arithmetic, no new permissions, no new I/O, no XSS/CSP/eval surface, no storage writes, payload-set-membership preserved, bounds clamp robust against NaN/negative/oversize inputs, same-position no-op preserved. The remove-then-reinsert structure guarantees `MSG_REORDER_FLOATING_MEMBERS.orderedTabIds` is a permutation of the cached membership, and the SW handler's authoritative re-validation provides defense-in-depth. The B-141 self-application observation (stale comment chain misled prior R3 work) is captured as a precedent for future R2/R3 hygiene; the Fix D rationale block in the source already addresses the immediate corrective. **Approved for merge from `[security-reviewer]`.**
+
+_Review completed by [security-reviewer] on 2026-04-29 against `feature/sprint-41-floating-tab-id` working-tree diff (Fix D delta: sidepanel/sidepanel.js + tests/b134-tab-drag-reorder.test.js)._
+
+---
+
+## [code-reviewer] — Fix D R4
+
+**Item under review.** Fix D — surgical off-by-one removal in `_computeReorderFloatingPayload` (`sidepanel/sidepanel.js`). User-reported smoke-test bug post-Fix-C: floating-tab REORDER lands at wrong position on FORWARD drags (off-by-one above the visual indicator).
+
+**Diagnosis claim under verification.** R3 agent claims convention mismatch: B-134 R4 H-4 fix made `_computeTabDropTarget` filter the dragged row out of `rowMidlines`/`rowTabIds` for REORDER_FLOATING (sidepanel.js:6261-6275), placing the produced `insertIndex` in post-removal index space. But `_computeReorderFloatingPayload` continued to apply a `currentIdx < insertIndex ? insertIndex - 1 : insertIndex` adjustment that is correct ONLY for an UNFILTERED `insertIndex`. Forward drags (`currentIdx < insertIndex` true) double-corrected; backward drags (`currentIdx < insertIndex` false) left the value alone — so the bug presented as forward-only.
+
+**Fix algorithm.** Delete the adjustment line; splice in directly at `insertIndex` with bounds clamp. Net diff: `sidepanel.js` +18 / -4 (most additions are the Fix D explanatory comment block); `tests/b134-tab-drag-reorder.test.js` +85 / -14 (T16/T17/T18 inputs re-derived for filtered-list semantics; T46-T49 added as regression guards).
+
+### Checklist results
+
+**1. Diagnosis correctness — VERIFIED.** Read `sidepanel.js:6261-6275`:
+- Line 6267: `isReorderFloating = (sourceMode === 'FLOATING' && groupId === sourceGroupId)`.
+- Lines 6270-6272: when `isReorderFloating`, `midlines = zone.rowMidlines.filter((_, i) => zone.rowTabIds[i] !== draggedTabId)`.
+- Lines 6273-6275: `tabIds` is filtered identically.
+- Lines 6278-6282: the `insertIndex` loop iterates the FILTERED midlines. Therefore the produced `insertIndex` IS in post-removal (filtered) index space.
+
+The diagnosis is correct. Cross-checked against `_resolveTabDragIndicatorY` (sidepanel.js:6204-6237) which applies the SAME filtered-list convention for REORDER_FLOATING (lines 6219-6221), confirming the comment's claim that visual + outcome stay in sync post-fix.
+
+**2. Algorithm fix correctness — VERIFIED via 4-scenario hand-trace.**
+
+| Scenario | currentIdx | filtered insertIndex | post-fix splice | matches expected |
+|---|---|---|---|---|
+| Forward [A,B,C,D,E], drag A, between C/D | 0 | 2 | [B,C,D,E] → splice A at 2 → [B,C,A,D,E] | ✓ matches T46 |
+| Forward drop-at-end | 0 | 4 | [B,C,D,E] → splice A at 4 → [B,C,D,E,A] | ✓ matches T47 |
+| Backward [A,B,C,D,E], drag E, between B/C | 4 | 2 | [A,B,C,D] → splice E at 2 → [A,B,E,C,D] | ✓ matches T48 |
+| Same-position no-op (drag C from [A,B,C,D,E]) | 2 | 2 | [A,B,D,E] → splice C at 2 → [A,B,C,D,E] | ✓ true no-op |
+
+Pre-fix algorithm against scenario 1: `adjusted = (0 < 2) ? 1 : 2 = 1`; splice A at 1 → [B,A,C,D,E]. Off by one, A lands one row ABOVE the indicator. This is the user-visible symptom and the bug Fix D resolves.
+
+**3. Backward-drag-was-already-correct claim — VERIFIED.** Pre-fix algorithm against scenario 3: currentIdx=4, insertIndex=2 → `4 < 2` is false → `adjusted = 2`. Splice E at 2 of [A,B,C,D] → [A,B,E,C,D] — same result as post-fix. The `<` branch was inert for backward drags. The user's reported "backward also wrong" perception is most likely a misperception (or a downstream rendering artifact unrelated to this helper); Fix D is a no-op for backward semantics, so any backward-drag bug — if real — would survive Fix D and require separate diagnosis. T48 pins the backward outcome as a regression guard against a future re-introduction of the adjustment.
+
+**4. T16/T17/T18 input re-derivation — VERIFIED, NO ASSERTION WEAKENING.**
+
+| Test | Pre-Fix-D inputs | Post-Fix-D inputs | Expected output | Notes |
+|---|---|---|---|---|
+| T16 | drag tab 1, insertIndex=2 | drag tab 1, insertIndex=1 (filtered) | [2,1,3] | physical drop position identical; index recoded for filtered convention |
+| T17 | drag tab 3, insertIndex=0 | drag tab 3, insertIndex=0 | [3,1,2] | unchanged (backward drag — same index in either convention) |
+| T18 | drag tab 2, insertIndex=1 | drag tab 2, insertIndex=1 | [1,2,3] | unchanged, true no-op (currentIdx === insertIndex coincides) |
+
+T16's input change (insertIndex 2 → 1) reflects the convention shift: in the unfiltered space the "between 2 and 3" insertIndex is 2; in the filtered (post-removal-of-1) space the same physical drop position is insertIndex 1 in [2,3]. Output expectation [2,1,3] is identical. NOT a silent assertion weakening — it's a literal re-derivation of the same physical drop semantics under a new index convention.
+
+The local `reorderPayloadAlgorithm` mirror at the top of the test block was also updated (`currentIdx < insertIndex ? -1 : 0` adjustment removed), so T16-T18 are exercising the same algorithm Fix D applies to the production helper. Each test's updated comment describes the filtered-list reasoning explicitly. ✓
+
+**5. T46-T49 new tests — VERIFIED.**
+
+- **T46 (forward drag — would have failed pre-Fix-D):** [A,B,C,D,E], drag A, filtered insertIndex=2 → expects [B,C,A,D,E]. Pre-fix yields [B,A,C,D,E]; post-fix yields [B,C,A,D,E]. ✓ Regression-guard property holds.
+- **T47 (forward drop-at-end — would have failed pre-Fix-D):** filtered insertIndex=4 → expects [B,C,D,E,A]. Pre-fix yields adjusted=3 → [B,C,D,A,E]; post-fix yields [B,C,D,E,A]. ✓ Drop-at-end is the most user-visible miss-position; well chosen for regression coverage.
+- **T48 (backward drag — already correct, regression guard for future):** filtered insertIndex=2 → expects [A,B,E,C,D]. Pre-fix and post-fix both yield [A,B,E,C,D]. ✓ Pinning the backward path against future re-introduction of the adjustment.
+- **T49 (drop-at-start — already correct):** filtered insertIndex=0 → expects [E,A,B,C,D]. Pre-fix: 4 < 0 false → adjusted=0 → [E,A,B,C,D]. Post-fix: same. ✓
+
+Each test carries a comment explaining the input rationale and (where relevant) the pre-fix vs post-fix divergence. Test names follow the established `Fix D T<N>` convention. The Fix D JSDoc header at the top of the new block ties to B-134 §63.6.2, the R4 H-4 fix at sidepanel.js:6261-6275, and Fix C unmask history. ✓
+
+**6. No regression — VERIFIED.** `npm test` reports `tests 1822 / pass 1822 / fail 0 / skipped 0`. Zero regressions. The agent's claim is accurate.
+
+**7. B-118 source-citation hygiene — PASS.** The Fix D comment block in `sidepanel.js` (lines 6391-6406) explicitly cites:
+- B-134 R4 H-4 fix as the convention-source, with `sidepanel.js:6261-6275` as the verified reference
+- Fix C unmask as the symptom-mask reason
+- B-134 §63.6.2 origin chapter (preserved from the prior comment header)
+- The companion math in `_resolveTabDragIndicatorY` (named, not line-cited — acceptable since it's symbol-named in the file)
+
+The line citation `sidepanel.js:6261-6275` resolves correctly against the current file. The test-file Fix D block carries parallel citations. ✓
+
+**8. Dead code / commented-out / TODOs / console.log — NONE.** The diff deletes the obsolete two-line comment block (`/* Splice out then splice in. Account for the index-shift … */`) AND the obsolete `adjusted` line in one operation. No commented-out code, no TODOs, no debug noise. The local `reorderPayloadAlgorithm` mirror in the test file is intentional (replicates the helper for direct algorithmic coverage as documented in the test comment block) — not duplication-by-omission.
+
+### Cross-cutting checks
+
+- **`manifest.json` unchanged.** Pass — Fix D touches only `sidepanel/sidepanel.js` and `tests/b134-tab-drag-reorder.test.js`.
+- **DRY.** Pass — the local `reorderPayloadAlgorithm` test mirror is justified by the test comment block (lines 663-668: "we reconstruct its semantics via direct algorithm assertions on a stub map"). T12 (pre-existing) provides source-text assertions on the production helper body, so the duplication is intentional coverage, not drift risk.
+- **STOP-and-escalate hygiene.** Pass — no AC-locked deferrals embedded inline. The two new comment blocks are technical rationale, not deferral notes.
+- **Convention-shift blast radius.** Pass — searched for other consumers of `_computeTabDropTarget`'s `insertIndex` for REORDER_FLOATING. The only other consumer is `_resolveTabDragIndicatorY` (already filtered-list-aware via the B-134 R4 H-4 fix). No third consumer exists. Fix-scope is correctly bounded.
+- **Concurrence with [security-reviewer] Fix D R4.** The security review identifies a stale comment at `sidepanel.js:6439-6441` (in `_handleTabDrop`, OPEN-tabs branch) that still references "the index-shift adjustment" terminology. This is a documentation-drift LOW that does not affect the code under review (the OPEN-tabs reorder is structurally unrelated to `_computeReorderFloatingPayload`). I concur with their LOW classification and do NOT escalate it; it should be cleaned up in a follow-up sweep but is not blocking for Fix D merge.
+
+### Summary
+
+| Severity | Count |
+|----------|-------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 0 |
+
+**Fix D is clean.** The surgical off-by-one removal is correctly diagnosed, correctly implemented (delete one adjustment line + bounds clamp directly on `insertIndex`), and correctly tested (T16/T17/T18 re-derived without assertion weakening; T46-T49 added with both regression-guard and forward-failure-reproduction coverage). The diagnosis correctly identifies the convention mismatch introduced by B-134 R4 H-4 and the masking effect of pre-Fix-C ERR_RACE behavior. Backward-drag claim verified — Fix D is genuinely a no-op for backward semantics. Full test suite passes 1,822/1,822. **Approved for merge from `[code-reviewer]`.**
+
+_Review completed by [code-reviewer] on 2026-04-29 against `feature/sprint-41-floating-tab-id` working-tree diff (Fix D delta on top of merged Fix A + Fix B + Fix C)._

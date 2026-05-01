@@ -660,44 +660,54 @@ test('B-134 T15 (§63.8.4): explicit sortOrder overrides (windowId, tabIndex) fa
    T16–T18 — `_computeReorderFloatingPayload` unit tests via source-text
    parsing of the helper body. The helper is pure (no chrome / no DOM); we
    reconstruct its semantics via direct algorithm assertions on a stub map.
+
+   Fix D (post-S41 pre-merge hotfix bundle, post-Fix C unmask) — the helper
+   now consumes a FILTERED-list `insertIndex` (post-removal index space),
+   matching `_computeTabDropTarget`'s REORDER_FLOATING branch which filters
+   the dragged row out of `rowMidlines` (sidepanel.js:6261-6275, B-134 R4
+   H-4 fix). T16/T17/T18 inputs and expectations updated accordingly.
    ========================================================================= */
 
 /* Replicate the helper's algorithm here for direct test coverage. The
-   actual sidepanel implementation is asserted by source-text in T12. */
+   actual sidepanel implementation is asserted by source-text in T12.
+
+   Fix D: removed the `currentIdx < insertIndex ? -1 : 0` adjustment — that
+   adjustment was correct for an UNFILTERED insertIndex but double-corrects
+   when applied to the filtered (post-removal) index supplied by
+   `_computeTabDropTarget`. */
 function reorderPayloadAlgorithm(groupId, draggedTabId, insertIndex, cache) {
   const members = (cache && cache[groupId]) || [];
   const tabIds = members.map((m) => m.tabId);
   const currentIdx = tabIds.indexOf(draggedTabId);
   if (currentIdx === -1) return [];
   tabIds.splice(currentIdx, 1);
-  const adjusted = currentIdx < insertIndex ? insertIndex - 1 : insertIndex;
-  const clamped = Math.max(0, Math.min(adjusted, tabIds.length));
+  const clamped = Math.max(0, Math.min(insertIndex, tabIds.length));
   tabIds.splice(clamped, 0, draggedTabId);
   return tabIds;
 }
 
-test('B-134 T16: reorderPayload — forward move (idx 0 → 2)', () => {
+test('B-134 T16: reorderPayload — forward move (drag tab 1, drop between 2 and 3)', () => {
   const cache = { g: [{ tabId: 1 }, { tabId: 2 }, { tabId: 3 }] };
-  const out = reorderPayloadAlgorithm('g', 1, 2, cache);
-  /* Splice out 1 → [2, 3]; adjusted = 1 (currentIdx 0 < insertIndex 2);
-     splice in at 1 → [2, 1, 3]. */
+  /* Filtered list (after removing tab 1) = [2, 3]; "between 2 and 3"
+     → filtered insertIndex = 1. Splice tab 1 at 1 → [2, 1, 3]. */
+  const out = reorderPayloadAlgorithm('g', 1, 1, cache);
   assert.deepEqual(out, [2, 1, 3]);
 });
 
-test('B-134 T17: reorderPayload — backward move (idx 2 → 0)', () => {
+test('B-134 T17: reorderPayload — backward move (drag tab 3, drop before tab 1)', () => {
   const cache = { g: [{ tabId: 1 }, { tabId: 2 }, { tabId: 3 }] };
+  /* Filtered list (after removing tab 3) = [1, 2]; "before tab 1"
+     → filtered insertIndex = 0. Splice tab 3 at 0 → [3, 1, 2]. */
   const out = reorderPayloadAlgorithm('g', 3, 0, cache);
-  /* Splice out 3 → [1, 2]; adjusted = 0 (currentIdx 2 > insertIndex 0,
-     no -1); splice in at 0 → [3, 1, 2]. */
   assert.deepEqual(out, [3, 1, 2]);
 });
 
-test('B-134 T18: reorderPayload — same-position no-op (idx 1 → 1)', () => {
+test('B-134 T18: reorderPayload — same-position no-op (drag tab 2, drop at its own slot)', () => {
   const cache = { g: [{ tabId: 1 }, { tabId: 2 }, { tabId: 3 }] };
+  /* Filtered list (after removing tab 2) = [1, 3]; "between 1 and 3" (the
+     dragged row's own slot) → filtered insertIndex = 1. Splice tab 2 at 1
+     → [1, 2, 3]. True no-op. */
   const out = reorderPayloadAlgorithm('g', 2, 1, cache);
-  /* Splice out 2 → [1, 3]; the dragged tab's currentIdx (1) is NOT less
-     than insertIndex (1), so no -1 adjustment; clamped to [0..2] = 1;
-     splice 2 in at 1 → [1, 2, 3]. Same-position drag is a true no-op. */
   assert.deepEqual(out, [1, 2, 3]);
 });
 
@@ -1931,4 +1941,65 @@ test('Fix C T45 (Part 2 regression guard): legitimate same-liveTabId + different
   assert.ok(survivorIds.has('fl-A-new'),  'parent-A survivor is the highest-savedAt');
   assert.ok(survivorIds.has('fl-B-only'), 'parent-B record preserved (legitimate coexistence)');
   assert.ok(!survivorIds.has('fl-A-old'), 'parent-A older duplicate dropped');
+});
+
+/* =========================================================================
+   Fix D — _computeReorderFloatingPayload off-by-one regression guard.
+
+   Background:
+     - B-134 R4 H-4 fix: `_computeTabDropTarget` filters the dragged row
+       out of midlines/tabIds for REORDER_FLOATING (sidepanel.js:6261-6275).
+       This places `insertIndex` in FILTERED-list (post-removal) index space.
+     - B-134 §63.6.2: `_computeReorderFloatingPayload` originally applied
+       a `currentIdx < insertIndex ? -1 : 0` adjustment that was correct for
+       an UNFILTERED insertIndex but double-corrects when the input is
+       already filtered. Forward drags (currentIdx < insertIndex) landed
+       one row above the visual indicator; backward drags happened to be
+       correct because the adjustment branch wasn't taken.
+     - Pre-Fix C, the bug was masked because reorder always ERR_RACE'd on
+       duplicate-record drift. Fix C unmasked it by closing that ERR_RACE.
+
+   T46–T49 hand-trace each user-reportable scenario against the
+   post-Fix-D algorithm. The local `reorderPayloadAlgorithm` (defined
+   alongside T16–T18) mirrors the helper. T46 (forward drag) and T47
+   (drop-at-end) would have failed pre-Fix-D; T48 (backward drag) and T49
+   (drop-at-start) would have passed pre-Fix-D and continue to pass
+   post-Fix-D (regression guard).
+   ========================================================================= */
+
+test('Fix D T46 (regression guard): forward drag — drag tab A to between C and D in [A,B,C,D,E] lands A at index 2', () => {
+  const cache = { g: [{ tabId: 'A' }, { tabId: 'B' }, { tabId: 'C' }, { tabId: 'D' }, { tabId: 'E' }] };
+  /* Filtered list (drag A removed) = [B, C, D, E]; "between C and D"
+     → filtered insertIndex = 2 (Y is below C's midline, above D's midline).
+     Splice A at 2 of [B,C,D,E] → [B, C, A, D, E]. Pre-Fix-D, the -1
+     adjustment placed A at index 1 → [B, A, C, D, E] (one row ABOVE
+     intended; matches user's "forward = lands one row above" symptom). */
+  const out = reorderPayloadAlgorithm('g', 'A', 2, cache);
+  assert.deepEqual(out, ['B', 'C', 'A', 'D', 'E']);
+});
+
+test('Fix D T47 (regression guard): forward drag-to-end — drag tab A to after E in [A,B,C,D,E] lands A at index 4', () => {
+  const cache = { g: [{ tabId: 'A' }, { tabId: 'B' }, { tabId: 'C' }, { tabId: 'D' }, { tabId: 'E' }] };
+  /* Filtered list = [B, C, D, E]; "after E" → filtered insertIndex = 4
+     (end of filtered). Splice A at 4 → [B, C, D, E, A]. */
+  const out = reorderPayloadAlgorithm('g', 'A', 4, cache);
+  assert.deepEqual(out, ['B', 'C', 'D', 'E', 'A']);
+});
+
+test('Fix D T48 (regression guard): backward drag — drag tab E to between B and C in [A,B,C,D,E] lands E at index 2', () => {
+  const cache = { g: [{ tabId: 'A' }, { tabId: 'B' }, { tabId: 'C' }, { tabId: 'D' }, { tabId: 'E' }] };
+  /* Filtered list (drag E removed) = [A, B, C, D]; "between B and C"
+     → filtered insertIndex = 2. Splice E at 2 → [A, B, E, C, D]. This case
+     was already correct pre-Fix-D (currentIdx=4 not less than 2, no -1
+     adjustment), but pinning here protects against a future re-introduction. */
+  const out = reorderPayloadAlgorithm('g', 'E', 2, cache);
+  assert.deepEqual(out, ['A', 'B', 'E', 'C', 'D']);
+});
+
+test('Fix D T49 (regression guard): drop-at-start — drag tab E to before A in [A,B,C,D,E] lands E at index 0', () => {
+  const cache = { g: [{ tabId: 'A' }, { tabId: 'B' }, { tabId: 'C' }, { tabId: 'D' }, { tabId: 'E' }] };
+  /* Filtered list = [A, B, C, D]; "before A" → filtered insertIndex = 0.
+     Splice E at 0 → [E, A, B, C, D]. */
+  const out = reorderPayloadAlgorithm('g', 'E', 0, cache);
+  assert.deepEqual(out, ['E', 'A', 'B', 'C', 'D']);
 });

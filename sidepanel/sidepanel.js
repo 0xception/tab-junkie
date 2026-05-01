@@ -6388,17 +6388,31 @@ function _computeTabDropTarget(x, y) {
 /* B-134 §63.6.2 — pure helper that computes the orderedTabIds payload for
    `MSG_REORDER_FLOATING_MEMBERS`. Reads from `_cachedFloatingMembers` for
    the source group; the SW handler re-validates against authoritative
-   storage (no trust in client-supplied order beyond message validation). */
+   storage (no trust in client-supplied order beyond message validation).
+
+   Fix D (post-S41 pre-merge hotfix bundle, post-Fix C unmask): the
+   `insertIndex` argument is sourced from `_computeTabDropTarget` which —
+   for REORDER_FLOATING — computes against `rowMidlines` FILTERED to
+   exclude the dragged row (B-134 R4 H-4 fix, sidepanel.js:6261-6275).
+   That filtered insertIndex already lives in post-removal index space
+   (i.e., the indices of the list AFTER the dragged tab is spliced out).
+   The previous `currentIdx < insertIndex ? insertIndex - 1 : insertIndex`
+   adjustment was correct for an UNFILTERED insertIndex but double-corrects
+   when applied to the filtered value: forward drags landed one row above
+   the visual indicator. The bug was masked pre-Fix C because reorder always
+   ERR_RACE'd on duplicate-record drift; Fix C unmasked it.
+
+   With insertIndex already in post-removal space, splice in directly at
+   `insertIndex` (with bounds clamp). Indicator-Y math in
+   `_resolveTabDragIndicatorY` already uses the same filtered-list
+   convention, so visual + outcome stay in sync. */
 function _computeReorderFloatingPayload(groupId, draggedTabId, insertIndex) {
   const members = (_cachedFloatingMembers && _cachedFloatingMembers[groupId]) || [];
   const tabIds = members.map((m) => m.tabId);
   const currentIdx = tabIds.indexOf(draggedTabId);
   if (currentIdx === -1) return [];
-  /* Splice out then splice in. Account for the index-shift when inserting
-     after the source index. */
   tabIds.splice(currentIdx, 1);
-  const adjusted = currentIdx < insertIndex ? insertIndex - 1 : insertIndex;
-  const clamped = Math.max(0, Math.min(adjusted, tabIds.length));
+  const clamped = Math.max(0, Math.min(insertIndex, tabIds.length));
   tabIds.splice(clamped, 0, draggedTabId);
   return tabIds;
 }
