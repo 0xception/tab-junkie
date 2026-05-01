@@ -2,6 +2,28 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.36.0] — 2026-05-XX (Sprint 42)
+
+Sprint 42 — Chrome tab group sync (snapshot push). One anchor item (B-041) closes the pre-S33 P2/L placeholder for Chrome tab-group integration with a narrowed scope: snapshot-only, current-window-only, top-level groups only.
+
+### New features
+- **Chrome tab group sync (snapshot push, B-041)** — Settings page → Chrome Integration → "Sync this window to Chrome". TJ groups become Chrome tab groups (with title + mapped color); tabs are reordered in the strip to match TJ order; ungrouped Open Tabs are reordered but stay ungrouped. Push-only, snapshot-only, current-window only this release. Auto-sync (continuous mirror) is planned for a future release.
+
+### Storage migrations
+- **Schema migration `tj:groups` v4 → v5 (lazy, non-destructive)** — `tj:groups` records gain optional `chromeTabGroupId: number | null`. `KNOWN_VERSION` bumped 4 → 5 with a no-op migration step. Legacy v4 records (without the field) are treated as never-synced; the first sync stamps the field. Stale mappings (Chrome tab groups deleted by the user) are detected via `chrome.tabGroups.get` and replaced transparently. No data rewrite on update.
+
+### Note
+- **Schema bump v4 → v5 — extension toggle required.** After updating to v1.36.0, toggle the extension OFF then ON in your browser's extensions page (`edge://extensions` or `chrome://extensions`), or fully restart the browser. This flushes the service-worker module cache so the new Chrome-sync code paths and v5 schema are recognized.
+
+### Architecture
+- **Manifest permissions** — unchanged (`tabGroups` was already declared in a prior sprint as a forward-looking permission).
+- **New module**: `background/sync/` with `chrome-sync.js` orchestrator + `color-map.js` palette mapping (TJ's 9-color palette → Chrome's 9-color tab-group palette; 6 exact matches, teal→cyan, indigo→blue, slate→grey).
+- **New message contract**: `MSG_SYNC_TO_CHROME { windowId }` → `{ summary: SyncSummary }`. Registered as a write-class message; safe-mode (downgrade) blocks the call.
+- **`chrome.tabs.onMoved` storm suppression** — module-level `isSyncInFlight()` flag short-circuits the floating-group re-bind listener during the bulk strip-reorder so our writes are not raced.
+
+### Internal
+- Test count: ~+38 tests (1826 → 1864 / 100% PASS).
+
 ## [1.35.0] — 2026-04-30
 
 Sprint 41 — Floating-tab data-model evolution + 2 pre-merge bug fixes (3 user-visible items): 1 P1/M reliability fix that eliminates latent floating-tab defects from prior sprints, plus 2 surgical fixes for drag-reorder bugs surfaced by smoke-testing the v1.35.0 build prior to merge.
