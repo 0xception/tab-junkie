@@ -190,6 +190,71 @@ test('tab gone mid-sync — bulk move rejects, per-tab fallback skips one as tab
     'tab-gone error should not fall through to "unknown"');
 });
 
+test('ungrouped-only window — zero TJ groups, 3 tabs reordered, no Chrome groups created', async () => {
+  /* qa-reviewer M-4 (Sprint 42 R4): the spec §2 "Reframe" decision says
+     "ungrouped Open Tabs land in the strip in TJ order, but stay ungrouped
+     in Chrome." Existing _computeTargetStripOrder unit tests cover the
+     pure-function empty-everything case; this end-to-end integration sync
+     pins the same behavior on a real ungrouped-only window: 3 tabs, zero
+     TJ groups, zero Chrome groups created, all 3 tabs reordered, no
+     skipped buckets. */
+  __setMockWindows([{ id: 100, focused: true }]);
+  __setMockTabs([
+    { id: 11, windowId: 100, index: 0, url: 'https://a.example/' },
+    { id: 12, windowId: 100, index: 1, url: 'https://b.example/' },
+    { id: 13, windowId: 100, index: 2, url: 'https://c.example/' },
+  ]);
+  /* Deliberately NO createGroup/createItem calls — TJ has zero groups. */
+
+  const summary = await syncToChrome(100);
+  assert.equal(summary.windowId, 100);
+  assert.equal(summary.groupsCreated, 0, 'no TJ groups → no Chrome groups created');
+  assert.equal(summary.groupsUpdated, 0, 'no TJ groups → no Chrome groups updated');
+  assert.equal(summary.tabsReordered, 3, 'all 3 ungrouped tabs reordered in strip');
+  assert.equal(summary.skipped.length, 0, 'no skipped buckets on a clean ungrouped window');
+
+  const groups = await chrome.tabGroups.query({ windowId: 100 });
+  assert.equal(groups.length, 0, 'no Chrome tab groups created for ungrouped-only window');
+});
+
+test('multi-window safety — non-target window tab order preserved', async () => {
+  /* qa-reviewer M-4 / AC9 strengthening: the existing multi-window test
+     asserts that window 200 has zero Chrome groups after sync of window
+     100. This pins the stronger guarantee: window 200's TAB ORDER also
+     remains untouched (not just its group count). Confirms _collectWindowState
+     filters tabs to the target windowId only. */
+  __setMockWindows([{ id: 100, focused: true }, { id: 200, focused: false }]);
+  __setMockTabs([
+    { id: 11, windowId: 100, index: 0, url: 'https://a.example/' },
+    { id: 12, windowId: 100, index: 1, url: 'https://b.example/' },
+    /* Window 200 has tabs in a specific order — must NOT be reordered. */
+    { id: 21, windowId: 200, index: 0, url: 'https://x.example/' },
+    { id: 22, windowId: 200, index: 1, url: 'https://y.example/' },
+    { id: 23, windowId: 200, index: 2, url: 'https://z.example/' },
+  ]);
+  /* TJ items in REVERSE of window 200's order — if the orchestrator
+     leaked into window 200, its strip would flip. */
+  const g = await createGroup({ name: 'Mixed', color: 'blue', parentId: null, sortOrder: 0 });
+  await createItem({ title: 'Z', url: 'https://z.example/', groupId: g.id, sortOrder: 0 });
+  await createItem({ title: 'Y', url: 'https://y.example/', groupId: g.id, sortOrder: 1 });
+  await createItem({ title: 'X', url: 'https://x.example/', groupId: g.id, sortOrder: 2 });
+  await createItem({ title: 'A', url: 'https://a.example/', groupId: g.id, sortOrder: 3 });
+
+  const w200Before = (await chrome.tabs.query({ windowId: 200 }))
+    .sort((a, b) => a.index - b.index).map((t) => t.id);
+
+  await syncToChrome(100);
+
+  const w200After = (await chrome.tabs.query({ windowId: 200 }))
+    .sort((a, b) => a.index - b.index).map((t) => t.id);
+  assert.deepEqual(w200After, w200Before,
+    'window 200 tab order must be byte-identical pre-sync and post-sync');
+
+  /* And no group leaked into window 200 either. */
+  const groupsW200 = await chrome.tabGroups.query({ windowId: 200 });
+  assert.equal(groupsW200.length, 0);
+});
+
 test('isSyncInFlight is true during sync, false before/after', async () => {
   __setMockWindows([{ id: 100, focused: true }]);
   __setMockTabs([{ id: 11, windowId: 100, index: 0, url: 'https://a.example/' }]);

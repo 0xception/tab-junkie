@@ -209,3 +209,56 @@ test('B-137 §66.2.2: v3 → v4 lazy migration — stored v3 advances to KNOWN_V
   assert.equal(records[0].liveTabId, undefined,
     'legacy v3 record retains its shape (no liveTabId field) — lazy migration');
 });
+
+test('B-041 §67.2.2: v4 → v5 lazy migration — stored v4 advances to KNOWN_VERSION with no data rewrite', async () => {
+  /* Mirrors the B-134 §63.2.4 and B-137 §66.2.2 patterns directly for the
+     B-041 v4 → v5 transition. Lazy data migration (option 2 per CLAUDE.md
+     C-1b): the no-op step advances `tj:meta.schemaVersion` to
+     KNOWN_VERSION (5) without touching any partition data. Legacy v4
+     `tj:groups` records lack `chromeTabGroupId`; the validator tolerates
+     the missing field; first sync stamps it. Pre-existing transitive
+     coverage exists via the v2→v5 and v3→v5 chain tests above; this
+     direct v4→v5 test pins the AC3 lazy-migration contract by name for
+     parity with the prior schema-bump items. */
+  _registerMigrationStepForTest({
+    fromVersion: 4,
+    toVersion: 5,
+    migrate: (snapshot) => snapshot,
+  });
+
+  /* Seed pre-S42 v4 records (no chromeTabGroupId field). The validator
+     extension at shapes.js:140-146 accepts groups without the optional
+     field; legacy v4 records remain readable post-migration. */
+  seedPartitions({
+    meta: { schemaVersion: 4, createdAt: 1000 },
+    groups: [
+      {
+        id: 'g-legacy-v4',
+        name: 'LegacyGroup',
+        color: 'blue',
+        parentId: null,
+        sortOrder: 0,
+        collapsed: false,
+        createdAt: 500,
+        updatedAt: 500,
+        /* deliberately no chromeTabGroupId — legacy v4 record */
+      },
+    ],
+  });
+
+  await runMigrations();
+
+  const status = getSystemStatus();
+  assert.equal(status.schemaVersion, KNOWN_VERSION, 'schemaVersion advanced to KNOWN_VERSION');
+
+  /* The legacy v4 record is still readable and unchanged — lazy migration
+     does NOT rewrite the partition. First sync will stamp chromeTabGroupId
+     via updateGroup; un-synced groups remain in v4 shape indefinitely. */
+  const meta = __getRawStore('tj:meta');
+  assert.equal(meta.schemaVersion, KNOWN_VERSION);
+  const records = __getRawStore('tj:groups');
+  assert.equal(records.length, 1);
+  assert.equal(records[0].id, 'g-legacy-v4');
+  assert.equal(records[0].chromeTabGroupId, undefined,
+    'legacy v4 group retains its shape (no chromeTabGroupId field) — lazy migration');
+});
