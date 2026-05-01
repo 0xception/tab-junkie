@@ -15,6 +15,25 @@ import { tjColorToChromeColor } from './color-map.js';
 import { listGroups, updateGroup } from '../storage/groups.js';
 import { listItems } from '../storage/items.js';
 
+/* B-041 (S42 §67.6.6) — module-level "syncing" flag. The bulk strip-reorder
+   in syncToChrome triggers a storm of `chrome.tabs.onMoved` events; without
+   this flag, the floating-group re-bind listener at
+   `background/tabs/tab-events.js` would race our writes for the duration.
+   isSyncInFlight() is the public getter consulted by that listener. */
+let _isSyncing = false;
+
+/**
+ * True iff a syncToChrome call is currently in flight. Other tab event
+ * listeners (e.g., chrome.tabs.onMoved → floating-group re-bind) should
+ * short-circuit while this is true to avoid storm-amplification during
+ * the bulk reorder.
+ *
+ * @returns {boolean}
+ */
+export function isSyncInFlight() {
+  return _isSyncing;
+}
+
 /**
  * @typedef {Object} TJGroupForSync
  * @property {string} id
@@ -207,63 +226,72 @@ export async function syncToChrome(windowId) {
   if (typeof windowId !== 'number') {
     throw new TypeError('syncToChrome: windowId must be a number');
   }
-  const skipReasons = [];
-  let tabsReordered = 0;
-  let groupsCreated = 0;
-  let groupsUpdated = 0;
+  /* B-041 (S42 §67.6.6) — set the in-flight flag immediately and reset in
+     finally so it always clears even on uncaught exceptions. The
+     chrome.tabs.onMoved listener at tab-events.js short-circuits while
+     this flag is true. */
+  _isSyncing = true;
+  try {
+    const skipReasons = [];
+    let tabsReordered = 0;
+    let groupsCreated = 0;
+    let groupsUpdated = 0;
 
-  const state = await _collectWindowState(windowId);
-  const targetOrder = _computeTargetStripOrder(state);
+    const state = await _collectWindowState(windowId);
+    const targetOrder = _computeTargetStripOrder(state);
 
-  // Count pinned tabs as skipped per spec §6.
-  for (let i = 0; i < state.pinnedTabIds.size; i++) skipReasons.push('pinned');
+    // Count pinned tabs as skipped per spec §6.
+    for (let i = 0; i < state.pinnedTabIds.size; i++) skipReasons.push('pinned');
 
-  // Phase 1 — strip reorder (best-effort).
-  if (targetOrder.length > 0) {
-    try {
-      await chrome.tabs.move(targetOrder, { index: 0, windowId });
-      tabsReordered = targetOrder.length;
-    } catch (_err) {
-      // If the bulk move fails, fall back to per-tab and count failures.
-      for (let i = 0; i < targetOrder.length; i++) {
-        try {
-          await chrome.tabs.move(targetOrder[i], { index: i, windowId });
-          tabsReordered++;
-        } catch (perTabErr) {
-          skipReasons.push(_classifyError(perTabErr));
+    // Phase 1 — strip reorder (best-effort).
+    if (targetOrder.length > 0) {
+      try {
+        await chrome.tabs.move(targetOrder, { index: 0, windowId });
+        tabsReordered = targetOrder.length;
+      } catch (_err) {
+        // If the bulk move fails, fall back to per-tab and count failures.
+        for (let i = 0; i < targetOrder.length; i++) {
+          try {
+            await chrome.tabs.move(targetOrder[i], { index: i, windowId });
+            tabsReordered++;
+          } catch (perTabErr) {
+            skipReasons.push(_classifyError(perTabErr));
+          }
         }
       }
     }
-  }
 
-  // Phase 2 — apply each non-empty TJ group.
-  for (const g of state.groups) {
-    const liveTabIds = g.tabIds.filter(
-      (id) => !state.pinnedTabIds.has(id) && id !== state.settingsTabId,
-    );
-    if (liveTabIds.length === 0) continue; // empty groups skipped silently
-    const validId = await _validateChromeGroupId(g.chromeTabGroupId);
-    try {
-      const { groupId, created } = await _applyTabsToGroup({
-        tabIds: liveTabIds,
-        existingId: validId,
-        title: g.name,
-        color: tjColorToChromeColor(g.color),
-        windowId,
-      });
-      if (created) groupsCreated++; else groupsUpdated++;
-      if (groupId !== g.chromeTabGroupId) {
-        // Persist the new (or replacement) Chrome group ID back to the TJ record.
-        await updateGroup(g.id, { chromeTabGroupId: groupId });
+    // Phase 2 — apply each non-empty TJ group.
+    for (const g of state.groups) {
+      const liveTabIds = g.tabIds.filter(
+        (id) => !state.pinnedTabIds.has(id) && id !== state.settingsTabId,
+      );
+      if (liveTabIds.length === 0) continue; // empty groups skipped silently
+      const validId = await _validateChromeGroupId(g.chromeTabGroupId);
+      try {
+        const { groupId, created } = await _applyTabsToGroup({
+          tabIds: liveTabIds,
+          existingId: validId,
+          title: g.name,
+          color: tjColorToChromeColor(g.color),
+          windowId,
+        });
+        if (created) groupsCreated++; else groupsUpdated++;
+        if (groupId !== g.chromeTabGroupId) {
+          // Persist the new (or replacement) Chrome group ID back to the TJ record.
+          await updateGroup(g.id, { chromeTabGroupId: groupId });
+        }
+      } catch (err) {
+        skipReasons.push(_classifyError(err));
       }
-    } catch (err) {
-      skipReasons.push(_classifyError(err));
     }
-  }
 
-  return _buildSummary({
-    windowId, tabsReordered, groupsCreated, groupsUpdated, skipReasons,
-  });
+    return _buildSummary({
+      windowId, tabsReordered, groupsCreated, groupsUpdated, skipReasons,
+    });
+  } finally {
+    _isSyncing = false;
+  }
 }
 
 /**

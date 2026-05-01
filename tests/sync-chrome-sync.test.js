@@ -157,3 +157,18 @@ test('color mapping — TJ teal becomes Chrome cyan', async () => {
   const [grp] = await chrome.tabGroups.query({ windowId: 100 });
   assert.equal(grp.color, 'cyan');
 });
+
+test('isSyncInFlight is true during sync, false before/after', async () => {
+  __setMockWindows([{ id: 100, focused: true }]);
+  __setMockTabs([{ id: 11, windowId: 100, index: 0, url: 'https://a.example/' }]);
+  const g = await createGroup({ name: 'Work', color: 'blue', parentId: null, sortOrder: 0 });
+  await createItem({ title: 'A1', url: 'https://a.example/', groupId: g.id, sortOrder: 0 });
+
+  const { isSyncInFlight } = await import('../background/sync/chrome-sync.js');
+  assert.equal(isSyncInFlight(), false);
+  const p = syncToChrome(100);
+  // Right after invoking, before await resolves — still synchronous; flag is true.
+  assert.equal(isSyncInFlight(), true);
+  await p;
+  assert.equal(isSyncInFlight(), false);
+});

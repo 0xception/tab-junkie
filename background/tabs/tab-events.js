@@ -25,6 +25,10 @@ import { recordOpener, pruneOpener, pruneOpenersByWindow, walkOpenerChain } from
 import { appendFloatingGroup, pruneFloatingGroupsByLiveTabId } from './floating-groups.js';
 /* B-014 */
 import { registerWindow, unregisterWindow } from './window-ordinals.js';
+/* B-041 (S42 §67.6.6) — chrome-sync produces a storm of onMoved events
+   during its bulk strip-reorder. The flag below short-circuits the
+   listener for the duration so floating-group state isn't churned. */
+import { isSyncInFlight } from '../sync/chrome-sync.js';
 
 /** @type {Map<number, ReturnType<typeof setTimeout>>} per-tab debounce timers (H2) */
 const reevalTimers = new Map();
@@ -408,6 +412,10 @@ export function registerTabEventListeners(readyPromise) {
    * of `onUpdated`. Avoids the extra `chrome.tabs.query` await.
    */
   chrome.tabs.onMoved.addListener((tabId, moveInfo) => {
+    /* B-041 (S42 §67.6.6) — suppress floating-group re-bind during chrome-sync.
+       The bulk strip-reorder fires onMoved per-tab; processing each event
+       wastes cycles and risks racing with our own writes. */
+    if (isSyncInFlight()) return;
     if (!moveInfo || typeof moveInfo.windowId !== 'number') return;
     if (typeof moveInfo.fromIndex !== 'number' || typeof moveInfo.toIndex !== 'number') return;
     const { windowId, fromIndex, toIndex } = moveInfo;
