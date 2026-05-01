@@ -18,11 +18,24 @@ import { MSG_SYNC_TO_CHROME } from '../shared/messages.js';
 let _doc = null;
 let _sendMessage = null;
 let _btnEl = null;
+let _btnOriginalText = '';
 let _toastEl = null;
 let _toastMessageEl = null;
+let _toastDetailsEl = null;
+let _toastDetailsListEl = null;
 let _toastTimer = null;
 
 const TOAST_AUTO_DISMISS_MS = 4000;
+
+/* B-041 (S42 §3.5 / AC8) — human-readable copy for each skip-reason bucket
+   surfaced in the partial-toast "View details" expander. Singular vs plural
+   forms only diverge for "tab" / "tabs". */
+const _SKIP_REASON_LABEL = {
+  pinned: { singular: 'pinned tab skipped', plural: 'pinned tabs skipped' },
+  'tab-gone': { singular: 'tab closed mid-sync', plural: 'tabs closed mid-sync' },
+  permission: { singular: 'permission denied', plural: 'permission denied' },
+  unknown: { singular: 'unknown error', plural: 'unknown errors' },
+};
 
 /**
  * Initialize the Chrome Integration sync button + toast wiring.
@@ -38,26 +51,41 @@ export function init({ doc, sendMessage }) {
   _btnEl = doc.getElementById('settings-sync-chrome-btn');
   _toastEl = doc.getElementById('settings-toast');
   _toastMessageEl = doc.getElementById('settings-toast-message');
+  _toastDetailsEl = doc.getElementById('settings-toast-details');
+  _toastDetailsListEl = doc.getElementById('settings-toast-details-list');
   if (!_btnEl) return; // fieldset not present — graceful no-op
+  _btnOriginalText = _btnEl.textContent;
   _btnEl.addEventListener('click', _onSyncClick);
 }
 
 async function _onSyncClick() {
+  /* B-041 (S42 R4 H-1 qa) — visible + assistive-tech in-flight feedback.
+     aria-busy + button-text swap; reset in finally so any throw still
+     restores the original state. */
   _btnEl.disabled = true;
+  _btnEl.setAttribute('aria-busy', 'true');
+  _btnEl.textContent = 'Syncing…';
   try {
     const win = await chrome.windows.getCurrent();
     const data = await _sendMessage(MSG_SYNC_TO_CHROME, { windowId: win.id });
     const summary = data && data.summary;
     if (!summary) {
-      _showToast('Sync failed - no summary returned', 'error');
+      _showToast({ message: 'Sync failed - no summary returned', variant: 'error' });
       return;
     }
-    _showToast(_formatSummaryMessage(summary), summary.skipped.length > 0 ? 'partial' : 'ok');
+    const variant = summary.skipped.length > 0 ? 'partial' : 'ok';
+    _showToast({
+      message: _formatSummaryMessage(summary),
+      variant,
+      skipped: summary.skipped,
+    });
   } catch (err) {
     const reason = (err && err.message) ? err.message : 'unknown error';
-    _showToast(`Sync failed - ${reason}`, 'error');
+    _showToast({ message: `Sync failed - ${reason}`, variant: 'error' });
   } finally {
     _btnEl.disabled = false;
+    _btnEl.removeAttribute('aria-busy');
+    _btnEl.textContent = _btnOriginalText;
   }
 }
 
@@ -69,7 +97,17 @@ function _formatSummaryMessage(summary) {
   return `${base} - ${total} skipped`;
 }
 
-function _showToast(message, variant) {
+/* B-041 (S42 §3.5 / AC8) — render one human-readable line per skip reason
+   for the partial-toast "View details" expander. Numeric counts and a fixed
+   enum keep this safe under textContent — no user-controlled strings. */
+function _skipReasonLine({ reason, count }) {
+  const labels = _SKIP_REASON_LABEL[reason]
+    ?? { singular: `${reason}`, plural: `${reason}` };
+  const word = count === 1 ? labels.singular : labels.plural;
+  return `${count} ${word}`;
+}
+
+function _showToast({ message, variant, skipped }) {
   if (!_toastEl || !_toastMessageEl) return;
   if (_toastTimer) {
     clearTimeout(_toastTimer);
@@ -77,10 +115,34 @@ function _showToast(message, variant) {
   }
   _toastMessageEl.textContent = message;
   _toastEl.dataset.variant = variant; // 'ok' | 'partial' | 'error'
+  /* B-041 AC8 — populate the View-details expander only on partial variant
+     with at least one skip entry; otherwise hide + clear the list. The
+     expander always starts collapsed so the toast renders single-line by
+     default; clicking "View details" expands the per-reason breakdown. */
+  if (_toastDetailsEl && _toastDetailsListEl) {
+    _toastDetailsListEl.replaceChildren();
+    if (variant === 'partial' && Array.isArray(skipped) && skipped.length > 0) {
+      for (const entry of skipped) {
+        const li = _doc.createElement('li');
+        li.className = 'toast-details-item';
+        li.textContent = _skipReasonLine(entry);
+        _toastDetailsListEl.appendChild(li);
+      }
+      _toastDetailsEl.open = false;
+      _toastDetailsEl.hidden = false;
+    } else {
+      _toastDetailsEl.open = false;
+      _toastDetailsEl.hidden = true;
+    }
+  }
   _toastEl.hidden = false;
   _toastTimer = setTimeout(() => {
     _toastEl.hidden = true;
     _toastEl.dataset.variant = '';
+    if (_toastDetailsEl) {
+      _toastDetailsEl.open = false;
+      _toastDetailsEl.hidden = true;
+    }
     _toastTimer = null;
   }, TOAST_AUTO_DISMISS_MS);
 }

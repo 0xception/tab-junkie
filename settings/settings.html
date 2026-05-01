@@ -139,7 +139,17 @@
     <!-- B-093: toast surface for import/export status messages. Mirrors the
          sidepanel toast contract (B-049). -->
     <div id="settings-toast" class="toast" role="alert" aria-live="assertive" hidden>
-      <span id="settings-toast-message" class="toast-message"></span>
+      <div class="toast-body">
+        <span id="settings-toast-message" class="toast-message"></span>
+        <!-- B-041 (S42 §3.5 / AC8) — partial-toast skip-reason breakdown. The
+             <details> element is hidden by default; chrome-sync populates the
+             <summary> + <ul> when summary.skipped.length > 0 and shows the
+             container. textContent only — no HTML interpolation of skip data. -->
+        <details id="settings-toast-details" class="toast-details" hidden>
+          <summary class="toast-details-summary">View details</summary>
+          <ul id="settings-toast-details-list" class="toast-details-list"></ul>
+        </details>
+      </div>
       <button id="settings-toast-dismiss" class="toast-dismiss" aria-label="Dismiss" type="button">&times;</button>
     </div>
   </body>
