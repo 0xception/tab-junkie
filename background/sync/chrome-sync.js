@@ -296,10 +296,32 @@ export async function syncToChrome(windowId) {
 
 /**
  * Map a thrown error to one of the SyncSummary skip-reason buckets.
+ *
+ * Chrome error message strings are NOT a stable contract — they vary by
+ * locale and Chromium version. We bucket via a permissive predicate that
+ * matches BOTH the chrome-mock's synthetic strings (e.g. "Tab N not found",
+ * "groupId N not found") AND the real Chrome strings observed empirically:
+ *   - chrome.tabs.move rejection → "No tab with id: N"
+ *   - chrome.tabs.group rejection on missing tab → "No tab with id: N"
+ *   - chrome.tabGroups.get rejection on missing group → "No group with id: N"
+ *
+ * We accept that an unknown locale or future Chromium revision may bypass
+ * the predicate and fall through to 'unknown'; that is the conservative
+ * default and is preferred over silently misclassifying.
+ *
+ * Exported under the `_*` convention for unit-test access; not part of the
+ * SW message contract.
+ *
+ * @param {unknown} err
+ * @returns {'tab-gone'|'permission'|'unknown'}
  */
-function _classifyError(err) {
+export function _classifyError(err) {
   const msg = (err && err.message) ? String(err.message) : '';
-  if (msg.includes('not found')) return 'tab-gone';
-  if (msg.toLowerCase().includes('permission')) return 'permission';
+  const lower = msg.toLowerCase();
+  /* tab-gone: any "not found" form or Chrome's "no <thing> with id" form. */
+  if (lower.includes('not found')) return 'tab-gone';
+  if (/no\s+tab\s+with\s+id/i.test(msg)) return 'tab-gone';
+  if (/no\s+(tab\s+)?group\s+with\s+id/i.test(msg)) return 'tab-gone';
+  if (lower.includes('permission')) return 'permission';
   return 'unknown';
 }
