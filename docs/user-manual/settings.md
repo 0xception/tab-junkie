@@ -84,6 +84,48 @@ Choose a color theme for all Tab Junkie surfaces. The selected theme applies ins
 
 > **After updating Tab Junkie:** if you have just installed or updated to v1.26.0 and theme changes produce "Could not save" errors, disable and re-enable the extension at `edge://extensions` (or `chrome://extensions`). This flushes the service worker module cache so the extended theme validator loads correctly. See the [After updating settings](#after-changing-settings) note below.
 
+### Chrome Integration *(new in v1.36.0)*
+
+Push your Tab Junkie organization onto your browser's tab strip and tab groups for the current window — on demand, with one click.
+
+| Action | Description |
+|--------|-------------|
+| **Sync this window to Chrome** | Snapshot-pushes Tab Junkie's view of the *current window* into Chrome's tab strip and tab groups. Each Tab Junkie group with at least one open tab in this window becomes a Chrome tab group with a matching title and a mapped color. Tabs are reordered in the tab strip to match Tab Junkie's order: groups first (in your sidepanel order), then ungrouped Open Tabs at the end. Re-clicking later updates the same Chrome groups in place — no duplicates. |
+
+**What gets touched:**
+- Tabs in the **current window** only (the window the Settings page is in).
+- Live tabs that belong to Tab Junkie groups → grouped into Chrome tab groups.
+- Ungrouped Open Tabs → reordered in the tab strip but left ungrouped.
+- Pinned tabs → skipped (Chrome doesn't allow pinned tabs in tab groups).
+- Empty Tab Junkie groups (no live tabs in this window) → skipped silently.
+
+**What doesn't get touched:**
+- Other windows.
+- Pre-existing Chrome tab groups that don't correspond to a Tab Junkie group — these are left alone. If you want them gone, ungroup them in Chrome (right-click the group header → Ungroup).
+- Saved bookmarks that aren't currently open as live tabs.
+
+**Color mapping** (Tab Junkie → Chrome tab group color):
+
+| Tab Junkie | Chrome |
+|------------|--------|
+| blue, purple, red, orange, pink, yellow | (same) |
+| teal | cyan |
+| indigo | blue |
+| slate | grey |
+
+**Result toast** appears on the Settings page after sync:
+- ✓ Green — everything synced (e.g., "Synced · 12 tabs · 3 groups").
+- ⚠ Yellow with **View details** expander — partial sync (e.g., "Synced · 11 tabs · 3 groups · 2 skipped" → expand to see "1 pinned tab", "1 tab closed mid-sync").
+- ✗ Red — sync failed entirely.
+
+While the sync is in progress (a moment for a typical window) the button shows **Syncing…** and is disabled to prevent double-clicks.
+
+> **What's not in this version:** automatic / continuous sync, syncing across all windows at once, syncing in the reverse direction (Chrome → Tab Junkie). These are planned for future releases. Today's sync is one-way (Tab Junkie → Chrome) and one-shot per click.
+
+> **Reversibility:** Sync only modifies Chrome's view of your tabs (groupings + strip order). Your Tab Junkie data is never modified. To "undo," ungroup the Chrome tab groups manually or close the affected window.
+
+---
+
 ### Data
 
 Import and export your bookmarks.

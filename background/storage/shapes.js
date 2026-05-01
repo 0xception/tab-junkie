@@ -93,8 +93,8 @@ export function defaultShape(partition) {
     case PARTITION_PREFS:
       return { ...DEFAULT_PREFERENCES };
     case PARTITION_META:
-      /* B-137 §66.2.1 — fresh installs seed at v4 directly so no migration
-         step runs on first boot. `migration.js` KNOWN_VERSION = 4. Hardcoded
+      /* B-041 §3.3 (S42) — fresh installs seed at v5 directly so no migration
+         step runs on first boot. `migration.js` KNOWN_VERSION = 5. Hardcoded
          literal (not imported from migration.js) to keep the storage layer
          independent of the migration runner — bumping this when KNOWN_VERSION
          bumps is a deliberate, paired change.
@@ -107,8 +107,12 @@ export function defaultShape(partition) {
          (windowId, tabIndex)-then-URL fallback in the 3-tier read path; new
          writes always stamp `liveTabId`; cold-start re-bind via
          `reassociateFloatingGroups` lazy-rewrites the field on matched-
-         unclaimed legacy records). */
-      return { schemaVersion: 4, createdAt: Date.now() };
+         unclaimed legacy records).
+         v4→v5 (B-041 S42 §3.3) adds OPTIONAL `chromeTabGroupId: number | null`
+         to PARTITION_GROUPS records; data migration is lazy (legacy records
+         lack the field; first sync stamps it; stale mappings are cleared
+         transparently). */
+      return { schemaVersion: 5, createdAt: Date.now() };
     case PARTITION_DRIFT:
       return {};
     case PARTITION_FLOATING_GROUPS:
@@ -138,11 +142,18 @@ function isItem(v) {
 }
 
 function isGroup(v) {
-  return v && typeof v === 'object'
-    && isString(v.id) && isString(v.name) && isString(v.color)
-    && isNullableString(v.parentId)
-    && isNumber(v.sortOrder) && isBool(v.collapsed)
-    && isNumber(v.createdAt) && isNumber(v.updatedAt);
+  if (!v || typeof v !== 'object') return false;
+  if (!isString(v.id) || !isString(v.name) || !isString(v.color)) return false;
+  if (!isNullableString(v.parentId)) return false;
+  if (!isNumber(v.sortOrder) || !isBool(v.collapsed)) return false;
+  if (!isNumber(v.createdAt) || !isNumber(v.updatedAt)) return false;
+  /* B-041 (S42 §3.3) — OPTIONAL v5 field. Legacy v4 groups lack it; new writes
+     stamp it on first sync; null is valid (cleared after stale-mapping detect).
+     Anything else is corrupt. */
+  if ('chromeTabGroupId' in v
+    && v.chromeTabGroupId !== null
+    && !isNumber(v.chromeTabGroupId)) return false;
+  return true;
 }
 
 /* B-037 §45.3 D-1 / D-2 / D-5 — `theme` enum extension. READ-side allow-list

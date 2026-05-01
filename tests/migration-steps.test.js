@@ -85,18 +85,18 @@ test('AC4: migration steps registry is properly cleaned up between tests', async
   assert.equal(status.schemaVersion, KNOWN_VERSION);
 });
 
-test('B-137 §66.2.1: KNOWN_VERSION is 4 (governance bump for liveTabId)', () => {
-  /* C-1a check: KNOWN_VERSION MUST be incremented when the
-     PARTITION_FLOATING_GROUPS record shape changes. The constant being a
-     literal `4` is asserted indirectly by the migration-chain integrity
-     check (`MIGRATION_STEPS` has steps for 1→2, 2→3, and 3→4, contiguous). */
-  assert.equal(KNOWN_VERSION, 4,
-    'KNOWN_VERSION must be 4 (B-137 §66.2.1 schema bump for liveTabId)');
+test('B-041 §3.3: KNOWN_VERSION is 5 (governance bump for chromeTabGroupId)', () => {
+  /* C-1a check: KNOWN_VERSION MUST be incremented when the PARTITION_GROUPS
+     record shape changes. The constant being a literal `5` is asserted
+     indirectly by the migration-chain integrity check (`MIGRATION_STEPS` has
+     steps for 1→2, 2→3, 3→4, and 4→5, contiguous). */
+  assert.equal(KNOWN_VERSION, 5,
+    'KNOWN_VERSION must be 5 (B-041 §3.3 schema bump for chromeTabGroupId)');
 });
 
-test('B-134 §63.2.4: v2 → v3 lazy migration — stored v2 advances to v4 with no data rewrite', async () => {
+test('B-134 §63.2.4: v2 → v3 lazy migration — stored v2 advances to KNOWN_VERSION with no data rewrite', async () => {
   /* The beforeEach clears MIGRATION_STEPS for test isolation. Re-register
-     the v1→v2 + v2→v3 + v3→v4 no-op steps so runMigrations finds the chain. */
+     the v1→v2 + v2→v3 + v3→v4 + v4→v5 no-op steps so runMigrations finds the chain. */
   _registerMigrationStepForTest({
     fromVersion: 1,
     toVersion: 2,
@@ -112,9 +112,14 @@ test('B-134 §63.2.4: v2 → v3 lazy migration — stored v2 advances to v4 with
     toVersion: 4,
     migrate: (snapshot) => snapshot,
   });
+  _registerMigrationStepForTest({
+    fromVersion: 4,
+    toVersion: 5,
+    migrate: (snapshot) => snapshot,
+  });
 
   /* Seed pre-S40 v2 records (no sortOrder field, no liveTabId). The lazy
-     migration strategy advances `tj:meta.schemaVersion` to KNOWN_VERSION (4)
+     migration strategy advances `tj:meta.schemaVersion` to KNOWN_VERSION (5)
      without touching `tj:floatingGroups` data. The read-side validator
      tolerates the missing fields; `buildFloatingMembers` falls back to
      (windowId, tabIndex) ordering AND position-then-URL join for legacy
@@ -138,11 +143,11 @@ test('B-134 §63.2.4: v2 → v3 lazy migration — stored v2 advances to v4 with
   await runMigrations();
 
   const status = getSystemStatus();
-  assert.equal(status.schemaVersion, 4, 'schemaVersion advanced to KNOWN_VERSION (4)');
+  assert.equal(status.schemaVersion, KNOWN_VERSION, 'schemaVersion advanced to KNOWN_VERSION');
 
   /* The legacy record is still readable and unchanged. */
   const meta = __getRawStore('tj:meta');
-  assert.equal(meta.schemaVersion, 4);
+  assert.equal(meta.schemaVersion, KNOWN_VERSION);
   const records = __getRawStore('tj:floatingGroups');
   assert.equal(records.length, 1);
   assert.equal(records[0].floatingTabId, 'ft-legacy');
@@ -152,20 +157,25 @@ test('B-134 §63.2.4: v2 → v3 lazy migration — stored v2 advances to v4 with
     'legacy record retains its v3-or-earlier shape (no liveTabId field) — lazy migration');
 });
 
-test('B-137 §66.2.2: v3 → v4 lazy migration — stored v3 advances to v4 with no data rewrite', async () => {
+test('B-137 §66.2.2: v3 → v4 lazy migration — stored v3 advances to KNOWN_VERSION with no data rewrite', async () => {
   /* The beforeEach clears MIGRATION_STEPS for test isolation. Re-register
-     the v3→v4 no-op step so runMigrations finds the chain. */
+     the v3→v4 + v4→v5 no-op steps so runMigrations finds the chain. */
   _registerMigrationStepForTest({
     fromVersion: 3,
     toVersion: 4,
     migrate: (snapshot) => snapshot,
   });
+  _registerMigrationStepForTest({
+    fromVersion: 4,
+    toVersion: 5,
+    migrate: (snapshot) => snapshot,
+  });
 
   /* Seed pre-S41 v3 records (sortOrder present from B-134, but no liveTabId
      field). The lazy migration strategy advances `tj:meta.schemaVersion` to
-     4 without touching `tj:floatingGroups` data. The read-side validator
-     tolerates the missing field; `buildFloatingMembers` falls back to the
-     position-then-URL join for legacy records. */
+     KNOWN_VERSION without touching `tj:floatingGroups` data. The read-side
+     validator tolerates the missing field; `buildFloatingMembers` falls back
+     to the position-then-URL join for legacy records. */
   seedPartitions({
     meta: { schemaVersion: 3, createdAt: 1000 },
     floatingGroups: [
@@ -186,11 +196,11 @@ test('B-137 §66.2.2: v3 → v4 lazy migration — stored v3 advances to v4 with
   await runMigrations();
 
   const status = getSystemStatus();
-  assert.equal(status.schemaVersion, 4, 'schemaVersion advanced to 4');
+  assert.equal(status.schemaVersion, KNOWN_VERSION, 'schemaVersion advanced to KNOWN_VERSION');
 
   /* The legacy v3 record is still readable and unchanged. */
   const meta = __getRawStore('tj:meta');
-  assert.equal(meta.schemaVersion, 4);
+  assert.equal(meta.schemaVersion, KNOWN_VERSION);
   const records = __getRawStore('tj:floatingGroups');
   assert.equal(records.length, 1);
   assert.equal(records[0].floatingTabId, 'ft-v3');
@@ -198,4 +208,57 @@ test('B-137 §66.2.2: v3 → v4 lazy migration — stored v3 advances to v4 with
     'v3 record retains its sortOrder field (lazy migration leaves data untouched)');
   assert.equal(records[0].liveTabId, undefined,
     'legacy v3 record retains its shape (no liveTabId field) — lazy migration');
+});
+
+test('B-041 §67.2.2: v4 → v5 lazy migration — stored v4 advances to KNOWN_VERSION with no data rewrite', async () => {
+  /* Mirrors the B-134 §63.2.4 and B-137 §66.2.2 patterns directly for the
+     B-041 v4 → v5 transition. Lazy data migration (option 2 per CLAUDE.md
+     C-1b): the no-op step advances `tj:meta.schemaVersion` to
+     KNOWN_VERSION (5) without touching any partition data. Legacy v4
+     `tj:groups` records lack `chromeTabGroupId`; the validator tolerates
+     the missing field; first sync stamps it. Pre-existing transitive
+     coverage exists via the v2→v5 and v3→v5 chain tests above; this
+     direct v4→v5 test pins the AC3 lazy-migration contract by name for
+     parity with the prior schema-bump items. */
+  _registerMigrationStepForTest({
+    fromVersion: 4,
+    toVersion: 5,
+    migrate: (snapshot) => snapshot,
+  });
+
+  /* Seed pre-S42 v4 records (no chromeTabGroupId field). The validator
+     extension at shapes.js:140-146 accepts groups without the optional
+     field; legacy v4 records remain readable post-migration. */
+  seedPartitions({
+    meta: { schemaVersion: 4, createdAt: 1000 },
+    groups: [
+      {
+        id: 'g-legacy-v4',
+        name: 'LegacyGroup',
+        color: 'blue',
+        parentId: null,
+        sortOrder: 0,
+        collapsed: false,
+        createdAt: 500,
+        updatedAt: 500,
+        /* deliberately no chromeTabGroupId — legacy v4 record */
+      },
+    ],
+  });
+
+  await runMigrations();
+
+  const status = getSystemStatus();
+  assert.equal(status.schemaVersion, KNOWN_VERSION, 'schemaVersion advanced to KNOWN_VERSION');
+
+  /* The legacy v4 record is still readable and unchanged — lazy migration
+     does NOT rewrite the partition. First sync will stamp chromeTabGroupId
+     via updateGroup; un-synced groups remain in v4 shape indefinitely. */
+  const meta = __getRawStore('tj:meta');
+  assert.equal(meta.schemaVersion, KNOWN_VERSION);
+  const records = __getRawStore('tj:groups');
+  assert.equal(records.length, 1);
+  assert.equal(records[0].id, 'g-legacy-v4');
+  assert.equal(records[0].chromeTabGroupId, undefined,
+    'legacy v4 group retains its shape (no chromeTabGroupId field) — lazy migration');
 });

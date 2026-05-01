@@ -27,6 +27,11 @@
  */
 
 import { MSG_EXPORT_COLLECTION, MSG_IMPORT_COLLECTION, MSG_GET_PREFERENCES, MSG_SET_PREFERENCES } from '../shared/messages.js';
+/* S42 R4 H-2 — shared single-owner auto-dismiss timer for #settings-toast.
+   Both this module and settings-chrome-sync.js render into the same toast
+   DOM node; the shared helper guarantees a stale timer from one module
+   cannot hide the current toast owned by the other. */
+import { armToastTimer, cancelToastTimer } from './settings-toast-timer.js';
 
 /* §33.10 oversize guard upper bound — pre-read reject. */
 const IMPORT_MAX_BYTES = 5 * 1024 * 1024;
@@ -37,7 +42,6 @@ const IMPORT_MAX_BYTES = 5 * 1024 * 1024;
 let _doc = null;
 let _sendMessage = null;
 let _importInFlight = false;
-let _toastTimer = null;
 let _pendingConfirmCallback = null;
 let _dialogTriggerEl = null;
 
@@ -69,10 +73,12 @@ let toastDismissEl = null;
 
 function showToast(message) {
   if (!toastEl || !toastMessageEl) return;
-  clearTimeout(_toastTimer);
+  /* H-2: cancel any pending timer (from this module OR settings-chrome-sync)
+     before arming a fresh one, so the current toast gets its full 4 s. */
+  cancelToastTimer();
   toastMessageEl.textContent = message;
   toastEl.hidden = false;
-  _toastTimer = setTimeout(() => { toastEl.hidden = true; }, 4000);
+  armToastTimer(() => { toastEl.hidden = true; }, 4000);
 }
 
 /* =========================================================================
@@ -734,7 +740,9 @@ export function init({ doc, sendMessage }) {
 
   /* Toast dismiss. */
   _wireOnce(toastDismissEl, 'click', () => {
-    clearTimeout(_toastTimer);
+    /* H-2: clear the shared timer so neither this module nor
+       settings-chrome-sync re-hides the now-explicitly-dismissed toast. */
+    cancelToastTimer();
     if (toastEl) toastEl.hidden = true;
   });
 
@@ -757,8 +765,8 @@ export const _internal = {
     _doc = null;
     _sendMessage = null;
     _importInFlight = false;
-    clearTimeout(_toastTimer);
-    _toastTimer = null;
+    /* H-2: cancel any pending shared timer for test isolation. */
+    cancelToastTimer();
     _pendingConfirmCallback = null;
     _dialogTriggerEl = null;
     _wireOnceSet.clear(); /* M-1: clear non-element listener guard for test isolation. */

@@ -86,7 +86,7 @@ const KNOWN_LEGACY_KEYS = ['junkie_bookmarks', 'junkie_groups', 'junkie_pinned_t
  * `pruneResolvedFloatingGroups` write transaction (§66.7). C-1a + C-1b
  * compliance recorded in §66.2.1 / §66.2.2.
  */
-export const KNOWN_VERSION = 4;
+export const KNOWN_VERSION = 5;
 
 /**
  * Ordered array of migration steps. Each step upgrades the schema from
@@ -137,6 +137,18 @@ const MIGRATION_STEPS = [
   {
     fromVersion: 3,
     toVersion: 4,
+    migrate: (snapshot) => snapshot,
+  },
+  /* B-041 §3.3 (S42) — v4 → v5 governance bump. No-op migrate: lazy data
+     migration (option 2). `tj:groups` records gain an OPTIONAL
+     `chromeTabGroupId: number | null` used by chrome-sync to remember which
+     Chrome tab group corresponds to which TJ group across re-sync calls.
+     Legacy v4 records lacking the field are treated as never-synced; the
+     first sync stamps the field. The governance bump is required by C-1a
+     even when the data migration is lazy (C-1b option 2). */
+  {
+    fromVersion: 4,
+    toVersion: 5,
     migrate: (snapshot) => snapshot,
   },
 ];

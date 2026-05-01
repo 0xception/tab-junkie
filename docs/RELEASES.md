@@ -4,6 +4,38 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.36.0 — Sprint 42 — Chrome tab group sync (snapshot push) (2026-05-XX)
+
+**Tagged on `feature/sprint-42-chrome-sync` — pending PR merge to release/v2. Tag: `v1.36.0`.**
+
+Sprint 42: 1 P2/M anchor (B-041 Chrome tab group sync) closes the pre-S33 placeholder with a narrowed scope — snapshot-only push, current-window-only, top-level groups only. Auto-sync (continuous mirror) and Chrome → TJ pull are deferred.
+
+### What's new (user-visible)
+
+- **Chrome tab group sync (snapshot push, B-041, P2/M)** — A new "Sync this window to Chrome" button in **Settings → Chrome Integration** snapshot-pushes Tab Junkie's view of the current window into Chrome's tab strip and tab groups. TJ groups become Chrome tab groups (with title + mapped color); tabs are reordered in the strip to match TJ order; ungrouped Open Tabs are reordered but stay ungrouped in Chrome. Re-sync updates existing Chrome groups in place (no duplicates). If the user manually deletes a Chrome group between syncs, the next sync detects the stale mapping and creates a fresh group transparently. Push-only, snapshot-only, current-window only this release.
+- **Sync result toast (✓ / ⚠ / ✗ variants)** — green / yellow / red toast variants with non-color glyph prefixes for WCAG 1.4.1 compliance. Partial-success toast includes a **View details** expander that lists each skip reason and count (e.g., "1 pinned tab · 1 tab closed mid-sync"). Toast auto-dismisses after 4 seconds; manual × dismiss is supported. The toast surface (`#settings-toast`) is now coordinated through a shared singleton-timer module so a Sync toast can no longer prematurely dismiss an unrelated Import/Export toast.
+- **In-progress feedback on the Sync button** — while the operation is in flight the button shows "Syncing…" and sets `aria-busy="true"`, then restores on completion. Prevents double-clicks; announces busy-state to assistive tech.
+
+### Architecture
+
+- **Schema migration `tj:groups` v4 → v5 (lazy, non-destructive)** — `tj:groups` records gain optional `chromeTabGroupId: number | null` to remember which Chrome tab group corresponds to which TJ group across re-sync calls. `KNOWN_VERSION` bumped 4 → 5 with a no-op migration step (lazy strategy per CLAUDE.md C-1b option 2). Legacy v4 records (without the field) are treated as never-synced; the first sync stamps the field. Records self-evict to v5 shape as users sync each group; un-synced groups remain in v4 shape indefinitely without harm. C-1a (`KNOWN_VERSION` + `defaultShape(PARTITION_META).schemaVersion`) + C-1b (lazy strategy) compliance verified. Documented in `docs/design/67-b-041-chrome-tab-group-sync.md` §67.2.
+- **Manifest permissions** — unchanged (`tabGroups` was already declared in a prior sprint as a forward-looking permission).
+- **New module**: `background/sync/` with `chrome-sync.js` orchestrator + `color-map.js` palette mapping. Color table: blue→blue, purple→purple, red→red, orange→orange, pink→pink, yellow→yellow (6 exact); teal→cyan, indigo→blue, slate→grey (3 inexact).
+- **New message contract**: `MSG_SYNC_TO_CHROME { windowId }` → `{ summary: SyncSummary }`. Registered as a write-class message; safe-mode (downgrade) blocks the call.
+- **`chrome.tabs.onMoved` storm suppression** — module-level `isSyncInFlight()` flag short-circuits the floating-group re-bind listener at `background/tabs/tab-events.js` during the bulk strip-reorder so our writes are not raced.
+
+### Note
+
+- **Schema bump v4 → v5 — extension toggle required.** After updating to v1.36.0, toggle the extension OFF then ON in your browser's extensions page (`edge://extensions` or `chrome://extensions`), or fully restart the browser. This flushes the service-worker module cache so the new Chrome-sync code paths and v5 schema are recognized.
+
+### Internal
+
+- Test count: 1826 → **1892 / 100% PASS** (+66 net: +38 R3 build · +25 R4 fix-round · +3 R5 gap-fill) across 11 new test files (`tests/sync-{message-constant,schema-v5,color-map,chrome-mock-extensions,target-order,build-summary,chrome-sync,handler,classify-error,settings-toast,toast-timer-shared}.test.js`).
+- New shared module: `settings/settings-toast-timer.js` — singleton timer coordinating `#settings-toast` between Sync (chrome-sync) and Import/Export flows. Resolved a ghost-timer race where one flow's auto-dismiss could clobber another's toast.
+- `_classifyError` now matches both chrome-mock synthetic strings and Chromium's actual `chrome.tabs.move` rejection format, with `tests/sync-classify-error.test.js` pinning the predicate set.
+
+---
+
 ## v1.35.0 — Sprint 41 — Floating-tab data-model evolution + 5 process gates + 2 pre-merge fixes (2026-04-30)
 
 **Tagged on `feature/sprint-41-floating-tab-id` — pending PR merge to release/v2. Tag: `v1.35.0`.**

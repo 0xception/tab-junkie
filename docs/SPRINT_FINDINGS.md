@@ -20,3 +20,6 @@
 - [Sprint 37 — R4 Findings (Deduplicated)](findings/sprint-37.md)
 - [Sprint 38 — R4 Findings (Deduplicated)](findings/sprint-38.md)
 - [Sprint 39 — R4 Findings (Deduplicated)](findings/sprint-39.md)
+- [Sprint 40 — R4 Findings (Deduplicated)](findings/sprint-40.md)
+- [Sprint 41 — R4 Findings (Deduplicated)](findings/sprint-41.md)
+- [Sprint 42 — R4 Findings (Deduplicated)](findings/sprint-42.md)

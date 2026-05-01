@@ -282,6 +282,20 @@ export const MSG_RECENCY_ADD = 'tj/recencyAdd';
  */
 export const MSG_OPEN_STANDALONE = 'MSG_OPEN_STANDALONE';
 
+// ---- Chrome integration (S42 / B-041) ----
+
+/**
+ * Snapshot-push the current window's TJ view into Chrome:
+ * reorder the tab strip in TJ order, create/update Chrome tab groups for each
+ * TJ group with live tabs, leave ungrouped Open Tabs ungrouped.
+ *
+ * Request:  { windowId: number }
+ * Response: { ok: boolean, summary?: SyncSummary, error?: { code, message } }
+ *
+ * SyncSummary shape — see background/sync/chrome-sync.js.
+ */
+export const MSG_SYNC_TO_CHROME = 'tj/syncToChrome';
+
 // ---- State broadcast ----
 export const MSG_STATE_CHANGED = 'tj/stateChanged';
 

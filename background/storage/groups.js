@@ -113,7 +113,10 @@ function validateGroupPatch(patch) {
     throw new StorageError(ERR_VALIDATION, 'updateGroup: id and createdAt are immutable');
   }
   // M2: `updatedAt` is always overwritten by the mutator — not caller-patchable.
-  const allowed = ['name', 'color', 'parentId', 'sortOrder', 'collapsed'];
+  /* B-041 (S42 §3.3) — extend allow-list with `chromeTabGroupId` (number|null)
+     for the chrome-sync orchestrator to persist Chrome tab-group identity
+     back to the TJ group record. C-7 allow-list direction. */
+  const allowed = ['name', 'color', 'parentId', 'sortOrder', 'collapsed', 'chromeTabGroupId'];
   for (const k of Object.keys(patch)) {
     if (!allowed.includes(k)) {
       throw new StorageError(ERR_VALIDATION, 'updateGroup: unknown field', { field: k });
@@ -132,6 +135,13 @@ function validateGroupPatch(patch) {
   }
   if ('sortOrder' in patch && (typeof patch.sortOrder !== 'number' || !Number.isFinite(patch.sortOrder))) {
     throw new StorageError(ERR_VALIDATION, 'updateGroup: sortOrder must be a finite number');
+  }
+  /* B-041 (S42 §3.3) — chromeTabGroupId must be a finite number OR null
+     (cleared after stale-mapping detect). Anything else is corrupt. */
+  if ('chromeTabGroupId' in patch
+    && patch.chromeTabGroupId !== null
+    && (typeof patch.chromeTabGroupId !== 'number' || !Number.isFinite(patch.chromeTabGroupId))) {
+    throw new StorageError(ERR_VALIDATION, 'updateGroup: chromeTabGroupId must be number or null');
   }
 }
 

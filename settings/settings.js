@@ -19,6 +19,9 @@ import { renderSelect, renderToggle, init as initSettingsFields, loadPreferences
    buttons + two file inputs in the Data section + the destructive-action
    confirm dialog (B-070 §AC4 retained). */
 import { init as initImportExport } from './settings-import-export.js';
+/* B-041 (S42 §3.5) — Chrome Integration single-button surface. Wires the
+   Sync button → SW → result toast. */
+import { init as initChromeSync } from './settings-chrome-sync.js';
 import { MSG_GET_PREFERENCES, MSG_STATE_CHANGED } from '../shared/messages.js';
 import { SCOPE } from '../shared/scopes.js';
 /* B-088 fix #1 — Live theme application is shared with sidepanel/newtab/popup
@@ -153,6 +156,16 @@ async function boot() {
        Log code only — never PII. */
     const code = err && err.code ? String(err.code) : 'NO_CODE';
     console.warn('[B-093] settings import/export wiring failed', code);
+  }
+
+  /* B-041 (S42) — Chrome Integration: Sync button.
+     Single-click, snapshot push to chrome.tabs + chrome.tabGroups.
+     Result is rendered via the existing #settings-toast surface. */
+  try {
+    initChromeSync({ doc: document, sendMessage });
+  } catch (err) {
+    const code = err && err.code ? String(err.code) : 'NO_CODE';
+    console.warn('[B-041] settings chrome-sync wiring failed', code);
   }
 
   /* B-037 — listen for prefs broadcast and re-apply the theme. The
