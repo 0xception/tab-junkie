@@ -22,6 +22,10 @@ const state = {
   mockTabs: [],
   /** @type {Array<{id: number}>} B-014 — window-ordinal test fixtures */
   mockWindows: [],
+  /** S42 R4 — set of tab IDs that chrome.tabs.move should reject with a
+   *  Chrome-realistic "No tab with id: N" error so the per-tab fallback +
+   *  _classifyError predicate are exercised end-to-end. */
+  moveRejectIds: new Set(),
 };
 
 function deepClone(v) {
@@ -220,7 +224,12 @@ const tabs = {
      B-136 — same-window moves now fire `chrome.tabs.onMoved` after the
      mockTabs index is updated AND sibling tabs are renumbered to match
      Chrome's actual shift behaviour. This lets tests exercise the full
-     listener path end-to-end (background/tabs/tab-events.js onMoved). */
+     listener path end-to-end (background/tabs/tab-events.js onMoved).
+
+     S42 R4 — `__setMoveRejectIds` lets a test mark specific tab IDs as
+     "rejecting" for chrome.tabs.move; the mock throws an error string that
+     matches the real Chrome rejection ("No tab with id: N") so the
+     production _classifyError predicate is exercised end-to-end. */
   _moveCalls: [],
   async move(tabIds, props) {
     tabs._moveCalls.push({ tabIds, props });
@@ -229,13 +238,22 @@ const tabs = {
          the target index in the order specified by the array; subsequent
          tabs in the destination shift right. The mock approximates this by
          performing per-tab moves to consecutive indices starting from
-         props.index, in the order of the input array. */
+         props.index, in the order of the input array.
+
+         S42 R4 — if the array contains any tab id flagged via
+         __setMoveRejectIds, the bulk call rejects with a Chrome-realistic
+         error so chrome-sync's per-tab fallback path runs. */
+      for (let i = 0; i < tabIds.length; i++) {
+        if (state.moveRejectIds.has(tabIds[i])) {
+          throw new Error(`No tab with id: ${tabIds[i]}.`);
+        }
+      }
       const baseIndex = (props && typeof props.index === 'number') ? props.index : 0;
       const winId = (props && typeof props.windowId === 'number') ? props.windowId : null;
       const moved = [];
       for (let i = 0; i < tabIds.length; i++) {
         const tab = state.mockTabs.find((t) => t.id === tabIds[i]);
-        if (!tab) throw new Error(`Tab ${tabIds[i]} not found`);
+        if (!tab) throw new Error(`No tab with id: ${tabIds[i]}.`);
         const fromIndex = tab.index;
         const fromWindow = tab.windowId;
         const toIndex = baseIndex + i;
@@ -265,9 +283,15 @@ const tabs = {
       return moved;
     }
     if (typeof tabIds !== 'number') return null;
+    /* S42 R4 — per-tab fallback rejection hook. Chrome's actual error text
+       for a missing tab is "No tab with id: N", so we mirror that here to
+       exercise chrome-sync's _classifyError predicate end-to-end. */
+    if (state.moveRejectIds.has(tabIds)) {
+      throw new Error(`No tab with id: ${tabIds}.`);
+    }
     const tab = state.mockTabs.find((t) => t.id === tabIds);
     if (!tab) {
-      throw new Error(`Tab ${tabIds} not found`);
+      throw new Error(`No tab with id: ${tabIds}.`);
     }
     const fromIndex = tab.index;
     const fromWindowId = tab.windowId;
@@ -465,6 +489,7 @@ export function __resetMock() {
   state.sessionStore = {};
   state.mockTabs = [];
   state.mockWindows = [];
+  state.moveRejectIds.clear();
   _nextTabId = 1000;
   runtime.lastError = null;
   runtime.onMessage._listeners = [];
@@ -530,6 +555,12 @@ export function __setBytesInUse(n) {
 /** Set mock tabs returned by chrome.tabs.query. */
 export function __setMockTabs(tabs) {
   state.mockTabs = deepClone(tabs);
+}
+
+/** S42 R4 — flag tab IDs whose chrome.tabs.move calls should reject with
+ *  a Chrome-realistic "No tab with id: N" error. Cleared on __resetMock. */
+export function __setMoveRejectIds(tabIds) {
+  state.moveRejectIds = new Set(tabIds);
 }
 
 /** B-091: return recorded chrome.windows.update() calls. */

@@ -1,7 +1,7 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import './_setup.js';
-import { __resetMock, __setMockTabs, __setMockWindows } from './chrome-mock.js';
+import { __resetMock, __setMockTabs, __setMockWindows, __setMoveRejectIds } from './chrome-mock.js';
 import { createGroup, listGroups, updateGroup } from '../background/storage/groups.js';
 import { createItem } from '../background/storage/items.js';
 import { syncToChrome } from '../background/sync/chrome-sync.js';
@@ -156,6 +156,38 @@ test('color mapping — TJ teal becomes Chrome cyan', async () => {
   await syncToChrome(100);
   const [grp] = await chrome.tabGroups.query({ windowId: 100 });
   assert.equal(grp.color, 'cyan');
+});
+
+test('tab gone mid-sync — bulk move rejects, per-tab fallback skips one as tab-gone', async () => {
+  /* Spec §8.2 mandate: chrome.tabs.move rejects for one tab; verify other
+     tabs still moved; summary.skipped includes { reason: 'tab-gone',
+     count: 1 }. The mock's __setMoveRejectIds raises a Chrome-realistic
+     "No tab with id: N" error so the production _classifyError path is
+     exercised end-to-end. */
+  __setMockWindows([{ id: 100, focused: true }]);
+  __setMockTabs([
+    { id: 11, windowId: 100, index: 0, url: 'https://a.example/' },
+    { id: 12, windowId: 100, index: 1, url: 'https://b.example/' },
+    { id: 13, windowId: 100, index: 2, url: 'https://c.example/' },
+  ]);
+  const g = await createGroup({ name: 'Work', color: 'blue', parentId: null, sortOrder: 0 });
+  await createItem({ title: 'A', url: 'https://a.example/', groupId: g.id, sortOrder: 0 });
+  await createItem({ title: 'B', url: 'https://b.example/', groupId: g.id, sortOrder: 1 });
+  await createItem({ title: 'C', url: 'https://c.example/', groupId: g.id, sortOrder: 2 });
+
+  /* Tab 12 is "gone" — chrome.tabs.move rejects for it. The bulk move
+     rejects on the first inspect; the per-tab fallback then loops, moving
+     11 and 13 successfully and skipping 12. */
+  __setMoveRejectIds([12]);
+
+  const summary = await syncToChrome(100);
+  /* Two tabs moved successfully; one skipped as tab-gone. */
+  assert.equal(summary.tabsReordered, 2);
+  const tabGoneSkip = summary.skipped.find((s) => s.reason === 'tab-gone');
+  assert.equal(tabGoneSkip?.count, 1, 'tab-gone skip recorded with count 1');
+  /* No 'unknown' bucket — the predicate matched the realistic error. */
+  assert(!summary.skipped.some((s) => s.reason === 'unknown'),
+    'tab-gone error should not fall through to "unknown"');
 });
 
 test('isSyncInFlight is true during sync, false before/after', async () => {
