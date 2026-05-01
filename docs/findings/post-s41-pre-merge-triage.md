@@ -398,3 +398,228 @@ The `effectiveS = (dPos < S) ? S - 1 : S` formula correctly mirrors the same-win
 Both Fix A and Fix B are surgically scoped, structurally correct, defensively coded, and follow established project patterns. The two LOW-priority observations are informational only and not blocking. Approved for merge from `[code-reviewer]`.
 
 _Review completed by [code-reviewer] on 2026-04-29 against `feature/sprint-41-floating-tab-id` working-tree diff._
+
+---
+
+## [security-reviewer] — Fix C R4
+
+_R4 security review of the pre-v1.35.0 hotfix bundle Fix C — duplicate-record dedup. Branch: `feature/sprint-41-floating-tab-id` (uncommitted Fix C delta on top of the already-merged Fix A + Fix B). Diff scope: `background/tabs/floating-groups.js` (+127 / -11), `tests/b134-tab-drag-reorder.test.js` (+270). `manifest.json` is untouched. Full test suite: 1818 / 1818 passing._
+
+### Verdict — **CLEAN. No CRITICAL / HIGH / MEDIUM / LOW findings. Approved for merge from a security perspective.**
+
+Fix C **reduces** the storage-write surface (Option A short-circuits writes when a duplicate triple is detected) and extends an existing atomic transaction (cold-start dedup piggybacks on `pruneResolvedFloatingGroups`'s existing `writeTransaction`). Both halves are tightly scoped, allow-list-shaped, defensively coded, and introduce no new threat surface.
+
+### Generic threat surface — pass
+
+| # | Check | Result |
+|---|-------|--------|
+| 1 | Manifest / permissions delta | **Pass.** `git diff manifest.json` is empty. No new permissions, no `host_permissions`, no `content_scripts`, no `web_accessible_resources` change. |
+| 2 | CSP / `eval` / `new Function` / `innerHTML` / `outerHTML` introductions | **Pass.** Grep of the diff finds zero new occurrences. Fix C is pure storage-layer JS — no DOM HTML and no script-evaluation paths added. |
+| 3 | Storage-write surface | **Pass — net reduction.** `appendFloatingGroup` now early-returns when a duplicate triple exists (`floating-groups.js:366-373`); the write is skipped entirely (the mutator returns `arr` unchanged, so `writeTransaction`'s atomic `set` re-commits the same array — the `assertShape` guard at `write-transaction.js:112` validates the unchanged array). Cold-start dedup at `reassociateFloatingGroups` extends the existing `pruneResolvedFloatingGroups` `writeTransaction` (line 268-275); no new write surface added — the `duplicateFloatingTabIds` set is unioned into `resolvedFloatingTabIds` BEFORE the existing helper is invoked (line 264-266), so all dedup-driven writes flow through the same single-set atomic commit that already handled prune + lazy-rewrite. |
+| 4 | Input validation | **Pass.** Detailed analysis below. |
+| 5 | Network / telemetry / `console.log` debug noise | **Pass.** Zero new `fetch`, `XMLHttpRequest`, `WebSocket`, `console.log`, or remote-code introductions. No `console.warn` added either (failures bubble through the existing `writeTransaction` error wrapping at `write-transaction.js:105-108`). |
+
+### Fix C Part 1 — `appendFloatingGroup` dedup-on-write (checks 6, 8)
+
+**Dedup key correctness — pass.** The early-return predicate at `floating-groups.js:366-373` is:
+
+```
+const existing = arr.find((r) => r
+  && typeof r === 'object'
+  && r.liveTabId === stamped.liveTabId
+  && getParentItemId(r) === stamped.parentItemId
+  && r.groupId === stamped.groupId);
+```
+
+Defensive against malicious / malformed records:
+- `r.liveTabId === stamped.liveTabId` is a strict-equality JS triple-equals. `stamped.liveTabId` is *guaranteed* to be a finite number (validated at line 311-313 — `typeof entry.liveTabId !== 'number' || !Number.isFinite(entry.liveTabId)` rejects). A stored record whose `liveTabId` is the string `"100"` or `null` or `undefined` will compare *unequal* to `100` (number) → predicate returns `false` → the new record IS appended → the malformed legacy record persists alongside the new clean one. **Type coercion bypass is structurally impossible** — `===` does not coerce.
+- `getParentItemId(r)` is a typed accessor (`floating-groups.js:44-53`): returns the literal string `parentItemId` if string-non-empty, else literal `itemId` if string-non-empty, else `''`. The comparison `=== stamped.parentItemId` is also `===` (strict) — a stored record with `parentItemId: { evil: 'object' }` returns `''` from the accessor → compare-unequal → predicate `false`. Object-injection in `parentItemId` cannot evade the dedup.
+- `r.groupId === stamped.groupId` — stamped value is validated as string at line 300 (`typeof entry.groupId !== 'string' → return`). Any stored non-string `groupId` would compare unequal → predicate `false` → no false-positive dedup. (False-negative path here means we do NOT skip the write — which is the correct fail-safe direction; the consequence is at most one extra record, which the cold-start dedup pass would later catch IF the stored record's shape conformed to the dedup pass's filters.)
+
+The dedup path is **strict**: the only way to short-circuit a legitimate write is for *every* one of the four conditions to hold. There is no string-vs-number coercion, no `==` (loose-equality) anywhere in the predicate.
+
+**`floatingTabId` identity preservation (check 8) — pass.** Option A semantics return `arr` unchanged on duplicate detection. The existing record's `floatingTabId` (the storage identity) is preserved verbatim. There is no path where a malformed duplicate record could replace a valid existing record — the duplicate detection short-circuits BEFORE any `arr.push`/`arr.splice`/spread operations, so the new (validated, well-formed) `stamped` object is dropped on the floor. Any in-flight `floatingTabId` references remain valid.
+
+A subtle but correct consequence: if the existing record IS malformed (e.g., legacy `floatingTabId` literally undefined OR a corrupted ulid), the new clean `stamped` is also dropped. This is acceptable — the cold-start dedup pass at `reassociateFloatingGroups:171-198` requires a string `floatingTabId` to participate (line 173-175: `typeof record.floatingTabId !== 'string' || record.floatingTabId.length === 0 → continue`), so a malformed pre-existing record is naturally excluded from the cold-start cleanup AND the dedup-on-write keeps it. The legacy-shape carve-out is consistent across both halves of Fix C.
+
+**Allow-list direction (check 10) — pass.** Strictly speaking, the dedup-on-write is a **deny-on-match** short-circuit (skip the write when a match is found), which is the inverse of the C-7 allow-list discipline. However, C-7 applies to filtering **structured-data export / sanitization** surfaces — its blast-radius rationale is "permit known-good fields rather than strip known-bad fields". Fix C is not a filter; it is an idempotent-write guard. The fail-safe direction matches: a missed dedup (false-negative) results in a duplicate record that the cold-start dedup will catch on next SW restart; an over-eager dedup (false-positive) would silently swallow a legitimate write. The four-condition predicate (`liveTabId` + `parentItemId` + `groupId` + non-null + object-shape check) correctly biases toward false-negative — false-positive is structurally prevented by the strict-equality on three discriminating fields.
+
+### Fix C Part 2 — cold-start dedup (checks 7, 9, 10, 11)
+
+**Cold-start dedup completeness / race-window analysis (check 7) — pass.** The dedup pre-flight read at `floating-groups.js:121` (`readPartition(PARTITION_FLOATING_GROUPS)`) runs OUTSIDE `writeTransaction`. Critical race-window analysis:
+
+- **Dedup pass** (lines 167-198) walks `records` (the pre-flight snapshot) and computes `duplicateFloatingTabIds`.
+- The actual mutation runs INSIDE `pruneResolvedFloatingGroups`'s `writeTransaction` (line 270-274), which re-reads its own `current` snapshot via `chrome.storage.local.get` (line 93 of `write-transaction.js`).
+- A concurrent writer (e.g., a runtime `appendFloatingGroup` from `chrome.tabs.onCreated`) inserting a NEW record between the pre-flight read and the transaction's `get`: the new record is in the transaction's `current` snapshot but is NOT in `duplicateFloatingTabIds` / `resolvedFloatingTabIds` / `staleLiveTabIdRecords`. The mutator's predicate at `pruneResolvedFloatingGroups:738-758` retains records whose `floatingTabId` is NOT in the prune set → the new record is preserved. **Benign — race window does not corrupt storage.**
+- A concurrent writer DROPPING a record (e.g., `pruneFloatingGroupsByLiveTabId` from `chrome.tabs.onRemoved` removing the same record that's in `duplicateFloatingTabIds`): the dropped record is not in the transaction's `current` snapshot → the prune predicate's `acc.push(entry)` for that record never executes (the entry is gone) → the dedup-driven prune is a no-op for that entry. **Benign.**
+- A concurrent writer MUTATING a record (e.g., `staleLiveTabIdRecords` lazy-rewrite of a record that's also queued for dedup-prune): the prune branch fires first at `pruneResolvedFloatingGroups:741-743` (early `return acc` skips the patch branch entirely if the entry's `floatingTabId` is in the prune union). **Benign — survivor record's patch (if queued) lands correctly per the explicit comment at floating-groups.js:259-263.**
+- The `txQueue` chain at `write-transaction.js:138-140` serializes any concurrent `writeTransaction` call within the SW lifetime, so the pre-flight-read-then-transaction window is the only race surface — and it is bounded to the SW cold-start path which executes before user-driven UI events can dispatch any opener-chain `appendFloatingGroup`. The cold-start `reassociateFloatingGroups` is invoked from `background/tabs/index.js` synchronously after `buildLiveTabIndex` resolves, BEFORE any `chrome.tabs.on*` listener is registered, so a concurrent `appendFloatingGroup` mid-cold-start is structurally impossible. **Race-window is closed in production by call-site ordering**, and even if a hypothetical caller violated this, the consequences enumerated above are all benign.
+
+**Highest-`savedAt` tiebreaker / determinism (check 9) — pass.** The tiebreaker at `floating-groups.js:185-197` is:
+
+```
+if (savedAt > prior.savedAt) {
+  duplicateFloatingTabIds.add(prior.floatingTabId);
+  tripleSurvivors.set(tripleKey, { floatingTabId: record.floatingTabId, savedAt });
+} else {
+  duplicateFloatingTabIds.add(record.floatingTabId);
+}
+```
+
+When `savedAt === prior.savedAt` (clock collision OR identical-`Date.now()` from concurrent appends in the same millisecond): the comparison `savedAt > prior.savedAt` is `false` → the **first-seen record wins** (current `record` is marked duplicate, `prior` survivor is retained). The iteration order over `records` is **stable** because `records` is the array shape returned by `chrome.storage.local.get` for `tj:floatingGroups`, which Chrome's storage API serializes/deserializes in insertion order via JSON. So the survivor is **deterministically the first-by-storage-insertion record among any equal-`savedAt` peers** — non-attacker-controllable, non-ambiguous, reproducible across runs.
+
+A crafted adversarial record (e.g., `savedAt: Number.MAX_SAFE_INTEGER`) would always win the tiebreaker. The threat model: a user with extension write access could plant such a record by directly editing `chrome.storage.local`. But that user is the same actor as the legitimate user (extension storage is local-profile-scoped, no cross-origin write access). No cross-origin or remote-attacker path. **Not a security finding** — a `savedAt` validation bound (e.g., reject `savedAt > Date.now() + epsilon`) would be defense-in-depth but adds complexity without a real threat. The validator at line 304 already requires `Number.isFinite(savedAt)` which rejects `Infinity` / `NaN`.
+
+**Allow-list direction in cold-start dedup (check 10) — pass.** The dedup pass at lines 171-198 is positively-shaped: it iterates records and **opt-in** adds `floatingTabId`s to a `duplicateFloatingTabIds` set when the triple-key has been seen before. It does NOT walk the records and "filter out duplicates" via a negative predicate. The merged set (line 264-266) is then handed to `pruneResolvedFloatingGroups`, whose internal filter at `floating-groups.js:738-758` is itself allow-list-shaped: `acc.push(entry)` retains records by default; the **only** drop branches are explicit `return acc` (without push) when the record's `floatingTabId` is in the resolved set OR when the legacy parentItemId is in the legacy resolved set. **Allow-list discipline preserved end-to-end.**
+
+A regression of the dedup pass to a negative predicate (e.g., `arr.filter((r) => !duplicateFloatingTabIds.has(r.floatingTabId))`) would also work but would be **less safe** under adversarial corruption (a record with `floatingTabId: undefined` would silently survive a deny-list filter — `undefined` not in Set → kept; under the current allow-list-shaped flow it would not even be added to the dedup pass at line 173-175 in the first place, which is the structurally correct behavior).
+
+### Storage / atomicity (checks 11, 12)
+
+**`pruneResolvedFloatingGroups` writeTransaction extension (check 11) — pass.** Verified at `floating-groups.js:268-275`. The Fix C union (line 264-266) merges `duplicateFloatingTabIds` INTO `resolvedFloatingTabIds` BEFORE the helper is invoked. The `pruneResolvedFloatingGroups` body at lines 731-762 is **unchanged by Fix C** — it processes a single `Set<string>` of `floatingTabId`s to prune, plus the legacy fallback set, plus the optional stale-`liveTabId` patch map. All three are committed in **one** `writeTransaction` (line 734-761) → single `chrome.storage.local.set` call (line 116 of `write-transaction.js`) → atomic Chrome storage commit. The merged duplicate-set + resolved-set + lazy-rewrite are all committed in **one** atomic operation. ✓
+
+**Idempotency (check 12) — pass.** Calling `reassociateFloatingGroups` twice in a row:
+
+- First call: pre-flight reads N records (including, e.g., 2 duplicates). Dedup pass collapses to 1 survivor; older duplicate's `floatingTabId` is added to `duplicateFloatingTabIds`. Resolver pass continues. `pruneResolvedFloatingGroups` removes the older duplicate. Storage now has N-1 records.
+- Second call: pre-flight reads N-1 records. Dedup pass walks records — for each unique triple, only ONE record exists, so `tripleSurvivors.set(tripleKey, …)` fires once per triple but never reaches the `else` / `if (savedAt > prior.savedAt)` branches at lines 191-197. `duplicateFloatingTabIds` remains empty. The resolver pass also produces `staleLiveTabIdRecords` empty (the survivor's `liveTabId` already matches its resolved `matchedTabId` from the first call's lazy rewrite, IF a rewrite was even applied). The early-return guard at line 268-269 (`resolvedFloatingTabIds.size === 0 && legacyResolvedParentItemIds.size === 0 && staleLiveTabIdRecords.size === 0 → skip writeTransaction`) fires → **NO WRITE**. ✓
+
+The second call is a structural no-op. Storage state on the second call is byte-identical to the first call's post-state (modulo the `chrome.storage.local.set` not being called at all on the second call).
+
+### Tests — pass
+
+The new tests (`tests/b134-tab-drag-reorder.test.js:1666-1934`, T40-T45) cover the security-relevant paths:
+
+- **T40** (line 1700) — Part 1 dedup-on-write happy path: two appends, same triple, second is a no-op. Asserts `records.length === 1` AND `savedAt === 1000` (the original — proving Option A semantics: existing record's stable identity wins, no in-place update).
+- **T41** (line 1731) — Part 1 regression guard: same `liveTabId` + DIFFERENT `parentItemId` (the user-data record-9 case). Both records preserved. Critical false-positive test — proves the dedup key is the **triple** and not just `liveTabId`.
+- **T42** (line 1761) — Part 1 regression guard: same `liveTabId` + same `parentItemId` + DIFFERENT `groupId`. Both preserved. Proves `groupId` is part of the triple key.
+- **T43** (line 1791) — Part 2 + e2e regression: seeded duplicates → cold-start dedup → reorder MUST return `reordered: true` (NOT ERR_RACE). Direct repro of the user's smoke-test bug. Strongest test — closes the user-visible failure mode.
+- **T44** (line 1846) — Part 2 highest-savedAt tiebreaker correctness: three records (1000, 5000, 3000) → the 5000 survives. Asserts the deterministic-tiebreaker contract.
+- **T45** (line 1879) — Part 2 regression guard: 2 duplicates under parent A + 1 under parent B → only parent-A duplicates collapse. Mirrors the user-data record-9 case for cold-start dedup. Critical false-positive test for the cold-start path.
+
+T41 and T45 are particularly notable: they exercise the dedup key correctness — a regression to a `(liveTabId, groupId)` two-tuple key OR a `liveTabId`-only key would silently drop record-9-class legitimate records. Both tests would catch that immediately.
+
+T44 is the deterministic-tiebreaker test — a regression of the comparator (e.g., `>=` instead of `>`, or a non-stable iteration) would fail this test.
+
+### Summary
+
+| Severity | Count |
+|----------|-------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 0 |
+
+No findings. Fix C is a **net storage-write reduction** — Option A short-circuits writes on duplicate detection (Part 1) and the cold-start dedup piggybacks on an existing single-atomic transaction (Part 2). The dedup key is strict-equality across three discriminating fields with no type-coercion path, the highest-`savedAt` tiebreaker is deterministic, the allow-list direction is preserved end-to-end, the `pruneResolvedFloatingGroups` atomicity is intact, and the second-call idempotency is verified by construction. Six new tests (T40-T45) cover both halves with explicit false-positive regression guards (T41 / T45) and a direct user-bug repro (T43). Full suite passes 1818 / 1818 with zero regressions.
+
+Approved for merge from `[security-reviewer]`.
+
+_Review completed by [security-reviewer] on 2026-04-29 against `feature/sprint-41-floating-tab-id` working-tree diff (Fix C delta on top of merged Fix A + Fix B)._
+
+---
+
+## [code-reviewer] — Fix C R4
+
+_R4 code review of the pre-v1.35.0 hotfix bundle Fix C — dedup-on-write at `appendFloatingGroup` + cold-start dedup at `reassociateFloatingGroups`. Branch: `feature/sprint-41-floating-tab-id` (uncommitted). Diff scope: `background/tabs/floating-groups.js` (+127 / -11), `tests/b134-tab-drag-reorder.test.js` (+270). `manifest.json` is untouched. Full test suite: 1818 / 1818 passing._
+
+### Verdict — **CLEAN. No CRITICAL / HIGH / MEDIUM findings. One LOW-priority observation recorded for transparency.** Approved for merge.
+
+Fix C is a tightly scoped, structurally correct surgical patch. The dedup key triple `(liveTabId, parentItemId, groupId)` is the most-specific guard that closes the duplicate-record failure mode (records 7/12 in user data) while preserving the legitimate coexistence (record 9 in user data). Option A no-op semantics correctly preserve the existing record's stable storage identity (`floatingTabId`). The cold-start dedup pass cleanly piggybacks on the existing `pruneResolvedFloatingGroups` writeTransaction so cold-start storage mutations remain a single atomic write. Sibling write-paths verified — `saveFloatingGroups`, `reorderFloatingMembers`, `moveFloatingTab` correctly do NOT need similar guards (none of them appends a duplicate by construction).
+
+### CRITICAL (must fix before merge)
+
+_None_
+
+### HIGH (must fix before merge)
+
+_None_
+
+### MEDIUM (fix if time permits)
+
+_None_
+
+### LOW (defer or note)
+
+| # | File | Finding | Suggestion |
+|---|------|---------|-----------|
+| L-1 | `background/tabs/floating-groups.js:338-339, 362-364` | B-118 source-citation hygiene drift in the new `appendFloatingGroup` comment block. Three internal line citations are stale relative to the post-Fix-A line numbering: `:397-401` cites the parity-check (actual line is **517**); `_resolveRecordIndexByTabId` is cited at `:322-345` (actual lines are **438-461**); `reassociateFloatingGroups` is cited at `:115-201` (actual span is **120-276**). The cited section fragments appear to predate Fix A's `pruneFloatingGroupsByLiveTabId` insertion, which shifted line numbers downward by ~80 lines. | **Defer.** All three citations remain functionally locatable by symbol name (`reorderFloatingMembers`, `_resolveRecordIndexByTabId`, `reassociateFloatingGroups`); the references are not load-bearing for correctness. File as a Sprint 42 doc-cleanup ticket if line-citation precision is graded. Not blocking for this hotfix. |
+
+### Notes / observations
+
+**Checklist 1 — dedup key correctness.** Hand-traced T41 and T42 against the production code at `floating-groups.js:366-373`:
+
+| Test | Triple | Behavior | Verdict |
+|------|--------|----------|---------|
+| T40  | (100, item, g) twice  | 2nd call: `existing` matches → `return arr` (no-op) | 1 record kept, savedAt=1000 (original) ✓ |
+| T41  | (803725428, itemA, g) + (803725428, itemB, g) | 2nd call: `parentItemId` mismatch → no match → push | 2 records (record-9 case preserved) ✓ |
+| T42  | (200, item, gA) + (200, item, gB) | 2nd call: `groupId` mismatch → no match → push | 2 records (cross-group case preserved) ✓ |
+
+The `find` predicate at lines 366-370 (`r.liveTabId === stamped.liveTabId && getParentItemId(r) === stamped.parentItemId && r.groupId === stamped.groupId`) exactly captures the triple. `getParentItemId` (lines 44-53) correctly handles both v3 (`itemId`) and v4 (`parentItemId`) record shapes — so a v3 legacy record sharing the effective parent triple would also be matched. ✓
+
+**Checklist 2 — Option A semantics.** Verified at `floating-groups.js:366-373`:
+- Function returns `arr` unchanged when `existing` is found — no append, no mutation.
+- The existing record's `floatingTabId` (stable identity), `savedAt`, `windowId`, `tabIndex`, `url`, and `sortOrder` are all preserved (T40 asserts `savedAt === 1000` after a 2000-savedAt second call).
+- JSDoc at `floating-groups.js:357-365` accurately describes Option A: "the existing record's `floatingTabId` is the stable storage identity; preserving it avoids invalidating any in-flight references." Drift recovery via tier-(b) geometry fallback + cold-start re-bind is correctly documented. ✓
+
+**Checklist 3 — cold-start dedup integration.** Verified at `floating-groups.js:166-198`:
+- Triple-key grouping at line 182 (`tripleKey = ${liveTabId}|${parentId}|${groupId}`) — pipe-delimited string key, well-formed (no field can contain `|` to collide).
+- Survivor-selection at lines 192-197: `if (savedAt > prior.savedAt)` keeps the higher `savedAt`; the loser goes into `duplicateFloatingTabIds`. Hand-traced T44 across all 6 iteration permutations of the three-record set (savedAts 1000/3000/5000) — `fl-high` (5000) survives in every order. ✓
+- Records lacking `floatingTabId` are excluded (lines 173-175) — pruned only by their own resolver paths above.
+- Records lacking finite `liveTabId` are excluded (lines 176-178) — they cannot have a triple-key.
+- Records lacking `parentId` or `groupId` are excluded (lines 179-181) — defensive validation.
+- Merge into prune set at lines 264-266: union semantics (`resolvedFloatingTabIds.add(dupId)`); single atomic writeTransaction at line 270. Lazy-rewrite branch interaction is correct — see Checklist 4 below.
+
+**Checklist 4 — race / atomicity.** The dedup pass operates on the snapshot read at `floating-groups.js:121` outside the writeTransaction. The writeTransaction inside `pruneResolvedFloatingGroups` (line 736) operates on its own fresh `current` snapshot. Three interactions:
+
+1. **Concurrent `appendFloatingGroup` between read and write:** Part 1's dedup-on-write guard at lines 366-373 prevents a NEW duplicate from being created during this window. Only the snapshot-time duplicates are queued for prune. ✓
+
+2. **Loser also enters `staleLiveTabIdRecords` via the position-match / URL-fallback loop:** The loop at line 200 iterates the original snapshot, so a loser may add itself to `staleLiveTabIdRecords[loser.floatingTabId] = matchedTabId`. In `pruneResolvedFloatingGroups` (lines 738-759), the prune branch (line 743) fires BEFORE the patch branch (line 747) for the same `floatingTabId` — the loser is correctly dropped, and the wasted patch entry is benign. ✓
+
+3. **Survivor's lazy-rewrite:** If a survivor's stored `liveTabId` is stale (not in liveTabIndex), tier (a) misses → position-match or URL-fallback finds a different tabId → patch queued for the survivor's `floatingTabId`. Survivor's `floatingTabId` is NOT in `duplicateFloatingTabIds` (it won the savedAt comparison) → not in `resolvedFloatingTabIds` after the merge → prune branch is bypassed → patch branch fires → survivor's `liveTabId` is correctly rewritten. ✓
+
+Filter is idempotent. Race analysis holds.
+
+**Checklist 5 — B-129 cascade-prune sibling-grep.** Verified by reading each sibling write-path:
+- `saveFloatingGroups` (`:68-84`): mutator returns `valid` wholesale — REPLACES the partition. Cannot create duplicates. ✓
+- `reorderFloatingMembers` (`:480+`): mutator only updates `arr[idx] = { ...arr[idx], sortOrder }` — never appends. Cannot create duplicates. ✓
+- `moveFloatingTab` (`:559+`): On ATTACH/MOVE_FLOATING, splices source then pushes ONE record into the target bucket. Source-side splice (line 610) ensures move-not-duplicate. `sourceGroupId === targetGroupId` is rejected at line 562. Per-tabId preflight via `_resolveRecordIndexByTabId` guarantees the source record is found before move. Cannot create a triple-collision. ✓
+
+Agent's claim is accurate. Only `appendFloatingGroup` is the duplicate source.
+
+**Checklist 6 — performance.**
+- `appendFloatingGroup` dedup at lines 366-370: `Array.prototype.find` is O(N records) per call. Bounded ≤ 50 typical (one mutator invocation per inheritance event, infrequent cold path). Negligible. ✓
+- Cold-start dedup pass at lines 171-198: linear scan, O(N records) per cold-start. Bounded by partition size. Negligible. ✓
+
+**Checklist 7 — dead code / commented-out / TODOs / `console.log`.** Pass. The +127 lines in `floating-groups.js` consist entirely of (a) the new dedup-pass loop, (b) merge step into prune set, (c) the new `existing`-find guard in `appendFloatingGroup` mutator, and (d) JSDoc + inline rationale comments. Zero TODOs, zero `console.log`, zero commented-out blocks. The two large block comments (lines 141-165 and 335-365) are explanatory rationale (origin file references, B-141 self-application, Option A semantics) — appropriate for a hotfix that closes a high-visibility bug. ✓
+
+**Checklist 8 — test quality.**
+- T40 (dedup-on-write happy path): asserts exactly 1 record AND survivor's `savedAt === 1000` (original, not the second call's 2000). Option A semantics strongly verified. ✓
+- T41 (record-9 coexistence): asserts both records' `parentItemId` ∈ {itemA, itemB} via Set membership. Strong. ✓
+- T42 (cross-group): asserts both `groupId`s present. Strong. ✓
+- T43 (end-to-end repro): seeds 4 duplicate records (user-data shape with savedAt offsets that mirror the smoke-test data — old @1000-1100, new @9000-9100); asserts post-dedup count is 2; asserts the highest-savedAt survivors (`fl-A-new`, `fl-B-new`) are kept; THEN dispatches `MSG_REORDER_FLOATING_MEMBERS` and asserts `resp.data.reordered === true` (NOT ERR_RACE). This is the strongest test in the bundle — direct reproduction of the user-reported failure path with end-to-end verification. ✓
+- T44 (highest-savedAt-wins): three records with savedAts 1000/5000/3000. Asserts `survivor.floatingTabId === 'fl-high'` (the 5000) regardless of iteration order. Hand-traced all permutations — the comparison `savedAt > prior.savedAt` is order-independent. ✓
+- T45 (regression guard): mixes 2-dup-under-itemA + 1-record-under-itemB. Asserts post-dedup count is 2; asserts itemA-survivor is `fl-A-new` (highest savedAt), asserts itemB record `fl-B-only` preserved (legitimate coexistence), asserts `fl-A-old` is dropped. Combines T44 + T41 invariants. ✓
+
+All six tests have explanatory headers tying back to the spec at `docs/findings/post-s41-pre-merge-triage.md` Issue C. Test names follow the established `Fix C T<N>` convention. Coverage maps from the JSDoc comment block at lines 1665-1686. ✓
+
+**Checklist 9 — B-118 source-citation hygiene.** Pass-with-LOW. The new comment blocks DO carry origin citations (`docs/findings/post-s41-pre-merge-triage.md Issue C`) AND the B-141 self-application reference. The named precedents (B-137 §66.1, Fix A, the spike findings origin) are all cited. The L-1 finding above flags three internal line-number citations that drifted by ~80 lines after Fix A's earlier insertion. Symbol-named references all resolve correctly. Not blocking.
+
+**Cross-cutting — `manifest.json` unchanged.** Pass. Fix C touches only `background/tabs/floating-groups.js` and `tests/b134-tab-drag-reorder.test.js`.
+
+**Cross-cutting — DRY.** The dedup loop at lines 171-198 is structurally distinct from Fix A's `pruneFloatingGroupsByLiveTabId` filter — different inputs (snapshot scan vs. tabId match), different outputs (Set of floatingTabIds vs. record predicate). No consolidation opportunity worth pursuing.
+
+**Cross-cutting — STOP-and-escalate hygiene.** No AC-locked deferrals embedded inline. The two block comments are rationale, not deferral notes. ✓
+
+**Test suite regression check.** `npm test` reports 1818 pass / 0 fail / 0 skip. Zero regressions. The 6 new tests (T40-T45) all pass. Pre-existing AC4 storage-write invariant test continues to pass — Fix C does not introduce any new tab-event-handler storage writes (the new `existing`-guard is inside the mutator that was already running, and the cold-start dedup is in `reassociateFloatingGroups` which is not on the synchronous tab-event handler path).
+
+### Summary
+
+| Severity | Count |
+|----------|-------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 1 (deferrable / informational — line-citation drift) |
+
+Fix C is surgically scoped, structurally correct, defensively coded, and follows established project patterns. The single LOW-priority observation (line-citation drift in three internal references after Fix A shifted line numbers) is informational only and not blocking. Approved for merge from `[code-reviewer]`.
+
+_Review completed by [code-reviewer] on 2026-04-29 against `feature/sprint-41-floating-tab-id` working-tree diff (Fix C delta on top of merged Fix A + Fix B)._

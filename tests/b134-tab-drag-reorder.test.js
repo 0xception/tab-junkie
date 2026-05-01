@@ -89,6 +89,7 @@ import {
   moveFloatingTab,
   appendFloatingGroup,
   pruneFloatingGroupsByLiveTabId,
+  reassociateFloatingGroups,
 } from '../background/tabs/floating-groups.js';
 import { buildFloatingMembers } from '../background/tabs/floating-members.js';
 import { registerStorageHandlers } from '../background/messages/storage-handlers.js';
@@ -1661,4 +1662,273 @@ test('Fix B T5 (source-text pin): _computeStripInsertIndex exists and is invoked
     'helper reads from _tabDragRectCache.openTabsByWindow');
   assert.match(fnMatch[1], /_cachedOpenTabsById\.get/,
     'helper looks up tabIndex via _cachedOpenTabsById');
+});
+
+/* =========================================================================
+   FIX C (pre-v1.35.0 hotfix bundle) — dedup duplicate `tj:floatingGroups`
+   records by triple `(liveTabId, parentItemId, groupId)`.
+
+   Authoritative spec: docs/findings/post-s41-pre-merge-triage.md Issue C.
+
+   Failure mode this closes: pre-fix, user's smoke-test SW-console showed
+   duplicate `tj:floatingGroups` records with the same triple. The
+   `reorderFloatingMembers` parity check at floating-groups.js:455-459
+   compared raw `storageBucketSize` (counts duplicates) against
+   `supplied.size` (deduped descriptor count from `buildFloatingMembers`)
+   → ERR_RACE on every legitimate reorder. Root cause: `appendFloatingGroup`
+   blindly pushed a new record on every opener-chain inheritance event;
+   re-evaluation of the same tab+parent created duplicates.
+
+   B-141 self-application: B-137 §66.1 claimed structural elimination of
+   Issue 3; B-137 closed the resolver half, Fix A closed the orphan-on-
+   close half, this Fix C closes the duplicate-on-write half — same parity
+   check, same user-visible toast.
+
+   T40 — Part 1: `appendFloatingGroup` dedup-on-write — calling twice with
+         the same triple yields ONE record (Option A: no-op on duplicate).
+   T41 — Part 1: same `liveTabId` + DIFFERENT `parentItemId` is a
+         legitimate coexistence (user's record-9 case) and MUST be kept.
+   T42 — Part 1: same `liveTabId` + same `parentItemId` + DIFFERENT
+         `groupId` is also kept — triple key is the most-specific guard.
+   T43 — Part 2 + end-to-end repro: seed pre-existing duplicate records
+         (user-data shape), call `reassociateFloatingGroups`, assert
+         storage is deduped, then dispatch `MSG_REORDER_FLOATING_MEMBERS`
+         and assert it returns `{ reordered: true }` (NOT ERR_RACE).
+   T44 — Part 2: cold-start dedup keeps the highest-`savedAt` survivor.
+   T45 — Part 2 regression guard: legitimate non-duplicate records (same
+         `liveTabId` but different `parentItemId`) survive the cold-start
+         dedup pass intact.
+   ========================================================================= */
+
+test('Fix C T40 (Part 1): appendFloatingGroup dedup-on-write — second call with the same (liveTabId, parentItemId, groupId) triple is a no-op', async () => {
+  const g = await createGroup({ name: 'G1', color: COLOR, parentId: null, sortOrder: 0 });
+  const item = await createItem({ title: 'parent', url: 'https://parent.example', groupId: g.id });
+
+  __setMockTabs([
+    { id: 100, url: 'https://a.example', windowId: 1, active: false, audible: false, index: 0 },
+  ]);
+  await buildLiveTabIndex();
+
+  await appendFloatingGroup({
+    groupId: g.id, parentItemId: item.id,
+    windowId: 1, tabIndex: 0, url: 'https://a.example', savedAt: 1000,
+    liveTabId: 100,
+  });
+  /* Repeated opener-chain inheritance for the same tab+parent — pre-fix
+     this would push a second record; post-fix it is a no-op. */
+  await appendFloatingGroup({
+    groupId: g.id, parentItemId: item.id,
+    windowId: 1, tabIndex: 0, url: 'https://a.example', savedAt: 2000,
+    liveTabId: 100,
+  });
+
+  const records = __getRawStore('tj:floatingGroups');
+  assert.equal(records.length, 1,
+    'dedup-on-write: only ONE record present after two appends with the same triple');
+  /* The original record's floatingTabId is preserved (Option A semantics —
+     the existing record's stable storage identity wins; the second call
+     does NOT update savedAt, windowId, tabIndex, or url). */
+  assert.equal(records[0].savedAt, 1000,
+    'Option A: original savedAt preserved (no in-place update)');
+});
+
+test('Fix C T41 (Part 1): same liveTabId + DIFFERENT parentItemId is a legitimate coexistence (user-data record-9 case) — both records preserved', async () => {
+  const g = await createGroup({ name: 'G1', color: COLOR, parentId: null, sortOrder: 0 });
+  const itemA = await createItem({ title: 'parent A', url: 'https://parentA.example', groupId: g.id });
+  const itemB = await createItem({ title: 'parent B', url: 'https://parentB.example', groupId: g.id });
+
+  __setMockTabs([
+    { id: 803725428, url: 'https://shared.example', windowId: 1, active: false, audible: false, index: 0 },
+  ]);
+  await buildLiveTabIndex();
+
+  /* Same liveTabId — but registered under TWO different parents. This is
+     the exact user-data shape: record 9 had liveTabId 803725428 with a
+     DIFFERENT parentItemId from records 7/12 (which were duplicates of
+     each other). The triple-keyed dedup MUST allow this coexistence. */
+  await appendFloatingGroup({
+    groupId: g.id, parentItemId: itemA.id,
+    windowId: 1, tabIndex: 0, url: 'https://shared.example', savedAt: 1000,
+    liveTabId: 803725428,
+  });
+  await appendFloatingGroup({
+    groupId: g.id, parentItemId: itemB.id,
+    windowId: 1, tabIndex: 0, url: 'https://shared.example', savedAt: 2000,
+    liveTabId: 803725428,
+  });
+
+  const records = __getRawStore('tj:floatingGroups');
+  assert.equal(records.length, 2,
+    'different parentItemId → both records preserved (regression guard)');
+  const parentIds = new Set(records.map((r) => r.parentItemId));
+  assert.ok(parentIds.has(itemA.id), 'record under parent A preserved');
+  assert.ok(parentIds.has(itemB.id), 'record under parent B preserved');
+});
+
+test('Fix C T42 (Part 1): same liveTabId + same parentItemId + DIFFERENT groupId is also preserved — triple key includes groupId', async () => {
+  const gA = await createGroup({ name: 'G_A', color: COLOR, parentId: null, sortOrder: 0 });
+  const gB = await createGroup({ name: 'G_B', color: COLOR, parentId: null, sortOrder: 1 });
+  /* Same parent item id used in both groups — synthetic edge case to
+     verify the triple-key invariant (groupId is part of the key). */
+  const item = await createItem({ title: 'parent', url: 'https://parent.example', groupId: gA.id });
+
+  __setMockTabs([
+    { id: 200, url: 'https://x.example', windowId: 1, active: false, audible: false, index: 0 },
+  ]);
+  await buildLiveTabIndex();
+
+  await appendFloatingGroup({
+    groupId: gA.id, parentItemId: item.id,
+    windowId: 1, tabIndex: 0, url: 'https://x.example', savedAt: 1000,
+    liveTabId: 200,
+  });
+  await appendFloatingGroup({
+    groupId: gB.id, parentItemId: item.id,
+    windowId: 1, tabIndex: 0, url: 'https://x.example', savedAt: 2000,
+    liveTabId: 200,
+  });
+
+  const records = __getRawStore('tj:floatingGroups');
+  assert.equal(records.length, 2, 'different groupId → both records preserved');
+  const groupIds = new Set(records.map((r) => r.groupId));
+  assert.ok(groupIds.has(gA.id) && groupIds.has(gB.id),
+    'both group buckets retain their record');
+});
+
+test('Fix C T43 (Part 2 + e2e): pre-existing duplicate records — reassociateFloatingGroups dedupes; subsequent reorder returns reordered:true (NOT ERR_RACE)', async () => {
+  /* Direct repro of the user's smoke-test bug. Seed storage with the
+     exact shape the user observed: one group with two distinct floating
+     tabs, but each has a duplicate record by triple. Pre-fix:
+     reorder fails parity (storageBucketSize=4 ≠ supplied.size=2 →
+     ERR_RACE). Post-fix: reassociateFloatingGroups collapses to 2,
+     reorder succeeds. */
+  const g = await createGroup({ name: 'G1', color: COLOR, parentId: null, sortOrder: 0 });
+  const item = await createItem({ title: 'parent', url: 'https://parent.example', groupId: g.id });
+
+  __setMockTabs([
+    { id: 803725023, url: 'https://a.example', windowId: 1, active: false, audible: false, index: 0 },
+    { id: 803725344, url: 'https://b.example', windowId: 1, active: false, audible: false, index: 1 },
+  ]);
+  await buildLiveTabIndex();
+  registerTabEventListeners(Promise.resolve());
+  await reconcileClaims([{ id: item.id, url: 'https://parent.example', sortOrder: 0 }]);
+
+  /* Seed pre-existing duplicates directly via seedPartitions so we
+     exercise the cold-start cleanup path (NOT the new dedup-on-write
+     guard). Two records per liveTabId — total 4. */
+  seedPartitions({
+    floatingGroups: [
+      { floatingTabId: 'fl-A-old', groupId: g.id, parentItemId: item.id,
+        windowId: 1, tabIndex: 0, url: 'https://a.example',
+        savedAt: 1000, sortOrder: 0, liveTabId: 803725023 },
+      { floatingTabId: 'fl-B-old', groupId: g.id, parentItemId: item.id,
+        windowId: 1, tabIndex: 1, url: 'https://b.example',
+        savedAt: 1100, sortOrder: 1, liveTabId: 803725344 },
+      /* ~2.3h later, opener-chain re-fired and (pre-fix) appended duplicates: */
+      { floatingTabId: 'fl-A-new', groupId: g.id, parentItemId: item.id,
+        windowId: 1, tabIndex: 0, url: 'https://a.example',
+        savedAt: 9000, sortOrder: 2, liveTabId: 803725023 },
+      { floatingTabId: 'fl-B-new', groupId: g.id, parentItemId: item.id,
+        windowId: 1, tabIndex: 1, url: 'https://b.example',
+        savedAt: 9100, sortOrder: 3, liveTabId: 803725344 },
+    ],
+  });
+
+  assert.equal(__getRawStore('tj:floatingGroups').length, 4, 'pre-cleanup: 4 records (2 dupes)');
+
+  /* Cold-start re-association — Part 2 dedup pass collapses duplicates. */
+  await reassociateFloatingGroups(getLiveTabIndex(), {});
+
+  const after = __getRawStore('tj:floatingGroups');
+  assert.equal(after.length, 2,
+    'post-dedup: storage collapsed from 4 → 2 records (one per liveTabId triple)');
+  const survivorFloatingTabIds = new Set(after.map((r) => r.floatingTabId));
+  assert.ok(survivorFloatingTabIds.has('fl-A-new') && survivorFloatingTabIds.has('fl-B-new'),
+    'survivors are the highest-savedAt records (fl-A-new + fl-B-new)');
+
+  /* Critical regression guard: post-dedup reorder must succeed. Pre-fix,
+     storageBucketSize=4 vs supplied.size=2 → false → ERR_RACE toast. */
+  const dispatch = setupHandlers();
+  const resp = await dispatch(MSG_REORDER_FLOATING_MEMBERS, {
+    groupId: g.id,
+    orderedTabIds: [803725344, 803725023],
+  });
+
+  assert.equal(resp.ok, true, 'handler returns ok');
+  assert.equal(resp.data.reordered, true,
+    'Fix C regression guard: post-dedup reorder MUST return reordered:true (NOT ERR_RACE)');
+  assert.equal(resp.data.reason, undefined, 'no race-failure reason on success');
+});
+
+test('Fix C T44 (Part 2): cold-start dedup keeps the highest-savedAt survivor', async () => {
+  const g = await createGroup({ name: 'G1', color: COLOR, parentId: null, sortOrder: 0 });
+  const item = await createItem({ title: 'parent', url: 'https://parent.example', groupId: g.id });
+
+  __setMockTabs([
+    { id: 500, url: 'https://x.example', windowId: 1, active: false, audible: false, index: 0 },
+  ]);
+  await buildLiveTabIndex();
+
+  /* Three records share the triple — savedAts 1000, 5000, 3000. The
+     winner must be 5000 (highest), regardless of iteration order. */
+  seedPartitions({
+    floatingGroups: [
+      { floatingTabId: 'fl-low',  groupId: g.id, parentItemId: item.id,
+        windowId: 1, tabIndex: 0, url: 'https://x.example',
+        savedAt: 1000, sortOrder: 0, liveTabId: 500 },
+      { floatingTabId: 'fl-high', groupId: g.id, parentItemId: item.id,
+        windowId: 1, tabIndex: 0, url: 'https://x.example',
+        savedAt: 5000, sortOrder: 1, liveTabId: 500 },
+      { floatingTabId: 'fl-mid',  groupId: g.id, parentItemId: item.id,
+        windowId: 1, tabIndex: 0, url: 'https://x.example',
+        savedAt: 3000, sortOrder: 2, liveTabId: 500 },
+    ],
+  });
+
+  await reassociateFloatingGroups(getLiveTabIndex(), {});
+
+  const after = __getRawStore('tj:floatingGroups');
+  assert.equal(after.length, 1, 'three duplicates collapse to one survivor');
+  assert.equal(after[0].floatingTabId, 'fl-high',
+    'survivor is the highest-savedAt record (5000), not iteration-order-dependent');
+  assert.equal(after[0].savedAt, 5000);
+});
+
+test('Fix C T45 (Part 2 regression guard): legitimate same-liveTabId + different-parentItemId records are NOT deduped', async () => {
+  /* Mirrors user-data record 9: same liveTabId as records 7/12, but
+     different parentItemId. The dedup pass MUST preserve this case. */
+  const g = await createGroup({ name: 'G1', color: COLOR, parentId: null, sortOrder: 0 });
+  const itemA = await createItem({ title: 'parent A', url: 'https://parentA.example', groupId: g.id });
+  const itemB = await createItem({ title: 'parent B', url: 'https://parentB.example', groupId: g.id });
+
+  __setMockTabs([
+    { id: 803725428, url: 'https://shared.example', windowId: 1, active: false, audible: false, index: 0 },
+  ]);
+  await buildLiveTabIndex();
+
+  seedPartitions({
+    floatingGroups: [
+      /* Two duplicates under parent A (must collapse to 1): */
+      { floatingTabId: 'fl-A-old', groupId: g.id, parentItemId: itemA.id,
+        windowId: 1, tabIndex: 0, url: 'https://shared.example',
+        savedAt: 1000, sortOrder: 0, liveTabId: 803725428 },
+      { floatingTabId: 'fl-A-new', groupId: g.id, parentItemId: itemA.id,
+        windowId: 1, tabIndex: 0, url: 'https://shared.example',
+        savedAt: 9000, sortOrder: 1, liveTabId: 803725428 },
+      /* One under parent B (must survive — different triple): */
+      { floatingTabId: 'fl-B-only', groupId: g.id, parentItemId: itemB.id,
+        windowId: 1, tabIndex: 0, url: 'https://shared.example',
+        savedAt: 5000, sortOrder: 2, liveTabId: 803725428 },
+    ],
+  });
+
+  await reassociateFloatingGroups(getLiveTabIndex(), {});
+
+  const after = __getRawStore('tj:floatingGroups');
+  assert.equal(after.length, 2,
+    'parent-A duplicates collapse (2→1); parent-B record preserved (different triple)');
+  const survivorIds = new Set(after.map((r) => r.floatingTabId));
+  assert.ok(survivorIds.has('fl-A-new'),  'parent-A survivor is the highest-savedAt');
+  assert.ok(survivorIds.has('fl-B-only'), 'parent-B record preserved (legitimate coexistence)');
+  assert.ok(!survivorIds.has('fl-A-old'), 'parent-A older duplicate dropped');
 });

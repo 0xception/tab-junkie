@@ -86,26 +86,31 @@ export async function saveFloatingGroups(entries) {
 /**
  * Re-associate floating-group records on cold start.
  *
- * Algorithm (B-121 §60.4.3 + B-137 §66.7):
- *   1. TIER (a) DIRECT TABID MATCH (B-137): record.liveTabId is finite AND
+ * Algorithm (B-121 §60.4.3 + B-137 §66.7 + Fix C Part 2):
+ *   1. DEDUP PASS (Fix C Part 2): walk records by triple
+ *      (liveTabId, parentItemId, groupId); duplicates collapse to the
+ *      single highest-`savedAt` survivor. Older duplicates are queued for
+ *      prune. Records lacking `floatingTabId` are excluded from the dedup
+ *      pass (their resolver paths handle them).
+ *   2. TIER (a) DIRECT TABID MATCH (B-137): record.liveTabId is finite AND
  *      liveTabIndex.has(record.liveTabId).
- *   2. POSITION MATCH: find live tab where windowId === record.windowId
+ *   3. POSITION MATCH: find live tab where windowId === record.windowId
  *      AND index === record.tabIndex.
- *   3. URL FALLBACK: if no position match, find tab where
+ *   4. URL FALLBACK: if no position match, find tab where
  *      normalizeForMatch(stored.url) === normalizeForMatch(tab.url).
- *   4. If matched AND already claimed: prune the record.
- *   5. If matched AND unclaimed AND record.liveTabId differs from the
+ *   5. If matched AND already claimed: prune the record.
+ *   6. If matched AND unclaimed AND record.liveTabId differs from the
  *      resolved tabId (legacy v3 record OR v4 record with stale liveTabId):
  *      LAZY-REWRITE record.liveTabId to the resolved tabId (B-137 §66.7).
- *   6. If matched AND unclaimed AND record.liveTabId already matches:
+ *   7. If matched AND unclaimed AND record.liveTabId already matches:
  *      LEAVE IN PLACE (runtime render path surfaces it).
- *   7. If no match: leave in place per B-018 AC9.
+ *   8. If no match: leave in place per B-018 AC9.
  *
  * The function does NOT mutate `claimsMirror`. Parent claims established
  * by reconcileClaims are preserved unconditionally (AC7). The lazy
- * `liveTabId` rewrite (step 5) piggybacks on the existing
- * `pruneResolvedFloatingGroups` writeTransaction so cold-start storage
- * mutations remain a single atomic write.
+ * `liveTabId` rewrite (step 6) and the Fix C Part 2 dedup-prune both
+ * piggyback on the existing `pruneResolvedFloatingGroups` writeTransaction
+ * so cold-start storage mutations remain a single atomic write.
  *
  * @param {Map<number, {url: string, windowId: number, active: boolean,
  *                     audible: boolean, index: number}>} liveTabIndex
@@ -132,6 +137,65 @@ export async function reassociateFloatingGroups(liveTabIndex, existingClaims) {
    *  shape — are not lazy-rewritten; they self-evict via natural turnover). */
   /** @type {Map<string, number>} */
   const staleLiveTabIdRecords = new Map();
+
+  /** Origin: docs/findings/post-s41-pre-merge-triage.md Issue C — Fix C
+   *  Part 2 (cold-start dedup). Walk records grouped by the triple
+   *  (liveTabId, parentItemId, groupId); when N > 1 records share a
+   *  triple, mark the (N-1) older-by-`savedAt` records' `floatingTabId`s
+   *  for prune. The most-recent `savedAt` survives — that record
+   *  represents the latest state of the inheritance event.
+   *
+   *  Pre-existing duplicate cleanup: this dedup pass exists because some
+   *  installations already shipped Sprint 38–41 builds without the Part 1
+   *  dedup-on-write guard, and their stored partitions contain
+   *  pre-existing duplicate records. New installs (with Part 1 in place)
+   *  will never produce duplicates, so this pass becomes a structural
+   *  no-op for them.
+   *
+   *  Records lacking `floatingTabId` (pre-S38 legacy shape) are excluded
+   *  from this dedup pass — they are pruned only by their own resolver
+   *  paths above. The dedup key uses the storage identity
+   *  `floatingTabId`, mirroring the prune branch's keying convention.
+   *
+   *  Lazy-rewrite interaction: a record may be both stale-liveTabId
+   *  (queued for patch via `staleLiveTabIdRecords`) AND the survivor of a
+   *  duplicate group. This is consistent — the patch branch in
+   *  `pruneResolvedFloatingGroups` only fires for records that survive
+   *  the prune filter; the dedup-prune branch and stale-liveTabId
+   *  patch branch co-exist by floatingTabId-keyed lookup. */
+  /** @type {Set<string>} */
+  const duplicateFloatingTabIds = new Set();
+  /** @type {Map<string, {floatingTabId: string, savedAt: number}>}
+   *  triple-key → survivor candidate (highest savedAt seen so far) */
+  const tripleSurvivors = new Map();
+  for (const record of records) {
+    if (!record || typeof record !== 'object') continue;
+    if (typeof record.floatingTabId !== 'string' || record.floatingTabId.length === 0) {
+      continue;
+    }
+    if (typeof record.liveTabId !== 'number' || !Number.isFinite(record.liveTabId)) {
+      continue;
+    }
+    const parentId = getParentItemId(record);
+    if (!parentId) continue;
+    if (typeof record.groupId !== 'string' || record.groupId.length === 0) continue;
+    const tripleKey = `${record.liveTabId}|${parentId}|${record.groupId}`;
+    const savedAt = (typeof record.savedAt === 'number' && Number.isFinite(record.savedAt))
+      ? record.savedAt : 0;
+    const prior = tripleSurvivors.get(tripleKey);
+    if (!prior) {
+      tripleSurvivors.set(tripleKey, { floatingTabId: record.floatingTabId, savedAt });
+      continue;
+    }
+    /* Two records share the triple — keep the higher savedAt as survivor;
+       mark the loser for prune. */
+    if (savedAt > prior.savedAt) {
+      duplicateFloatingTabIds.add(prior.floatingTabId);
+      tripleSurvivors.set(tripleKey, { floatingTabId: record.floatingTabId, savedAt });
+    } else {
+      duplicateFloatingTabIds.add(record.floatingTabId);
+    }
+  }
 
   for (const record of records) {
     if (!record || typeof record !== 'object') continue;
@@ -188,6 +252,17 @@ export async function reassociateFloatingGroups(liveTabIndex, existingClaims) {
     }
     // matched + unclaimed + liveTabId already correct → leave in place
     // not matched → leave in place per AC9
+  }
+
+  /* Fix C Part 2 — merge `duplicateFloatingTabIds` into the prune set
+     handed to `pruneResolvedFloatingGroups`. Both sets target records by
+     `floatingTabId` and both result in the same outcome (record dropped
+     from storage), so a single union is sufficient — no new mutator
+     argument required. The lazy-rewrite branch below the prune branch is
+     unaffected: the survivor's `floatingTabId` is NOT in the union, so
+     the patch (if queued) lands on the survivor record. */
+  for (const dupId of duplicateFloatingTabIds) {
+    resolvedFloatingTabIds.add(dupId);
   }
 
   if (resolvedFloatingTabIds.size > 0 || legacyResolvedParentItemIds.size > 0
@@ -256,6 +331,47 @@ export async function appendFloatingGroup(entry) {
     partition: PARTITION_FLOATING_GROUPS,
     mutator: (current) => {
       const arr = Array.isArray(current) ? current : [];
+
+      /* Origin: docs/findings/post-s41-pre-merge-triage.md Issue C — pre-
+         v1.35.0 hotfix bundle Fix C. Closes the duplicate-record failure
+         mode that surfaces in the SW-console `tj:floatingGroups` partition
+         and breaks `reorderFloatingMembers` parity (floating-groups.js:397-
+         401: `storageBucketSize` counts duplicates, `supplied.size` is
+         deduped → ERR_RACE on every legitimate reorder).
+
+         Dedup key is the triple `(liveTabId, parentItemId, groupId)`.
+         User-data evidence: records 7/12 (`liveTabId 803725428`,
+         `parentItemId 01KQ37HNDV342WNA3V120MCRW0`) are duplicates and must
+         collapse; record 9 (`liveTabId 803725428` BUT
+         `parentItemId 01KQ37HNDV342WNA3V120MCRXS` — different parent) is a
+         legitimate "same tab is a floating member of two parents"
+         coexistence and MUST be preserved. The triple is the most-specific
+         key that captures both invariants.
+
+         B-141 self-application: B-137 §66.1 claimed to "structurally
+         eliminate" Issue 3 (race-toast) from the post-S40 spike. B-137
+         closed the resolver half; Fix A closed the orphan-on-close half;
+         this Fix C closes the duplicate-on-write half. All three converge
+         on the same parity check (line 397-401 above).
+
+         Option A semantics: when a matching triple exists, no-op (return
+         the array unchanged). Rationale: the existing record's
+         `floatingTabId` is the stable storage identity; preserving it
+         avoids invalidating any in-flight references. Drift in
+         `windowId` / `tabIndex` / `url` is recovered by the read-path
+         tier-(b) `(windowId, tabIndex)` geometry fallback in
+         `_resolveRecordIndexByTabId` (line 322-345 above) and by cold-start
+         re-bind in `reassociateFloatingGroups` (line 115-201 above), so
+         in-place updates are not required. */
+      const existing = arr.find((r) => r
+        && typeof r === 'object'
+        && r.liveTabId === stamped.liveTabId
+        && getParentItemId(r) === stamped.parentItemId
+        && r.groupId === stamped.groupId);
+      if (existing) {
+        return arr;
+      }
+
       /* B-134 §63.2.4 / §63.13.1: stamp `sortOrder` = current_max_in_group + 1
          (or 0 when the group's bucket is empty). The mutator computes this
          inside the writeTransaction so concurrent appends to the same bucket
