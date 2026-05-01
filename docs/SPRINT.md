@@ -75,6 +75,64 @@ S41 left B-138 (post-B-137 cleanup, XS) DEFERRED — explicitly not part of S42 
 
 ---
 
+## Gate 4 — Release Checklist (sprint close)
+
+- ✅ All R4 review findings resolved — 0 CRIT · 0 HIGH open after fix-round (4 HIGHs fixed) · MED/LOW deferred per item-by-item rationale recorded in `docs/findings/sprint-42.md`
+- ✅ All R5 automated tests passing — **1,892 / 1,892 PASS** / 0 fail (+66 over 1826 baseline)
+- ✅ UAT sign-off recorded — PASS via lean smoke test 2026-05-01 (product-owner attestation in Edge)
+- ✅ No open blockers in SPRINT.md
+- ✅ Relevant `docs/design/67-b-041-chrome-tab-group-sync.md` chapter updated by [solution-architect] R6 (§67.12 As-Built appended) — root index `docs/SOLUTION_DESIGN.md` TOC entry added at R2
+- ✅ `manifest.json` permissions reviewed — no additions (`tabGroups` was already declared in a prior sprint)
+- ✅ `./build.sh` produces a clean package — `tab-junkie.zip` (404K, 92 files), exit 0
+- ✅ Rollback plan documented — `docs/design/67-b-041-chrome-tab-group-sync.md` §67.2.4 + §67.9 + §67.12.6 (validated)
+- ✅ README/STORE_LISTING/user-manual updated — `docs/user-manual/settings.md` Chrome Integration section added (R7)
+- ✅ `BACKLOG.md` updated — B-041 row narrowed to S42 scope, status `done | 42` (R3 doc-update commit `c25d4fb`)
+- ✅ `BACKLOG_BOARD.md` updated — B-041 ✅ + dashboard recalculated (135/142 = 95%, 1 in-progress flipped to done)
+- ✅ `SPRINT.md` "Completed This Sprint" section will be populated at archive step
+- ✅ `SPRINT_ARCHIVE.md` will be appended at archive step
+
+**Gate 4 status**: PASS — sprint cleared for release.
+
+---
+
+## Gate 7 — Sprint Retrospective
+
+### Velocity
+
+- **Planned**: 1 anchor item (B-041 — P2/M Full Tier 2)
+- **Completed**: 1 anchor item · v1.36.0 ready to ship
+- **Carried over**: 0
+- **Test count delta**: 1,826 → 1,892 PASS (+66 net: +38 R3 build · +25 R4 fix-round · +3 R5 gap-fill)
+- **Commits since `release/v2`**: 29 (sprint kickoff + setup → R1+R2 + spec/plan → 14 R3 build + R3 progress → R4 SPRINT update + 6 fix-round + R4 close → 2 R5 gap-fill + R5 close → R6+R7 docs)
+- **Files touched**: 40 (3 new source modules + 1 fix-round-emerged shared module + 11 source modifications + 11 new test files + 4 test modifications + ~10 doc files)
+- **Pipeline duration**: ~one calendar day end-to-end (kickoff 2026-05-01 morning → Gate 7 same evening)
+
+### What Went Well
+
+- **Spec-first → plan-first → build pipeline held cleanly.** 9-question brainstorm produced a tight spec (12 sections); spec produced a 2,120-line implementation plan; plan produced 15 task commits with zero R3 escalations. Three-document funnel paid for itself.
+- **R4 cross-reviewer convergence surfaced the highest-impact issues.** All three reviewers independently flagged the `_classifyError` mock-vs-real Chrome string mismatch (deferred MED on three reviewers' lists became a fix-round MED) and the spec §8.2 tab-gone integration test gap (HIGH after qa promotion). The convergence proved the value of running three reviewers in parallel rather than one sequential.
+- **Subagent dispatch cadence worked.** 5 subagent dispatches (1 R3 build · 3 parallel R4 reviewers · 1 R4 fix-round · 1 R5 gap-fill) at the heavy-lift rounds + inline R1/R2/R6/R7 at the formatting-heavy rounds saved ~50% tokens vs full-pipeline subagent cadence with no quality cost.
+- **R3 self-correction caught a R2 fix-scope miss in real time.** The b091 AC3/AC4 test pin update was found and fixed during R3 build, not at R4. R3 charter rules (cascade-prune sibling-grep, cross-surface diff self-check) continue to pull diagnostics earlier in the pipeline.
+- **Lean-mode UAT precedent held.** Product-owner smoke-test attestation is sufficient for a single-user extension; the formal 17-case `UAT_B-041.md` script remains in place as a regression-triage tool for any future bug investigation.
+
+### What to Improve
+
+- **Fix-scope test enumeration must include DOM-structural pins (third occurrence).** S36 B-113 D-3 + S37 B-117 R3 + now S42 B-041 D-1 — three sprints in a row of pre-existing test pins missed at R2. CLAUDE.md "Fix-scope test-assertion enumeration" subsection says "DOM structure, ARIA contract, message shape, CSS class semantics, selector contract, **CSS-token invariants**" — does NOT explicitly call out structural pins like fieldset count or section order. **Action item**: amend CLAUDE.md to include "DOM-structure assertions on shared surfaces" as an explicit fix-scope category. (See R6 §67.12.4 precedent #1.)
+- **Browser-API rejection-string contract was assumed stable, wasn't.** Spec §8.2 named "Tab gone mid-sync" as a required test but R3 wrote it against chrome-mock synthetic strings only. Real Chrome rejection messages differ; coverage was partly illusory until R4 fix-round caught it. **Action item**: file a new C-15 R2 checklist candidate — "If error classification depends on rejection messages, verify the actual Chrome message format (SW REPL probe) and document; mocks must emit verified format." (See R6 §67.12.4 precedent #2.)
+- **Multi-module shared-DOM ownership wasn't inventoried at R2.** Adding `settings-chrome-sync.js` as a second consumer of `#settings-toast` (existing consumer: `settings-import-export.js`) created a ghost-timer race that a R2 inventory would have flagged. **Action item**: amend CLAUDE.md "Shared File Governance" subsection to require an explicit "shared-surface consumer inventory" in R2 chapters that touch any element with `#settings-*` / `#sidepanel-*` / `#newtab-*` / etc. (See R6 §67.12.4 precedent #3.)
+
+### Action Items for Next Sprint
+
+- [ ] **B-XXX (filed during S43 kickoff)** — CLAUDE.md edit: extend "Fix-scope test-assertion enumeration" subsection to explicitly include DOM-structure assertions (fieldset counts, section orders, selector enumerations) on shared surfaces. R6 §67.12.4 precedent #1.
+- [ ] **B-XXX (filed during S43 kickoff)** — CLAUDE.md edit: add C-15 to R2 Correctness Checklist — "Browser-API rejection-string contract verification" (verify actual Chrome message format via SW REPL probe; mocks must emit the verified format if error classification depends on substring matches). R6 §67.12.4 precedent #2.
+- [ ] **B-XXX (filed during S43 kickoff)** — CLAUDE.md edit: extend "Shared File Governance" subsection to require explicit "shared-surface consumer inventory" in R2 chapters that touch shared DOM/state/timer surfaces. R6 §67.12.4 precedent #3.
+
+(Three Fast-Track-XS CLAUDE.md edit candidates for S43 — the established pattern for retro action items.)
+
+**Retrospective status**: WRITTEN — sprint may close.
+
+---
+
 ## Pipeline State
 
 | Round | Agent | Status | Notes |
