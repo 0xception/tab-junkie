@@ -72,8 +72,21 @@ const KNOWN_LEGACY_KEYS = ['junkie_bookmarks', 'junkie_groups', 'junkie_pinned_t
  * `reorderFloatingMembers` / `moveFloatingTab` always stamp `sortOrder`.
  * Legacy records self-evict naturally as their tabs close. C-1a + C-1b
  * compliance is recorded explicitly in §63.2.3 / §63.2.4.
+ *
+ * v4 (B-137 §66.2) — `tj:floatingGroups` records gain an OPTIONAL
+ * `liveTabId: number` field used as the primary live-session join key by
+ * `buildFloatingMembers` and `_resolveRecordIndexByTabId`. Lazy data
+ * migration (§66.2.2): the v3→v4 step is a no-op governance bump; legacy
+ * v3 records lacking `liveTabId` continue to resolve via the existing
+ * (windowId, tabIndex)-then-URL fallback in the 3-tier read path.
+ * `appendFloatingGroup` always stamps `liveTabId` on new writes (caller
+ * supplies via the `entry` object — `tab-events.js` opener-chain block has
+ * `tab.id` in scope per §66.5.5). `reassociateFloatingGroups` lazy-rewrites
+ * `liveTabId` onto matched-unclaimed legacy records as part of its existing
+ * `pruneResolvedFloatingGroups` write transaction (§66.7). C-1a + C-1b
+ * compliance recorded in §66.2.1 / §66.2.2.
  */
-export const KNOWN_VERSION = 3;
+export const KNOWN_VERSION = 4;
 
 /**
  * Ordered array of migration steps. Each step upgrades the schema from
@@ -108,6 +121,22 @@ const MIGRATION_STEPS = [
   {
     fromVersion: 2,
     toVersion: 3,
+    migrate: (snapshot) => snapshot,
+  },
+  /* B-137 §66.2.1 / §66.2.2 — v3 → v4 governance bump. No-op migrate: lazy
+     data migration (option 2). `buildFloatingMembers` and
+     `_resolveRecordIndexByTabId` adopt a 3-tier join — direct `liveTabId`
+     match (tier a) → `(windowId, tabIndex)` position match (tier b) → URL
+     fallback (tier c). Legacy v3 records (no `liveTabId`) resolve through
+     tier b/c verbatim; new writes via `appendFloatingGroup` /
+     `moveFloatingTab` always stamp `liveTabId`. `reassociateFloatingGroups`
+     lazy-rewrites `liveTabId` onto matched-unclaimed legacy records on the
+     next cold-start re-bind. Records self-evict via natural turnover. The
+     governance bump is required by C-1a even when the data migration is
+     lazy (C-1b option 2). */
+  {
+    fromVersion: 3,
+    toVersion: 4,
     migrate: (snapshot) => snapshot,
   },
 ];

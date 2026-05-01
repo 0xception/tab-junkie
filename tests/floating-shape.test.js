@@ -104,6 +104,7 @@ test('B-121: appendFloatingGroup auto-stamps a floatingTabId (ulid)', async () =
     tabIndex: 2,
     url: 'https://example.com/new',
     savedAt: Date.now(),
+    liveTabId: 100,
   });
 
   const records = await readPartition(PARTITION_FLOATING_GROUPS);
@@ -122,6 +123,7 @@ test('B-134 §63.13.2: appendFloatingGroup stamps numeric sortOrder (schema v3)'
     tabIndex: 0,
     url: 'https://first.example',
     savedAt: 1000,
+    liveTabId: 100,
   });
   /* Second record into same group → sortOrder: 1 (max + 1). */
   await appendFloatingGroup({
@@ -131,6 +133,7 @@ test('B-134 §63.13.2: appendFloatingGroup stamps numeric sortOrder (schema v3)'
     tabIndex: 1,
     url: 'https://second.example',
     savedAt: 2000,
+    liveTabId: 101,
   });
 
   const records = await readPartition(PARTITION_FLOATING_GROUPS);
@@ -152,6 +155,7 @@ test('B-134 §63.13.2: appendFloatingGroup sortOrder is per-bucket (different gr
     tabIndex: 0,
     url: 'https://a.example',
     savedAt: 1000,
+    liveTabId: 200,
   });
   await appendFloatingGroup({
     groupId: 'g-B',
@@ -160,6 +164,7 @@ test('B-134 §63.13.2: appendFloatingGroup sortOrder is per-bucket (different gr
     tabIndex: 1,
     url: 'https://b.example',
     savedAt: 2000,
+    liveTabId: 201,
   });
 
   const records = await readPartition(PARTITION_FLOATING_GROUPS);
@@ -178,6 +183,7 @@ test('B-121: appendFloatingGroup tolerates legacy `itemId` field on the way in',
     tabIndex: 0,
     url: 'https://legacy.example/p',
     savedAt: Date.now(),
+    liveTabId: 300,
   });
 
   const records = await readPartition(PARTITION_FLOATING_GROUPS);
@@ -199,4 +205,92 @@ test('B-121: saveFloatingGroups does NOT auto-stamp a floatingTabId', async () =
   const records = await readPartition(PARTITION_FLOATING_GROUPS);
   assert.equal(records.length, 1);
   assert.equal(records[0].floatingTabId, undefined, 'saveFloatingGroups writes verbatim');
+});
+
+/* =========================================================================
+   B-137 §66.5 — appendFloatingGroup stamps liveTabId (schema v4).
+   New tests pinning the v4 contract: liveTabId is REQUIRED on input,
+   auto-stamped onto every record, and saveFloatingGroups remains verbatim.
+   ========================================================================= */
+
+test('B-137 §66.5: appendFloatingGroup stamps numeric liveTabId from caller-supplied entry', async () => {
+  await appendFloatingGroup({
+    groupId: 'g-v4',
+    parentItemId: 'item-v4',
+    windowId: 5,
+    tabIndex: 7,
+    url: 'https://v4.example/page',
+    savedAt: 1000,
+    liveTabId: 4242,
+  });
+
+  const records = await readPartition(PARTITION_FLOATING_GROUPS);
+  assert.equal(records.length, 1);
+  assert.equal(typeof records[0].liveTabId, 'number');
+  assert.ok(Number.isFinite(records[0].liveTabId), 'liveTabId must be finite');
+  assert.equal(records[0].liveTabId, 4242, 'caller-supplied tabId persisted verbatim');
+});
+
+test('B-137 §66.5.3: appendFloatingGroup silently rejects entries missing liveTabId', async () => {
+  /* Missing liveTabId → silent return (matches existing input-validator
+     early-return pattern). No record written. */
+  await appendFloatingGroup({
+    groupId: 'g-no-id',
+    parentItemId: 'item-no-id',
+    windowId: 1,
+    tabIndex: 0,
+    url: 'https://no-id.example',
+    savedAt: 1000,
+    /* deliberately no liveTabId */
+  });
+
+  const records = await readPartition(PARTITION_FLOATING_GROUPS);
+  assert.equal(records === undefined || (Array.isArray(records) && records.length === 0), true,
+    'no record written when liveTabId is missing');
+});
+
+test('B-137 §66.5.3: appendFloatingGroup silently rejects entries with non-finite liveTabId', async () => {
+  await appendFloatingGroup({
+    groupId: 'g-bad-id',
+    parentItemId: 'item-bad-id',
+    windowId: 1,
+    tabIndex: 0,
+    url: 'https://bad-id.example',
+    savedAt: 1000,
+    liveTabId: NaN,  // non-finite — rejected
+  });
+  await appendFloatingGroup({
+    groupId: 'g-bad-id-2',
+    parentItemId: 'item-bad-id-2',
+    windowId: 1,
+    tabIndex: 0,
+    url: 'https://bad-id-2.example',
+    savedAt: 1000,
+    liveTabId: 'not-a-number',  // wrong type — rejected
+  });
+
+  const records = await readPartition(PARTITION_FLOATING_GROUPS);
+  assert.equal(records === undefined || (Array.isArray(records) && records.length === 0), true,
+    'no record written for non-finite or wrong-type liveTabId');
+});
+
+test('B-137 §66.8.6: saveFloatingGroups does NOT auto-stamp liveTabId (verbatim writes)', async () => {
+  /* saveFloatingGroups is the legacy/demote write path — caller controls
+     the entire shape. The v4 contract preserves this verbatim behavior:
+     records may include liveTabId (in which case it persists) or omit it
+     (in which case the record is written as v3-shaped). */
+  await saveFloatingGroups([{
+    groupId: 'g-save',
+    parentItemId: 'item-save',
+    windowId: 1,
+    tabIndex: 0,
+    url: 'https://save.example',
+    savedAt: 1000,
+    /* deliberately no liveTabId */
+  }]);
+
+  const records = await readPartition(PARTITION_FLOATING_GROUPS);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].liveTabId, undefined,
+    'saveFloatingGroups does NOT auto-stamp liveTabId — verbatim writes');
 });

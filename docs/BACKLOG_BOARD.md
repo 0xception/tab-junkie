@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-30 · **Version:** 2.40.2 · **Total Items:** 138 · **B-136 DONE Fast Track (R4 both reviewers CLEAN, 0 findings); v1.34.1 release in flight. B-137 P1/M S41 anchor queued (subsumes B-131). B-138 + B-139 process candidates queued. Branch: `hotfix/v1.34.1-b-136` off release/v2.**
+**Updated:** 2026-04-30 · **Version:** 2.41 · **Total Items:** 142 · **Sprint 41 closing. 6 items shipped (B-137 anchor + B-139..B-143 CLAUDE.md gates) + 1 DEFERRED (B-138 cleanup retained for future sprint per As-Built §66.18.11). Gate 4 + Gate 7 + release v1.35.0 in flight. Branch: `feature/sprint-41-floating-tab-id` off release/v2.**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  92% (128/138)  [B-136 DONE · v1.34.1 release in flight · B-137 S41 anchor queued]
+Overall Progress    ███████████████████░  94% (134/142)  [S41 closing · 6 items done + B-138 DEFERRED · release v1.35.0 in flight]
 ```
 
 ### Legend
@@ -277,14 +277,18 @@ Overall Progress    ██████████████████░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 127 | 92% |
+| ✅ Done | 134 | 94% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 8 | 6% |
+| ⬜ To Do | 5 | 4% |
 | 🧊 Icebox | 3 | 2% |
 
-(Done count: 127 code-shipping. B-131 reclassified `superseded-by-B-137` — bug is structural and being addressed in B-137.)
+(Done count: 134 code-shipping. B-131 reclassified `superseded-by-B-137`. B-138 reverted to `backlog | TBD` post-S41 — DEFERRED per B-137 As-Built §66.18.11.)
 
-**In Progress breakdown**: _0 items in flight (B-136 DONE; v1.34.1 release-manager next)._
+**In Progress breakdown**: _0 items in flight._
+
+**To-Do breakdown (5 items)**:
+- 🟡 **P2** (3): B-041 sync tab order (L) · B-076 MIGRATION_STEPS hook (S) · **B-138** post-B-137 cleanup (XS, DEFERRED)
+- ⚪ **P3** (2): **B-135** cross-window Open Tabs drag (deferred from B-134 v1) · B-086 sidepanel UI/UX umbrella (M)
 
 **To-Do breakdown (8 items)**:
 - 🔴 **P1** (1 — Sprint 41 anchor candidate): **B-137** floatingGroups schema v3→v4 (adopt `floatingTabId` as primary live-tab join key; subsumes B-131)

@@ -30,7 +30,14 @@
  *        from an orphan _cachedDriftRecords entry stays hidden.
  *   T4 — AC2 reconcileClaims clears drift for claims evicted in Phase 1
  *        when the tab is missing from LiveTabIndex (PRIMARY leak repro).
- *   T5 — AC2 reconcileClaims clears drift on URL-mismatch eviction.
+ *   T5 — B-149 INVERSION (Sprint 41 polish): reconcileClaims PRESERVES a
+ *        URL-mismatched-but-live claim across Phase 1 cold-start (and
+ *        retains the paired drift record). The pre-B-149 assertion that
+ *        Phase 1 evicted URL-mismatched claims and paired-cleared drift
+ *        was a silent violation of B-099 D-1 at the SW-cold-start
+ *        boundary; B-149 fixes the cold-start path and inverts T5.
+ *        Legitimate eviction (missing tab) continues to be covered by T4;
+ *        over-clearing guard continues to live in T6.
  *   T6 — AC2 regression guard: surviving claims keep their drift records
  *        (no over-clearing).
  *   T7 — AC2 source patch SECONDARY leak: storage-handlers.js MSG_NAVIGATE
@@ -59,6 +66,7 @@ import {
   __resetMock,
   __setMockTabs,
   __setSessionStore,
+  __getSessionStore,
   seedPartitions,
 } from './chrome-mock.js';
 import {
@@ -233,13 +241,21 @@ test('B-110 T4 (AC2 PRIMARY): reconcileClaims clears drift when claim evicted vi
 });
 
 /* =========================================================================
-   T5 — AC2 URL-mismatch eviction also clears drift. The §53.2 audit
-   identifies three eviction conditions; T4 covers the missing-tab path,
-   T5 covers the URL-mismatch path. (The third condition — saved item
-   deleted while SW asleep — is not testable here because reconcileClaims
-   takes the items array as input; it does not read tj:items.)
+   T5 — B-149 INVERSION (Sprint 41 polish): the original B-110 T5 asserted
+   that a URL-mismatched claim was EVICTED on Phase 1 reconcile and its
+   drift record paired-cleared. That behavior was a silent violation of the
+   B-099 D-1 contract (claim survives URL drift) at the SW-cold-start
+   boundary — under MV3 ~30s idle-shutdown, every drifted-but-live claim
+   was re-evicted the next time `reconcileClaims` ran. B-149 inverts T5:
+   the URL-mismatched claim must now SURVIVE Phase 1, and the drift record
+   must be retained alongside it (drift is owned by detectDriftForTab and
+   tracks the running URL-divergence state independent of cold-start
+   reconcile). The legitimate eviction case (tab missing from
+   LiveTabIndex) is unchanged and still covered by T4; over-clearing
+   regression coverage continues to live in T6. See
+   `docs/findings/post-s41-pre-merge-triage.md` § "B-149 R0 Spike".
    ========================================================================= */
-test('B-110 T5 (AC2): reconcileClaims clears drift when claim evicted via URL mismatch', async () => {
+test('B-149 T5 (B-099 D-1 cold-start): reconcileClaims PRESERVES URL-mismatched claim across cold-start (invert of pre-B-149 T5)', async () => {
   resetAll();
 
   __setSessionStore('tj:tabClaims', { 'item-A': 100 });
@@ -248,25 +264,39 @@ test('B-110 T5 (AC2): reconcileClaims clears drift when claim evicted via URL mi
     drift: { 'item-A': { itemId: 'item-A', driftedToUrl: 'https://drifted.com/', detectedAt: 1 } },
     meta: { schemaVersion: 1 },
   });
-  /* Tab exists but holds a DIFFERENT URL than the saved item. Phase 1's
-     `safeNormalizeForMatch(tabEntry.url) === safeNormalizeForMatch(item.url)`
-     check fails → claim evicted. */
+  /* Tab exists but holds a DIFFERENT URL than the saved item — the live-
+     drift cold-start scenario. Pre-B-149, Phase 1's URL-match predicate
+     evicted the claim; post-B-149, the predicate is `tabEntry && item`
+     only and the claim survives. */
   __setMockTabs([{ id: 100, url: 'https://different.com', title: '', windowId: 1, active: false, audible: false, favIconUrl: '', index: 0 }]);
   await buildLiveTabIndex();
 
   await reconcileClaims([{ id: 'item-A', url: 'https://saved.com', sortOrder: 0 }]);
 
+  const claimsAfter = __getSessionStore('tj:tabClaims');
+  assert.equal(
+    claimsAfter['item-A'],
+    100,
+    'B-149: URL-mismatched-but-live claim MUST survive Phase 1 (B-099 D-1 contract at the cold-start boundary)',
+  );
+
   const drift = await getDriftRecords();
-  assert.equal('item-A' in drift, false, 'B-110: URL-mismatch eviction also clears drift');
+  assert.equal(
+    'item-A' in drift,
+    true,
+    'B-149: drift record paired with a surviving claim is retained — not paired-cleared (drift is owned by detectDriftForTab and survives independently)',
+  );
 });
 
 /* =========================================================================
    T6 — AC2 regression guard: only EVICTED itemIds get clearDrift; surviving
-   claims keep their drift records. Pre-fix this would not have regressed
-   (no over-clearing was possible because no clearing happened); post-fix
-   we must prove the surgical scope of the new clearDrift batch.
+   claims keep their drift records. Updated for B-149 (Sprint 41 polish):
+   the evicted-half scenario uses the LEGITIMATE eviction case (tab missing
+   from LiveTabIndex) — URL-mismatch is no longer an eviction trigger, see
+   the inverted T5. T6's intent (no over-clearing of drift records on
+   surviving claims) is preserved verbatim.
    ========================================================================= */
-test('B-110 T6 (AC2 regression guard): reconcileClaims preserves drift for surviving claims', async () => {
+test('B-110 T6 (AC2 regression guard): reconcileClaims preserves drift for surviving claims; clears drift only for legitimately-evicted (missing-tab) claims', async () => {
   resetAll();
 
   __setSessionStore('tj:tabClaims', { 'item-A': 100, 'item-B': 200 });
@@ -281,11 +311,12 @@ test('B-110 T6 (AC2 regression guard): reconcileClaims preserves drift for survi
     },
     meta: { schemaVersion: 1 },
   });
-  /* item-A's tab matches; item-B's tab holds a different URL → item-B
-     gets evicted. */
+  /* item-A's tab is alive; item-B's tab is GONE (closed during SW sleep,
+     onRemoved never fired) → item-B gets legitimately evicted at Phase 1.
+     Post-B-149 the URL-match check is no longer an eviction trigger; the
+     missing-tab condition still is. */
   __setMockTabs([
     { id: 100, url: 'https://saved-a.com', title: '', windowId: 1, active: false, audible: false, favIconUrl: '', index: 0 },
-    { id: 200, url: 'https://different-b.com', title: '', windowId: 1, active: false, audible: false, favIconUrl: '', index: 1 },
   ]);
   await buildLiveTabIndex();
 
@@ -296,7 +327,7 @@ test('B-110 T6 (AC2 regression guard): reconcileClaims preserves drift for survi
 
   const drift = await getDriftRecords();
   assert.equal('item-A' in drift, true, 'B-110 regression guard: surviving claim KEEPS its drift record (cleared only on next detectDriftForTab cycle)');
-  assert.equal('item-B' in drift, false, 'B-110: evicted claim has its drift record cleared');
+  assert.equal('item-B' in drift, false, 'B-110 (legitimate eviction): missing-tab eviction still clears the paired drift record');
 });
 
 /* =========================================================================

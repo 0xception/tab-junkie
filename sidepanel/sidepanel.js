@@ -4710,8 +4710,27 @@ itemListEl.addEventListener('drop', async (e) => {
           /* §63.14.4 — chrome.tabs.move uses the literal user-target index;
              Chrome adjusts source-removal automatically when source and
              destination are in the same window. No client-side -1
-             adjustment needed. */
-          await chrome.tabs.move(state.draggedTabId, { index: state.pendingInsertIndex });
+             adjustment needed.
+
+             B-145 (post-S41 pre-merge hotfix, see
+             docs/findings/post-s41-pre-merge-triage.md Issue B): the Open
+             Tabs section is a SPARSE subset of the browser tab strip —
+             buildOpenTabs (background/tabs/open-tabs.js:34-63) excludes
+             tabs claimed by saved items and tabs that are floating-group
+             members. `state.pendingInsertIndex` is computed against the
+             SECTION's `cluster.rowMidlines` (sidepanel.js:6329-6331),
+             which only enumerates rendered Open Tabs rows. Passing that
+             section-relative index directly to `chrome.tabs.move` lands
+             the tab at the wrong strip position whenever any
+             claimed/floating tabs precede the section in the strip
+             (off-by-N where N = strip-index of section's first row).
+             B-134 surfaced this only after B-136 (v1.34.1) wired up
+             chrome.tabs.onMoved; v1.34.0 silently masked the bug because
+             the strip never visibly reordered. The translation below
+             converts section-relative → strip-absolute via
+             `_cachedOpenTabsById[].tabIndex`. */
+          const stripInsertIndex = _computeStripInsertIndex(state);
+          await chrome.tabs.move(state.draggedTabId, { index: stripInsertIndex });
           return;
         }
         case 'REORDER_FLOATING': {
@@ -6369,19 +6388,88 @@ function _computeTabDropTarget(x, y) {
 /* B-134 §63.6.2 — pure helper that computes the orderedTabIds payload for
    `MSG_REORDER_FLOATING_MEMBERS`. Reads from `_cachedFloatingMembers` for
    the source group; the SW handler re-validates against authoritative
-   storage (no trust in client-supplied order beyond message validation). */
+   storage (no trust in client-supplied order beyond message validation).
+
+   Fix D (post-S41 pre-merge hotfix bundle, post-Fix C unmask): the
+   `insertIndex` argument is sourced from `_computeTabDropTarget` which —
+   for REORDER_FLOATING — computes against `rowMidlines` FILTERED to
+   exclude the dragged row (B-134 R4 H-4 fix, sidepanel.js:6261-6275).
+   That filtered insertIndex already lives in post-removal index space
+   (i.e., the indices of the list AFTER the dragged tab is spliced out).
+   The previous `currentIdx < insertIndex ? insertIndex - 1 : insertIndex`
+   adjustment was correct for an UNFILTERED insertIndex but double-corrects
+   when applied to the filtered value: forward drags landed one row above
+   the visual indicator. The bug was masked pre-Fix C because reorder always
+   ERR_RACE'd on duplicate-record drift; Fix C unmasked it.
+
+   With insertIndex already in post-removal space, splice in directly at
+   `insertIndex` (with bounds clamp). Indicator-Y math in
+   `_resolveTabDragIndicatorY` already uses the same filtered-list
+   convention, so visual + outcome stay in sync. */
 function _computeReorderFloatingPayload(groupId, draggedTabId, insertIndex) {
   const members = (_cachedFloatingMembers && _cachedFloatingMembers[groupId]) || [];
   const tabIds = members.map((m) => m.tabId);
   const currentIdx = tabIds.indexOf(draggedTabId);
   if (currentIdx === -1) return [];
-  /* Splice out then splice in. Account for the index-shift when inserting
-     after the source index. */
   tabIds.splice(currentIdx, 1);
-  const adjusted = currentIdx < insertIndex ? insertIndex - 1 : insertIndex;
-  const clamped = Math.max(0, Math.min(adjusted, tabIds.length));
+  const clamped = Math.max(0, Math.min(insertIndex, tabIds.length));
   tabIds.splice(clamped, 0, draggedTabId);
   return tabIds;
+}
+
+/* B-145 (post-S41 pre-merge hotfix, see
+   docs/findings/post-s41-pre-merge-triage.md Issue B) — translate the
+   section-relative `pendingInsertIndex` (computed against
+   `cluster.rowMidlines` of the rendered Open Tabs section) into the
+   strip-absolute index that `chrome.tabs.move` expects.
+
+   Section-vs-strip distinction: the Open Tabs section is a SPARSE subset
+   of the browser tab strip (`buildOpenTabs` excludes claimed-tab tabIds
+   and floating-tab tabIds — see background/tabs/open-tabs.js:34-63). So
+   section position 0 is NOT necessarily strip position 0.
+
+   Algorithm — clean derivation:
+     The section tabs occupy a fixed SET of strip positions
+     {p_0, p_1, ..., p_{N-1}} (ordered ascending; these are the
+     `tabIndex` values from `_cachedOpenTabsById`). Reordering within
+     the section preserves this set — only WHICH tab maps to WHICH
+     strip position changes. So the dragged tab D's post-move strip
+     index equals p_{effectiveS} where:
+       effectiveS = (dPos < S) ? S - 1 : S
+     (mirrors the index-shift adjustment in `_computeReorderFloatingPayload`
+     above — when D was BEFORE the unfiltered insert position S, removing
+     D shifts the post-drop slot down by one).
+
+   Edge cases:
+     - Dragged tab not in the cached cluster (defensive, shouldn't happen
+       for REORDER_OPEN which is same-window-only): fall back to
+       section-relative index. The dispatch site has already
+       cross-window-rejected before reaching here.
+     - Cluster missing for the target window (unlikely if hit-test
+       returned REORDER_OPEN): same fallback.
+     - Section length 0 or only the dragged tab: effectiveS clamps to 0
+       and the lookup naturally produces a no-op equivalent
+       (D.tabIndex === fromIndex). */
+function _computeStripInsertIndex(state) {
+  const cluster = _tabDragRectCache
+    ? _tabDragRectCache.openTabsByWindow.get(state.pendingTargetWindowId)
+    : null;
+  const sectionTabIds = cluster ? cluster.rowTabIds : null;
+  if (!sectionTabIds || sectionTabIds.length === 0) {
+    return state.pendingInsertIndex;
+  }
+  const dPos = sectionTabIds.indexOf(state.draggedTabId);
+  if (dPos === -1) return state.pendingInsertIndex;
+  const S = state.pendingInsertIndex;
+  let effectiveS = (dPos < S) ? S - 1 : S;
+  if (effectiveS < 0) effectiveS = 0;
+  if (effectiveS > sectionTabIds.length - 1) effectiveS = sectionTabIds.length - 1;
+  const targetTabId = sectionTabIds[effectiveS];
+  const target = _cachedOpenTabsById.get(targetTabId);
+  if (!target || typeof target.tabIndex !== 'number') {
+    return state.pendingInsertIndex;
+  }
+  return target.tabIndex;
 }
 
 /* B-134 §63.10 — race-guard third branch. Three guards (A: tab closed

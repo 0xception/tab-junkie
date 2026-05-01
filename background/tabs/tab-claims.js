@@ -135,10 +135,24 @@ export async function reconcileClaims(items) {
   const evictedItemIds = [];
 
   // Phase 1: validate existing claims
+  /* B-149 (Sprint 41 polish): the survival predicate intentionally does NOT
+     re-check URL match. The B-099 D-1 contract (see reevaluateTab docstring
+     above, lines 233-247) makes the bookmark↔tab association survive URL
+     drift at runtime; the cold-start path must enforce the SAME contract or
+     a service-worker idle-shutdown (~30s MV3 idle window) silently re-evicts
+     every drifted-but-live claim the next time reconcileClaims runs. Drift
+     state is owned by detectDriftForTab and is independent of claim
+     survival — it is re-detected on the next URL-change event. The earlier
+     test `tests/b110-drift-non-live-fix.test.js:242-261` (T5) historically
+     pinned the buggy URL-match eviction as desired behavior; that test was
+     inverted as part of the B-149 fix. The legitimate eviction case (tab
+     missing from LiveTabIndex OR saved item missing) is preserved by the
+     `tabEntry && item` predicate and is still covered by T4 + T6. See
+     `docs/findings/post-s41-pre-merge-triage.md` § "B-149 R0 Spike". */
   for (const [itemId, tabId] of Object.entries(storedClaims)) {
     const tabEntry = index.get(tabId);
     const item = items.find((it) => it.id === itemId);
-    if (tabEntry && item && safeNormalizeForMatch(tabEntry.url) === safeNormalizeForMatch(item.url)) {
+    if (tabEntry && item) {
       reconciled[itemId] = tabId;
       claimedTabIds.add(tabId);
     } else {

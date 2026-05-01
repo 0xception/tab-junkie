@@ -1,0 +1,917 @@
+# Post-S41 v1.35.0 Pre-Merge Smoke-Test Triage — R0 Discovery Spike
+
+_Pre-created 2026-04-30 for the post-v1.35.0-pre-merge triage of 2 product-owner-reported drag-reorder bugs:_
+
+1. **Issue A**: drag-reorder floating tab WITHIN a group fires the toast `Floating-tab list changed during drag — please retry.` on EVERY legitimate reorder attempt — including drops within the same group's existing floating tabs. **Critical**: this toast is the S40 Wave 3a H-2 ERR_RACE toast which B-137 (S41 anchor) was supposed to STRUCTURALLY ELIMINATE (Issue 3 from post-S40 spike). If it is regressing, B-137 broke something OR didn't actually fix what it claimed.
+
+2. **Issue B**: drag-reorder Open Tab in Open Tabs section drops the row 3 positions ABOVE where the user dropped. Deterministic off-by-3 offset — suggests hit-test is counting non-row elements (group headers, section headers, drift-bar zones) into the index OR `chrome.tabs.move` is being passed a wrong `index` argument.
+
+User strategic framing: "lets approve R0 spike and hold off on the PR". v1.35.0 PR command is staged but NOT executed; commits are on `feature/sprint-41-floating-tab-id` at HEAD `73355f1`.
+
+---
+
+## Issue A — Floating reorder ERR_RACE toast (REGRESSION post-B-137 — partial-fix gap)
+
+### Failure mechanism (with file:line)
+
+The toast text the user sees — `Floating-tab list changed during drag — please retry.` — is dispatched by the sidepanel ONLY on the SW-response branch `resp.reason === 'ERR_RACE'` (`sidepanel/sidepanel.js:4732`). The sidepanel's own broadcast-race guard B (`sidepanel.js:6401-6406`) emits a different toast (`Tabs changed during drag — please retry.`) — so the user-visible string proves the failure originates server-side from `MSG_REORDER_FLOATING_MEMBERS`.
+
+Server-side, `MSG_REORDER_FLOATING_MEMBERS` returns `{ reordered: false, reason: 'ERR_RACE' }` whenever `reorderFloatingMembers()` returns `false` (`background/messages/storage-handlers.js:710-711`). The helper at `background/tabs/floating-groups.js:364-422` returns `false` from one of three early-return triggers:
+
+1. `_resolveRecordIndexByTabId(records, id, groupId, liveIndex)` returns -1 inside the per-tabId pre-flight loop (`floating-groups.js:388-389`) — ONE OR MORE supplied tabIds cannot be resolved to a stored record.
+2. `storageBucketSize !== supplied.size` — the count of records in storage for `groupId` does not match the count of tabIds supplied by the client (`floating-groups.js:397-401`).
+3. The orderedTabIds dup-check fails (`floating-groups.js:368-369`).
+
+Trigger 1 is what B-137 subsumed. The 3-tier join in `_resolveRecordIndexByTabId` (`floating-groups.js:322-345`) now resolves a v4 record's tabId via tier (a) `liveTabId` direct-match in O(N_records). Trigger 1 is closed for v4 records and effectively closed for v3 records too (B-136 fixed the `chrome.tabs.onMoved` listener so tier (b) `(windowId, tabIndex)` geometry stays accurate).
+
+**Trigger 2 is the live failure mode.** The `storageBucketSize` parity check counts every record in storage with `groupId === <target>`. The client-supplied set comes from `_cachedFloatingMembers[groupId]` (sidepanel.js:6374), populated by `buildFloatingMembers()` (background/tabs/floating-members.js). Critically, `buildFloatingMembers` SKIPS records whose match resolves to null OR to an already-claimed tab OR to a tabId already emitted (`floating-members.js:128-138`). Those skipped records remain in storage but never appear in `_cachedFloatingMembers`. The result: `storageBucketSize > supplied.size`, parity-check fails, ERR_RACE returns to the sidepanel, toast fires.
+
+**Source of orphan records (the structural gap):** `chrome.tabs.onRemoved` (`background/tabs/tab-events.js:213-229`) does NOT call `pruneFloatingGroupsByParentItemId` or any floating-group cleanup helper. It only releases the claim, drops the inheritance marker, prunes the opener relationship, and removes the LiveTabIndex entry. **Floating-group records are NOT pruned when their tab closes.** They live until either (a) the parent saved-item is deleted (`pruneFloatingGroupsByParentItemId`) or (b) the next cold-start re-bind in `reassociateFloatingGroups` matches them to an already-claimed tab (`floating-groups.js:172-179`). Records that fail to match anything live on cold-start are LEFT IN PLACE per AC9 (`floating-groups.js:189-191`) — the design assumes the tab "may reopen on a future restart", which is true for the URL but not for `tabId`.
+
+**Concrete reproduction**:
+1. User has 1 saved item in group G with 2 floating tabs A and B. Storage has 2 records.
+2. User closes floating tab A. `chrome.tabs.onRemoved` runs but does NOT prune the record. Storage still has 2 records.
+3. User does NOT reload the SW (a cold start would have pruned A's record if its `(windowId, tabIndex)` slot is now occupied by an unrelated unclaimed tab — but more often the slot has shifted away thanks to B-136's reflow).
+4. Sidepanel re-fetches `MSG_LIST_ITEMS`. `buildFloatingMembers` for group G now returns ONE descriptor (B's). `_cachedFloatingMembers[G].length === 1`.
+5. User drags tab B within group G. Drop. `_computeReorderFloatingPayload` returns `[B.tabId]` (length 1). SW handler validates: `storageBucketSize === 2`, `supplied.size === 1`. Mismatch → `false` → ERR_RACE → toast.
+6. User reports: every drag fires the toast.
+
+The user's specific report — "fires on EVERY drag" — is consistent with at least one orphan record sitting in the parent group's bucket. Once present, every subsequent reorder against that group fails.
+
+### Why B-137 did not actually eliminate it (or did, but a different race kicked in)
+
+B-137 R0 spike (post-s40-smoke-triage.md Issue 3 §148-179) identified TWO `reorderFloatingMembers` failure triggers — and explicitly named both. It then prescribed a fix (the `liveTabId` join key) that addressed Trigger 1 but NOT Trigger 2:
+
+- Trigger 1 — `_resolveRecordIndexByTabId` returns -1 → tier (a) direct-match fixes this.
+- Trigger 2 — `storageBucketSize !== supplied.size` → **NOT addressed.**
+
+B-137 §66.1 R2 chapter states: *"closes a structural correctness defect documented in `docs/findings/post-s40-smoke-triage.md` Issue 2 (sibling-title displacement) and Issue 3 (race-toast on rapid floating reorder)"*. The chapter then locks 8 ACs. AC7 is the race-toast acceptance criterion (verified by T32 `tests/b134-tab-drag-reorder.test.js:1041-1085`). T32 only exercises Trigger 1 — it stamps `liveTabId`, corrupts `LiveTabIndex.entry.index`, asserts `reorderFloatingMembers` succeeds. **It never seeds an orphan record to exercise Trigger 2.**
+
+So B-137 **did fix what it tested** (Trigger 1 — the `_resolveRecordIndexByTabId` half). It did not fix what it claimed (Issue 3 in its entirety). The R0 spike's analysis was correct on Trigger 2's existence; the R2 design under-scoped the fix; the R5 test never exercised Trigger 2; the toast STILL fires for the orphan-record case. **Per CLAUDE.md B-141 self-application: this is a R3-spec-incorrect-finding scenario where R3 implemented exactly what R2 prescribed, but R2 prescribed an incomplete fix relative to the R0 finding the chapter claimed to subsume.**
+
+### Classification: (b) v1.35.1 hotfix
+
+The orphan-prune work is small (~30-50 LOC + tests) but introduces a code path that should be reviewed independently. It is NOT a v1.35.0 amend candidate because:
+- It expands B-137's scope (cleanup-on-close) outside the chapter's locked AC8 ("out of scope: removing the `(windowId, tabIndex)` fallback").
+- It introduces a write-on-tab-close path that touches `tj:floatingGroups` — a storage write surface that should pass `[security-reviewer]` on its own merits.
+- It is a clean candidate for a v1.35.1 hotfix on its own.
+
+Tier: **Fast Track (S)** for the hotfix path. Could fold into a Sprint 42 anchor if more comprehensive cleanup is wanted.
+
+### Test gap
+
+| Gap | Detail |
+|-----|--------|
+| `tests/b134-tab-drag-reorder.test.js:1041-1085` (T32) | Only exercises `_resolveRecordIndexByTabId` failure mode (stale-index). Never seeds an orphan record (`storageBucketSize > supplied.size`). |
+| `tests/b134-tab-drag-reorder.test.js:966-1026` (T31) | Has under-supply / over-supply / dup branches. **Branch (a) under-supply IS the orphan-record case.** It tests `reorderFloatingMembers([200])` against a 2-record bucket — and asserts `false`. So the test IS aware of this failure mode, but treats it as DESIRED behavior (a race the SW correctly detects). The test never explores the user-experience gap: in production this is a permanent ERR_RACE, not a transient race. |
+| No test exists | for `chrome.tabs.onRemoved` cascade-prune of floating-group records. There is no such handler today. |
+| `tests/chrome-mock.js` | Does not test the missing onRemoved-cascade either. |
+
+### Fix sketch (~30-50 LOC, files affected)
+
+**Production**:
+1. `background/tabs/tab-events.js` — extend `chrome.tabs.onRemoved` listener (around line 213-229) to also call a new `pruneFloatingGroupsByLiveTabId(tabId)` helper. Awaitable; non-blocking on the broadcast.
+2. `background/tabs/floating-groups.js` — new exported helper `pruneFloatingGroupsByLiveTabId(tabId)`. Single `writeTransaction` over `PARTITION_FLOATING_GROUPS` filtering out records where `record.liveTabId === tabId`. Mirrors `pruneFloatingGroupsByParentItemId` (line 660). For legacy v3 records lacking `liveTabId`, fallback to `(windowId, tabIndex)` match against the record at the moment of `onRemoved` firing — but live entry is already gone by then, so prune-by-liveTabId only.
+3. (Optional, defense-in-depth) `background/tabs/floating-groups.js` — extend `reorderFloatingMembers` to filter `storageBucketSize` to records that can resolve to a live tab — bringing it in line with `buildFloatingMembers` semantics. This is a softer fix that doesn't require the onRemoved cascade but masks the underlying orphan-record accumulation.
+
+Recommendation: **option 1+2 (cascade-prune on close) PLUS option 3 (softer parity check)** as belt-and-braces. The cascade-prune is structurally correct; the softer parity check defends against legacy-shape records that B-136/B-137 cannot retroactively fix.
+
+**Tests**:
+4. `tests/b134-tab-drag-reorder.test.js` — new T35: seed 2 floating-group records for group G with `liveTabId: [200, 201]`. Live-mock has both tabs. Fire `chrome.tabs.onRemoved.__fire(200, ...)`. Assert: storage now has 1 record (the one with `liveTabId: 201`). New T36: same fixture, fire onRemoved for 200, then call `reorderFloatingMembers(g, [201])`. Assert: returns `true`, record's sortOrder updated.
+5. `tests/chrome-mock.js` — verify `chrome.tabs.onRemoved.__fire` is plumbed (it should be — already used by other tests). Confirm.
+
+LOC: ~30 production + ~30 test = ~60 total. Files: 2 production + 1 test.
+
+---
+
+## Issue B — Open Tabs drag off-by-3
+
+### Failure mechanism (with file:line)
+
+The drop-handler dispatches `await chrome.tabs.move(state.draggedTabId, { index: state.pendingInsertIndex })` (sidepanel.js:4714) for `REORDER_OPEN`. The comment at lines 4710-4713 cites §63.14.4: *"chrome.tabs.move uses the literal user-target index; Chrome adjusts source-removal automatically when source and destination are in the same window. No client-side -1 adjustment needed."*
+
+That citation is correct about source-removal index-shift but incomplete about the **reference frame**. `pendingInsertIndex` is computed by `_computeTabDropTarget` (sidepanel.js:6293-6363) from `cluster.rowMidlines`, where the cluster is built from `'.open-tabs-list > .item-row[data-tab-id]'` (`_buildTabDragRectCache`, sidepanel.js:6041-6055). **`cluster.rowMidlines` indexes the section's RENDERED rows, NOT the browser tab strip's tabs.**
+
+The Open Tabs section is built from `buildOpenTabs` (`background/tabs/open-tabs.js:34-63`), which excludes:
+- Tabs whose `tabId ∈ Object.values(claimsMirror)` (claimed by saved items).
+- Tabs whose `tabId ∈ floatingTabIds` (floating-members under groups).
+
+So if the user has 3 saved-item-claimed tabs + 0 floating tabs at strip positions 0-2, AND 5 open tabs at strip positions 3-7, the section displays 5 rows indexed 0-4. The user drops on section-row 5 (after the last) → `pendingInsertIndex: 5` (= section-end). `chrome.tabs.move(tabId, { index: 5 })` lands the tab at **strip-position 5**, which is in the middle of the open tabs (where the user wanted strip-position 8). User observes a **3-position-too-high** drop.
+
+The off-by-N is exactly `(strip-index of section's row 0) - (section's row 0 index, which is 0)` = `strip-index of section's first row`. The user reports off-by-3, consistent with 3 claimed-or-floating tabs sitting at strip positions 0-2.
+
+### Classification: (a) localized bug fixable in v1.35.0 amend OR (b) v1.35.1 hotfix
+
+This is a **B-134 latent bug** that ships in v1.34.x today. The user only NOW reports it because v1.34.0 had Issue 1 (no `chrome.tabs.onMoved`) which masked the section-vs-strip-index gap (the strip never even reordered, so the user never saw the wrong-position-after-reorder symptom). v1.34.1 (B-136) wired up onMoved → strip reorder visibly happens → user sees the off-by-N. **Pre-existing latent bug surfaced by B-136.**
+
+Tier: **Fast Track (XS)**. The fix is one line plus a translation helper.
+
+Whether to amend v1.35.0 vs ship as v1.35.1: see Strategic Recommendation below.
+
+### Fix sketch
+
+**Production** (sidepanel.js, around line 4714):
+
+Replace:
+```js
+await chrome.tabs.move(state.draggedTabId, { index: state.pendingInsertIndex });
+```
+
+With (sketch):
+```js
+// Translate section-relative insertIndex to strip-absolute index.
+// Each open-tab cluster's rowTabIds[k] tabId has a strip-index recoverable
+// from _cachedOpenTabs[].tabIndex (or LiveTabIndex via the SW). The
+// simplest in-sidepanel fix: read the target row's strip tabIndex and
+// adjust for the dragged-source-removal that Chrome will do automatically.
+const cluster = _tabDragRectCache.openTabsByWindow.get(state.pendingTargetWindowId);
+const sectionTabIds = cluster ? cluster.rowTabIds : [];
+let stripInsertIndex;
+if (state.pendingInsertIndex >= sectionTabIds.length) {
+  // After last section row → strip-index = lastSectionTab.tabIndex + 1
+  const lastTabId = sectionTabIds[sectionTabIds.length - 1];
+  const last = _cachedOpenTabsById.get(lastTabId);
+  stripInsertIndex = last ? last.tabIndex + 1 : state.pendingInsertIndex;
+} else {
+  // At section-row N → strip-index = sectionTab[N].tabIndex
+  const targetTabId = sectionTabIds[state.pendingInsertIndex];
+  const target = _cachedOpenTabsById.get(targetTabId);
+  stripInsertIndex = target ? target.tabIndex : state.pendingInsertIndex;
+}
+await chrome.tabs.move(state.draggedTabId, { index: stripInsertIndex });
+```
+
+LOC: ~15 production. The helper could be extracted as `_computeStripInsertIndex(state)` for testability.
+
+**Tests** (`tests/b134-tab-drag-reorder.test.js`):
+
+Extend T1 fixture or add T1c: 6 tabs in window 1, 3 of them claimed by saved items at indices 0-2, 3 open-tabs at indices 3-5. Drag tabId 5 (section row 2 = strip row 5) to section-row 0. Assert `chrome.tabs._moveCalls[0].props.index === 3` (strip-relative), NOT 0 (section-relative).
+
+LOC: ~30 test.
+
+---
+
+## Strategic recommendation
+
+### Recommended option: **B — Ship v1.35.0 as-is + plan v1.35.1 hotfix immediately**
+
+**Rationale**:
+
+1. **B-137 IS shippable on its own merits.** The `liveTabId` join-key adoption delivers the structural correctness fix for the `_resolveRecordIndexByTabId` join brittleness AND for the sibling-title displacement (Issue 2 from post-S40 spike). Issue 2 was the primary user-reported failure that drove B-137. Shipping v1.35.0 closes Issue 2 today.
+
+2. **The B-137 partial-fix gap IS a regression-from-claim, not a regression-from-prior-build.** Pre-v1.35.0, Issue A's exact failure mode also fired (orphan records → ERR_RACE). The S40 Wave 3a R4 H-2 fix that ADDED the toast was specifically scoped to the `_resolveRecordIndexByTabId` failure. The orphan-record path was always there; the toast text was always identical for both triggers because they share the SW response code. So shipping v1.35.0 is **status-quo neutral** for Issue A — neither better nor worse than v1.34.1.
+
+3. **Issue B is a B-134 latent bug surfaced by B-136 (v1.34.1).** It is NOT a B-137 regression. Whether to fold it into v1.35.0 (amend) or ship as v1.35.1 hotfix is a release-cadence call. Recommendation: **v1.35.1 hotfix**, paired with Issue A's fix in a single 2-item release, kept Fast Track for both.
+
+4. **Amending v1.35.0 introduces release-process risk.** The PR command is staged; the commit chain is post-Gate-7 + post-release-manager. Amending requires reverting the release-manager commit, adding 2 fix commits, re-running Gate 4 + Gate 7 + release-manager. That's a ~half-day re-do for a release that's otherwise PR-ready. The hotfix path keeps v1.35.0 surgical (the title fix that drove the sprint).
+
+5. **Option C (defer to S42) is the wrong answer.** Issue A makes floating-tab reorder unusable for ANY user with even one orphan record — and the orphan accumulation is unbounded over time. Issue B makes Open Tabs drag visibly broken for any user with claimed/floating tabs ahead of the section (i.e., almost every real user). Both warrant a hotfix sooner rather than later.
+
+### B-137 partial-revert assessment: **NOT recommended**
+
+B-137 delivered correctness wins (Issue 2 sibling-title displacement is gone). The Issue A regression-from-claim is a coverage gap, not a behavioral regression. Reverting B-137 would re-introduce Issue 2 and gain nothing for Issue A (the orphan-record problem pre-dates B-137 — it's a B-013 / B-018 design carve-out per AC9, layered onto B-134's parity check). **Keep B-137 in v1.35.0.** File the cascade-prune-on-close work as a follow-up.
+
+### Item filings recommended
+
+| Item | Priority | Tier | Title | Sprint |
+|---|---|---|---|---|
+| **B-144** | **P0** | **Fast Track (S)** | **Cascade-prune `tj:floatingGroups` records on `chrome.tabs.onRemoved`** | v1.35.1 hotfix (immediate) |
+| **B-145** | **P0** | **Fast Track (XS)** | **Translate Open Tabs section-insertIndex to strip-absolute index in `chrome.tabs.move` dispatch** | v1.35.1 hotfix (immediate) |
+| **B-146** | **P2** | **Fast Track (S)** | **Defense-in-depth: filter `reorderFloatingMembers` `storageBucketSize` parity to records resolvable to live tabs** | S42 (or fold into B-144) |
+
+**Process action item for Sprint 42 retrospective**: B-137 R5 (`tests/b134-tab-drag-reorder.test.js` T32) covered ONE of two named race triggers from the R0 spike. R5 [test-engineer] and R6 [solution-architect] should have caught the gap. **Add a check to the R5 charter**: when an item explicitly subsumes a multi-trigger R0 finding, R5 MUST enumerate every named trigger and confirm test coverage of each before marking AC-met.
+
+### Estimated release shape
+
+| Release | Window | Contents |
+|---------|--------|----------|
+| **v1.35.0** | Today (per staged PR) | B-137 + B-139..B-143 + B-138-deferred. Ships as-is. |
+| **v1.35.1** | Within ~2-3 days of v1.35.0 merge | B-144 (cascade-prune-on-close) + B-145 (strip-index translation). Both Fast Track. ~60 production LOC + ~60 test LOC + R4 reviewers. No schema bump. No new permissions. Likely a single same-day branch-PR-tag-release cycle. |
+| **S42** | Per regular cadence | B-146 + retrospective action item + further drag-UX hardening (cross-window drag B-135, etc.) |
+
+### Risk of NOT amending v1.35.0
+
+**Low to medium.** Issues A and B are real user-visible defects but neither is SEV1 (no data loss, no crash, no security impact). Floating reorder no-ops with a clear toast (frustrating but recoverable). Open Tabs drag lands in the wrong position (recoverable by re-dragging). Both are close-able by a fast follow-up release. The B-137 title-fix value (closing Issue 2 sibling-title displacement) is shipped today and is more disruptive than these two regressions in user-visible importance.
+
+### Risk of amending vs. delaying
+
+**Amending introduces process risk** — the v1.35.0 release artifacts (release-manager commit, CHANGELOG, RELEASES.md, sprint archive) are already authored. Amending requires unwinding that work, adding 2 net-new sprint items mid-flight (Scope Change Control), re-running Gate 4 + Gate 7 + release-manager. Estimated ~half-day rework with non-trivial chance of introducing a new defect via the rework itself.
+
+**Delaying via v1.35.1 has near-zero process risk** — the hotfix branch pattern is established (`hotfix/v1.34.1-b-136` precedent in commit `10a882f`). Same pattern for v1.35.1: branch off `release/v2`, two Fast Track items, R4 reviewers, R5 tests, release-manager, tag.
+
+**Recommendation: Option B. Ship v1.35.0 today; cut v1.35.1 within 2-3 days with B-144 + B-145.**
+
+---
+
+_Spike completed by [solution-architect] on 2026-04-30. No code modified; no test changed; no BACKLOG/SPRINT/CHANGELOG updates. Output is this findings file only._
+
+---
+
+## [security-reviewer] — Fix A + Fix B R4
+
+_R4 security review of the pre-v1.35.0 hotfix bundle. Branch: `feature/sprint-41-floating-tab-id` (uncommitted). Diff scope: `background/tabs/floating-groups.js` (+83), `background/tabs/tab-events.js` (+30), `sidepanel/sidepanel.js` (+78), `tests/b134-tab-drag-reorder.test.js` (+519). `manifest.json` is untouched._
+
+### Verdict — **CLEAN. No CRITICAL / HIGH / MEDIUM / LOW findings. Approved for merge from a security perspective.**
+
+The hotfix bundle expands the storage-write surface by exactly one mutator (`pruneFloatingGroupsByLiveTabId`) and adds one pure computation in the sidepanel (`_computeStripInsertIndex`). Both are tightly scoped, defensively coded, follow established project patterns, and introduce no new threat surface.
+
+### Generic threat surface — pass
+
+| # | Check | Result |
+|---|-------|--------|
+| 1 | Manifest / permissions delta | **Pass.** `git diff manifest.json` is empty. No new permissions requested, no `host_permissions` change, no `content_scripts` change, no `web_accessible_resources` change. |
+| 2 | CSP / `eval` / `new Function` / `innerHTML` / `outerHTML` introductions | **Pass.** Grep of the diff finds zero new occurrences. Fix A is pure storage-mutator JS; Fix B is pure-computation index translation. No DOM HTML injection paths added. |
+| 3 | Network egress / telemetry / `console.log` | **Pass.** Two new `console.warn` calls added in `background/tabs/tab-events.js:244` and `:318` for `pruneFloatingGroupsByLiveTabId` rejection paths. Both mirror the established sibling-pattern at `tab-events.js:237` (`releaseClaimByTab failed`) and `:281` (`tabs.query failed`). No PII (no tabId-of-bookmark URLs / titles) is logged — only the error object surfaced from the storage layer, consistent with project precedent. No `console.log` debug noise. No `fetch`, `XMLHttpRequest`, `WebSocket`, or remote-code surface added. |
+| 4 | Trust-boundary inputs | **Pass.** Detailed analysis in Fix A and Fix B sections below. |
+
+### Fix A — `pruneFloatingGroupsByLiveTabId` storage-write surface
+
+**Storage-write atomicity (check 3) — pass.** The mutator at `background/tabs/floating-groups.js:733-750` runs inside `writeTransaction` (`background/storage/write-transaction.js:82-141`), which provides:
+- AC10 serialization via the module-level `txQueue` (write-transaction.js:37, :138-140) — concurrent callers are chained, so back-to-back `chrome.tabs.onRemoved` events for two different tabIds will not race the get/mutate/set.
+- Single atomic `chrome.storage.local.get` (line 93) → mutator (line 104) → single atomic `chrome.storage.local.set` (line 116). Chrome's storage API guarantees the set commits as a whole.
+- `assertShape` (line 112) post-mutation validation prevents a corrupt array reaching disk.
+- SW-context guard (`assertServiceWorkerContext`, lines 64-76) — runtime enforcement that the helper only fires inside the SW.
+
+**Pre-flight read-then-write race (check 3) — pass, benign.** The helper reads `tj:floatingGroups` outside the transaction (`floating-groups.js:718`) to early-return when there is nothing to prune. If a record races in between the pre-flight read and the transaction (e.g., another `appendFloatingGroup` adds a record with the closing tab's `liveTabId` between the two awaits — extremely unlikely given the sidepanel UI dispatches `appendFloatingGroup` only via `MSG_ADD_FLOATING_GROUP` which is itself queued through `writeTransaction`), the consequence is benign because:
+1. The pre-flight saw "no matching record" → early return → `pruneFloatingGroupsByLiveTabId` is a no-op.
+2. The new record (now seeded with the closed tabId as `liveTabId`) is itself an orphan — but `appendFloatingGroup` is initiated from the sidepanel against a SUPPOSEDLY-LIVE tabId. The only way a record gets seeded with a tabId that is already in `chrome.tabs.onRemoved` flight is if the user opens a new tab that gets recycled to the same numeric `tabId` as a freshly-closed tab AND the sidepanel issues an APPEND for it before the SW sees the onRemoved. This is observationally impossible on Chromium today (tabId recycling is delayed by browser session length, not millisecond-window overlap).
+3. The mutator inside `writeTransaction` re-reads via the transaction's own `current` snapshot (line 93 of write-transaction.js), so even if the read-then-write race somehow seeded the record post-pre-flight, the next call to `pruneFloatingGroupsByLiveTabId` (e.g., from the symmetric `windows.onRemoved` cascade at `tab-events.js:317`) will catch it. Filter is idempotent: applying it to a record-set that no longer contains the target is a no-op.
+
+**Input validation (check 4) — pass.** `tabId` is validated as a finite number at `floating-groups.js:709` BEFORE any I/O; non-numeric or non-finite values short-circuit return 0. Inside the mutator, every entry is re-validated as an object with a finite-numeric `liveTabId` (`floating-groups.js:740-741`) before the equality check. Defensive against corrupt storage shapes.
+
+**Cascade-prune correctness (check 6) — pass.** The filter predicate at `floating-groups.js:738-748` is allow-list direction (C-7 compliant): retains records UNLESS they match `record.liveTabId === tabId`. Records lacking a numeric `liveTabId` (legacy v3) are explicitly retained — consistent with the JSDoc carve-out at lines 689-696 and proven by test T39 (`tests/b134-tab-drag-reorder.test.js:1319-1356`). v3 records self-evict via cold-start re-bind per the existing migration design.
+
+**Listener ordering (check 7) — pass.** The new prune call at `tab-events.js:243` fires AFTER `pruneOpener` (line 224), `pruneInherited` (line 227), `removeTabEntry` (line 232), and `releaseClaimByTab(...)` initiation (line 233). Critically:
+- `releaseClaimByTab` is fire-and-forget (`.then(...).catch(...)` chain, line 233-238) so the cascade-prune does not block it.
+- The cascade-prune is itself fire-and-forget (`.catch(...)` chain, line 243-245). A storage failure here cannot throw past the listener boundary.
+- Both async chains race independently; ordering between them is unobservable to users (both touch different partitions: `tj:items` vs `tj:floatingGroups`).
+- The release-claim-first-then-prune ordering is correct because the claim-release writes to `tj:items` (clearing `claimedTabId`) and the prune writes to `tj:floatingGroups`. Different partitions; no cross-contamination.
+
+**`onRemoved` double-fire on window close (check 8) — pass.** Verified in `background/tabs/tab-events.js:317` — the `windows.onRemoved` loop fires the same prune helper for every tab that was in the closing window. Per Chrome's contract, `tabs.onRemoved` fires for each closing tab BEFORE `windows.onRemoved`, so both code paths will fire `pruneFloatingGroupsByLiveTabId(tabId)` for the same tabId. Idempotency check:
+- First call: pre-flight reads N records, finds match → mutator filters out the record → storage now has N-1.
+- Second call: pre-flight reads N-1 records, finds NO match → early-return at line 731 → no `writeTransaction` invocation.
+
+The double-fire produces exactly one storage write — benign and matches the comment-stated belt-and-braces design intent at `tab-events.js:309-316`.
+
+**No-storage-write invariant preservation (`tests/tab-events-no-storage-write.test.js`) — pass.** That test exercises `chrome.tabs.onRemoved.__fire(2)` on a tab with no floating-group records (no `appendFloatingGroup` was called for tabId 2). The pre-flight `readPartition` returns the seeded `tj:floatingGroups` of `undefined` (no key in `seedPartitions`) → branch at `floating-groups.js:719` returns 0 → `writeTransaction` is NEVER invoked → `chrome.storage.local.set` is NEVER called from the prune path. The existing AC4 invariant test will continue to pass without modification.
+
+### Fix B — `_computeStripInsertIndex` pure-computation translation
+
+**Trust boundary (check 9) — pass.** The function consumes only sidepanel-internal state (`state.pendingTargetWindowId`, `state.draggedTabId`, `state.pendingInsertIndex`) and the sidepanel-internal cache `_cachedOpenTabsById` / `_tabDragRectCache`. Trace of inputs:
+- `state.draggedTabId` — set in the sidepanel's own `dragstart` handler from the sidepanel's own row's `data-tab-id` attribute, which is itself rendered from `_cachedOpenTabs` (an MSG_LIST_ITEMS response, all integers from `chrome.tabs.query`).
+- `state.pendingInsertIndex` / `state.pendingTargetWindowId` — set at `sidepanel.js:6132-6135` by `_computeTabDropTarget`, an internal hit-test from `cluster.rowMidlines`.
+- `_cachedOpenTabsById` — populated at `sidepanel.js:280` from `_cachedOpenTabs`, populated by `MSG_LIST_ITEMS` server-side from `chrome.tabs.query` (Chrome-API-derived tabIds).
+- `_tabDragRectCache.openTabsByWindow.get(...).rowTabIds` — same provenance (`_buildTabDragRectCache` at `sidepanel.js:6041-6055` builds from `.open-tabs-list > .item-row[data-tab-id]` queries against the rendered DOM, which itself was rendered from `_cachedOpenTabs`).
+
+No user-supplied URL / title / tabId / windowId reaches the function. No payload validation needed.
+
+**`chrome.tabs.move` argument injection (check 10) — pass.** The integer dispatched to `chrome.tabs.move` at `sidepanel.js:4733` is one of:
+- `target.tabIndex` from `_cachedOpenTabsById` (a Chrome-API-derived integer, line 6457).
+- `state.pendingInsertIndex` fallback (a hit-test integer derived from `Math.round(...)` at sidepanel.js:6293-6363, which is a numeric `clientY` math result; can never be non-finite or string-coercible to an injection).
+
+No string concatenation, no user-supplied input, no URL building. Chrome's `chrome.tabs.move` interprets `index` strictly as an integer offset. Safe.
+
+**Cross-window REJECT preservation (check 11) — pass.** Verified at `sidepanel/sidepanel.js:4706-4709`:
+```
+if (state.pendingTargetWindowId !== state.sourceWindowId) {
+  showToast('Cross-window drag is not supported yet.');
+  return;
+}
+```
+This guard returns BEFORE the new `_computeStripInsertIndex(state)` call at line 4732. The hit-test also issues a parallel REJECT at the dispatch-site precondition (`_validateTabDropPreflight` at lines 4685-4695). Both layers are intact. The new code path is reached only for same-window REORDER_OPEN, which is the same trust scope as the pre-fix code.
+
+**Defensive input handling (check 4) — pass.** All four edge cases enumerated in the JSDoc (`sidepanel.js:6432-6437`) are handled:
+1. Missing `_tabDragRectCache` → fallback to `state.pendingInsertIndex` (line 6445).
+2. Missing cluster for the target window → fallback (line 6445).
+3. `dPos === -1` (dragged tab not in cluster — defensive, shouldn't happen for REORDER_OPEN) → fallback (line 6448).
+4. Missing `_cachedOpenTabsById` entry or non-numeric `tabIndex` → fallback (line 6456).
+
+`effectiveS` is clamped to `[0, sectionTabIds.length - 1]` at lines 6452-6453 — array-index out-of-bounds is structurally impossible.
+
+### Tests — pass
+
+The new tests (`tests/b134-tab-drag-reorder.test.js:1147-1664`) cover the security-relevant paths:
+- T34 (line 1170) — direct helper call asserts pruneCount + storage state.
+- T35 (line 1196) — end-to-end orphan-record + reorder-after-cascade.
+- T36 (line 1259) — `chrome.tabs.onRemoved` listener integration.
+- T37 (line 1287) — unknown tabId no-op (input-validation belt-and-braces).
+- T38 (line 1310) — empty partition no-op (no-storage-write invariant preservation).
+- T39 (line 1319) — legacy v3 records explicitly NOT pruned (allow-list discipline).
+- FixB-T1..T5 (line 1438-1664) — section→strip translation; cross-window REJECT source-text pin (T4).
+
+T39 is particularly notable: it exercises the C-7 allow-list direction by seeding a v3-shape record with no `liveTabId` and confirming the helper retains it. Future regression of the predicate to a deny-list (e.g., "delete all records that don't match the keep-set") would be caught.
+
+### Summary
+
+| Severity | Count |
+|----------|-------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 0 |
+
+No findings. Both Fix A and Fix B are tightly scoped, defensively coded, follow established project patterns (`writeTransaction` atomicity, pre-flight `readPartition` for the no-write fast path, `console.warn` graceful-degradation in catch handlers, allow-list filter direction), and introduce no new threat surface. Approved for merge from `[security-reviewer]`.
+
+_Review completed by [security-reviewer] on 2026-04-29 against `feature/sprint-41-floating-tab-id` working-tree diff._
+
+---
+
+## [code-reviewer] — Fix A + Fix B R4
+
+_R4 code review of the pre-v1.35.0 hotfix bundle. Branch: `feature/sprint-41-floating-tab-id` (uncommitted). Diff scope: `background/tabs/floating-groups.js` (+83), `background/tabs/tab-events.js` (+29/-1), `sidepanel/sidepanel.js` (+78/-2), `tests/b134-tab-drag-reorder.test.js` (+519). `manifest.json` is untouched. Full test suite: 1812 / 1812 passing._
+
+### Verdict — **CLEAN. No CRITICAL / HIGH / MEDIUM findings. Two LOW-priority observations recorded for transparency.** Approved for merge.
+
+Both fixes are surgical, structurally correct, defensively coded, and tightly scoped to their respective failure modes. The hand-traced algorithm in Fix B is correct across every checklist edge case (forward / backward / drop-at-end / drop-at-start / single-row / N=1/3/10). The cascade-prune helper in Fix A correctly preserves the AC4 no-storage-write invariant via a read-only fast path. B-129 sibling-grep verified — `onDetached`/`onAttached`/`onMoved` are correctly NOT extended (tab + `liveTabId` survive across those events). No TODOs, no commented-out blocks, no stray `console.log` debug noise.
+
+### CRITICAL (must fix before merge)
+
+_None_
+
+### HIGH (must fix before merge)
+
+_None_
+
+### MEDIUM (fix if time permits)
+
+_None_
+
+### LOW (defer or note)
+
+| # | File | Finding | Suggestion |
+|---|------|---------|-----------|
+| L-1 | `background/tabs/floating-groups.js:660-669` vs `:708-752` | DRY observation: `pruneFloatingGroupsByParentItemId` and the new `pruneFloatingGroupsByLiveTabId` share an identical writeTransaction-with-filter-predicate scaffold. The two predicates differ (`getParentItemId(entry) !== parentItemId` vs `entry.liveTabId === tabId`) but the surrounding shell is identical. The new helper additionally has the pre-flight read-only fast-path that the existing helper lacks. | **Defer.** Extracting a `_pruneFloatingGroupsBy(predicate, options)` helper would either lose the fast-path (regression vs. the AC4 contract that the new helper carefully preserves) or push the fast-path into the existing helper (out-of-scope for a surgical hotfix). File as a Sprint 42 cleanup ticket if cross-helper churn warrants it; not blocking. |
+| L-2 | `tests/b134-tab-drag-reorder.test.js:1238` and `:1281` | Timing-based flush via `await new Promise((r) => setTimeout(r, 30))` to await the fire-and-forget `pruneFloatingGroupsByLiveTabId` chain inside the listener. On a slow / loaded CI machine, 30ms could be insufficient if `writeTransaction` queues behind unrelated transactions. | **Accept.** Pattern is established precedent (`tests/b010-live-state.test.js:296,319` and `tests/b091-settings-page.test.js:905` use the same 30-50ms flush). Tests are deterministic on the local mock. If T35/T36 ever flake under CI load, switch to a write-completion deferred via the chrome-mock's set hook rather than time-based. Not blocking for this hotfix. |
+
+### Notes / observations
+
+**Fix A — helper correctness (checklist 1).** Pre-flight read at `floating-groups.js:718` returns `defaultShape(PARTITION_FLOATING_GROUPS) === []` for the never-seeded case (`partitions.js:79`); the helper short-circuits at line 719 (`Array.isArray && length === 0`) and the `willPrune` scan at lines 721-730 short-circuits at line 731 when no record matches. Both no-op paths skip `writeTransaction` entirely → `chrome.storage.local.set` is never invoked → AC4 no-storage-write invariant from `tests/tab-events-no-storage-write.test.js:71` is preserved by construction (verified empirically: full suite passes 1812/1812 including the AC4 test).
+
+**Fix A — closure-captured `prunedCount` is single-shot.** The mutator at `floating-groups.js:736-749` captures `prunedCount` from the enclosing scope and increments it in the filter predicate. `writeTransaction` (`background/storage/write-transaction.js:82-141`) runs the mutator exactly once — there is no retry-on-conflict scheme — so the closure increment is safe. Verified by reading `write-transaction.js:100-109`.
+
+**Fix A — listener integration (checklist 2).** Both `chrome.tabs.onRemoved` (line 243) and `chrome.windows.onRemoved` (line 317) fire the helper with fire-and-forget `.catch(...)` graceful degradation. Storage failure cannot throw past either listener boundary. The `[tab-junkie]` console.warn tag matches the sibling pattern at `tab-events.js:237` (`releaseClaimByTab failed`). The `console.warn` calls are sanctioned by the spec and consistent with existing precedent — not noise.
+
+**Fix A — B-129 sibling-grep verified (checklist 3).** `chrome.tabs.onDetached` (`tab-events.js:362`), `chrome.tabs.onAttached` (`:376`), and `chrome.tabs.onMoved` (`:410`) preserve tab identity (and `liveTabId`) across the event. Floating-group records keyed by `liveTabId` remain valid; extending these listeners would be incorrect. Agent's report is accurate. Sibling grep complete.
+
+**Fix A — race analysis (checklist 4).** Pre-flight read snapshot is taken outside the transaction; the mutator inside `writeTransaction` filters a fresh `current` snapshot (`write-transaction.js:93,100-104`). If the pre-flight saw "no match" but a concurrent `appendFloatingGroup` adds a record between the read and the early-return, the helper no-ops once but the next event for the same tabId will catch it. Filter is idempotent (applying it twice on a record-set already without the target is a no-op). Race analysis holds.
+
+**Fix A — test mappings (checklist 5).** T34-T39 collectively cover happy-path (T34) / orphan-repro end-to-end (T35) / listener integration (T36) / unknown-tabId no-op (T37) / empty-partition no-op (T38) / v3-carve-out preservation (T39). Each test maps cleanly to a JSDoc claim in the helper. T35 is the strongest test — it reproduces the exact user-reported failure path (orphan record → reorder returns ERR_RACE) AND verifies the post-fix path succeeds.
+
+**Fix B — algorithm correctness (checklist 6).** Hand-traced six cases against the production helper at `sidepanel/sidepanel.js:6439-6459`:
+
+| Case | sectionTabIds | dPos | S | effectiveS | target.tabIndex | Verdict |
+|------|---------------|------|---|------------|-----------------|---------|
+| User-bug N=3 (drag tab 5 → section pos 0) | [3, 4, 5] (tabIndices 3, 4, 5) | 2 | 0 | 0 | 3 | **3** ✓ (matches T2b) |
+| Drop-at-end after-last (drag tab 300 → S=3, length 3) | [300, 301, 302] (tabIndices 3, 4, 5) | 0 | 3 | 2 | 5 | **5** ✓ (matches T3) |
+| Backward N=10 (drag 1014 → S=1) | [1010..1014] (tabIndices 10-14) | 4 | 1 | 1 | 11 | **11** ✓ (matches T2c) |
+| Forward N=10 (drag 1010 → S=4) | [1010..1014] | 0 | 4 | 3 | 13 | **13** ✓ (matches T2c) |
+| Drop-at-start (drag 102 → S=0, no claims) | [100, 101, 102] (tabIndices 0, 1, 2) | 2 | 0 | 0 | 0 | **0** ✓ (matches T1) |
+| Past-end S=length (drag 1010 → S=5) | [1010..1014] | 0 | 5 | 4 | 14 | **14** ✓ (clamp at line 6452) |
+
+The `effectiveS = (dPos < S) ? S - 1 : S` formula correctly mirrors the same-window source-removal index-shift adjustment that `_computeReorderFloatingPayload` applies for the analogous floating reorder path (`sidepanel.js:6400`). The clamp at lines 6451-6452 is structurally sound; array-index out-of-bounds is impossible.
+
+**Fix B — `_cachedOpenTabsById` cache contract (checklist 7).** Verified at `sidepanel.js:280` — every assignment to `_cachedOpenTabs` flows through `_setCachedOpenTabs` (line 275), which rebuilds `_cachedOpenTabsById` in lockstep. The cache is populated with `{ tabId, tabIndex, windowId, ... }` descriptors from the `MSG_LIST_ITEMS` enriched response, so `_cachedOpenTabsById.get(targetTabId).tabIndex` correctly resolves the strip-absolute index. ✓
+
+**Fix B — cross-window REJECT preservation (checklist 8).** Verified at `sidepanel.js:4706-4709`. The guard returns BEFORE `_computeStripInsertIndex` is invoked at line 4732. T4 (`tests/b134-tab-drag-reorder.test.js:1626-1638`) source-text-pins the ordering with a regex that anchors `case 'REORDER_OPEN'` → `pendingTargetWindowId !== state.sourceWindowId` → `showToast` → `return;` BEFORE `_computeStripInsertIndex`. A future edit reordering the guard would fail T4. ✓
+
+**Fix B — test mappings (checklist 9).** T1 (zero claims) / T2a (N=1) / T2b (N=3, exact user-bug repro) / T2c (N=10, forward + backward) / T3 (drop-at-end) / T4 (cross-window source-text pin) / T5 (helper exists + invocation pin). End-to-end via `chrome.tabs.move` + `chrome.tabs.onMoved` listener at T1, T2b, T3 — proving the translated index round-trips through the live-mock correctly. The local `computeStripInsertIndexAlgorithm` replica at lines 1402-1420 is byte-equivalent to the production helper at `sidepanel.js:6439-6459`; future divergence is caught by the FixB-T5 source-text pin (lines 1640-1664) which asserts the production helper's body still contains `dPos < S`, `openTabsByWindow.get`, `_cachedOpenTabsById.get`. ✓
+
+**Cross-cutting checklist 10 (no TODOs / commented-out / console.log debug noise).** Pass. Two `console.warn` calls at `tab-events.js:244` and `:318` are sanctioned per spec and match sibling-handler precedent at `:237` and `:281`. Zero `console.log`, zero TODOs, zero commented-out code blocks introduced by either fix.
+
+**Cross-cutting checklist 11 (`manifest.json` unchanged).** Pass. `git diff HEAD -- manifest.json` is empty.
+
+**Cross-cutting checklist 12 (B-118 source-citation hygiene).** Pass. Both fixes carry comments citing the spike findings file (`docs/findings/post-s41-pre-merge-triage.md`) and the relevant precedents (B-141 self-application in Fix A, B-134 latent-bug-surfaced-by-B-136 attribution in Fix B). The `floating-groups.js:680-696` JSDoc explains the failure mode with file:line references; the `sidepanel.js:4715-4731` block comment in Fix B's dispatch site is similarly thorough. Comments are explanatory rather than commented-out code.
+
+**Cross-cutting checklist 13 (DRY).** Pass with the L-1 LOW-priority note above. The two helpers (`pruneFloatingGroupsByParentItemId` and `pruneFloatingGroupsByLiveTabId`) share the writeTransaction-filter scaffold but differ in fast-path strategy. Fix A and Fix B touch independent surfaces (SW-side storage cascade vs. sidepanel-side index translation) — no consolidation opportunity between them.
+
+**Test suite regression check.** `npm test` reports 1812 pass / 0 fail / 0 skip. Zero regressions. The 13 new tests (T34-T39 + FixB-T1-T2a-T2b-T2c-T3-T4-T5) all pass. The pre-existing AC4 storage-write invariant test (`tests/tab-events-no-storage-write.test.js`) continues to pass — proving Fix A's read-only fast-path correctly preserves the AC4 contract.
+
+### Summary
+
+| Severity | Count |
+|----------|-------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 2 (both deferrable / informational) |
+
+Both Fix A and Fix B are surgically scoped, structurally correct, defensively coded, and follow established project patterns. The two LOW-priority observations are informational only and not blocking. Approved for merge from `[code-reviewer]`.
+
+_Review completed by [code-reviewer] on 2026-04-29 against `feature/sprint-41-floating-tab-id` working-tree diff._
+
+---
+
+## [security-reviewer] — Fix C R4
+
+_R4 security review of the pre-v1.35.0 hotfix bundle Fix C — duplicate-record dedup. Branch: `feature/sprint-41-floating-tab-id` (uncommitted Fix C delta on top of the already-merged Fix A + Fix B). Diff scope: `background/tabs/floating-groups.js` (+127 / -11), `tests/b134-tab-drag-reorder.test.js` (+270). `manifest.json` is untouched. Full test suite: 1818 / 1818 passing._
+
+### Verdict — **CLEAN. No CRITICAL / HIGH / MEDIUM / LOW findings. Approved for merge from a security perspective.**
+
+Fix C **reduces** the storage-write surface (Option A short-circuits writes when a duplicate triple is detected) and extends an existing atomic transaction (cold-start dedup piggybacks on `pruneResolvedFloatingGroups`'s existing `writeTransaction`). Both halves are tightly scoped, allow-list-shaped, defensively coded, and introduce no new threat surface.
+
+### Generic threat surface — pass
+
+| # | Check | Result |
+|---|-------|--------|
+| 1 | Manifest / permissions delta | **Pass.** `git diff manifest.json` is empty. No new permissions, no `host_permissions`, no `content_scripts`, no `web_accessible_resources` change. |
+| 2 | CSP / `eval` / `new Function` / `innerHTML` / `outerHTML` introductions | **Pass.** Grep of the diff finds zero new occurrences. Fix C is pure storage-layer JS — no DOM HTML and no script-evaluation paths added. |
+| 3 | Storage-write surface | **Pass — net reduction.** `appendFloatingGroup` now early-returns when a duplicate triple exists (`floating-groups.js:366-373`); the write is skipped entirely (the mutator returns `arr` unchanged, so `writeTransaction`'s atomic `set` re-commits the same array — the `assertShape` guard at `write-transaction.js:112` validates the unchanged array). Cold-start dedup at `reassociateFloatingGroups` extends the existing `pruneResolvedFloatingGroups` `writeTransaction` (line 268-275); no new write surface added — the `duplicateFloatingTabIds` set is unioned into `resolvedFloatingTabIds` BEFORE the existing helper is invoked (line 264-266), so all dedup-driven writes flow through the same single-set atomic commit that already handled prune + lazy-rewrite. |
+| 4 | Input validation | **Pass.** Detailed analysis below. |
+| 5 | Network / telemetry / `console.log` debug noise | **Pass.** Zero new `fetch`, `XMLHttpRequest`, `WebSocket`, `console.log`, or remote-code introductions. No `console.warn` added either (failures bubble through the existing `writeTransaction` error wrapping at `write-transaction.js:105-108`). |
+
+### Fix C Part 1 — `appendFloatingGroup` dedup-on-write (checks 6, 8)
+
+**Dedup key correctness — pass.** The early-return predicate at `floating-groups.js:366-373` is:
+
+```
+const existing = arr.find((r) => r
+  && typeof r === 'object'
+  && r.liveTabId === stamped.liveTabId
+  && getParentItemId(r) === stamped.parentItemId
+  && r.groupId === stamped.groupId);
+```
+
+Defensive against malicious / malformed records:
+- `r.liveTabId === stamped.liveTabId` is a strict-equality JS triple-equals. `stamped.liveTabId` is *guaranteed* to be a finite number (validated at line 311-313 — `typeof entry.liveTabId !== 'number' || !Number.isFinite(entry.liveTabId)` rejects). A stored record whose `liveTabId` is the string `"100"` or `null` or `undefined` will compare *unequal* to `100` (number) → predicate returns `false` → the new record IS appended → the malformed legacy record persists alongside the new clean one. **Type coercion bypass is structurally impossible** — `===` does not coerce.
+- `getParentItemId(r)` is a typed accessor (`floating-groups.js:44-53`): returns the literal string `parentItemId` if string-non-empty, else literal `itemId` if string-non-empty, else `''`. The comparison `=== stamped.parentItemId` is also `===` (strict) — a stored record with `parentItemId: { evil: 'object' }` returns `''` from the accessor → compare-unequal → predicate `false`. Object-injection in `parentItemId` cannot evade the dedup.
+- `r.groupId === stamped.groupId` — stamped value is validated as string at line 300 (`typeof entry.groupId !== 'string' → return`). Any stored non-string `groupId` would compare unequal → predicate `false` → no false-positive dedup. (False-negative path here means we do NOT skip the write — which is the correct fail-safe direction; the consequence is at most one extra record, which the cold-start dedup pass would later catch IF the stored record's shape conformed to the dedup pass's filters.)
+
+The dedup path is **strict**: the only way to short-circuit a legitimate write is for *every* one of the four conditions to hold. There is no string-vs-number coercion, no `==` (loose-equality) anywhere in the predicate.
+
+**`floatingTabId` identity preservation (check 8) — pass.** Option A semantics return `arr` unchanged on duplicate detection. The existing record's `floatingTabId` (the storage identity) is preserved verbatim. There is no path where a malformed duplicate record could replace a valid existing record — the duplicate detection short-circuits BEFORE any `arr.push`/`arr.splice`/spread operations, so the new (validated, well-formed) `stamped` object is dropped on the floor. Any in-flight `floatingTabId` references remain valid.
+
+A subtle but correct consequence: if the existing record IS malformed (e.g., legacy `floatingTabId` literally undefined OR a corrupted ulid), the new clean `stamped` is also dropped. This is acceptable — the cold-start dedup pass at `reassociateFloatingGroups:171-198` requires a string `floatingTabId` to participate (line 173-175: `typeof record.floatingTabId !== 'string' || record.floatingTabId.length === 0 → continue`), so a malformed pre-existing record is naturally excluded from the cold-start cleanup AND the dedup-on-write keeps it. The legacy-shape carve-out is consistent across both halves of Fix C.
+
+**Allow-list direction (check 10) — pass.** Strictly speaking, the dedup-on-write is a **deny-on-match** short-circuit (skip the write when a match is found), which is the inverse of the C-7 allow-list discipline. However, C-7 applies to filtering **structured-data export / sanitization** surfaces — its blast-radius rationale is "permit known-good fields rather than strip known-bad fields". Fix C is not a filter; it is an idempotent-write guard. The fail-safe direction matches: a missed dedup (false-negative) results in a duplicate record that the cold-start dedup will catch on next SW restart; an over-eager dedup (false-positive) would silently swallow a legitimate write. The four-condition predicate (`liveTabId` + `parentItemId` + `groupId` + non-null + object-shape check) correctly biases toward false-negative — false-positive is structurally prevented by the strict-equality on three discriminating fields.
+
+### Fix C Part 2 — cold-start dedup (checks 7, 9, 10, 11)
+
+**Cold-start dedup completeness / race-window analysis (check 7) — pass.** The dedup pre-flight read at `floating-groups.js:121` (`readPartition(PARTITION_FLOATING_GROUPS)`) runs OUTSIDE `writeTransaction`. Critical race-window analysis:
+
+- **Dedup pass** (lines 167-198) walks `records` (the pre-flight snapshot) and computes `duplicateFloatingTabIds`.
+- The actual mutation runs INSIDE `pruneResolvedFloatingGroups`'s `writeTransaction` (line 270-274), which re-reads its own `current` snapshot via `chrome.storage.local.get` (line 93 of `write-transaction.js`).
+- A concurrent writer (e.g., a runtime `appendFloatingGroup` from `chrome.tabs.onCreated`) inserting a NEW record between the pre-flight read and the transaction's `get`: the new record is in the transaction's `current` snapshot but is NOT in `duplicateFloatingTabIds` / `resolvedFloatingTabIds` / `staleLiveTabIdRecords`. The mutator's predicate at `pruneResolvedFloatingGroups:738-758` retains records whose `floatingTabId` is NOT in the prune set → the new record is preserved. **Benign — race window does not corrupt storage.**
+- A concurrent writer DROPPING a record (e.g., `pruneFloatingGroupsByLiveTabId` from `chrome.tabs.onRemoved` removing the same record that's in `duplicateFloatingTabIds`): the dropped record is not in the transaction's `current` snapshot → the prune predicate's `acc.push(entry)` for that record never executes (the entry is gone) → the dedup-driven prune is a no-op for that entry. **Benign.**
+- A concurrent writer MUTATING a record (e.g., `staleLiveTabIdRecords` lazy-rewrite of a record that's also queued for dedup-prune): the prune branch fires first at `pruneResolvedFloatingGroups:741-743` (early `return acc` skips the patch branch entirely if the entry's `floatingTabId` is in the prune union). **Benign — survivor record's patch (if queued) lands correctly per the explicit comment at floating-groups.js:259-263.**
+- The `txQueue` chain at `write-transaction.js:138-140` serializes any concurrent `writeTransaction` call within the SW lifetime, so the pre-flight-read-then-transaction window is the only race surface — and it is bounded to the SW cold-start path which executes before user-driven UI events can dispatch any opener-chain `appendFloatingGroup`. The cold-start `reassociateFloatingGroups` is invoked from `background/tabs/index.js` synchronously after `buildLiveTabIndex` resolves, BEFORE any `chrome.tabs.on*` listener is registered, so a concurrent `appendFloatingGroup` mid-cold-start is structurally impossible. **Race-window is closed in production by call-site ordering**, and even if a hypothetical caller violated this, the consequences enumerated above are all benign.
+
+**Highest-`savedAt` tiebreaker / determinism (check 9) — pass.** The tiebreaker at `floating-groups.js:185-197` is:
+
+```
+if (savedAt > prior.savedAt) {
+  duplicateFloatingTabIds.add(prior.floatingTabId);
+  tripleSurvivors.set(tripleKey, { floatingTabId: record.floatingTabId, savedAt });
+} else {
+  duplicateFloatingTabIds.add(record.floatingTabId);
+}
+```
+
+When `savedAt === prior.savedAt` (clock collision OR identical-`Date.now()` from concurrent appends in the same millisecond): the comparison `savedAt > prior.savedAt` is `false` → the **first-seen record wins** (current `record` is marked duplicate, `prior` survivor is retained). The iteration order over `records` is **stable** because `records` is the array shape returned by `chrome.storage.local.get` for `tj:floatingGroups`, which Chrome's storage API serializes/deserializes in insertion order via JSON. So the survivor is **deterministically the first-by-storage-insertion record among any equal-`savedAt` peers** — non-attacker-controllable, non-ambiguous, reproducible across runs.
+
+A crafted adversarial record (e.g., `savedAt: Number.MAX_SAFE_INTEGER`) would always win the tiebreaker. The threat model: a user with extension write access could plant such a record by directly editing `chrome.storage.local`. But that user is the same actor as the legitimate user (extension storage is local-profile-scoped, no cross-origin write access). No cross-origin or remote-attacker path. **Not a security finding** — a `savedAt` validation bound (e.g., reject `savedAt > Date.now() + epsilon`) would be defense-in-depth but adds complexity without a real threat. The validator at line 304 already requires `Number.isFinite(savedAt)` which rejects `Infinity` / `NaN`.
+
+**Allow-list direction in cold-start dedup (check 10) — pass.** The dedup pass at lines 171-198 is positively-shaped: it iterates records and **opt-in** adds `floatingTabId`s to a `duplicateFloatingTabIds` set when the triple-key has been seen before. It does NOT walk the records and "filter out duplicates" via a negative predicate. The merged set (line 264-266) is then handed to `pruneResolvedFloatingGroups`, whose internal filter at `floating-groups.js:738-758` is itself allow-list-shaped: `acc.push(entry)` retains records by default; the **only** drop branches are explicit `return acc` (without push) when the record's `floatingTabId` is in the resolved set OR when the legacy parentItemId is in the legacy resolved set. **Allow-list discipline preserved end-to-end.**
+
+A regression of the dedup pass to a negative predicate (e.g., `arr.filter((r) => !duplicateFloatingTabIds.has(r.floatingTabId))`) would also work but would be **less safe** under adversarial corruption (a record with `floatingTabId: undefined` would silently survive a deny-list filter — `undefined` not in Set → kept; under the current allow-list-shaped flow it would not even be added to the dedup pass at line 173-175 in the first place, which is the structurally correct behavior).
+
+### Storage / atomicity (checks 11, 12)
+
+**`pruneResolvedFloatingGroups` writeTransaction extension (check 11) — pass.** Verified at `floating-groups.js:268-275`. The Fix C union (line 264-266) merges `duplicateFloatingTabIds` INTO `resolvedFloatingTabIds` BEFORE the helper is invoked. The `pruneResolvedFloatingGroups` body at lines 731-762 is **unchanged by Fix C** — it processes a single `Set<string>` of `floatingTabId`s to prune, plus the legacy fallback set, plus the optional stale-`liveTabId` patch map. All three are committed in **one** `writeTransaction` (line 734-761) → single `chrome.storage.local.set` call (line 116 of `write-transaction.js`) → atomic Chrome storage commit. The merged duplicate-set + resolved-set + lazy-rewrite are all committed in **one** atomic operation. ✓
+
+**Idempotency (check 12) — pass.** Calling `reassociateFloatingGroups` twice in a row:
+
+- First call: pre-flight reads N records (including, e.g., 2 duplicates). Dedup pass collapses to 1 survivor; older duplicate's `floatingTabId` is added to `duplicateFloatingTabIds`. Resolver pass continues. `pruneResolvedFloatingGroups` removes the older duplicate. Storage now has N-1 records.
+- Second call: pre-flight reads N-1 records. Dedup pass walks records — for each unique triple, only ONE record exists, so `tripleSurvivors.set(tripleKey, …)` fires once per triple but never reaches the `else` / `if (savedAt > prior.savedAt)` branches at lines 191-197. `duplicateFloatingTabIds` remains empty. The resolver pass also produces `staleLiveTabIdRecords` empty (the survivor's `liveTabId` already matches its resolved `matchedTabId` from the first call's lazy rewrite, IF a rewrite was even applied). The early-return guard at line 268-269 (`resolvedFloatingTabIds.size === 0 && legacyResolvedParentItemIds.size === 0 && staleLiveTabIdRecords.size === 0 → skip writeTransaction`) fires → **NO WRITE**. ✓
+
+The second call is a structural no-op. Storage state on the second call is byte-identical to the first call's post-state (modulo the `chrome.storage.local.set` not being called at all on the second call).
+
+### Tests — pass
+
+The new tests (`tests/b134-tab-drag-reorder.test.js:1666-1934`, T40-T45) cover the security-relevant paths:
+
+- **T40** (line 1700) — Part 1 dedup-on-write happy path: two appends, same triple, second is a no-op. Asserts `records.length === 1` AND `savedAt === 1000` (the original — proving Option A semantics: existing record's stable identity wins, no in-place update).
+- **T41** (line 1731) — Part 1 regression guard: same `liveTabId` + DIFFERENT `parentItemId` (the user-data record-9 case). Both records preserved. Critical false-positive test — proves the dedup key is the **triple** and not just `liveTabId`.
+- **T42** (line 1761) — Part 1 regression guard: same `liveTabId` + same `parentItemId` + DIFFERENT `groupId`. Both preserved. Proves `groupId` is part of the triple key.
+- **T43** (line 1791) — Part 2 + e2e regression: seeded duplicates → cold-start dedup → reorder MUST return `reordered: true` (NOT ERR_RACE). Direct repro of the user's smoke-test bug. Strongest test — closes the user-visible failure mode.
+- **T44** (line 1846) — Part 2 highest-savedAt tiebreaker correctness: three records (1000, 5000, 3000) → the 5000 survives. Asserts the deterministic-tiebreaker contract.
+- **T45** (line 1879) — Part 2 regression guard: 2 duplicates under parent A + 1 under parent B → only parent-A duplicates collapse. Mirrors the user-data record-9 case for cold-start dedup. Critical false-positive test for the cold-start path.
+
+T41 and T45 are particularly notable: they exercise the dedup key correctness — a regression to a `(liveTabId, groupId)` two-tuple key OR a `liveTabId`-only key would silently drop record-9-class legitimate records. Both tests would catch that immediately.
+
+T44 is the deterministic-tiebreaker test — a regression of the comparator (e.g., `>=` instead of `>`, or a non-stable iteration) would fail this test.
+
+### Summary
+
+| Severity | Count |
+|----------|-------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 0 |
+
+No findings. Fix C is a **net storage-write reduction** — Option A short-circuits writes on duplicate detection (Part 1) and the cold-start dedup piggybacks on an existing single-atomic transaction (Part 2). The dedup key is strict-equality across three discriminating fields with no type-coercion path, the highest-`savedAt` tiebreaker is deterministic, the allow-list direction is preserved end-to-end, the `pruneResolvedFloatingGroups` atomicity is intact, and the second-call idempotency is verified by construction. Six new tests (T40-T45) cover both halves with explicit false-positive regression guards (T41 / T45) and a direct user-bug repro (T43). Full suite passes 1818 / 1818 with zero regressions.
+
+Approved for merge from `[security-reviewer]`.
+
+_Review completed by [security-reviewer] on 2026-04-29 against `feature/sprint-41-floating-tab-id` working-tree diff (Fix C delta on top of merged Fix A + Fix B)._
+
+---
+
+## [code-reviewer] — Fix C R4
+
+_R4 code review of the pre-v1.35.0 hotfix bundle Fix C — dedup-on-write at `appendFloatingGroup` + cold-start dedup at `reassociateFloatingGroups`. Branch: `feature/sprint-41-floating-tab-id` (uncommitted). Diff scope: `background/tabs/floating-groups.js` (+127 / -11), `tests/b134-tab-drag-reorder.test.js` (+270). `manifest.json` is untouched. Full test suite: 1818 / 1818 passing._
+
+### Verdict — **CLEAN. No CRITICAL / HIGH / MEDIUM findings. One LOW-priority observation recorded for transparency.** Approved for merge.
+
+Fix C is a tightly scoped, structurally correct surgical patch. The dedup key triple `(liveTabId, parentItemId, groupId)` is the most-specific guard that closes the duplicate-record failure mode (records 7/12 in user data) while preserving the legitimate coexistence (record 9 in user data). Option A no-op semantics correctly preserve the existing record's stable storage identity (`floatingTabId`). The cold-start dedup pass cleanly piggybacks on the existing `pruneResolvedFloatingGroups` writeTransaction so cold-start storage mutations remain a single atomic write. Sibling write-paths verified — `saveFloatingGroups`, `reorderFloatingMembers`, `moveFloatingTab` correctly do NOT need similar guards (none of them appends a duplicate by construction).
+
+### CRITICAL (must fix before merge)
+
+_None_
+
+### HIGH (must fix before merge)
+
+_None_
+
+### MEDIUM (fix if time permits)
+
+_None_
+
+### LOW (defer or note)
+
+| # | File | Finding | Suggestion |
+|---|------|---------|-----------|
+| L-1 | `background/tabs/floating-groups.js:338-339, 362-364` | B-118 source-citation hygiene drift in the new `appendFloatingGroup` comment block. Three internal line citations are stale relative to the post-Fix-A line numbering: `:397-401` cites the parity-check (actual line is **517**); `_resolveRecordIndexByTabId` is cited at `:322-345` (actual lines are **438-461**); `reassociateFloatingGroups` is cited at `:115-201` (actual span is **120-276**). The cited section fragments appear to predate Fix A's `pruneFloatingGroupsByLiveTabId` insertion, which shifted line numbers downward by ~80 lines. | **Defer.** All three citations remain functionally locatable by symbol name (`reorderFloatingMembers`, `_resolveRecordIndexByTabId`, `reassociateFloatingGroups`); the references are not load-bearing for correctness. File as a Sprint 42 doc-cleanup ticket if line-citation precision is graded. Not blocking for this hotfix. |
+
+### Notes / observations
+
+**Checklist 1 — dedup key correctness.** Hand-traced T41 and T42 against the production code at `floating-groups.js:366-373`:
+
+| Test | Triple | Behavior | Verdict |
+|------|--------|----------|---------|
+| T40  | (100, item, g) twice  | 2nd call: `existing` matches → `return arr` (no-op) | 1 record kept, savedAt=1000 (original) ✓ |
+| T41  | (803725428, itemA, g) + (803725428, itemB, g) | 2nd call: `parentItemId` mismatch → no match → push | 2 records (record-9 case preserved) ✓ |
+| T42  | (200, item, gA) + (200, item, gB) | 2nd call: `groupId` mismatch → no match → push | 2 records (cross-group case preserved) ✓ |
+
+The `find` predicate at lines 366-370 (`r.liveTabId === stamped.liveTabId && getParentItemId(r) === stamped.parentItemId && r.groupId === stamped.groupId`) exactly captures the triple. `getParentItemId` (lines 44-53) correctly handles both v3 (`itemId`) and v4 (`parentItemId`) record shapes — so a v3 legacy record sharing the effective parent triple would also be matched. ✓
+
+**Checklist 2 — Option A semantics.** Verified at `floating-groups.js:366-373`:
+- Function returns `arr` unchanged when `existing` is found — no append, no mutation.
+- The existing record's `floatingTabId` (stable identity), `savedAt`, `windowId`, `tabIndex`, `url`, and `sortOrder` are all preserved (T40 asserts `savedAt === 1000` after a 2000-savedAt second call).
+- JSDoc at `floating-groups.js:357-365` accurately describes Option A: "the existing record's `floatingTabId` is the stable storage identity; preserving it avoids invalidating any in-flight references." Drift recovery via tier-(b) geometry fallback + cold-start re-bind is correctly documented. ✓
+
+**Checklist 3 — cold-start dedup integration.** Verified at `floating-groups.js:166-198`:
+- Triple-key grouping at line 182 (`tripleKey = ${liveTabId}|${parentId}|${groupId}`) — pipe-delimited string key, well-formed (no field can contain `|` to collide).
+- Survivor-selection at lines 192-197: `if (savedAt > prior.savedAt)` keeps the higher `savedAt`; the loser goes into `duplicateFloatingTabIds`. Hand-traced T44 across all 6 iteration permutations of the three-record set (savedAts 1000/3000/5000) — `fl-high` (5000) survives in every order. ✓
+- Records lacking `floatingTabId` are excluded (lines 173-175) — pruned only by their own resolver paths above.
+- Records lacking finite `liveTabId` are excluded (lines 176-178) — they cannot have a triple-key.
+- Records lacking `parentId` or `groupId` are excluded (lines 179-181) — defensive validation.
+- Merge into prune set at lines 264-266: union semantics (`resolvedFloatingTabIds.add(dupId)`); single atomic writeTransaction at line 270. Lazy-rewrite branch interaction is correct — see Checklist 4 below.
+
+**Checklist 4 — race / atomicity.** The dedup pass operates on the snapshot read at `floating-groups.js:121` outside the writeTransaction. The writeTransaction inside `pruneResolvedFloatingGroups` (line 736) operates on its own fresh `current` snapshot. Three interactions:
+
+1. **Concurrent `appendFloatingGroup` between read and write:** Part 1's dedup-on-write guard at lines 366-373 prevents a NEW duplicate from being created during this window. Only the snapshot-time duplicates are queued for prune. ✓
+
+2. **Loser also enters `staleLiveTabIdRecords` via the position-match / URL-fallback loop:** The loop at line 200 iterates the original snapshot, so a loser may add itself to `staleLiveTabIdRecords[loser.floatingTabId] = matchedTabId`. In `pruneResolvedFloatingGroups` (lines 738-759), the prune branch (line 743) fires BEFORE the patch branch (line 747) for the same `floatingTabId` — the loser is correctly dropped, and the wasted patch entry is benign. ✓
+
+3. **Survivor's lazy-rewrite:** If a survivor's stored `liveTabId` is stale (not in liveTabIndex), tier (a) misses → position-match or URL-fallback finds a different tabId → patch queued for the survivor's `floatingTabId`. Survivor's `floatingTabId` is NOT in `duplicateFloatingTabIds` (it won the savedAt comparison) → not in `resolvedFloatingTabIds` after the merge → prune branch is bypassed → patch branch fires → survivor's `liveTabId` is correctly rewritten. ✓
+
+Filter is idempotent. Race analysis holds.
+
+**Checklist 5 — B-129 cascade-prune sibling-grep.** Verified by reading each sibling write-path:
+- `saveFloatingGroups` (`:68-84`): mutator returns `valid` wholesale — REPLACES the partition. Cannot create duplicates. ✓
+- `reorderFloatingMembers` (`:480+`): mutator only updates `arr[idx] = { ...arr[idx], sortOrder }` — never appends. Cannot create duplicates. ✓
+- `moveFloatingTab` (`:559+`): On ATTACH/MOVE_FLOATING, splices source then pushes ONE record into the target bucket. Source-side splice (line 610) ensures move-not-duplicate. `sourceGroupId === targetGroupId` is rejected at line 562. Per-tabId preflight via `_resolveRecordIndexByTabId` guarantees the source record is found before move. Cannot create a triple-collision. ✓
+
+Agent's claim is accurate. Only `appendFloatingGroup` is the duplicate source.
+
+**Checklist 6 — performance.**
+- `appendFloatingGroup` dedup at lines 366-370: `Array.prototype.find` is O(N records) per call. Bounded ≤ 50 typical (one mutator invocation per inheritance event, infrequent cold path). Negligible. ✓
+- Cold-start dedup pass at lines 171-198: linear scan, O(N records) per cold-start. Bounded by partition size. Negligible. ✓
+
+**Checklist 7 — dead code / commented-out / TODOs / `console.log`.** Pass. The +127 lines in `floating-groups.js` consist entirely of (a) the new dedup-pass loop, (b) merge step into prune set, (c) the new `existing`-find guard in `appendFloatingGroup` mutator, and (d) JSDoc + inline rationale comments. Zero TODOs, zero `console.log`, zero commented-out blocks. The two large block comments (lines 141-165 and 335-365) are explanatory rationale (origin file references, B-141 self-application, Option A semantics) — appropriate for a hotfix that closes a high-visibility bug. ✓
+
+**Checklist 8 — test quality.**
+- T40 (dedup-on-write happy path): asserts exactly 1 record AND survivor's `savedAt === 1000` (original, not the second call's 2000). Option A semantics strongly verified. ✓
+- T41 (record-9 coexistence): asserts both records' `parentItemId` ∈ {itemA, itemB} via Set membership. Strong. ✓
+- T42 (cross-group): asserts both `groupId`s present. Strong. ✓
+- T43 (end-to-end repro): seeds 4 duplicate records (user-data shape with savedAt offsets that mirror the smoke-test data — old @1000-1100, new @9000-9100); asserts post-dedup count is 2; asserts the highest-savedAt survivors (`fl-A-new`, `fl-B-new`) are kept; THEN dispatches `MSG_REORDER_FLOATING_MEMBERS` and asserts `resp.data.reordered === true` (NOT ERR_RACE). This is the strongest test in the bundle — direct reproduction of the user-reported failure path with end-to-end verification. ✓
+- T44 (highest-savedAt-wins): three records with savedAts 1000/5000/3000. Asserts `survivor.floatingTabId === 'fl-high'` (the 5000) regardless of iteration order. Hand-traced all permutations — the comparison `savedAt > prior.savedAt` is order-independent. ✓
+- T45 (regression guard): mixes 2-dup-under-itemA + 1-record-under-itemB. Asserts post-dedup count is 2; asserts itemA-survivor is `fl-A-new` (highest savedAt), asserts itemB record `fl-B-only` preserved (legitimate coexistence), asserts `fl-A-old` is dropped. Combines T44 + T41 invariants. ✓
+
+All six tests have explanatory headers tying back to the spec at `docs/findings/post-s41-pre-merge-triage.md` Issue C. Test names follow the established `Fix C T<N>` convention. Coverage maps from the JSDoc comment block at lines 1665-1686. ✓
+
+**Checklist 9 — B-118 source-citation hygiene.** Pass-with-LOW. The new comment blocks DO carry origin citations (`docs/findings/post-s41-pre-merge-triage.md Issue C`) AND the B-141 self-application reference. The named precedents (B-137 §66.1, Fix A, the spike findings origin) are all cited. The L-1 finding above flags three internal line-number citations that drifted by ~80 lines after Fix A's earlier insertion. Symbol-named references all resolve correctly. Not blocking.
+
+**Cross-cutting — `manifest.json` unchanged.** Pass. Fix C touches only `background/tabs/floating-groups.js` and `tests/b134-tab-drag-reorder.test.js`.
+
+**Cross-cutting — DRY.** The dedup loop at lines 171-198 is structurally distinct from Fix A's `pruneFloatingGroupsByLiveTabId` filter — different inputs (snapshot scan vs. tabId match), different outputs (Set of floatingTabIds vs. record predicate). No consolidation opportunity worth pursuing.
+
+**Cross-cutting — STOP-and-escalate hygiene.** No AC-locked deferrals embedded inline. The two block comments are rationale, not deferral notes. ✓
+
+**Test suite regression check.** `npm test` reports 1818 pass / 0 fail / 0 skip. Zero regressions. The 6 new tests (T40-T45) all pass. Pre-existing AC4 storage-write invariant test continues to pass — Fix C does not introduce any new tab-event-handler storage writes (the new `existing`-guard is inside the mutator that was already running, and the cold-start dedup is in `reassociateFloatingGroups` which is not on the synchronous tab-event handler path).
+
+### Summary
+
+| Severity | Count |
+|----------|-------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 1 (deferrable / informational — line-citation drift) |
+
+Fix C is surgically scoped, structurally correct, defensively coded, and follows established project patterns. The single LOW-priority observation (line-citation drift in three internal references after Fix A shifted line numbers) is informational only and not blocking. Approved for merge from `[code-reviewer]`.
+
+_Review completed by [code-reviewer] on 2026-04-29 against `feature/sprint-41-floating-tab-id` working-tree diff (Fix C delta on top of merged Fix A + Fix B)._
+
+---
+
+## [security-reviewer] — Fix D R4
+
+**Item under review:** Fix D — `_computeReorderFloatingPayload` off-by-one fix. Pure-computation change in sidepanel context. Removes a `currentIdx < insertIndex ? insertIndex - 1 : insertIndex` adjustment that was correct for an unfiltered insertIndex but double-corrects when applied to the filtered (post-removal) insertIndex produced by `_computeTabDropTarget`'s REORDER_FLOATING branch (sidepanel.js:6261-6275, B-134 R4 H-4 fix).
+
+**Files reviewed (working-tree diff):**
+- `sidepanel/sidepanel.js` (+18/-4) — helper body change + rationale comment block
+- `tests/b134-tab-drag-reorder.test.js` (+85/-14) — T16-T18 input rebases + 4 new regression-guard tests (T46-T49)
+
+### Threat-surface analysis
+
+The change is a **pure-computation** edit inside `_computeReorderFloatingPayload`. The helper:
+- Reads from `_cachedFloatingMembers` (in-memory only; no storage I/O).
+- Returns an array of tab IDs to the caller (`MSG_REORDER_FLOATING_MEMBERS` dispatch site at sidepanel.js:4737-4749).
+- Does NOT touch DOM, chrome.* APIs, storage, network, or `eval`/`innerHTML`.
+- Does NOT log via `console.*`.
+
+The SW-side handler for `MSG_REORDER_FLOATING_MEMBERS` re-validates the client-supplied order against authoritative storage (per the helper's existing JSDoc and the project's defensive-validation discipline) — the client payload is treated as untrusted by the receiver. Threat surface for this delta is **near-zero**.
+
+### Checklist results
+
+**1. Manifest / permissions.** Pass. `git diff manifest.json` returns empty. No new permissions, no `host_permissions` change, no CSP relaxation, no new web-accessible resources.
+
+**2. CSP / `eval` / `new Function` / `innerHTML`.** Pass. `git diff` filtered for `console\.|innerHTML|eval|new Function|fetch\(|XMLHttpRequest|chrome\.permissions|chrome\.storage\.*\.set` returns zero matches in added lines. The change is arithmetic only (`Math.max(0, Math.min(insertIndex, tabIds.length))`).
+
+**3. Storage write surface.** Pass. The helper is a pre-dispatch index calculator. It does not call `chrome.storage.*`, does not mutate `_cachedFloatingMembers` (it splices a *copy* — `tabIds = members.map(...)`), and does not write to any IDB/persistent store. The downstream SW handler is unchanged by this fix and continues to enforce its own authoritative re-validation.
+
+**4. Network / telemetry / `console.log`.** Pass. No new occurrences in the diff. Local-only invariant preserved.
+
+**5. `MSG_REORDER_FLOATING_MEMBERS` payload integrity (orderedTabIds set membership).** Pass. The post-fix algorithm:
+```
+tabIds = members.map(m => m.tabId)        // copy of original IDs
+currentIdx = tabIds.indexOf(draggedTabId)
+if (currentIdx === -1) return []          // safety: dragged tab not in cache
+tabIds.splice(currentIdx, 1)              // remove dragged
+clamped = Math.max(0, Math.min(insertIndex, tabIds.length))
+tabIds.splice(clamped, 0, draggedTabId)   // re-insert dragged
+return tabIds
+```
+The `splice(currentIdx, 1)` followed by `splice(clamped, 0, draggedTabId)` is a structurally-symmetric remove-then-reinsert. The output `tabIds` has the same multiset as the input (one `draggedTabId` removed, one `draggedTabId` re-added), so:
+- No new IDs are introduced (the only ID inserted is `draggedTabId`, which was guaranteed present at line `currentIdx = tabIds.indexOf(...)`).
+- No IDs are lost (every member of `members.map(m => m.tabId)` survives except possibly `draggedTabId`, which is then re-added).
+- Length invariant: `out.length === members.length` (verified by T16-T18 + T46-T49 deepEqual assertions on 3-element and 5-element fixtures).
+
+The pre-fix and post-fix algorithms differ ONLY in the index where `draggedTabId` is re-inserted; set membership is identical. Verdict: payload integrity preserved.
+
+**6. Bounds (NaN / negative / very large `insertIndex`).** Pass with note. The clamp `Math.max(0, Math.min(insertIndex, tabIds.length))` handles:
+- **Negative `insertIndex`** → `Math.min(neg, tabIds.length)` returns the negative, then `Math.max(0, neg)` clamps to 0. Splice at 0 → prepend. Safe.
+- **Very large `insertIndex`** → `Math.min(huge, tabIds.length)` returns `tabIds.length`, then `Math.max(0, len)` returns `len`. Splice at `tabIds.length` → append. Safe.
+- **NaN `insertIndex`** → `Math.min(NaN, n)` returns NaN; `Math.max(0, NaN)` returns NaN; `Array.prototype.splice(NaN, 0, x)` coerces NaN → 0 (per ECMA §22.1.3.30 → ToInteger → ToNumber → +0). The dragged tab gets prepended. No crash, no exception, no payload corruption (still a permutation of the original IDs).
+- **`undefined`/`null` `insertIndex`** → `null` coerces to 0 (Math.min/max numeric coercion); `undefined` propagates as NaN, which behaves as above.
+
+The clamp is well-formed for all malformed inputs. The downstream SW validator will additionally reject any payload that isn't a strict permutation of the authoritative order, providing a defense-in-depth backstop.
+
+**7. Same-position no-op preservation.** Pass. T18 (rebased) and T48/T49 (new) cover this:
+- T18: `[1,2,3]`, drag `2`, drop at filtered index 1 (between 1 and 3, which is dragged-tab's own slot in filtered space) → `[1,2,3]`. True no-op.
+- The pre-fix algorithm also produced `[1,2,3]` for input `(idx 1 → 1)` (because `currentIdx (1) < insertIndex (1)` is false → no `-1` branch), so the no-op behavior is preserved across the fix. The user-visible "drop on own slot = no change" invariant continues to hold.
+
+**8. B-141 self-application — historical-comment-chain misled prior R3.** Confirmed worth flagging. Fix B's R3 report claimed `_computeReorderFloatingPayload` "ALREADY has the index-shift adjustment" — accurate as a literal reading of the code at the time, but **stale** as a correctness signal: the adjustment had become incorrect when B-134 R4 H-4 switched `_computeTabDropTarget` to filtered-list midlines (sidepanel.js:6261-6275). The pre-Fix-D adjustment was the *right answer for an unfiltered insertIndex*, which had been the contract before H-4. After H-4, the contract changed but the helper's index-arithmetic comment stayed.
+
+This is precisely the B-141 "R3-spec-incorrect-finding" pattern: an R3 author treated a multi-author-historical comment as authoritative without re-verifying against the current data-flow contract. The Fix D rationale block (sidepanel.js:6391-6404) now explicitly documents the filtered-list contract and the H-4 dependency — that's the correct corrective. **Recommend** that any future change to `_computeTabDropTarget`'s filtering convention treat the new comment as a *contract-binding* docstring and grep for `_computeReorderFloatingPayload` callers if the convention is ever flipped back. Not a blocker for Fix D itself — it's a precedent capture for future R2/R3 hygiene.
+
+### Cross-cutting
+
+**Stale-comment hygiene at sidepanel.js:6439-6441.** **Informational (LOW).** `_computeStripInsertIndex` carries a comment that says "mirrors the index-shift adjustment in `_computeReorderFloatingPayload` above — when D was BEFORE the unfiltered insert position S, removing D shifts the post-drop slot down by one." Post-Fix-D, the *helper* no longer carries that adjustment because its input is filtered. `_computeStripInsertIndex` does still carry an `effectiveS = (dPos < S) ? S - 1 : S` adjustment, which is correct *for the OPEN-tabs path* because `_computeTabDropTarget`'s OPEN-tabs branch does NOT filter (it operates on `cluster.rowMidlines` directly without dragged-row exclusion — see sidepanel.js:6312-6395 area). So the OPEN-tabs adjustment remains correct, but the comparison to "the index-shift adjustment in `_computeReorderFloatingPayload`" is now inaccurate (the helper no longer has one). This is a comment-only drift; the OPEN-tabs code is correct. Consider rephrasing to "(unfiltered-insertIndex convention; the floating-tab path uses a filtered-insertIndex convention and applies no further adjustment)" in a follow-up — not blocking for Fix D.
+
+**Test selector / chrome-mock surface.** Pass. T16-T18 + T46-T49 are pure-algorithm tests against `reorderPayloadAlgorithm` (a local mirror of the helper) on plain object fixtures. No `chrome-mock`, no DOM, no message-bus mocks. Deterministic; no flakiness vectors.
+
+**STOP-and-escalate hygiene.** Pass. The Fix D rationale comment block documents the H-4 dependency and the Fix-C unmasking — it's analytical context, not a deferral note. No AC-locked behavior is silently deferred.
+
+### Summary
+
+| Severity | Count |
+|----------|-------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 1 (informational — comment drift at sidepanel.js:6439-6441 referencing the now-removed adjustment in `_computeReorderFloatingPayload`; OPEN-tabs code is correct) |
+
+Threat surface for Fix D is near-zero: pure in-memory index arithmetic, no new permissions, no new I/O, no XSS/CSP/eval surface, no storage writes, payload-set-membership preserved, bounds clamp robust against NaN/negative/oversize inputs, same-position no-op preserved. The remove-then-reinsert structure guarantees `MSG_REORDER_FLOATING_MEMBERS.orderedTabIds` is a permutation of the cached membership, and the SW handler's authoritative re-validation provides defense-in-depth. The B-141 self-application observation (stale comment chain misled prior R3 work) is captured as a precedent for future R2/R3 hygiene; the Fix D rationale block in the source already addresses the immediate corrective. **Approved for merge from `[security-reviewer]`.**
+
+_Review completed by [security-reviewer] on 2026-04-29 against `feature/sprint-41-floating-tab-id` working-tree diff (Fix D delta: sidepanel/sidepanel.js + tests/b134-tab-drag-reorder.test.js)._
+
+---
+
+## [code-reviewer] — Fix D R4
+
+**Item under review.** Fix D — surgical off-by-one removal in `_computeReorderFloatingPayload` (`sidepanel/sidepanel.js`). User-reported smoke-test bug post-Fix-C: floating-tab REORDER lands at wrong position on FORWARD drags (off-by-one above the visual indicator).
+
+**Diagnosis claim under verification.** R3 agent claims convention mismatch: B-134 R4 H-4 fix made `_computeTabDropTarget` filter the dragged row out of `rowMidlines`/`rowTabIds` for REORDER_FLOATING (sidepanel.js:6261-6275), placing the produced `insertIndex` in post-removal index space. But `_computeReorderFloatingPayload` continued to apply a `currentIdx < insertIndex ? insertIndex - 1 : insertIndex` adjustment that is correct ONLY for an UNFILTERED `insertIndex`. Forward drags (`currentIdx < insertIndex` true) double-corrected; backward drags (`currentIdx < insertIndex` false) left the value alone — so the bug presented as forward-only.
+
+**Fix algorithm.** Delete the adjustment line; splice in directly at `insertIndex` with bounds clamp. Net diff: `sidepanel.js` +18 / -4 (most additions are the Fix D explanatory comment block); `tests/b134-tab-drag-reorder.test.js` +85 / -14 (T16/T17/T18 inputs re-derived for filtered-list semantics; T46-T49 added as regression guards).
+
+### Checklist results
+
+**1. Diagnosis correctness — VERIFIED.** Read `sidepanel.js:6261-6275`:
+- Line 6267: `isReorderFloating = (sourceMode === 'FLOATING' && groupId === sourceGroupId)`.
+- Lines 6270-6272: when `isReorderFloating`, `midlines = zone.rowMidlines.filter((_, i) => zone.rowTabIds[i] !== draggedTabId)`.
+- Lines 6273-6275: `tabIds` is filtered identically.
+- Lines 6278-6282: the `insertIndex` loop iterates the FILTERED midlines. Therefore the produced `insertIndex` IS in post-removal (filtered) index space.
+
+The diagnosis is correct. Cross-checked against `_resolveTabDragIndicatorY` (sidepanel.js:6204-6237) which applies the SAME filtered-list convention for REORDER_FLOATING (lines 6219-6221), confirming the comment's claim that visual + outcome stay in sync post-fix.
+
+**2. Algorithm fix correctness — VERIFIED via 4-scenario hand-trace.**
+
+| Scenario | currentIdx | filtered insertIndex | post-fix splice | matches expected |
+|---|---|---|---|---|
+| Forward [A,B,C,D,E], drag A, between C/D | 0 | 2 | [B,C,D,E] → splice A at 2 → [B,C,A,D,E] | ✓ matches T46 |
+| Forward drop-at-end | 0 | 4 | [B,C,D,E] → splice A at 4 → [B,C,D,E,A] | ✓ matches T47 |
+| Backward [A,B,C,D,E], drag E, between B/C | 4 | 2 | [A,B,C,D] → splice E at 2 → [A,B,E,C,D] | ✓ matches T48 |
+| Same-position no-op (drag C from [A,B,C,D,E]) | 2 | 2 | [A,B,D,E] → splice C at 2 → [A,B,C,D,E] | ✓ true no-op |
+
+Pre-fix algorithm against scenario 1: `adjusted = (0 < 2) ? 1 : 2 = 1`; splice A at 1 → [B,A,C,D,E]. Off by one, A lands one row ABOVE the indicator. This is the user-visible symptom and the bug Fix D resolves.
+
+**3. Backward-drag-was-already-correct claim — VERIFIED.** Pre-fix algorithm against scenario 3: currentIdx=4, insertIndex=2 → `4 < 2` is false → `adjusted = 2`. Splice E at 2 of [A,B,C,D] → [A,B,E,C,D] — same result as post-fix. The `<` branch was inert for backward drags. The user's reported "backward also wrong" perception is most likely a misperception (or a downstream rendering artifact unrelated to this helper); Fix D is a no-op for backward semantics, so any backward-drag bug — if real — would survive Fix D and require separate diagnosis. T48 pins the backward outcome as a regression guard against a future re-introduction of the adjustment.
+
+**4. T16/T17/T18 input re-derivation — VERIFIED, NO ASSERTION WEAKENING.**
+
+| Test | Pre-Fix-D inputs | Post-Fix-D inputs | Expected output | Notes |
+|---|---|---|---|---|
+| T16 | drag tab 1, insertIndex=2 | drag tab 1, insertIndex=1 (filtered) | [2,1,3] | physical drop position identical; index recoded for filtered convention |
+| T17 | drag tab 3, insertIndex=0 | drag tab 3, insertIndex=0 | [3,1,2] | unchanged (backward drag — same index in either convention) |
+| T18 | drag tab 2, insertIndex=1 | drag tab 2, insertIndex=1 | [1,2,3] | unchanged, true no-op (currentIdx === insertIndex coincides) |
+
+T16's input change (insertIndex 2 → 1) reflects the convention shift: in the unfiltered space the "between 2 and 3" insertIndex is 2; in the filtered (post-removal-of-1) space the same physical drop position is insertIndex 1 in [2,3]. Output expectation [2,1,3] is identical. NOT a silent assertion weakening — it's a literal re-derivation of the same physical drop semantics under a new index convention.
+
+The local `reorderPayloadAlgorithm` mirror at the top of the test block was also updated (`currentIdx < insertIndex ? -1 : 0` adjustment removed), so T16-T18 are exercising the same algorithm Fix D applies to the production helper. Each test's updated comment describes the filtered-list reasoning explicitly. ✓
+
+**5. T46-T49 new tests — VERIFIED.**
+
+- **T46 (forward drag — would have failed pre-Fix-D):** [A,B,C,D,E], drag A, filtered insertIndex=2 → expects [B,C,A,D,E]. Pre-fix yields [B,A,C,D,E]; post-fix yields [B,C,A,D,E]. ✓ Regression-guard property holds.
+- **T47 (forward drop-at-end — would have failed pre-Fix-D):** filtered insertIndex=4 → expects [B,C,D,E,A]. Pre-fix yields adjusted=3 → [B,C,D,A,E]; post-fix yields [B,C,D,E,A]. ✓ Drop-at-end is the most user-visible miss-position; well chosen for regression coverage.
+- **T48 (backward drag — already correct, regression guard for future):** filtered insertIndex=2 → expects [A,B,E,C,D]. Pre-fix and post-fix both yield [A,B,E,C,D]. ✓ Pinning the backward path against future re-introduction of the adjustment.
+- **T49 (drop-at-start — already correct):** filtered insertIndex=0 → expects [E,A,B,C,D]. Pre-fix: 4 < 0 false → adjusted=0 → [E,A,B,C,D]. Post-fix: same. ✓
+
+Each test carries a comment explaining the input rationale and (where relevant) the pre-fix vs post-fix divergence. Test names follow the established `Fix D T<N>` convention. The Fix D JSDoc header at the top of the new block ties to B-134 §63.6.2, the R4 H-4 fix at sidepanel.js:6261-6275, and Fix C unmask history. ✓
+
+**6. No regression — VERIFIED.** `npm test` reports `tests 1822 / pass 1822 / fail 0 / skipped 0`. Zero regressions. The agent's claim is accurate.
+
+**7. B-118 source-citation hygiene — PASS.** The Fix D comment block in `sidepanel.js` (lines 6391-6406) explicitly cites:
+- B-134 R4 H-4 fix as the convention-source, with `sidepanel.js:6261-6275` as the verified reference
+- Fix C unmask as the symptom-mask reason
+- B-134 §63.6.2 origin chapter (preserved from the prior comment header)
+- The companion math in `_resolveTabDragIndicatorY` (named, not line-cited — acceptable since it's symbol-named in the file)
+
+The line citation `sidepanel.js:6261-6275` resolves correctly against the current file. The test-file Fix D block carries parallel citations. ✓
+
+**8. Dead code / commented-out / TODOs / console.log — NONE.** The diff deletes the obsolete two-line comment block (`/* Splice out then splice in. Account for the index-shift … */`) AND the obsolete `adjusted` line in one operation. No commented-out code, no TODOs, no debug noise. The local `reorderPayloadAlgorithm` mirror in the test file is intentional (replicates the helper for direct algorithmic coverage as documented in the test comment block) — not duplication-by-omission.
+
+### Cross-cutting checks
+
+- **`manifest.json` unchanged.** Pass — Fix D touches only `sidepanel/sidepanel.js` and `tests/b134-tab-drag-reorder.test.js`.
+- **DRY.** Pass — the local `reorderPayloadAlgorithm` test mirror is justified by the test comment block (lines 663-668: "we reconstruct its semantics via direct algorithm assertions on a stub map"). T12 (pre-existing) provides source-text assertions on the production helper body, so the duplication is intentional coverage, not drift risk.
+- **STOP-and-escalate hygiene.** Pass — no AC-locked deferrals embedded inline. The two new comment blocks are technical rationale, not deferral notes.
+- **Convention-shift blast radius.** Pass — searched for other consumers of `_computeTabDropTarget`'s `insertIndex` for REORDER_FLOATING. The only other consumer is `_resolveTabDragIndicatorY` (already filtered-list-aware via the B-134 R4 H-4 fix). No third consumer exists. Fix-scope is correctly bounded.
+- **Concurrence with [security-reviewer] Fix D R4.** The security review identifies a stale comment at `sidepanel.js:6439-6441` (in `_handleTabDrop`, OPEN-tabs branch) that still references "the index-shift adjustment" terminology. This is a documentation-drift LOW that does not affect the code under review (the OPEN-tabs reorder is structurally unrelated to `_computeReorderFloatingPayload`). I concur with their LOW classification and do NOT escalate it; it should be cleaned up in a follow-up sweep but is not blocking for Fix D merge.
+
+### Summary
+
+| Severity | Count |
+|----------|-------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 0 |
+
+**Fix D is clean.** The surgical off-by-one removal is correctly diagnosed, correctly implemented (delete one adjustment line + bounds clamp directly on `insertIndex`), and correctly tested (T16/T17/T18 re-derived without assertion weakening; T46-T49 added with both regression-guard and forward-failure-reproduction coverage). The diagnosis correctly identifies the convention mismatch introduced by B-134 R4 H-4 and the masking effect of pre-Fix-C ERR_RACE behavior. Backward-drag claim verified — Fix D is genuinely a no-op for backward semantics. Full test suite passes 1,822/1,822. **Approved for merge from `[code-reviewer]`.**
+
+_Review completed by [code-reviewer] on 2026-04-29 against `feature/sprint-41-floating-tab-id` working-tree diff (Fix D delta on top of merged Fix A + Fix B + Fix C)._
+
+---
+
+## B-149 R0 Spike — drifted-claim-loss
+
+_Discovery spike completed 2026-04-29 by [solution-architect] against `feature/sprint-41-floating-tab-id` HEAD `9573e61`. Read-only — no code changes._
+
+### Codepath inventory
+
+- **Claims persistence**: `chrome.storage.session` under key `tj:tabClaims` (`background/tabs/tab-claims.js:16`). Read on cold start by `readClaims()` at `tab-claims.js:94-97`; written by `writeClaims()` at `tab-claims.js:103-105`.
+- **Reconcile (cold-start)**: `reconcileClaims()` at `background/tabs/tab-claims.js:121-212`. Phase 1 (lines 137-147) validates each persisted claim; Phase 2 (lines 149-198) auto-claims unclaimed items in sortOrder.
+- **Runtime URL-change path**: `reevaluateTab()` at `background/tabs/tab-claims.js:254-287`. The B-099 D-1 contract removed the URL-mismatch claim-release branch — claim is **preserved** across URL change at runtime.
+- **Release-claim sites (4 sanctioned, per B-125 §59 §X3)**: `tabs.onRemoved` (`tab-events.js:233`), `windows.onRemoved` cascade (`tab-events.js:333`), `MSG_DEMOTE_ITEM` (`storage-handlers.js:417`), `MSG_NAVIGATE_TO_ITEM` stale-claim repair (`storage-handlers.js:482`). Pinned by `tests/b125-claim-jump-fix.test.js:168-198` (T4).
+- **Cold-start orchestration**: `initializeLiveState()` at `background/tabs/index.js:35-66`. Sequence: `buildLiveTabIndex` → `preMarkInheritedFromFloatingGroups` → `reconcileClaims(items)` → `reassociateFloatingGroups`.
+- **SW lifecycle hooks**: NONE — `grep -rn "onSuspend\|onStartup" background/ shared/` returns zero matches. Service worker `background/service-worker.js` has no `chrome.runtime.onStartup` or `chrome.runtime.onSuspend` listener.
+- **Other writers of `chrome.storage.session`**: only `background/import/commit.js:106` does an explicit `chrome.storage.session.remove('tj:tabClaims')` on import-collection commit (intentional; non-suspect for B-149).
+- **`reassociateFloatingGroups`**: documented at `floating-groups.js:108-110` to NOT mutate `claimsMirror` — "Parent claims established by reconcileClaims are preserved unconditionally (AC7)." Confirmed by reading lines 200-275; the function only prunes `tj:floatingGroups` records and lazy-rewrites `liveTabId`.
+
+### Mechanism (a) — storage write failing silently
+
+**Evidence**:
+- `writeClaims()` at `tab-claims.js:103-105` is a single `await chrome.storage.session.set({ [SESSION_KEY]: claimsMirror })` — no try/catch swallow, errors propagate.
+- All callers (`reconcileClaims`, `releaseClaimByTab`, `reevaluateTab`, `claimTabForItem`) `await writeClaims()` — failures would surface as unhandled rejections in `tab-events.js` listener wrappers, which DO have catch handlers (e.g. `tab-events.js:236-238`, `:280-282`).
+- The whole-mirror-write pattern means every write rewrites the entire claims map; a partial-write race is structurally impossible.
+
+**Verdict**: **LOW probability**. No silent-failure path exists.
+
+### Mechanism (b) — Edge session-storage clearing
+
+**Evidence**:
+- §65.2 in `docs/design/65-b-132-cold-start-claim-jump-fix.md:66-135` confirms `chrome.storage.session` is cleared at the same boundaries that destroy the SW runtime: **browser restart, profile restart, AND extension reload**. The MDN/Chrome contract per §65.2 reasoning chain item 1 explicitly states `chrome.storage.session` survives **SW idle-timeout restarts within a browser session**.
+- `tab-claims.js:4-6` docstring: "Persisted in `chrome.storage.session` under key `tj:tabClaims` so claims survive SW restarts within the same browser session but are wiped on browser restart (AC8)."
+- B-149 user repro is "leaves the page idle for a few minutes" — no extension reload, no browser restart. Per the documented contract, `tj:tabClaims` should be intact when the SW respawns.
+- Edge is built on Chromium and shares `chrome.storage.session` semantics with Chrome — no documented Edge-specific divergence.
+
+**Verdict**: **LOW probability**. The storage layer behaves as documented across SW idle restarts. (Caveat: empirical UAT-time confirmation in Edge is still warranted as a secondary check — but this is not the load-bearing mechanism.)
+
+### Mechanism (c) — Phase 1 URL-match step evicts live drifted claims
+
+**Evidence**:
+- `tab-claims.js:141`: Phase 1 of `reconcileClaims` validates each persisted claim with `tabEntry && item && safeNormalizeForMatch(tabEntry.url) === safeNormalizeForMatch(item.url)`. If the URL-match check fails, the claim is pushed to `evictedItemIds` (`tab-claims.js:145`) and dropped from the reconciled map (`tab-claims.js:144-147`).
+- `tests/b110-drift-non-live-fix.test.js:242-261` (T5) explicitly pins this behavior: *"reconcileClaims clears drift when claim evicted via URL mismatch"* — comment at lines 251-253: *"Tab exists but holds a DIFFERENT URL than the saved item. Phase 1's `safeNormalizeForMatch(tabEntry.url) === safeNormalizeForMatch(item.url)` check fails → claim evicted."*
+- This **directly contradicts** the B-099 D-1 contract documented at `tab-claims.js:233-247`: *"the URL-mismatch claim-release branch has been removed. When a claimed tab navigates to a URL that no longer matches the claimed item, the claim is PRESERVED — the bookmark↔tab association now survives drift."* B-099's contract holds at runtime (`reevaluateTab`) but is silently violated at cold-start (`reconcileClaims` Phase 1).
+- The trigger: the SW idle-shutdown is undocumented but standard MV3 behavior — Chrome MV3 SW terminates after ~30s of inactivity. Any subsequent tab event respawns the SW, which runs `initializeLiveState` → `reconcileClaims` → Phase 1 evicts every drifted-but-live claim.
+- The user repro ("idle a few minutes") **exactly matches** the SW idle-timeout window.
+
+**Verdict**: **HIGH probability — this is the bug.** Phase 1's URL-match check is the precise mechanism that evicts live drifted claims, and the only documented trigger for cold-start `reconcileClaims` mid-session is the MV3 SW idle restart.
+
+### Mechanism (d) — Stray releaseClaimByTab caller
+
+**Evidence**:
+- `grep -rn "releaseClaimByTab"` returns 4 production call sites: `tab-events.js:233` (onRemoved), `tab-events.js:333` (windows.onRemoved cascade), `storage-handlers.js:417` (MSG_DEMOTE_ITEM), `storage-handlers.js:482` (MSG_NAVIGATE_TO_ITEM stale-claim repair). All 4 match the B-125 §59 X3 sanctioned list.
+- `tests/b125-claim-jump-fix.test.js:168-198` (T4) is a static-source assertion that the count is exactly 4. If a 5th call site existed, this test would fail. Test suite is currently 1822/1822 green (confirmed by `npm test`).
+- None of the 4 sanctioned sites fire on URL-change-without-tab-removal. `tabs.onRemoved` requires Chrome to fire onRemoved (idle does not trigger it). MSG_DEMOTE_ITEM and MSG_NAVIGATE_TO_ITEM require a user gesture.
+
+**Verdict**: **LOW probability** — there is no 5th call site, and the 4 known ones do not fire on idle.
+
+### Top hypothesis
+
+**Mechanism (c)** — `reconcileClaims` Phase 1's URL-match step at `tab-claims.js:141` evicts live drifted claims whenever a service-worker idle-shutdown forces a cold-start re-reconcile. The user-visible symptom (drifted tab loses claim association after a few minutes idle) maps directly to: SW idle-shutdown → tab event respawns SW → `initializeLiveState` runs → `reconcileClaims` Phase 1 sees `tabEntry.url !== item.url` → claim evicted. The runtime B-099 D-1 contract ("claim survives drift") is violated by the cold-start path.
+
+The defect is a contract conflict: B-099 (Sprint where drift was introduced) updated the **runtime** path to preserve claims across drift, but the **cold-start** Phase 1 retained the pre-B-099 URL-match validation. B-110 then **pinned** the buggy behavior into a regression-guard test (T5 at `b110-drift-non-live-fix.test.js:242-261`) by treating URL-mismatch eviction as the desired behavior for clearing drift records — which inadvertently froze the bug into the suite.
+
+### Fix sketch
+
+**File**: `background/tabs/tab-claims.js`
+**Function**: `reconcileClaims` Phase 1 (lines 137-147)
+**Change**: Drop the URL-match check from the Phase 1 survival predicate; keep only the live-tab existence check.
+
+```js
+// before:
+if (tabEntry && item && safeNormalizeForMatch(tabEntry.url) === safeNormalizeForMatch(item.url)) {
+  reconciled[itemId] = tabId;
+  claimedTabIds.add(tabId);
+} else {
+  evictedItemIds.push(itemId);
+}
+
+// after (sketch):
+if (tabEntry && item) {
+  // B-149: do NOT re-check URL match. B-099 D-1 contract preserves claims
+  // across URL drift at runtime — the cold-start path must preserve them too.
+  // Drift records (if any) are owned by detectDriftForTab and are independent
+  // of claim survival; they do NOT need to be cleared just because Phase 1
+  // sees a drifted tab.
+  reconciled[itemId] = tabId;
+  claimedTabIds.add(tabId);
+} else {
+  evictedItemIds.push(itemId);
+}
+```
+
+**LOC estimate**: ~3 lines of code changed (the predicate). ~10 lines of comment. **Trivially small.**
+
+**Knock-on**: B-110 T5 (`tests/b110-drift-non-live-fix.test.js:242-261`) currently asserts the buggy behavior and **must be inverted**: the test should now assert that a URL-mismatched claim **survives** Phase 1 (drift record may stay, but the claim must persist). The B-110 PRIMARY scenario (T4 — claim evicted because tab no longer in `LiveTabIndex`) is unaffected — it's the legitimate eviction case.
+
+### Test surface
+
+**Tests requiring update**:
+- `tests/b110-drift-non-live-fix.test.js:242-261` (T5) — INVERT: Phase 1 must now PRESERVE the URL-mismatched claim. Drift record may also survive (no longer paired with eviction). The test name should change from "reconcileClaims clears drift when claim evicted via URL mismatch" to something like "reconcileClaims preserves URL-mismatched claim across cold-start (B-149)".
+
+**Tests adding new coverage**:
+- New test in `tests/b149-drifted-claim-survives-cold-start.test.js` (or merge into b099-drift-fix.test.js) — pins the corrected behavior end-to-end:
+  1. Establish claim via reconcileClaims (Phase 2 first-claim).
+  2. Drift the tab via `reevaluateTab` + `detectDriftForTab` (claim preserved per B-099).
+  3. Simulate SW restart: `__resetTabClaims()` to clear the in-memory mirror, then re-call `reconcileClaims(items)` — `tj:tabClaims` is read back from `__getSessionStore`.
+  4. Assert: claim is **still present** in claimsMirror, drift record is **still present** in tj:drift, `buildLiveStates` returns `{ live: true, ... }` for the drifted item.
+
+**Regression guards already in place** (will pass without change):
+- `tests/b099-drift-fix.test.js:107-137` (T1) — runtime claim preservation across URL change. Independent of cold-start.
+- `tests/b125-claim-jump-fix.test.js:168-198` (T4) — 4-call-site invariant on `releaseClaimByTab`. Unaffected.
+- `tests/b132-cold-start-inheritance.test.js:254` and `:313` — parent claim survival across both cold-start and runtime. Unaffected (these don't involve URL drift).
+
+### Architectural assessment
+
+**Fix is contained.** No need to move `tj:tabClaims` to `chrome.storage.local`; no schema migration; no new partition. The defect is a 3-line predicate change plus one inverted test. The B-099 D-1 contract is the load-bearing invariant — the fix simply extends its scope from "runtime path only" to "both runtime and cold-start paths", which is what the B-099 chapter (`docs/design/46-b-099-drift-fix.md`) presumably always intended.
+
+**Tier**: S (small, single-file behavioral fix). Recommend Fast Track (R1 → R3 → R4 [code-reviewer] + [security-reviewer]). No new permissions, no schema change, no new message types.
+
+**Confidence**: **HIGH**. The mechanism is precisely identified by `file:line` evidence (`tab-claims.js:141`); the existing `tests/b110-drift-non-live-fix.test.js:242-261` directly pins the bug as desired behavior, providing unambiguous proof that the cold-start path is doing what B-099 D-1 says it should not. The only remaining empirical gap is confirming the SW idle-shutdown timing in Edge — but this is a secondary check; even if Edge's idle window differs from Chrome's, the same mechanism applies whenever the SW restarts in-session for any reason.
+

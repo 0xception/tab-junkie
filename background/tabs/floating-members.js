@@ -87,15 +87,34 @@ export async function buildFloatingMembers(items) {
     if (!parent) continue; // parent deleted — skip (AC8(ii))
     if (typeof parent.groupId !== 'string' || parent.groupId.length === 0) continue;
 
-    // POSITION MATCH first
+    /* B-137 §66.6 — 3-tier join order:
+       (a) DIRECT TABID MATCH — record.liveTabId is finite AND liveIndex.has it
+       (b) POSITION MATCH     — (windowId, tabIndex) geometry (legacy fallback)
+       (c) URL FALLBACK       — normalized URL match (legacy fallback)
+       Tiers (b) + (c) preserve verbatim behavior for legacy v3 records. */
     let matchedTabId = null;
-    for (const [tabId, entry] of liveIndex) {
-      if (entry.windowId === record.windowId && entry.index === record.tabIndex) {
-        matchedTabId = tabId;
-        break;
+
+    // TIER (a) — DIRECT TABID MATCH (B-137)
+    if (typeof record.liveTabId === 'number' && Number.isFinite(record.liveTabId)
+      && liveIndex.has(record.liveTabId)) {
+      /* §66.9.2 Option B (R2 LOCK + R3-VERIFY 1) — no URL-guard. The
+         lifecycle guarantees (chrome.tabs.onRemoved drops stale ids from
+         liveIndex) + cold-start lazy rewrite (§66.7) + the H-2 dedup gate
+         below already make stale-liveTabId misjoins effectively impossible
+         for realistic timing windows. */
+      matchedTabId = record.liveTabId;
+    }
+
+    // TIER (b) — POSITION MATCH (legacy fallback)
+    if (matchedTabId === null) {
+      for (const [tabId, entry] of liveIndex) {
+        if (entry.windowId === record.windowId && entry.index === record.tabIndex) {
+          matchedTabId = tabId;
+          break;
+        }
       }
     }
-    // URL FALLBACK
+    // TIER (c) — URL FALLBACK (legacy fallback)
     if (matchedTabId === null) {
       const normalizedStored = safeNormalizeForMatch(record.url);
       if (normalizedStored) {

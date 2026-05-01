@@ -341,6 +341,7 @@ test('T-121-J: appendFloatingGroup rename + auto-stamp; legacy itemId migrated o
     tabIndex: 0,
     url: 'https://example.org',
     savedAt: 1000,
+    liveTabId: 100,
   });
 
   /* Legacy call shape — uses itemId. The write path migrates to
@@ -352,6 +353,7 @@ test('T-121-J: appendFloatingGroup rename + auto-stamp; legacy itemId migrated o
     tabIndex: 1,
     url: 'https://example.org/two',
     savedAt: 2000,
+    liveTabId: 101,
   });
 
   const raw = __getRawStore('tj:floatingGroups');

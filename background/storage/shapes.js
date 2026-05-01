@@ -93,16 +93,22 @@ export function defaultShape(partition) {
     case PARTITION_PREFS:
       return { ...DEFAULT_PREFERENCES };
     case PARTITION_META:
-      /* B-134 §63.2.3 — fresh installs seed at v3 directly so no migration
-         step runs on first boot. `migration.js` KNOWN_VERSION = 3. Hardcoded
+      /* B-137 §66.2.1 — fresh installs seed at v4 directly so no migration
+         step runs on first boot. `migration.js` KNOWN_VERSION = 4. Hardcoded
          literal (not imported from migration.js) to keep the storage layer
          independent of the migration runner — bumping this when KNOWN_VERSION
          bumps is a deliberate, paired change.
          History: v1→v2 (B-121 §60.4.7) added floatingTabId + parentItemId.
          v2→v3 (B-134 §63.2.3) adds OPTIONAL `sortOrder` to PARTITION_FLOATING_GROUPS
          records; data migration is lazy (legacy records sort by (windowId, tabIndex)
-         fallback in buildFloatingMembers; new writes always stamp sortOrder). */
-      return { schemaVersion: 3, createdAt: Date.now() };
+         fallback in buildFloatingMembers; new writes always stamp sortOrder).
+         v3→v4 (B-137 §66.2) adds OPTIONAL `liveTabId` to PARTITION_FLOATING_GROUPS
+         records; data migration is lazy (legacy records resolve via the
+         (windowId, tabIndex)-then-URL fallback in the 3-tier read path; new
+         writes always stamp `liveTabId`; cold-start re-bind via
+         `reassociateFloatingGroups` lazy-rewrites the field on matched-
+         unclaimed legacy records). */
+      return { schemaVersion: 4, createdAt: Date.now() };
     case PARTITION_DRIFT:
       return {};
     case PARTITION_FLOATING_GROUPS:
@@ -255,6 +261,18 @@ export function assertShape(partitionOrKey, value) {
         if ('sortOrder' in entry) {
           if (typeof entry.sortOrder !== 'number' || !Number.isFinite(entry.sortOrder)) {
             throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition} — sortOrder`);
+          }
+        }
+        /* B-137 §66.4 — OPTIONAL liveTabId field (schema v4). Legacy v3
+           records lack the field; new writes from B-137 stamp it. The
+           validator tolerates both shapes; buildFloatingMembers +
+           _resolveRecordIndexByTabId prefer liveTabId direct-match when
+           present, falling back to (windowId, tabIndex)-then-URL for legacy
+           records. Allow-list direction (C-7): when present, MUST be a
+           finite number; when absent, the record is still valid (legacy v3). */
+        if ('liveTabId' in entry) {
+          if (typeof entry.liveTabId !== 'number' || !Number.isFinite(entry.liveTabId)) {
+            throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition} — liveTabId`);
           }
         }
       }
