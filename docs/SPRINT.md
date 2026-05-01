@@ -18,8 +18,8 @@ Single-anchor sprint: 1 P2 anchor (B-041 snapshot push to Chrome tab strip + tab
 
 ### [B-041] Snapshot push: TJ → Chrome tab strip + tab groups
 - **Tier**: Full (M)
-- **Status**: ✅ requirements → ✅ architecture → ✅ build → code-review → security-review → qa-review → test-engineer → close → post-close
-- **Assigned To**: R4 reviewers (next)
+- **Status**: ✅ requirements → ✅ architecture → ✅ build → ✅ code-review → ✅ security-review → ✅ qa-review (R4 fix-round in flight) → test-engineer → close → post-close
+- **Assigned To**: [frontend-engineer] (R4 fix-round)
 - **Blockers**: none
 - **Feature Context**:
   - One user action — Settings page → Chrome Integration → "Sync this window to Chrome" — pushes TJ's view of the current window onto Chrome's tab strip + tab groups.
@@ -81,7 +81,7 @@ S41 left B-138 (post-B-137 cleanup, XS) DEFERRED — explicitly not part of S42 
 | R1 | [product-manager] | ✅ DONE 2026-05-01 | 10 ACs locked in BACKLOG.md row; DoR-7 N/A; selector-audit N/A; source-citation gate cited 8 file:line references |
 | R2 | [solution-architect] | ✅ DONE 2026-05-01 | `docs/design/67-b-041-chrome-tab-group-sync.md` written (~280 lines, 11 sections + As-Built placeholder for R6); 14 R2 checklist items closed (C-1a, C-1b, C-2, C-7, C-8, C-13 all PASS; C-10 / C-11 / C-12 / C-14 N/A); 7 R2 risks resolved; `chrome.tabs.move` array form confirmed via MDN docs; SOLUTION_DESIGN.md TOC extended |
 | R3 | [frontend-engineer] | ✅ DONE 2026-05-01 | Executed plan tasks 1–15 across 14 commits. Final test count: 1864/1864 PASS (+38 over 1826 baseline). Zero escalations; one fix-scope test-assertion update (B-091 AC3/AC4 — fieldset count + section order, not enumerated in R2 §67.7). Schema bump v4→v5 wired (KNOWN_VERSION + defaultShape + new MIGRATION_STEPS entry); validator + updateGroup allow-list extended; chrome-mock extended with tabGroups + multi-tab move; orchestrator + state collector + group resolver + applier + isSyncInFlight flag wired; SW handler + WRITE_MESSAGE_TYPES registered; Settings page fieldset + JS module + CSS variants in place; manifest version bumped 1.35.0 → 1.36.0; CHANGELOG + RELEASES populated; UAT_B-041.md drafted with 15 cases. |
-| R4 | [code-reviewer] + [security-reviewer] + [qa-reviewer] | pending — parallel | Findings → `docs/findings/sprint-42.md` |
+| R4 | [code-reviewer] + [security-reviewer] + [qa-reviewer] | ✅ DONE 2026-05-01 — fix-round in flight | 0 CRIT · 4 HIGH · ~9 MED · ~9 LOW (deduped). HIGHs: H-1 code (AC8 View-details expander missing), H-2 code (ghost timer race shared `#settings-toast`), H-1 qa (no aria-busy / in-progress feedback), H-2 qa + code M-3 converged (Spec §8.2 tab-gone integration test missing). Plus 2 converged MEDs rolled into fix-round (security M-1 / code M-4 _classifyError locale fragility · qa M-2 WCAG 1.4.1 toast variant by-color-alone). Findings → `docs/findings/sprint-42.md`. |
 | R5 | [test-engineer] | pending | +38 automated tests + UAT_B-041.md walkthrough in Edge |
 | R6 | [solution-architect] | pending | §67 As-Built |
 | R7 | [technical-writer] | pending | CHANGELOG + user-manual entry |
