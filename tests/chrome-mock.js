@@ -224,7 +224,47 @@ const tabs = {
   _moveCalls: [],
   async move(tabIds, props) {
     tabs._moveCalls.push({ tabIds, props });
-    if (typeof tabIds !== 'number') return null; // multi-move out of scope
+    if (Array.isArray(tabIds)) {
+      /* B-041 (S42) — multi-move support. Chrome moves the tabs en bloc to
+         the target index in the order specified by the array; subsequent
+         tabs in the destination shift right. The mock approximates this by
+         performing per-tab moves to consecutive indices starting from
+         props.index, in the order of the input array. */
+      const baseIndex = (props && typeof props.index === 'number') ? props.index : 0;
+      const winId = (props && typeof props.windowId === 'number') ? props.windowId : null;
+      const moved = [];
+      for (let i = 0; i < tabIds.length; i++) {
+        const tab = state.mockTabs.find((t) => t.id === tabIds[i]);
+        if (!tab) throw new Error(`Tab ${tabIds[i]} not found`);
+        const fromIndex = tab.index;
+        const fromWindow = tab.windowId;
+        const toIndex = baseIndex + i;
+        const toWindow = winId ?? fromWindow;
+        if (toWindow === fromWindow && toIndex !== fromIndex) {
+          if (fromIndex < toIndex) {
+            for (const t of state.mockTabs) {
+              if (t.id === tab.id) continue;
+              if (t.windowId !== fromWindow) continue;
+              if (t.index > fromIndex && t.index <= toIndex) t.index -= 1;
+            }
+          } else {
+            for (const t of state.mockTabs) {
+              if (t.id === tab.id) continue;
+              if (t.windowId !== fromWindow) continue;
+              if (t.index >= toIndex && t.index < fromIndex) t.index += 1;
+            }
+          }
+          tab.index = toIndex;
+          tabs.onMoved.__fire(tab.id, { windowId: fromWindow, fromIndex, toIndex });
+        } else {
+          tab.index = toIndex;
+          tab.windowId = toWindow;
+        }
+        moved.push(deepClone(tab));
+      }
+      return moved;
+    }
+    if (typeof tabIds !== 'number') return null;
     const tab = state.mockTabs.find((t) => t.id === tabIds);
     if (!tab) {
       throw new Error(`Tab ${tabIds} not found`);
@@ -286,6 +326,80 @@ const tabs = {
   onMoved: createEventMock(),
 };
 
+// ============================================================================
+// B-041 (S42) — chrome.tabGroups + chrome.tabs.group/ungroup mock surface.
+// ============================================================================
+
+let _nextGroupId = 1000;
+const _mockGroups = new Map(); // groupId -> { id, windowId, title, color, collapsed }
+
+const TAB_GROUP_ID_NONE = -1;
+
+// Add `group` and `ungroup` to the tabs object.
+tabs.group = async function tabsGroup({ tabIds, groupId, createProperties }) {
+  const ids = Array.isArray(tabIds) ? tabIds : [tabIds];
+  let gid = groupId;
+  if (typeof gid !== 'number') {
+    gid = _nextGroupId++;
+    const winId = createProperties && createProperties.windowId;
+    if (typeof winId !== 'number') {
+      throw new Error('chrome.tabs.group: createProperties.windowId required for new group');
+    }
+    _mockGroups.set(gid, {
+      id: gid,
+      windowId: winId,
+      title: '',
+      color: 'grey',
+      collapsed: false,
+    });
+  } else if (!_mockGroups.has(gid)) {
+    throw new Error(`chrome.tabs.group: groupId ${gid} not found`);
+  }
+  for (const id of ids) {
+    const t = state.mockTabs.find((x) => x.id === id);
+    if (!t) throw new Error(`chrome.tabs.group: tab ${id} not found`);
+    t.groupId = gid;
+  }
+  return gid;
+};
+
+tabs.ungroup = async function tabsUngroup(tabIds) {
+  const ids = Array.isArray(tabIds) ? tabIds : [tabIds];
+  for (const id of ids) {
+    const t = state.mockTabs.find((x) => x.id === id);
+    if (t) t.groupId = TAB_GROUP_ID_NONE;
+  }
+};
+
+const tabGroups = {
+  TAB_GROUP_ID_NONE,
+  async get(groupId) {
+    const g = _mockGroups.get(groupId);
+    if (!g) throw new Error(`chrome.tabGroups.get: groupId ${groupId} not found`);
+    return deepClone(g);
+  },
+  async update(groupId, props) {
+    const g = _mockGroups.get(groupId);
+    if (!g) throw new Error(`chrome.tabGroups.update: groupId ${groupId} not found`);
+    Object.assign(g, props);
+    return deepClone(g);
+  },
+  async query(filter = {}) {
+    const out = [];
+    for (const g of _mockGroups.values()) {
+      if (typeof filter.windowId === 'number' && g.windowId !== filter.windowId) continue;
+      out.push(deepClone(g));
+    }
+    return out;
+  },
+  async remove(groupId) {
+    _mockGroups.delete(groupId);
+  },
+  onCreated: createEventMock(),
+  onUpdated: createEventMock(),
+  onRemoved: createEventMock(),
+};
+
 /* B-091: track windows.update calls so dispatcher tests can assert
    focus-existing-tab path. */
 const windowsUpdateCalls = [];
@@ -332,6 +446,7 @@ const chromeMock = {
   storage: { local: storageLocal, session: storageSession },
   runtime,
   tabs,
+  tabGroups,
   windows,
   sidePanel,
 };
@@ -370,6 +485,12 @@ export function __resetMock() {
   /* B-082 */
   sidePanelState.openReject = false;
   sidePanelState.openCalls = [];
+  /* B-041 (S42) — clear tabGroups state. */
+  _mockGroups.clear();
+  _nextGroupId = 1000;
+  tabGroups.onCreated._listeners.length = 0;
+  tabGroups.onUpdated._listeners.length = 0;
+  tabGroups.onRemoved._listeners.length = 0;
 }
 
 /** B-082: force the next chrome.sidePanel.open() to reject. */
