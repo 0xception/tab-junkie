@@ -37,6 +37,18 @@ const _SKIP_REASON_LABEL = {
   unknown: { singular: 'unknown error', plural: 'unknown errors' },
 };
 
+/* B-041 (S42 R4 M-2 qa) — WCAG 1.4.1 (Use of Color, Level A) compliance.
+   The three toast variants previously differed by 4 px left-border color
+   only; sighted low-vision users had no non-color signal. A unicode glyph
+   prefix carries the variant aurally and visually without depending on
+   color. Applied via textContent (not innerHTML) — strings are static and
+   not user-supplied. */
+const _VARIANT_GLYPH = {
+  ok: '✓ ',       // U+2713 CHECK MARK
+  partial: '⚠ ',  // U+26A0 WARNING SIGN
+  error: '✗ ',    // U+2717 BALLOT X
+};
+
 /**
  * Initialize the Chrome Integration sync button + toast wiring.
  *
@@ -113,7 +125,12 @@ function _showToast({ message, variant, skipped }) {
     clearTimeout(_toastTimer);
     _toastTimer = null;
   }
-  _toastMessageEl.textContent = message;
+  /* M-2: prepend the variant glyph so the variant is signalled via text
+     (and thus to screen readers + low-vision users) rather than by color
+     alone. The glyph map is exhaustive over the three variants the toast
+     supports; an unknown variant falls through to no prefix. */
+  const glyph = _VARIANT_GLYPH[variant] ?? '';
+  _toastMessageEl.textContent = glyph + message;
   _toastEl.dataset.variant = variant; // 'ok' | 'partial' | 'error'
   /* B-041 AC8 — populate the View-details expander only on partial variant
      with at least one skip entry; otherwise hide + clear the list. The

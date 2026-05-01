@@ -149,6 +149,48 @@ test('AC8 ok-toast: View-details expander stays hidden when skipped is empty', a
   assert.equal(list.childNodes.length, 0);
 });
 
+/* =========================================================================
+   M-2 [qa] — WCAG 1.4.1 non-color glyph prefix on every toast variant.
+   ========================================================================= */
+
+test('M-2: ok variant message is prefixed with U+2713 CHECK MARK glyph', async () => {
+  const doc = makeFakeDocument();
+  const { btn, msg } = buildDom(doc);
+  const send = makeSendMessage(async () => ({
+    summary: { windowId: 1, tabsReordered: 1, groupsCreated: 0, groupsUpdated: 0, skipped: [] },
+  }));
+  initChromeSync({ doc, sendMessage: send });
+  btn.click();
+  await drain();
+  assert(msg.textContent.startsWith('✓ '), `expected check-mark prefix, got: ${msg.textContent}`);
+});
+
+test('M-2: partial variant message is prefixed with U+26A0 WARNING SIGN', async () => {
+  const doc = makeFakeDocument();
+  const { btn, msg } = buildDom(doc);
+  const send = makeSendMessage(async () => ({
+    summary: {
+      windowId: 1, tabsReordered: 1, groupsCreated: 0, groupsUpdated: 0,
+      skipped: [{ reason: 'pinned', count: 1 }],
+    },
+  }));
+  initChromeSync({ doc, sendMessage: send });
+  btn.click();
+  await drain();
+  assert(msg.textContent.startsWith('⚠ '), `expected warning-sign prefix, got: ${msg.textContent}`);
+});
+
+test('M-2: error variant message is prefixed with U+2717 BALLOT X', async () => {
+  const doc = makeFakeDocument();
+  const { btn, msg, toast } = buildDom(doc);
+  const send = makeSendMessage(async () => { throw new Error('SW down'); });
+  initChromeSync({ doc, sendMessage: send });
+  btn.click();
+  await drain();
+  assert.equal(toast.dataset.variant, 'error');
+  assert(msg.textContent.startsWith('✗ '), `expected ballot-x prefix, got: ${msg.textContent}`);
+});
+
 test('AC8 plural-form: skip reason count > 1 uses plural noun', async () => {
   const doc = makeFakeDocument();
   const { btn, list } = buildDom(doc);
