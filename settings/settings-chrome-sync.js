@@ -14,6 +14,11 @@
  */
 
 import { MSG_SYNC_TO_CHROME } from '../shared/messages.js';
+/* B-041 (S42 R4 H-2 code) — shared single-owner toast auto-dismiss timer.
+   Both this module and settings-import-export.js write to #settings-toast;
+   without a shared timer, a 4 s sync auto-dismiss could hide a later
+   import-export toast (and vice-versa). */
+import { armToastTimer, cancelToastTimer } from './settings-toast-timer.js';
 
 let _doc = null;
 let _sendMessage = null;
@@ -23,7 +28,6 @@ let _toastEl = null;
 let _toastMessageEl = null;
 let _toastDetailsEl = null;
 let _toastDetailsListEl = null;
-let _toastTimer = null;
 
 const TOAST_AUTO_DISMISS_MS = 4000;
 
@@ -121,10 +125,10 @@ function _skipReasonLine({ reason, count }) {
 
 function _showToast({ message, variant, skipped }) {
   if (!_toastEl || !_toastMessageEl) return;
-  if (_toastTimer) {
-    clearTimeout(_toastTimer);
-    _toastTimer = null;
-  }
+  /* H-2: a single shared timer is owned by settings-toast-timer.js. Calling
+     cancel + arm here also cancels any pending import-export auto-dismiss,
+     guaranteeing this toast gets its full 4-second window. */
+  cancelToastTimer();
   /* M-2: prepend the variant glyph so the variant is signalled via text
      (and thus to screen readers + low-vision users) rather than by color
      alone. The glyph map is exhaustive over the three variants the toast
@@ -153,13 +157,12 @@ function _showToast({ message, variant, skipped }) {
     }
   }
   _toastEl.hidden = false;
-  _toastTimer = setTimeout(() => {
+  armToastTimer(() => {
     _toastEl.hidden = true;
     _toastEl.dataset.variant = '';
     if (_toastDetailsEl) {
       _toastDetailsEl.open = false;
       _toastDetailsEl.hidden = true;
     }
-    _toastTimer = null;
   }, TOAST_AUTO_DISMISS_MS);
 }
