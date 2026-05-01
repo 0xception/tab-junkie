@@ -65,3 +65,33 @@ export function _computeTargetStripOrder(state) {
   }
   return out;
 }
+
+/**
+ * Aggregate raw counters + the array of skip-reason strings into the
+ * SyncSummary shape that crosses the SW→UI boundary.
+ *
+ * @param {{
+ *   windowId: number,
+ *   tabsReordered: number,
+ *   groupsCreated: number,
+ *   groupsUpdated: number,
+ *   skipReasons: Array<'pinned'|'tab-gone'|'permission'|'unknown'>,
+ * }} input
+ * @returns {SyncSummary}
+ */
+export function _buildSummary(input) {
+  const counts = new Map();
+  for (const reason of input.skipReasons) {
+    counts.set(reason, (counts.get(reason) ?? 0) + 1);
+  }
+  const skipped = [...counts.entries()]
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((a, b) => a.reason.localeCompare(b.reason));
+  return {
+    windowId: input.windowId,
+    tabsReordered: input.tabsReordered,
+    groupsCreated: input.groupsCreated,
+    groupsUpdated: input.groupsUpdated,
+    skipped,
+  };
+}
