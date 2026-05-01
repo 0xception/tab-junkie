@@ -1,6 +1,6 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-04-30 · **Version:** 2.41 · **Total Items:** 142 · **Sprint 41 closing. 6 items shipped (B-137 anchor + B-139..B-143 CLAUDE.md gates) + 1 DEFERRED (B-138 cleanup retained for future sprint per As-Built §66.18.11). Gate 4 + Gate 7 + release v1.35.0 in flight. Branch: `feature/sprint-41-floating-tab-id` off release/v2.**
+**Updated:** 2026-05-01 · **Version:** 2.42 · **Total Items:** 142 · **Sprint 42 active. 1 anchor in flight (B-041 Chrome tab group sync — narrowed scope per spec). Branch: `feature/sprint-42-chrome-sync` off release/v2 (post-S41 close at `714dec0`, post-spec/plan at `e15e8e1` + `ac107a2`). Target: v1.36.0.**
 
 ---
 
@@ -73,7 +73,7 @@ Overall Progress    ███████████████████░
 ✅ B-038 — View mode preference (side panel vs. standalone) · ⚪ · XS [S29 Wave 1 — R4 clean PROCEED]
 🧊 B-039 — New tab page toggle preference · ⚪ · XS [S29 — DROPPED, MV3 constraint precludes true OFF state]
 ✅ B-040 — Sub-group auto-collapse preference · ⚪ · XS [S29 Wave 1 — R4 clean + canonical-key drift caught]
-⬜ B-041 — Sync tab order action (Chrome tab group sync) · 🟡 · L
+🔄 B-041 — Sync this window to Chrome (snapshot push) · 🟡 · M [S42 active anchor]
 ✅ B-042 — Export to HTML (Netscape bookmarks) · 🟠 · M
 ✅ B-043 — Export to JSON backup · 🟠 · M
 ✅ B-044 — Import HTML with count preview & flattening · 🟠 · M
@@ -278,16 +278,16 @@ Overall Progress    ███████████████████░
 | Status | Count | % |
 |--------|-------|---|
 | ✅ Done | 134 | 94% |
-| 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 5 | 4% |
+| 🔄 In Progress | 1 | 1% |
+| ⬜ To Do | 4 | 3% |
 | 🧊 Icebox | 3 | 2% |
 
-(Done count: 134 code-shipping. B-131 reclassified `superseded-by-B-137`. B-138 reverted to `backlog | TBD` post-S41 — DEFERRED per B-137 As-Built §66.18.11.)
+(Done count: 134 code-shipping. B-131 reclassified `superseded-by-B-137`. B-138 reverted to `backlog | TBD` post-S41 — DEFERRED per B-137 As-Built §66.18.11. B-041 flipped 🔄 at S42 kickoff 2026-05-01.)
 
-**In Progress breakdown**: _0 items in flight._
+**In Progress breakdown**: 1 item — **B-041** Chrome tab group sync (S42 anchor, P2/M, scope narrowed per spec from pre-S33 placeholder).
 
-**To-Do breakdown (5 items)**:
-- 🟡 **P2** (3): B-041 sync tab order (L) · B-076 MIGRATION_STEPS hook (S) · **B-138** post-B-137 cleanup (XS, DEFERRED)
+**To-Do breakdown (4 items)**:
+- 🟡 **P2** (2): B-076 MIGRATION_STEPS hook (S) · **B-138** post-B-137 cleanup (XS, DEFERRED)
 - ⚪ **P3** (2): **B-135** cross-window Open Tabs drag (deferred from B-134 v1) · B-086 sidepanel UI/UX umbrella (M)
 
 **To-Do breakdown (8 items)**:
