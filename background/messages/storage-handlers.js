@@ -49,7 +49,10 @@ import {
   MSG_RECENCY_ADD,
   MSG_REORDER_FLOATING_MEMBERS,
   MSG_MOVE_FLOATING_TAB,
+  MSG_SYNC_TO_CHROME,
 } from '../../shared/messages.js';
+
+import { syncToChrome } from '../sync/chrome-sync.js';
 
 import {
   EXPORT_FORMATS,
@@ -170,6 +173,11 @@ const WRITE_MESSAGE_TYPES = new Set([
      `tj:floatingGroups` and must be blocked in safe mode. */
   MSG_REORDER_FLOATING_MEMBERS,
   MSG_MOVE_FLOATING_TAB,
+  /* B-041 (S42 §3.3) — syncToChrome persists `chromeTabGroupId` back to TJ
+     group records via updateGroup. Safe-mode (stored schemaVersion >
+     KNOWN_VERSION) blocks the call to prevent writing v5 fields under v4
+     code on a downgraded extension. */
+  MSG_SYNC_TO_CHROME,
 ]);
 
 function isWriteType(message) {
@@ -751,6 +759,16 @@ async function dispatch(type, payload) {
       }
 
       return { moved: true };
+    }
+    case MSG_SYNC_TO_CHROME: {
+      /* B-041 (S42 §3.4) — snapshot push to Chrome tab strip + tab groups.
+         Validates payload.windowId is a finite number; passes through to the
+         orchestrator which returns a SyncSummary describing the operation. */
+      if (typeof p.windowId !== 'number' || !Number.isFinite(p.windowId)) {
+        throw new StorageError(ERR_VALIDATION, 'MSG_SYNC_TO_CHROME: windowId must be a finite number');
+      }
+      const summary = await syncToChrome(p.windowId);
+      return { summary };
     }
     default:
       throw new StorageError(ERR_VALIDATION, `Unknown message type: ${String(type)}`);
