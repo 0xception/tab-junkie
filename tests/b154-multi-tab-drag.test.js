@@ -268,6 +268,20 @@ test('B-154 T7: REORDER_OPEN passes draggedTabIds array to chrome.tabs.move', ()
     'REORDER_OPEN must pass draggedTabIds array to chrome.tabs.move');
 });
 
+test('B-154 T9: multi-tab drag builds the custom ghost with grabbed-row title + "tabs" unit', () => {
+  /* The dragstart handler must (a) gate the ghost on draggedTabIds.length > 1,
+     (b) extract the grabbed row's title from `.item-title`, and (c) call
+     _buildMultiDragGhost with a non-empty title and the 'tabs' unit. The
+     pre-fix code passed an empty title which produced a too-narrow ghost
+     in Edge — user-reported regression. */
+  assert.match(SIDEPANEL_SRC, /draggedTabIds\.length\s*>\s*1/,
+    'dragstart must gate ghost on draggedTabIds.length > 1');
+  assert.match(SIDEPANEL_SRC, /tabRow\.querySelector\(\s*'\.item-title'\s*\)/,
+    'dragstart must read the grabbed row title from .item-title');
+  assert.match(SIDEPANEL_SRC, /_buildMultiDragGhost\(\s*draggedTabIds\.length\s*,\s*initiatorTitle\s*,\s*'tabs'\s*\)/,
+    '_buildMultiDragGhost call must pass grabbed-row title + "tabs" unit');
+});
+
 /* =========================================================================
    T8 — Partial-success: 1 of 3 ATTACH fails (target group has no parent
    items mid-batch — simulated by ATTACH-ing to a group that loses its only

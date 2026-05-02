@@ -4431,10 +4431,22 @@ itemListEl.addEventListener('dragstart', (e) => {
 
     /* B-154 — multi-tab drag ghost (N >= 2 only). Mirrors B-025 §37.9 F-6
        ghost lifecycle: build off-screen, force reflow, setDragImage,
-       microtask-detach. Ghost label is "N tabs" via the unit param. */
+       microtask-detach. Ghost label is "<grabbed-tab-title> N tabs" — the
+       grabbed row's title gives the ghost visible width and a useful
+       initiator-cue (matches B-025 multi-bookmark precedent). The badge
+       reads "N tabs" via the unit param. */
     if (draggedTabIds.length > 1) {
-      const ghostEl = _buildMultiDragGhost(draggedTabIds.length, '', 'tabs');
+      const titleEl = tabRow.querySelector('.item-title');
+      const initiatorTitle = (titleEl && typeof titleEl.textContent === 'string'
+        && titleEl.textContent.trim().length > 0)
+        ? titleEl.textContent.trim()
+        : '(untitled tab)';
+      const ghostEl = _buildMultiDragGhost(draggedTabIds.length, initiatorTitle, 'tabs');
       try {
+        /* B-025 UAT-8 fix (M-3) — force a synchronous layout reflow before
+           calling setDragImage. Without the reflow, `offsetWidth`/
+           `getBoundingClientRect` may still return 0 in Edge and the
+           snapshot becomes a broken-image preview. */
         void ghostEl.offsetHeight;
         const measured = ghostEl.offsetWidth
           || ghostEl.getBoundingClientRect().width
