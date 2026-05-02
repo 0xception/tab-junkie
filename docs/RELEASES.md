@@ -4,6 +4,38 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.37.0 — Sprint 43 — Drag/drop reliability + multi-tab drag (2026-05-02)
+
+**Tagged on `feature/sprint-43-claim-drift-reliability` — pending PR merge to release/v2. Tag: `v1.37.0`.**
+
+Sprint 43 — Drag/drop + claim-drift reliability investigation. Anchor B-150 + 7 follow-on items (multi-tab drag, group-zone expansion, two pre-existing bug fixes, three CLAUDE.md retro edits).
+
+### What's new (user-visible)
+
+- **Multi-tab drag-and-drop (B-154)** — multi-select 2+ tabs and drag any one of them to attach all of them to a group, detach all of them out, or move all of them between groups. Same-class / same-window / same-source-group filtering applied automatically.
+- **Whole-group drop target for tab attach (B-157)** — drop an Open Tab anywhere within a group (header, saved-bookmark area, or floating area) to attach it. Previously the drop zone was a narrow band between saved bookmarks and any nested child group.
+
+### Bug fixes
+
+- **Drag-and-drop ATTACH no longer throws "Internal error" (B-150 Q1)** — pre-existing dynamic `import()` in service-worker context. Static-scan regression test added.
+- **Open Tab reorder lands at correct position (B-156)** — pre-existing rect-cache lifecycle bug. For users with N saved-bookmark/floating tabs preceding Open Tabs in the strip, reordered tabs landed N rows above target.
+
+### Process / engineering
+
+- **CLAUDE.md retro edits**: B-151 (fix-scope DOM-structural pins), B-152 (C-15 browser-API rejection-string verification), B-153 (shared-surface consumer inventory)
+
+### Known issues / deferred
+
+- **B-155** Multi-drag count-badge ghost — current Edge regressed both the B-025 UAT-8 off-viewport-transform AND the S43 on-screen+microtask strategy. B-154 reverted to default browser ghost. B-155 filed as P3 follow-on.
+- **B-150 Q2** lost-sync continuation — B-149 hypothesis mechanisms (a/b/d) remain open; awaits real-world repro.
+
+### Internal
+
+- Test count: 1826 → **1908 / 100% PASS** (+82 net across S42 + S43; 16 new test files this sprint)
+- New shared rule: `_cleanupTabDragDom` no longer nulls the rect cache — drop dispatch needs it; cache nulled by drop handler in `finally` and on early-return paths.
+
+---
+
 ## v1.36.0 — Sprint 42 — Chrome tab group sync (snapshot push) (2026-05-XX)
 
 **Tagged on `feature/sprint-42-chrome-sync` — pending PR merge to release/v2. Tag: `v1.36.0`.**
