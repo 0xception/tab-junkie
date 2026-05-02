@@ -855,6 +855,23 @@ export function registerStorageHandlers(readyPromise) {
           }
         }
       } catch (err) {
+        /* B-150 (S43 R0 spike instrumentation — TEMP, REMOVE BEFORE SHIP).
+           The errorEnvelope at line 196 collapses non-StorageError exceptions
+           to "Internal error" with the original message preserved only on
+           `error.cause` — which the sidepanel sendMessage wrapper then drops.
+           This log surfaces the actual exception in the SW devtools console
+           so the R0 spike can identify the throwing call-site for Q1 ATTACH
+           failures and Q2 lost-sync paths. Stack trace included.
+           Remove this block once R0 root-cause identified. */
+        try {
+          // Use console.error so it stands out + survives the SW idle-restart.
+          // eslint-disable-next-line no-console
+          console.error(
+            '[tj:S43-R0-instr] dispatch threw — type=' + String(message.type)
+              + ' payloadKeys=' + (message.payload ? Object.keys(message.payload).join(',') : 'none'),
+            err,
+          );
+        } catch { /* never let logging itself break the dispatch */ }
         sendResponse(errorEnvelope(err));
       }
     })();
