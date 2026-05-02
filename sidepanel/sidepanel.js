@@ -4712,8 +4712,18 @@ itemListEl.addEventListener('drop', async (e) => {
     _cleanupTabDragDom();
     _tabDragState = null;
 
+    /* B-156: null the rect cache AFTER dispatch — visual cleanup happened
+       in _cleanupTabDragDom but the cache is preserved here so
+       _computeStripInsertIndex can translate section-relative
+       pendingInsertIndex into strip-absolute. The early-return paths below
+       and the existing inner try/catch all funnel through the final
+       `_tabDragRectCache = null;` before the outermost return. */
+
     /* No pendingMode → user dropped in dead zone. Silent no-op. */
-    if (state.pendingMode === null || state.pendingMode === 'REJECT') return;
+    if (state.pendingMode === null || state.pendingMode === 'REJECT') {
+      _tabDragRectCache = null;
+      return;
+    }
 
     /* B-134 §63.10 — race-guard third branch. */
     const guard = await _validateTabDropPreflight(state);
@@ -4726,6 +4736,7 @@ itemListEl.addEventListener('drop', async (e) => {
       } else if (guard.reason === 'cross-window') {
         showToast('Cross-window drag is not supported yet.');
       }
+      _tabDragRectCache = null; // B-156
       return;
     }
 
@@ -4765,48 +4776,6 @@ itemListEl.addEventListener('drop', async (e) => {
              converts section-relative → strip-absolute via
              `_cachedOpenTabsById[].tabIndex`. */
           const stripInsertIndex = _computeStripInsertIndex(state);
-          /* B-150 R0 spike instrumentation (TEMP, REMOVE BEFORE SHIP). */
-          // eslint-disable-next-line no-console
-          {
-            const cache = _tabDragRectCache;
-            const cluster = cache
-              ? cache.openTabsByWindow.get(state.pendingTargetWindowId)
-              : null;
-            const cacheKeys = cache
-              ? [...cache.openTabsByWindow.keys()]
-              : null;
-            /* Re-query DOM directly to compare cache contents vs current DOM. */
-            const liveSection = document.getElementById('open-tabs-section');
-            const liveList = liveSection ? liveSection.querySelector('.open-tabs-list') : null;
-            const liveRows = liveList
-              ? [...liveList.querySelectorAll(':scope > .item-row[data-tab-id]')]
-              : [];
-            const liveWindowIds = [...new Set(
-              liveRows.map((r) => Number(r.dataset.windowId)).filter((n) => Number.isFinite(n)),
-            )];
-            const draggedTabIsInCluster = cluster
-              ? cluster.rowTabIds.includes(state.draggedTabId)
-              : null;
-            console.log(
-              '[tj:S43-R0-instr] REORDER_OPEN dispatch',
-              JSON.stringify({
-                draggedTabId: state.draggedTabId,
-                draggedTabIdsLength: state.draggedTabIds.length,
-                pendingInsertIndex: state.pendingInsertIndex,
-                stripInsertIndex,
-                sourceWindowId: state.sourceWindowId,
-                targetWindowId: state.pendingTargetWindowId,
-                cacheKeys,
-                clusterRowCount: cluster ? cluster.rowTabIds.length : null,
-                draggedTabIsInCluster,
-                liveSectionExists: !!liveSection,
-                liveListExists: !!liveList,
-                liveRowCount: liveRows.length,
-                liveWindowIds,
-                cacheInvalid: cache ? cache.invalid : null,
-              }),
-            );
-          }
           /* B-154 (S43, 2026-05-02 hotfix): use SCALAR form for single-tab
              drags, ARRAY form only for actual multi-select. */
           if (state.draggedTabIds.length === 1) {
@@ -4884,6 +4853,8 @@ itemListEl.addEventListener('drop', async (e) => {
     } catch (err) {
       console.warn('[tab-junkie:b134] tab-drag drop failed', err);
       showToast('Couldn’t move tab — try again.');
+    } finally {
+      _tabDragRectCache = null; // B-156: cache no longer needed after dispatch
     }
     return;
   }
@@ -5183,6 +5154,10 @@ itemListEl.addEventListener('dragend', () => {
   if (_tabDragState) {
     _cleanupTabDragDom();
     _tabDragState = null;
+    /* B-156: dragend cancel path — drop never fired, so the explicit cache-
+       null in the drop handler isn't reached. Null here so the next dragstart
+       starts with a clean cache. */
+    _tabDragRectCache = null;
   }
 
   /* B-030 v2 — cancel path (Escape or invalid drop). If drop handler
@@ -6649,7 +6624,18 @@ async function _validateTabDropPreflight(state) {
   return { ok: true };
 }
 
-/* Cleanup: indicator + dragging class + scroll listener + rAF + rect cache. */
+/* Cleanup: indicator + dragging class + scroll listener + rAF.
+   B-156 (S43, 2026-05-02): the rect cache is NOT nulled here — the drop
+   dispatch needs `_tabDragRectCache.openTabsByWindow` for
+   `_computeStripInsertIndex` to translate section-relative
+   pendingInsertIndex into strip-absolute. The original cleanup nulled
+   the cache before dispatch, causing `_computeStripInsertIndex` to fall
+   back to `state.pendingInsertIndex` (section-relative); for users with
+   saved/floating tabs preceding the Open Tabs section in the strip, this
+   landed dropped tabs N rows above the target where N = strip index of
+   section start. The cache is now nulled by the drop handler explicitly
+   AFTER dispatch (or by the next dragstart's `_buildTabDragRectCache`
+   call). See B-156 for the full root-cause writeup. */
 function _cleanupTabDragDom() {
   itemDragIndicatorEl.style.opacity = '0';
   itemDragIndicatorEl.style.transform = 'translateY(-9999px)';
@@ -6663,7 +6649,6 @@ function _cleanupTabDragDom() {
       itemListEl.removeEventListener('scroll', _tabDragState.scrollListener);
     }
   }
-  _tabDragRectCache = null;
 }
 
 /* =========================================================================
