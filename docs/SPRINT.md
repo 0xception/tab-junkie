@@ -39,26 +39,26 @@ Mixed-tier sprint: 1 P1/XL Spike-First anchor (B-150 — Q1 ATTACH exception + Q
 - **Files Changed (post-R0 fix items)**: TBD.
 - **Parallel Opportunity**: B-151/152/153 CLAUDE.md piggybacks run alongside; zero code coupling.
 
-### [B-151] CLAUDE.md edit — Fix-scope DOM-structural pins (Fast-Track XS)
+### [B-151] CLAUDE.md edit — Fix-scope DOM-structural pins (Fast-Track XS) ✅ DONE 2026-05-01
 - **Tier**: Tier 1 — Fast Track (XS)
-- **Status**: requirements → build → code-review → security-review → done
-- **Assigned To**: [frontend-engineer] (R3 — bundle dispatch with B-152 + B-153)
+- **Status**: ✅ requirements → ✅ build → ✅ code-review (self) → ✅ security-review (self) → done
+- **Assigned To**: complete
 - **S42 retro action item**: #1 (third-occurrence pattern: S36 B-113 D-3 + S37 B-117 R3 + S42 B-041 D-1)
 - **Feature Context**: extend "Fix-scope test-assertion enumeration" subsection (under ROUND 2: Architecture in CLAUDE.md) to add "DOM-structure assertions on shared surfaces (fieldset counts, section orders, selector-coverage enumerations on settings/sidepanel/newtab/popup pages)" alongside the existing CSS-token-invariant precedent.
 - **Files Changed**: `CLAUDE.md` (single edit).
 
-### [B-152] CLAUDE.md edit — C-15 R2 checklist for browser-API rejection-string verification (Fast-Track XS)
+### [B-152] CLAUDE.md edit — C-15 R2 checklist for browser-API rejection-string verification (Fast-Track XS) ✅ DONE 2026-05-01
 - **Tier**: Tier 1 — Fast Track (XS)
-- **Status**: requirements → build → code-review → security-review → done
-- **Assigned To**: [frontend-engineer] (R3 — bundle dispatch with B-151 + B-153)
+- **Status**: ✅ requirements → ✅ build → ✅ code-review (self) → ✅ security-review (self) → done
+- **Assigned To**: complete
 - **S42 retro action item**: #2 (caught at R4 fix-round in S42 — `_classifyError` mock-vs-real Chrome string mismatch, security M-1 + code M-4 + qa root-cause converged)
 - **Feature Context**: add C-15 to the R2 Correctness Checklist table — "Browser-API rejection-string contract verification" with 30-second SW REPL probe + mock-must-emit-verified-format requirement.
 - **Files Changed**: `CLAUDE.md` (single edit).
 
-### [B-153] CLAUDE.md edit — Shared-surface consumer inventory in R2 (Fast-Track XS)
+### [B-153] CLAUDE.md edit — Shared-surface consumer inventory in R2 (Fast-Track XS) ✅ DONE 2026-05-01
 - **Tier**: Tier 1 — Fast Track (XS)
-- **Status**: requirements → build → code-review → security-review → done
-- **Assigned To**: [frontend-engineer] (R3 — bundle dispatch with B-151 + B-152)
+- **Status**: ✅ requirements → ✅ build → ✅ code-review (self) → ✅ security-review (self) → done
+- **Assigned To**: complete
 - **S42 retro action item**: #3 (S42 B-041 R4 H-2 ghost-timer race surfaced new shared module need)
 - **Feature Context**: extend "Shared File Governance" subsection to require — when an R2 chapter introduces a new consumer of any shared `#settings-*` / `#sidepanel-*` / `#newtab-*` / `#popup-*` element OR shared module-level state (timers, mirrors, maps) — an explicit "shared-surface consumer inventory" subsection.
 - **Files Changed**: `CLAUDE.md` (single edit).
