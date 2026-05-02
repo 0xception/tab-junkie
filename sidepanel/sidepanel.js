@@ -6111,16 +6111,26 @@ function _buildTabDragRectCache() {
     if (!itemsContainer) continue;
     const floatingRows = itemsContainer.querySelectorAll(':scope > .item-row[data-floating="true"]');
 
-    /* Zone vertical bounds:
-         top    — bottom of last saved-bookmark row, OR top of items container
+    /* Zone vertical bounds (B-157, S43):
+         top    — TOP of the group section (header included) so drops on the
+                  group header place the tab at the top of the floating list.
+                  Pre-B-157: top was the bottom of the last saved-bookmark row,
+                  which made the zone zero-height for groups with no floating
+                  tabs (saved + floating area collapsed to a single line) and
+                  excluded the header entirely from the drop target. Expanding
+                  to section.top makes drops anywhere within the group accept,
+                  including (a) groups with NO floating tabs (now droppable)
+                  and (b) the header region (now maps to insertIndex=0 via the
+                  existing midline math — Y above all floating midlines yields
+                  0 naturally).
          bottom — top of first nested child .group-section, OR bottom of
                   items container (nested children belong to their own zone;
                   including them in the parent's zone would mis-classify
-                  drops on a child's floating area as drops on the parent). */
-    const savedRows = itemsContainer.querySelectorAll(':scope > .item-row[data-item-id]:not([data-floating])');
-    const top = savedRows.length > 0
-      ? savedRows[savedRows.length - 1].getBoundingClientRect().bottom
-      : itemsContainer.getBoundingClientRect().top;
+                  drops on a child's floating area as drops on the parent).
+         Saved-bookmark interleave (drop in saved area places at top of
+         floating list per existing midline math) is acceptable per S43
+         B-148 deferral (true interleave is a separate item). */
+    const top = section.getBoundingClientRect().top;
     const firstChildSection = itemsContainer.querySelector(':scope > .group-section');
     const bottom = firstChildSection
       ? firstChildSection.getBoundingClientRect().top
