@@ -1842,27 +1842,26 @@ mark {
    and the accent-on-accent pairing used by `.dialog-btn--primary`).
    ========================================================================= */
 .multi-drag-ghost {
-  /* B-154 (S43, 2026-05-02) Edge ghost-regression fix — render the ghost
-     visibly at viewport (0,0) for the setDragImage snapshot, then rely on
-     queueMicrotask removal in the dragstart handler to remove the element
-     before the next paint frame. The user does NOT see a flash because
-     setDragImage's snapshot is synchronous within dragstart, and the
-     microtask checkpoint runs before any paint commits.
+  /* B-025 UAT-8 fix — use `position: fixed` + a transform to push the ghost
+     off-viewport while keeping it inside the viewport coordinate space.
+     The prior `position: absolute; top/left: -9999px` caused zero-size
+     snapshots in some Chromium builds (Edge UAT reported "broken image"
+     drag preview). `setDragImage` requires the element to be attached AND
+     have non-zero layout when the snapshot is taken; `fixed` + a visible
+     coordinate space gives the engine a real rect to capture from, while
+     the 100% inverse-translate keeps it off-screen for the human eye.
 
-     History:
-     - Pre-B-025 (S22): `position: absolute; top: -9999px` → Chromium produced
-       zero-size snapshots in Edge ("broken image" preview).
-     - B-025 UAT-8 (S24): switched to `position: fixed + transform: translate
-       (-100%, -100%)` to push off-viewport while keeping a real rect. Worked
-       in Edge at the time.
-     - S43 (2026-05-02): user reports the pill renders as a "document" fallback
-       icon in current Edge — Chromium evolved enough that the off-viewport
-       transform now causes the same zero-area snapshot class as -9999px did
-       at S22. Solution: stop trying to be clever with off-screen positioning;
-       render on-screen briefly and trust microtask cleanup. */
+     S43 (2026-05-02) — current Edge regressed this fix: pill renders as a
+     "document with folded corner" Edge-fallback icon. Removing the
+     transform (rendering on-screen) didn't help either. Class still in
+     use by the B-025 saved-bookmark multi-drag caller; a separate item
+     should investigate the current-Edge regression and a more robust
+     snapshot strategy. The B-154 tab-multi-drag caller now skips
+     setDragImage entirely (default browser ghost). */
   position: fixed;
   top: 0;
   left: 0;
+  transform: translate(-100%, -100%);
   opacity: 1;
   pointer-events: none;
   z-index: 9999;

@@ -263,23 +263,48 @@ test('B-154 T6: drop handler iterates state.draggedTabIds for ATTACH/DETACH/MOVE
     'drop handler must iterate state.draggedTabIds for sequential dispatch');
 });
 
-test('B-154 T7: REORDER_OPEN passes draggedTabIds array to chrome.tabs.move', () => {
-  assert.match(SIDEPANEL_SRC, /chrome\.tabs\.move\(\s*state\.draggedTabIds\s*,\s*\{\s*index:/,
-    'REORDER_OPEN must pass draggedTabIds array to chrome.tabs.move');
+test('B-154 T7: REORDER_OPEN branches scalar vs array based on draggedTabIds.length', () => {
+  /* B-154 hotfix (2026-05-02): single-tab drags MUST use scalar form
+     `chrome.tabs.move(tabId, ...)` — passing a 1-element array regressed
+     in Edge (tabs landed at top of Open Tabs section instead of target).
+     Multi-tab drags use the array form. Branch on length. */
+  assert.match(
+    SIDEPANEL_SRC,
+    /state\.draggedTabIds\.length\s*===\s*1[\s\S]{0,300}chrome\.tabs\.move\(\s*state\.draggedTabIds\[0\]\s*,/,
+    'REORDER_OPEN must use scalar form chrome.tabs.move(state.draggedTabIds[0], ...) for single-tab',
+  );
+  assert.match(
+    SIDEPANEL_SRC,
+    /chrome\.tabs\.move\(\s*state\.draggedTabIds\s*,\s*\{\s*index:/,
+    'REORDER_OPEN must use array form chrome.tabs.move(state.draggedTabIds, ...) for multi-tab (length > 1)',
+  );
 });
 
-test('B-154 T9: multi-tab drag builds the custom ghost with grabbed-row title + "tabs" unit', () => {
-  /* The dragstart handler must (a) gate the ghost on draggedTabIds.length > 1,
-     (b) extract the grabbed row's title from `.item-title`, and (c) call
-     _buildMultiDragGhost with a non-empty title and the 'tabs' unit. The
-     pre-fix code passed an empty title which produced a too-narrow ghost
-     in Edge — user-reported regression. */
-  assert.match(SIDEPANEL_SRC, /draggedTabIds\.length\s*>\s*1/,
-    'dragstart must gate ghost on draggedTabIds.length > 1');
-  assert.match(SIDEPANEL_SRC, /tabRow\.querySelector\(\s*'\.item-title'\s*\)/,
-    'dragstart must read the grabbed row title from .item-title');
-  assert.match(SIDEPANEL_SRC, /_buildMultiDragGhost\(\s*draggedTabIds\.length\s*,\s*initiatorTitle\s*,\s*'tabs'\s*\)/,
-    '_buildMultiDragGhost call must pass grabbed-row title + "tabs" unit');
+test('B-154 T9: multi-tab drag does NOT call setDragImage (Edge ghost regression hotfix)', () => {
+  /* B-154 hotfix (2026-05-02): the custom ghost via _buildMultiDragGhost +
+     setDragImage produced a "document with folded corner" Edge-fallback
+     icon in current Edge for both saved-bookmark (B-025) and tab (B-154)
+     paths. The tab-drag dispatch site now skips setDragImage entirely so
+     the browser's default drag preview (the grabbed row) shows instead.
+     A separate follow-on item should investigate the proper Edge fix and
+     restore the "+N" badge for both consumers. */
+  /* Look for the explicit comment marker that documents the skip — pinning
+     this catches regressions where someone re-adds the custom ghost
+     without addressing the underlying Edge snapshot issue. */
+  assert.match(
+    SIDEPANEL_SRC,
+    /B-154 — multi-tab drag intentionally does NOT call setDragImage/,
+    'B-154 dragstart must contain the explicit "no setDragImage" comment marker',
+  );
+  /* Confirm there is no setDragImage call between the multi-tab gate and
+     the next major dragstart step (_buildTabDragRectCache). */
+  const afterDragSetData = SIDEPANEL_SRC.split("setData('text/plain', String(draggedTabId))")[1] || '';
+  const upToRectCache = afterDragSetData.split('_buildTabDragRectCache')[0] || '';
+  assert.doesNotMatch(
+    upToRectCache,
+    /e\.dataTransfer\.setDragImage\b/,
+    'no setDragImage call between dragstart setData and _buildTabDragRectCache',
+  );
 });
 
 /* =========================================================================

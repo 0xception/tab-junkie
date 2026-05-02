@@ -4429,33 +4429,25 @@ itemListEl.addEventListener('dragstart', (e) => {
        precedent at sidepanel.js:4361. */
     try { e.dataTransfer.setData('text/plain', String(draggedTabId)); } catch { /* noop */ }
 
-    /* B-154 — multi-tab drag ghost (N >= 2 only). Mirrors B-025 §37.9 F-6
-       ghost lifecycle: build off-screen, force reflow, setDragImage,
-       microtask-detach. Ghost label is "<grabbed-tab-title> N tabs" — the
-       grabbed row's title gives the ghost visible width and a useful
-       initiator-cue (matches B-025 multi-bookmark precedent). The badge
-       reads "N tabs" via the unit param. */
-    if (draggedTabIds.length > 1) {
-      const titleEl = tabRow.querySelector('.item-title');
-      const initiatorTitle = (titleEl && typeof titleEl.textContent === 'string'
-        && titleEl.textContent.trim().length > 0)
-        ? titleEl.textContent.trim()
-        : '(untitled tab)';
-      const ghostEl = _buildMultiDragGhost(draggedTabIds.length, initiatorTitle, 'tabs');
-      try {
-        /* B-025 UAT-8 fix (M-3) — force a synchronous layout reflow before
-           calling setDragImage. Without the reflow, `offsetWidth`/
-           `getBoundingClientRect` may still return 0 in Edge and the
-           snapshot becomes a broken-image preview. */
-        void ghostEl.offsetHeight;
-        const measured = ghostEl.offsetWidth
-          || ghostEl.getBoundingClientRect().width
-          || 80;
-        const halfWidth = Math.round(measured / 2);
-        e.dataTransfer.setDragImage(ghostEl, halfWidth, 16);
-      } catch { /* setDragImage unsupported — fall back to default */ }
-      queueMicrotask(() => ghostEl.remove());
-    }
+    /* B-154 — multi-tab drag intentionally does NOT call setDragImage.
+       The browser's default drag preview (the grabbed row itself) is used.
+
+       Earlier B-154 commits tried to render a custom "<title> N tabs" pill
+       via _buildMultiDragGhost + setDragImage (mirroring the B-025 saved-
+       bookmark multi-drag pattern). Product-owner reproduced in current
+       Edge (2026-05-02) that BOTH B-025 saved-bookmark multi-drag AND the
+       new B-154 tab-drag rendered as a Edge-fallback "document with folded
+       corner" icon — neither off-viewport-transform (B-025 UAT-8 strategy)
+       nor on-screen positioning (S43 hotfix attempt) produced a working
+       snapshot. Chromium's setDragImage behaviour for off-flow elements has
+       evolved past both strategies.
+
+       Pragmatic call: drop the custom ghost for tab multi-drag. The user
+       sees the grabbed row preview during the drag (same as single-tab
+       drag); they LOSE the "+N" count badge cue. Functionality is
+       unchanged. The B-025 saved-bookmark caller is unaffected by this
+       change — a separate item should investigate restoring its custom
+       ghost in current Edge. */
 
     _buildTabDragRectCache();
     _tabDragState.scrollListener = () => {
@@ -4773,11 +4765,20 @@ itemListEl.addEventListener('drop', async (e) => {
              converts section-relative → strip-absolute via
              `_cachedOpenTabsById[].tabIndex`. */
           const stripInsertIndex = _computeStripInsertIndex(state);
-          /* B-154: pass the full multi-select array. Chrome supports an array
-             of tabIds with `{ index: N }`: tabs land at N, N+1, N+2, ... in
-             the order specified. Single-select drags pass a 1-element array
-             — uniform code path. */
-          await chrome.tabs.move(state.draggedTabIds, { index: stripInsertIndex });
+          /* B-154 (S43, 2026-05-02 hotfix): use SCALAR form for single-tab
+             drags, ARRAY form only for actual multi-select. The array form
+             produced a regression in Edge (tabs landed at position 0 of the
+             Open Tabs section instead of the target index) — Chromium's
+             tabs.move behaves differently for `[tabId]` vs `tabId` in Edge
+             builds we tested, even though chrome-mock (Node.js) and Chrome
+             docs treat them as equivalent. Branching on length keeps the
+             pre-B-154 single-tab behaviour bit-for-bit unchanged while
+             enabling true multi-tab moves on length > 1. */
+          if (state.draggedTabIds.length === 1) {
+            await chrome.tabs.move(state.draggedTabIds[0], { index: stripInsertIndex });
+          } else {
+            await chrome.tabs.move(state.draggedTabIds, { index: stripInsertIndex });
+          }
           return;
         }
         case 'REORDER_FLOATING': {

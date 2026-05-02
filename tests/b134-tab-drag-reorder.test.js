@@ -1659,13 +1659,15 @@ test('Fix B T5 (source-text pin): _computeStripInsertIndex exists and is invoked
     '_computeStripInsertIndex helper must exist in sidepanel.js',
   );
   /* The dispatcher uses the helper output as `chrome.tabs.move`'s index.
-     B-154 (S43) changed the singular `state.draggedTabId` to plural
-     `state.draggedTabIds` to support multi-tab REORDER_OPEN. Single-select
-     drags pass a 1-element array — uniform code path. */
+     B-154 (S43) changed the dispatch to support multi-tab drags. Single-tab
+     drags use scalar form `state.draggedTabIds[0]`; multi-tab drags use the
+     array form `state.draggedTabIds`. Branch on length. The hotfix (2026-05-02)
+     reverted the always-array form because Edge regressed on the array path
+     for length=1 (tabs landed at top of Open Tabs section). */
   assert.match(
     sidepanelJs,
-    /case 'REORDER_OPEN'[\s\S]{0,2000}const stripInsertIndex = _computeStripInsertIndex\(state\);[\s\S]{0,500}chrome\.tabs\.move\(state\.draggedTabIds, \{ index: stripInsertIndex \}\)/,
-    'REORDER_OPEN dispatch must pass _computeStripInsertIndex(state) (NOT state.pendingInsertIndex) to chrome.tabs.move; tabIds is the plural draggedTabIds array per B-154',
+    /case 'REORDER_OPEN'[\s\S]{0,2000}const stripInsertIndex = _computeStripInsertIndex\(state\);[\s\S]{0,800}chrome\.tabs\.move\(state\.draggedTabIds\[0\], \{ index: stripInsertIndex \}\)/,
+    'REORDER_OPEN dispatch must pass _computeStripInsertIndex(state) to chrome.tabs.move using scalar form for single-tab (state.draggedTabIds[0]) per B-154 hotfix',
   );
   /* Helper body contains the (dPos < S) ? S - 1 : S adjustment that
      mirrors _computeReorderFloatingPayload's index-shift logic. */
