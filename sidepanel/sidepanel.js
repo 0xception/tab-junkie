@@ -447,7 +447,11 @@ let _pendingGroupPointerY = 0;
 
    Shape (§63.3.1):
      {
-       draggedTabId: number,
+       draggedTabId: number,         // grabbed row's tabId; drives drag-class filter
+       draggedTabIds: number[],      // B-154: full multi-select set (always array;
+                                     // single-select = [draggedTabId]). Filtered to
+                                     // grabbed row's class (Open Tabs vs floating),
+                                     // window, and source group (for floating).
        sourceMode: 'OPEN' | 'FLOATING',
        sourceWindowId: number,
        sourceGroupId: string | null,    // null when sourceMode === 'OPEN'
@@ -4391,9 +4395,20 @@ itemListEl.addEventListener('dragstart', (e) => {
       sourceMode = 'OPEN';
     }
 
+    /* B-154 — capture multi-select tab IDs filtered to the grabbed row's
+       drag-class (Open Tabs vs floating), source window, and (for floating)
+       source group. Single-select drags carry [draggedTabId] uniformly. */
+    const draggedTabIds = _computeMultiTabDragIds(
+      draggedTabId,
+      sourceMode,
+      sourceWindowId,
+      sourceGroupId,
+    );
+
     /* B-134 §63.3.1 — initialise state. */
     _tabDragState = {
       draggedTabId,
+      draggedTabIds, // B-154
       sourceMode,
       sourceWindowId,
       sourceGroupId,
@@ -4413,6 +4428,22 @@ itemListEl.addEventListener('dragstart', (e) => {
        requires non-empty data for drag to register. Mirrors B-030 / B-122
        precedent at sidepanel.js:4361. */
     try { e.dataTransfer.setData('text/plain', String(draggedTabId)); } catch { /* noop */ }
+
+    /* B-154 — multi-tab drag ghost (N >= 2 only). Mirrors B-025 §37.9 F-6
+       ghost lifecycle: build off-screen, force reflow, setDragImage,
+       microtask-detach. Ghost label is "N tabs" via the unit param. */
+    if (draggedTabIds.length > 1) {
+      const ghostEl = _buildMultiDragGhost(draggedTabIds.length, '', 'tabs');
+      try {
+        void ghostEl.offsetHeight;
+        const measured = ghostEl.offsetWidth
+          || ghostEl.getBoundingClientRect().width
+          || 80;
+        const halfWidth = Math.round(measured / 2);
+        e.dataTransfer.setDragImage(ghostEl, halfWidth, 16);
+      } catch { /* setDragImage unsupported — fall back to default */ }
+      queueMicrotask(() => ghostEl.remove());
+    }
 
     _buildTabDragRectCache();
     _tabDragState.scrollListener = () => {
@@ -4730,10 +4761,19 @@ itemListEl.addEventListener('drop', async (e) => {
              converts section-relative → strip-absolute via
              `_cachedOpenTabsById[].tabIndex`. */
           const stripInsertIndex = _computeStripInsertIndex(state);
-          await chrome.tabs.move(state.draggedTabId, { index: stripInsertIndex });
+          /* B-154: pass the full multi-select array. Chrome supports an array
+             of tabIds with `{ index: N }`: tabs land at N, N+1, N+2, ... in
+             the order specified. Single-select drags pass a 1-element array
+             — uniform code path. */
+          await chrome.tabs.move(state.draggedTabIds, { index: stripInsertIndex });
           return;
         }
         case 'REORDER_FLOATING': {
+          /* B-154: multi-tab REORDER_FLOATING is out of scope — semantically
+             ambiguous (where do N tabs land within a single-group reorder?
+             contiguous block? scattered? in selection order or visual order?).
+             Use single-tab semantics; only the grabbed row moves. Other
+             selected tabs in the same group stay where they are. */
           const orderedTabIds = _computeReorderFloatingPayload(
             state.sourceGroupId,
             state.draggedTabId,
@@ -4760,22 +4800,36 @@ itemListEl.addEventListener('drop', async (e) => {
         case 'DETACH':
         case 'MOVE_FLOATING': {
           /* §63.6.1: ATTACH (sourceGroupId=null), DETACH (targetGroupId=null),
-             MOVE_FLOATING (both non-null) all dispatch via the same message. */
-          const resp = await sendMessage(MSG_MOVE_FLOATING_TAB, {
-            tabId: state.draggedTabId,
-            sourceGroupId: state.sourceGroupId,
-            targetGroupId: state.pendingTargetGroupId,
-            insertIndex: state.pendingInsertIndex,
-          });
-          if (resp && resp.moved === false && resp.reason === 'ERR_RACE') {
-            /* Common ERR_RACE reasons for ATTACH: target group has zero
-               saved items (no parent bookmark). Inform the user. */
-            if (state.pendingMode === 'ATTACH') {
-              showToast('Cannot attach to an empty group.');
-            } else {
-              showToast('Tab move failed — please retry.');
+             MOVE_FLOATING (both non-null) all dispatch via the same message.
+
+             B-154: sequential dispatch per tab in `state.draggedTabIds`.
+             Each call is its own writeTransaction. Partial-success is
+             accepted: first per-tab failure surfaces the appropriate toast;
+             remaining tabs continue. Insert index increments per success so
+             tabs land contiguously in selection order. Single-select drags
+             carry [oneId] — same code path. */
+          let firstFailureToast = null;
+          let insertIndex = state.pendingInsertIndex;
+          for (const tabId of state.draggedTabIds) {
+            const resp = await sendMessage(MSG_MOVE_FLOATING_TAB, {
+              tabId,
+              sourceGroupId: state.sourceGroupId,
+              targetGroupId: state.pendingTargetGroupId,
+              insertIndex,
+            });
+            if (resp && resp.moved === false && resp.reason === 'ERR_RACE') {
+              if (!firstFailureToast) {
+                firstFailureToast = (state.pendingMode === 'ATTACH')
+                  ? 'Cannot attach to an empty group.'
+                  : 'Tab move failed — please retry.';
+              }
+              continue; // try the next tab; partial-success is acceptable
+            }
+            if (resp && resp.moved === true) {
+              insertIndex += 1; // bump so next tab lands contiguous
             }
           }
+          if (firstFailureToast) showToast(firstFailureToast);
           return;
         }
       }
@@ -5445,7 +5499,7 @@ function _clearMultiDragRowClasses(ids) {
    `document.body` for the browser to snapshot via `setDragImage`; detached
    one microtask later (§37.9 F-6). Content written via `textContent` only —
    bookmark titles are untrusted. */
-function _buildMultiDragGhost(count, title) {
+function _buildMultiDragGhost(count, title, unit) {
   const el = document.createElement('div');
   el.className = 'multi-drag-ghost';
   const titleSpan = document.createElement('span');
@@ -5453,7 +5507,10 @@ function _buildMultiDragGhost(count, title) {
   el.appendChild(titleSpan);
   const badge = document.createElement('span');
   badge.className = 'multi-drag-ghost__badge';
-  badge.textContent = count + ' items';
+  /* B-154: optional `unit` param — defaults to "items" for the B-025 saved-
+     bookmark caller; tab-drag callers pass "tabs" so the ghost reads
+     "N tabs". */
+  badge.textContent = count + ' ' + (typeof unit === 'string' && unit.length > 0 ? unit : 'items');
   el.appendChild(badge);
   document.body.appendChild(el);
   return el;
@@ -6406,6 +6463,47 @@ function _computeTabDropTarget(x, y) {
    `insertIndex` (with bounds clamp). Indicator-Y math in
    `_resolveTabDragIndicatorY` already uses the same filtered-list
    convention, so visual + outcome stay in sync. */
+/* B-154 — compute the array of tab IDs to drag together as one unit.
+   If the grabbed row is part of `_selection` (key `tab:<id>`), include all
+   selected tab IDs that match the grabbed row's drag-class (Open Tabs vs
+   floating), source window, and source group (for floating). Same-class
+   filter is mandatory — mixed-class selections silently exclude non-matches.
+
+   The grabbed `draggedTabId` is always first in the returned array (drives
+   visual ordering at the drop site for REORDER_OPEN). Single-select drags
+   return `[draggedTabId]` uniformly so callers don't branch on selection
+   state.
+
+   DOM-driven filter — relies on `[data-tab-id]` rows carrying `data-window-id`
+   and (for floating) `data-floating="true"` plus a parent `.group-section
+   [data-group-id]`. Tab rows that no longer exist in DOM are skipped. */
+function _computeMultiTabDragIds(grabbedTabId, sourceMode, sourceWindowId, sourceGroupId) {
+  const grabbedKey = 'tab:' + grabbedTabId;
+  if (!_selection || typeof _selection.has !== 'function' || !_selection.has(grabbedKey)) {
+    return [grabbedTabId];
+  }
+  const grabbedFloating = sourceMode === 'FLOATING';
+  const ids = [grabbedTabId];
+  for (const key of _selection) {
+    if (typeof key !== 'string' || !key.startsWith('tab:')) continue;
+    const id = Number(key.slice(4));
+    if (!Number.isFinite(id) || id === grabbedTabId) continue;
+    const candidate = itemListEl.querySelector(
+      `.item-row[data-tab-id="${CSS.escape(String(id))}"]`,
+    );
+    if (!candidate) continue;
+    const candFloating = candidate.dataset.floating === 'true';
+    if (candFloating !== grabbedFloating) continue;
+    if (Number(candidate.dataset.windowId) !== sourceWindowId) continue;
+    if (grabbedFloating) {
+      const candGroup = candidate.closest('.group-section[data-group-id]');
+      if (!candGroup || candGroup.dataset.groupId !== sourceGroupId) continue;
+    }
+    ids.push(id);
+  }
+  return ids;
+}
+
 function _computeReorderFloatingPayload(groupId, draggedTabId, insertIndex) {
   const members = (_cachedFloatingMembers && _cachedFloatingMembers[groupId]) || [];
   const tabIds = members.map((m) => m.tabId);
