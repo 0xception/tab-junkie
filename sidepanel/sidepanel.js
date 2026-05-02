@@ -4765,25 +4765,48 @@ itemListEl.addEventListener('drop', async (e) => {
              converts section-relative → strip-absolute via
              `_cachedOpenTabsById[].tabIndex`. */
           const stripInsertIndex = _computeStripInsertIndex(state);
-          /* B-150 R0 spike instrumentation (TEMP, REMOVE BEFORE SHIP):
-             user reports single-tab REORDER_OPEN drops 31 rows above target.
-             Logs the exact values feeding chrome.tabs.move so we can tell
-             whether stripInsertIndex equals pendingInsertIndex (section-
-             relative — bug) or is correctly translated (strip-absolute). */
+          /* B-150 R0 spike instrumentation (TEMP, REMOVE BEFORE SHIP). */
           // eslint-disable-next-line no-console
-          console.log(
-            '[tj:S43-R0-instr] REORDER_OPEN dispatch',
-            JSON.stringify({
-              draggedTabId: state.draggedTabId,
-              draggedTabIdsLength: state.draggedTabIds.length,
-              pendingInsertIndex: state.pendingInsertIndex,
-              stripInsertIndex,
-              sourceWindowId: state.sourceWindowId,
-              targetWindowId: state.pendingTargetWindowId,
-              cacheHas: !!(_tabDragRectCache
-                && _tabDragRectCache.openTabsByWindow.get(state.pendingTargetWindowId)),
-            }),
-          );
+          {
+            const cache = _tabDragRectCache;
+            const cluster = cache
+              ? cache.openTabsByWindow.get(state.pendingTargetWindowId)
+              : null;
+            const cacheKeys = cache
+              ? [...cache.openTabsByWindow.keys()]
+              : null;
+            /* Re-query DOM directly to compare cache contents vs current DOM. */
+            const liveSection = document.getElementById('open-tabs-section');
+            const liveList = liveSection ? liveSection.querySelector('.open-tabs-list') : null;
+            const liveRows = liveList
+              ? [...liveList.querySelectorAll(':scope > .item-row[data-tab-id]')]
+              : [];
+            const liveWindowIds = [...new Set(
+              liveRows.map((r) => Number(r.dataset.windowId)).filter((n) => Number.isFinite(n)),
+            )];
+            const draggedTabIsInCluster = cluster
+              ? cluster.rowTabIds.includes(state.draggedTabId)
+              : null;
+            console.log(
+              '[tj:S43-R0-instr] REORDER_OPEN dispatch',
+              JSON.stringify({
+                draggedTabId: state.draggedTabId,
+                draggedTabIdsLength: state.draggedTabIds.length,
+                pendingInsertIndex: state.pendingInsertIndex,
+                stripInsertIndex,
+                sourceWindowId: state.sourceWindowId,
+                targetWindowId: state.pendingTargetWindowId,
+                cacheKeys,
+                clusterRowCount: cluster ? cluster.rowTabIds.length : null,
+                draggedTabIsInCluster,
+                liveSectionExists: !!liveSection,
+                liveListExists: !!liveList,
+                liveRowCount: liveRows.length,
+                liveWindowIds,
+                cacheInvalid: cache ? cache.invalid : null,
+              }),
+            );
+          }
           /* B-154 (S43, 2026-05-02 hotfix): use SCALAR form for single-tab
              drags, ARRAY form only for actual multi-select. */
           if (state.draggedTabIds.length === 1) {
