@@ -4765,15 +4765,27 @@ itemListEl.addEventListener('drop', async (e) => {
              converts section-relative → strip-absolute via
              `_cachedOpenTabsById[].tabIndex`. */
           const stripInsertIndex = _computeStripInsertIndex(state);
+          /* B-150 R0 spike instrumentation (TEMP, REMOVE BEFORE SHIP):
+             user reports single-tab REORDER_OPEN drops 31 rows above target.
+             Logs the exact values feeding chrome.tabs.move so we can tell
+             whether stripInsertIndex equals pendingInsertIndex (section-
+             relative — bug) or is correctly translated (strip-absolute). */
+          // eslint-disable-next-line no-console
+          console.log(
+            '[tj:S43-R0-instr] REORDER_OPEN dispatch',
+            JSON.stringify({
+              draggedTabId: state.draggedTabId,
+              draggedTabIdsLength: state.draggedTabIds.length,
+              pendingInsertIndex: state.pendingInsertIndex,
+              stripInsertIndex,
+              sourceWindowId: state.sourceWindowId,
+              targetWindowId: state.pendingTargetWindowId,
+              cacheHas: !!(_tabDragRectCache
+                && _tabDragRectCache.openTabsByWindow.get(state.pendingTargetWindowId)),
+            }),
+          );
           /* B-154 (S43, 2026-05-02 hotfix): use SCALAR form for single-tab
-             drags, ARRAY form only for actual multi-select. The array form
-             produced a regression in Edge (tabs landed at position 0 of the
-             Open Tabs section instead of the target index) — Chromium's
-             tabs.move behaves differently for `[tabId]` vs `tabId` in Edge
-             builds we tested, even though chrome-mock (Node.js) and Chrome
-             docs treat them as equivalent. Branching on length keeps the
-             pre-B-154 single-tab behaviour bit-for-bit unchanged while
-             enabling true multi-tab moves on length > 1. */
+             drags, ARRAY form only for actual multi-select. */
           if (state.draggedTabIds.length === 1) {
             await chrome.tabs.move(state.draggedTabIds[0], { index: stripInsertIndex });
           } else {

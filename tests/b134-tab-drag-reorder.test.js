@@ -1666,7 +1666,7 @@ test('Fix B T5 (source-text pin): _computeStripInsertIndex exists and is invoked
      for length=1 (tabs landed at top of Open Tabs section). */
   assert.match(
     sidepanelJs,
-    /case 'REORDER_OPEN'[\s\S]{0,2000}const stripInsertIndex = _computeStripInsertIndex\(state\);[\s\S]{0,800}chrome\.tabs\.move\(state\.draggedTabIds\[0\], \{ index: stripInsertIndex \}\)/,
+    /case 'REORDER_OPEN'[\s\S]{0,2000}const stripInsertIndex = _computeStripInsertIndex\(state\);[\s\S]{0,2500}chrome\.tabs\.move\(state\.draggedTabIds\[0\], \{ index: stripInsertIndex \}\)/,
     'REORDER_OPEN dispatch must pass _computeStripInsertIndex(state) to chrome.tabs.move using scalar form for single-tab (state.draggedTabIds[0]) per B-154 hotfix',
   );
   /* Helper body contains the (dPos < S) ? S - 1 : S adjustment that
