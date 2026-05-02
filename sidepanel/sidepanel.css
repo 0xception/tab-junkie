@@ -1849,7 +1849,15 @@ mark {
      drag preview). `setDragImage` requires the element to be attached AND
      have non-zero layout when the snapshot is taken; `fixed` + a visible
      coordinate space gives the engine a real rect to capture from, while
-     the 100% inverse-translate keeps it off-screen for the human eye. */
+     the 100% inverse-translate keeps it off-screen for the human eye.
+
+     S43 (2026-05-02) — current Edge regressed this fix: pill renders as a
+     "document with folded corner" Edge-fallback icon. Removing the
+     transform (rendering on-screen) didn't help either. Class still in
+     use by the B-025 saved-bookmark multi-drag caller; a separate item
+     should investigate the current-Edge regression and a more robust
+     snapshot strategy. The B-154 tab-multi-drag caller now skips
+     setDragImage entirely (default browser ghost). */
   position: fixed;
   top: 0;
   left: 0;

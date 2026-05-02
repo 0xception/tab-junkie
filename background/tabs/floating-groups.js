@@ -27,7 +27,7 @@
 
 import { safeNormalizeForMatch } from '../../shared/url.js';
 import { writeTransaction } from '../storage/write-transaction.js';
-import { readPartition, PARTITION_FLOATING_GROUPS, MAX_URL } from '../storage/partitions.js';
+import { readPartition, PARTITION_FLOATING_GROUPS, PARTITION_ITEMS, MAX_URL } from '../storage/partitions.js';
 import { ulid } from '../storage/ids.js';
 import { getLiveTabIndex } from './live-tab-index.js';
 import { markInherited, getClaimsMirror } from './tab-claims.js';
@@ -579,11 +579,18 @@ export async function moveFloatingTab(tabId, sourceGroupId, targetGroupId, inser
      Resolve via the first saved item under targetGroupId. Empty target
      group → fail per §63.8.2 / §63.15. The lookup runs OUTSIDE the
      writeTransaction (writeTransaction mutators cannot perform async I/O)
-     and is threaded into the mutator via closure capture. */
+     and is threaded into the mutator via closure capture.
+
+     B-150 (S43) fix: was a dynamic-import call resolved at runtime which
+     fails in the SW context with `TypeError: import() is disallowed on
+     ServiceWorkerGlobalScope`. The chrome-mock Node.js test environment
+     allowed dynamic imports so all 1892 tests passed; the bug only fired
+     in real Chrome/Edge. Now uses the static `PARTITION_ITEMS` import at
+     the top of the module. CLAUDE.md C-8 SW-context-feasibility class.
+     Static-scan regression guard: tests/b150-no-dynamic-import-in-sw.test.js. */
   let newParentItemId = null;
   if (targetGroupId !== null) {
-    const { readPartition: readPart, PARTITION_ITEMS } = await import('../storage/partitions.js');
-    const items = await readPart(PARTITION_ITEMS);
+    const items = await readPartition(PARTITION_ITEMS);
     const candidates = (Array.isArray(items) ? items : [])
       .filter((it) => it && it.groupId === targetGroupId);
     if (candidates.length === 0) return false; // ATTACH/MOVE to empty group rejected

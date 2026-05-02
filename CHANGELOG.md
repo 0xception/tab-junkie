@@ -2,6 +2,33 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.37.0] — 2026-05-02 (Sprint 43)
+
+Sprint 43 — Drag/drop + claim-drift reliability investigation. Bug-investigation focus per product-owner feedback at S42 close. Anchor B-150 bisected the "we keep losing sync" symptom + opened the door to two new feature/UX items (B-154 multi-tab drag, B-157 group-zone expansion). Two pre-existing strip-vs-section regressions (B-156 + B-150 Q1) were caught and fixed during investigation.
+
+### New features
+- **Multi-tab drag-and-drop (B-154)** — multi-select 2+ Open Tabs (or floating tabs in the same group) and drag any one of them to ATTACH / DETACH / MOVE_FLOATING all of them at once. Previously only the grabbed row moved; the remaining N-1 stayed silently. Filter rules: same drag-class (Open Tabs vs floating), same source window, same source group (for floating). Single-tab drag behavior is unchanged. Sequential per-tab dispatch with insert-index bumping for contiguous landing in selection order. Partial-success accepted (one tab failing doesn't abort the rest).
+- **Whole-group drop target for tab attach (B-157)** — drop an Open Tab anywhere in a group's section (header, saved-bookmark area, or floating area) to attach it. Previously the drop zone was only the area between saved bookmarks and any nested child group, which collapsed to zero height for groups with no floating tabs and excluded the header entirely. Drops on the header / saved area place the new floating tab at the top of the group's floating list; drops in the floating area still use position-precision. True interleave with saved bookmarks remains a future item (B-148).
+
+### Bug fixes
+- **Drag-and-drop ATTACH no longer throws (B-150 Q1)** — `moveFloatingTab` used a dynamic `await import(...)` inside the SW context. Chrome/Edge service workers reject dynamic imports per W3C spec; the chrome-mock test environment (Node.js) accepted them so 1,892 tests passed even though every ATTACH-drag in production threw `Error: Internal error`. Fix: replaced with a static import. Static-scan regression test added (`tests/b150-no-dynamic-import-in-sw.test.js`) catches future occurrences across `background/` and `shared/`.
+- **Open Tab reorder lands at correct position (B-156)** — pre-existing bug since v1.35.0: `_cleanupTabDragDom` nulled the rect cache before the drop dispatch ran, so `_computeStripInsertIndex` fell back to section-relative `pendingInsertIndex` instead of strip-absolute. For users with N saved-bookmark claimed tabs + floating tabs preceding the Open Tabs section in the strip, dropped tabs landed N rows above the target. Surfaced because product-owner has 31 such precedents. Fix: cache survives `_cleanupTabDragDom`; explicit nulling moved to after the drop dispatch.
+
+### Process / engineering
+- **CLAUDE.md retro edits** (S42 retrospective action items shipped):
+  - **B-151** — fix-scope test-assertion enumeration extended to include DOM-structure pins on shared surfaces (third-occurrence pattern: S36 B-113 + S37 B-117 + S42 B-041)
+  - **B-152** — new R2 Correctness Checklist entry **C-15: Browser-API rejection-string contract verification** (require SW REPL probe to verify Chrome message format when error classification depends on substring matches)
+  - **B-153** — Shared File Governance extended to require explicit "shared-surface consumer inventory" subsection in R2 chapters that touch shared `#settings-*` / `#sidepanel-*` / `#newtab-*` / `#popup-*` elements OR shared module-level state
+
+### Known issues / deferred
+- **Multi-drag count-badge ghost (B-155)** — current Edge regressed both the B-025 UAT-8 off-viewport-transform CSS strategy AND a S43 hotfix attempt: `setDragImage` with the existing `.multi-drag-ghost` element renders as a fallback "document with folded corner" icon. Both B-025 saved-bookmark multi-drag AND the new B-154 tab-drag were affected. B-154 reverted to the default browser ghost (the dragged row); B-025 unchanged. B-155 filed as P3 follow-on for proper Edge investigation.
+- **Q2 lost-sync continuation** — B-149's hypothesis mechanisms (a/b/d) remain open; awaiting real-world repro signal to schedule R0 spike. Mechanism (c) was fixed in S41.
+
+### Internal
+- Test count: 1826 → **1908 / 100% PASS** (+82 net over the pre-B-041 baseline; 16 new test files this sprint)
+- 7 BACKLOG items closed (B-149 hygiene, B-150 Q1, B-151, B-152, B-153, B-154, B-156, B-157), 2 new items filed (B-155 Edge ghost follow-on, B-150 Q2 stays open)
+- Branch: `feature/sprint-43-claim-drift-reliability` off `release/v2`
+
 ## [1.36.0] — 2026-05-XX (Sprint 42)
 
 Sprint 42 — Chrome tab group sync (snapshot push). One anchor item (B-041) closes the pre-S33 P2/L placeholder for Chrome tab-group integration with a narrowed scope: snapshot-only, current-window-only, top-level groups only.

@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-05-01 · **Version:** 2.42 · **Total Items:** 142 · **Sprint 42 active. R3 build complete on B-041 (Chrome tab group sync — snapshot push). Branch: `feature/sprint-42-chrome-sync` off release/v2. Pending R4 review + R5 testing. Target: v1.36.0.**
+**Updated:** 2026-05-01 · **Version:** 2.43 · **Total Items:** 146 · **Sprint 43 active — bug investigation focus. 1 P1/XL Spike-First anchor (B-150 — Q1 ATTACH exception + Q2 lost-sync investigation, R0 spike paused awaiting product-owner SW console error capture) + 3 P3/XS Fast-Track piggybacks (B-151/152/153 — S42 retro action CLAUDE.md edits). Branch: `feature/sprint-43-claim-drift-reliability` off release/v2 (post-S42 close at `24d44fa` · v1.36.0 tagged). Target: v1.37.0 (or v1.36.1 hotfix if scope is tight).**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████████████████░  95% (135/142)  [S42 R3 complete · B-041 anchor done · release v1.36.0 pending R4-R7]
+Overall Progress    ███████████████████░  93% (136/146)  [S43 active · B-150 anchor R0 spike paused awaiting Q1 error · 3 CLAUDE.md piggybacks in flight]
 ```
 
 ### Legend
@@ -277,18 +277,18 @@ Overall Progress    ███████████████████░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 135 | 95% |
-| 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 4 | 3% |
+| ✅ Done | 136 | 93% |
+| 🔄 In Progress | 4 | 3% |
+| ⬜ To Do | 3 | 2% |
 | 🧊 Icebox | 3 | 2% |
 
-(Done count: 135 code-shipping. B-131 reclassified `superseded-by-B-137`. B-138 reverted to `backlog | TBD` post-S41 — DEFERRED per B-137 As-Built §66.18.11. B-041 flipped ✅ at S42 R3 close 2026-05-01.)
+(Done count: 136 code-shipping post-S42. B-149 finally flipped `done | 41` at S43 kickoff — was a stale `backlog | TBD` row since the S41 fix shipped at `eaff700`. B-041 ✅ at S42 close 2026-05-01. 4 new items filed at S43 kickoff: B-150 P1/XL anchor + B-151/152/153 P3/XS CLAUDE.md piggybacks. Total backlog grew 142 → 146.)
 
-**In Progress breakdown**: 0 items — B-041 R3 build complete, awaiting R4 review.
+**In Progress breakdown**: 4 items — **B-150** drag/drop + claim-drift reliability investigation (S43 anchor, P1/XL Spike-First; R0 spike paused awaiting product-owner Q1 SW console error capture) · **B-151** CLAUDE.md fix-scope DOM-structural pins (S42 retro #1, P3/XS) · **B-152** CLAUDE.md C-15 R2 browser-API rejection-string (S42 retro #2, P3/XS) · **B-153** CLAUDE.md shared-surface consumer inventory (S42 retro #3, P3/XS).
 
-**To-Do breakdown (4 items)**:
+**To-Do breakdown (3 items)**:
 - 🟡 **P2** (2): B-076 MIGRATION_STEPS hook (S) · **B-138** post-B-137 cleanup (XS, DEFERRED)
-- ⚪ **P3** (2): **B-135** cross-window Open Tabs drag (deferred from B-134 v1) · B-086 sidepanel UI/UX umbrella (M)
+- ⚪ **P3** (1): **B-135** cross-window Open Tabs drag (deferred from B-134 v1) · B-086 sidepanel UI/UX umbrella (M) · **B-148** interleave floating tabs + saved bookmarks within group (TBD)
 
 **To-Do breakdown (8 items)**:
 - 🔴 **P1** (1 — Sprint 41 anchor candidate): **B-137** floatingGroups schema v3→v4 (adopt `floatingTabId` as primary live-tab join key; subsumes B-131)
