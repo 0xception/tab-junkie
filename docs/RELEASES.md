@@ -4,6 +4,19 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.38.1 — B-160 popup recency + sparse fallback (2026-05-03)
+
+**Tagged on `release/v2`.**
+
+Same-day follow-on to v1.38.0. Popup default view now updates from any-surface navigation + falls back to most-recently-accessed items when recency is empty.
+
+- **§1 Centralization**: SW MSG_NAVIGATE_TO_ITEM handler feeds `tj:recency` automatically (both itemId + tabId variants). Sidepanel + newtab clicks now count.
+- **§2 Sparse fallback**: popup pads with `Item.lastAccessedAt`-sorted items when recency resolves fewer than 20 rows. "🕑 No recent items yet" empty state only on truly empty collections.
+
+Tests: 1930 PASS (+6).
+
+---
+
 ## v1.38.0 — B-159 favicon persistence (2026-05-03)
 
 **Tagged on `release/v2`.**
