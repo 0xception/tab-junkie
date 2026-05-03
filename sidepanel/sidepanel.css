@@ -1546,7 +1546,7 @@ mark {
 
 /* B-113 §56 (S36 W1-C): item-row drag-handle. Sized as a flex child
    matching the .item-select slot (`flex: 0 0 18px`) but with
-   `margin-left: -18px` so it overlays the previous (checkbox) flex slot
+   `margin-left: -28px` so it overlays the previous (checkbox) flex slot
    without consuming additional layout space (B-048 §31.5 AC6 no-reflow
    guarantee preserved — the only flex-basis cost in the row is the
    checkbox's 18 px). Inner SVG (14 px) is centered via inline-flex.
@@ -1558,10 +1558,22 @@ mark {
    is invariant across all row states because flex content alignment
    only depends on flex sizing (no padding-edge dependency).
    `pointer-events: none` ensures clicks pass through to the row,
-   preserving B-030's drag-from-anywhere contract. */
+   preserving B-030's drag-from-anywhere contract.
+
+   B-158 (S43 close, 2026-05-03): margin-left was -18px pre-B-158, which
+   correctly absorbed the .item-select slot (18 px) but did NOT account
+   for the parent `.item-row { gap: 10px }` flex gap between the drag-
+   handle and the favicon (the next sibling). Net layout cost was 10 px
+   (gap-only), shifting the row content right by 10 px vs a row without
+   the drag-handle. User-reported "extra space" on saved-bookmark rows
+   that vanished on open-tab rows (the latter omitted the drag-handle
+   per the now-stale B-113 §56.3 D-5 comment). New value -28px = -18
+   (slot) - 10 (gap), so the drag-handle absorbs both the slot AND the
+   gap-to-next-sibling. Net layout cost = 0; row content origin is
+   identical with or without the drag-handle. */
 .item-drag-handle {
   flex: 0 0 18px;
-  margin-left: -18px;
+  margin-left: -28px;
   height: 14px;
   display: inline-flex;
   align-items: center;

@@ -2936,6 +2936,23 @@ function buildOpenTabRow(tab /* , { multiWindow } */) {
     row.setAttribute('aria-selected', 'true');
   }
 
+  /* B-158 (S43 close, 2026-05-03): drag-handle affordance for tab rows.
+     Pre-B-158 the drag-handle was omitted here per a B-113 §56.3 D-5 comment
+     ("open-tab rows are not draggable") that became stale when B-134 (S40)
+     made Open Tab rows draggable for REORDER_OPEN / ATTACH and floating tab
+     rows draggable for REORDER_FLOATING / DETACH / MOVE_FLOATING. Restoring
+     the affordance gives every row the same checkbox + drag-handle pair
+     that toggles in the same flex slot (per the .item-drag-handle CSS
+     margin-left: -28px overlap). Decorative only — `aria-hidden`,
+     `pointer-events: none` (CSS), so click pass-through to the row is
+     preserved. Inline SVG matches the .group-drag-handle 6-circle pattern
+     for cross-surface visual cohesion. */
+  const dragHandle = document.createElement('span');
+  dragHandle.className = 'item-drag-handle';
+  dragHandle.setAttribute('aria-hidden', 'true');
+  dragHandle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="5" cy="4" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="5" cy="12" r="1.5"/><circle cx="11" cy="4" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="11" cy="12" r="1.5"/></svg>';
+  row.appendChild(dragHandle);
+
   row.appendChild(_buildOpenTabFavicon(tab));
 
   const textBlock = document.createElement('div');
