@@ -2,6 +2,16 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.37.1] — 2026-05-03 (B-158 polish hotfix)
+
+Same-cycle visual polish on top of v1.37.0. No functional change.
+
+### Visual fixes
+- **Drag-handle parity across all row types (B-158)** — saved-bookmark, Open Tab, and floating tab rows now all show the same checkbox + drag-handle pair toggling in the same flex slot. Pre-B-158 the drag-handle CSS overlap (`margin-left: -18px`) absorbed the 18 px slot but not the parent `.item-row { gap: 10px }` flex gap to the favicon, shifting bookmark-row content right by 10 px. Open Tab + floating tab rows had no drag-handle at all per a stale B-113 §56.3 D-5 comment ("open-tab rows are not draggable") that became outdated when B-134 (S40) made them draggable. Fix: `margin-left: -28px` (slot + gap absorbed); `buildOpenTabRow` now appends the same drag-handle as `buildItemRow`.
+
+### Internal
+- Test count: 1908 / 1908 PASS unchanged. Two B-113 test pins updated (T2 inverted, T3 margin-left value).
+
 ## [1.37.0] — 2026-05-02 (Sprint 43)
 
 Sprint 43 — Drag/drop + claim-drift reliability investigation. Bug-investigation focus per product-owner feedback at S42 close. Anchor B-150 bisected the "we keep losing sync" symptom + opened the door to two new feature/UX items (B-154 multi-tab drag, B-157 group-zone expansion). Two pre-existing strip-vs-section regressions (B-156 + B-150 Q1) were caught and fixed during investigation.

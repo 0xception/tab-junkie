@@ -4,6 +4,18 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.37.1 — B-158 polish hotfix (2026-05-03)
+
+**Tagged on `release/v2`.**
+
+Same-cycle visual polish on top of v1.37.0. No functional change.
+
+- **B-158 drag-handle parity** — saved-bookmark, Open Tab, and floating tab rows now share the same checkbox + drag-handle visual contract toggling in the same flex slot. CSS `margin-left: -28px` absorbs both the 18 px slot and the parent `.item-row { gap: 10px }`. `buildOpenTabRow` now appends the drag-handle (was omitted per a stale B-113 §56.3 D-5 comment).
+
+Tests: 1908 / 1908 PASS unchanged.
+
+---
+
 ## v1.37.0 — Sprint 43 — Drag/drop reliability + multi-tab drag (2026-05-02)
 
 **Tagged on `feature/sprint-43-claim-drift-reliability` — pending PR merge to release/v2. Tag: `v1.37.0`.**
