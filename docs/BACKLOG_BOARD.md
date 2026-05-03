@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-05-01 · **Version:** 2.43 · **Total Items:** 146 · **Sprint 43 active — bug investigation focus. 1 P1/XL Spike-First anchor (B-150 — Q1 ATTACH exception + Q2 lost-sync investigation, R0 spike paused awaiting product-owner SW console error capture) + 3 P3/XS Fast-Track piggybacks (B-151/152/153 — S42 retro action CLAUDE.md edits). Branch: `feature/sprint-43-claim-drift-reliability` off release/v2 (post-S42 close at `24d44fa` · v1.36.0 tagged). Target: v1.37.0 (or v1.36.1 hotfix if scope is tight).**
+**Updated:** 2026-05-02 · **Version:** 2.43.closed · **Total Items:** 148 · **Sprint 43 closed. v1.37.0 shipped on release/v2 (PR #48 merged 2026-05-02 as `785a602`; tag `v1.37.0` pushed). 7 items closed (B-149 hygiene, B-150 Q1, B-151/152/153, B-154, B-156, B-157), 2 filed-and-deferred (B-150 Q2 awaits repro, B-155 Edge ghost follow-on).**
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████████████████░  93% (136/146)  [S43 active · B-150 anchor R0 spike paused awaiting Q1 error · 3 CLAUDE.md piggybacks in flight]
+Overall Progress    ███████████████████░  95% (143/148)  [S43 closed · v1.37.0 shipped on release/v2]
 ```
 
 ### Legend
@@ -277,18 +277,19 @@ Overall Progress    ███████████████████░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 136 | 93% |
-| 🔄 In Progress | 4 | 3% |
-| ⬜ To Do | 3 | 2% |
+| ✅ Done | 143 | 97% |
+| 🔄 In Progress | 0 | 0% |
+| ⬜ To Do | 5 | 3% |
 | 🧊 Icebox | 3 | 2% |
 
-(Done count: 136 code-shipping post-S42. B-149 finally flipped `done | 41` at S43 kickoff — was a stale `backlog | TBD` row since the S41 fix shipped at `eaff700`. B-041 ✅ at S42 close 2026-05-01. 4 new items filed at S43 kickoff: B-150 P1/XL anchor + B-151/152/153 P3/XS CLAUDE.md piggybacks. Total backlog grew 142 → 146.)
+(Done count: 143 post-S43 close. S43 shipped 7 items: B-149 hygiene, B-150 Q1, B-151/152/153 CLAUDE.md edits, B-154 multi-tab drag, B-156 rect-cache lifecycle fix, B-157 group-zone expansion. B-150 Q2 stays open — awaits real-world lost-sync repro signal. B-155 filed and deferred — Edge ghost regression follow-on. Total backlog 146 → 148 with B-155 + B-157 added; B-156 retroactively filed at the fix commit.)
 
-**In Progress breakdown**: 4 items — **B-150** drag/drop + claim-drift reliability investigation (S43 anchor, P1/XL Spike-First; R0 spike paused awaiting product-owner Q1 SW console error capture) · **B-151** CLAUDE.md fix-scope DOM-structural pins (S42 retro #1, P3/XS) · **B-152** CLAUDE.md C-15 R2 browser-API rejection-string (S42 retro #2, P3/XS) · **B-153** CLAUDE.md shared-surface consumer inventory (S42 retro #3, P3/XS).
+**In Progress breakdown**: 0 items — sprint closed.
 
-**To-Do breakdown (3 items)**:
+**To-Do breakdown (5 items)**:
+- 🟠 **P1** (1): **B-150 Q2** lost-sync continuation (B-149 hypothesis mechanisms a/b/d still open; awaits real-world repro signal)
 - 🟡 **P2** (2): B-076 MIGRATION_STEPS hook (S) · **B-138** post-B-137 cleanup (XS, DEFERRED)
-- ⚪ **P3** (1): **B-135** cross-window Open Tabs drag (deferred from B-134 v1) · B-086 sidepanel UI/UX umbrella (M) · **B-148** interleave floating tabs + saved bookmarks within group (TBD)
+- ⚪ **P3** (3): **B-135** cross-window Open Tabs drag · B-086 sidepanel UI/UX umbrella (M) · **B-148** interleave floating tabs + saved bookmarks (TBD) · **B-155** Edge multi-drag count-badge ghost (TBD, R0 candidate)
 
 **To-Do breakdown (8 items)**:
 - 🔴 **P1** (1 — Sprint 41 anchor candidate): **B-137** floatingGroups schema v3→v4 (adopt `floatingTabId` as primary live-tab join key; subsumes B-131)

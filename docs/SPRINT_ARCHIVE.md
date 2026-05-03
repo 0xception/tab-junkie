@@ -2667,3 +2667,96 @@ Post-B-137 `(windowId, tabIndex)` callers cleanup. Position-fallback retained in
 - **Storage schema**: `tj:groups` v4 → v5 (lazy migration; rollback documented at §67.2.4 + §67.9 + §67.12.6)
 - **Manifest permissions**: zero new permissions added
 - **Sprints + hotfixes without rollback**: 19 (S23 → S42)
+
+---
+
+## Sprint 43 — Drag/drop + claim-drift reliability investigation (2026-05-01 → 2026-05-02)
+
+**Theme:** Bug-investigation focus per product-owner feedback at S42 close ("we keep losing sync"). Anchor B-150 R0 spike bisected two distinct symptoms (Q1 ATTACH exception + Q2 lost-sync) and surfaced two pre-existing bugs caught during investigation, plus two scope-gap follow-ons revealed by testing.
+
+**Release:** v1.37.0 (release/v2 only — no main merge)
+**Branch:** `feature/sprint-43-claim-drift-reliability` → merged to `release/v2` via PR #48 (merge commit `785a602`)
+**Tag:** `v1.37.0` (`gh release create` skipped per established pattern)
+
+### Completed Items
+
+#### [B-149] Drifted-claim-loss row hygiene — flipped backlog → done | 41
+Stale BACKLOG row from S41 (fix shipped at `eaff700`, never marked done). Caught at S43 kickoff.
+
+#### [B-150] Q1 — Dynamic import in SW context throws "Internal error" — ✅ DONE
+- **Root cause**: `background/tabs/floating-groups.js` called `await import('../storage/partitions.js')` inside `moveFloatingTab`. Chrome/Edge SW reject dynamic import per W3C spec; chrome-mock (Node.js) accepts it so 1,892 tests passed even though every ATTACH-drag in production threw.
+- **Fix**: replaced dynamic with static import. Static-scan regression test (`tests/b150-no-dynamic-import-in-sw.test.js`) catches future occurrences across `background/` + `shared/`. Empty allow-list.
+- **Q2 (lost-sync)**: paused — awaits real-world repro signal. B-149's hypothesis mechanisms (a/b/d) remain open candidates.
+
+#### [B-151] CLAUDE.md edit: fix-scope DOM-structural pins (S42 retro #1) — ✅ DONE
+Extended "Fix-scope test-assertion enumeration" subsection with explicit "DOM-structure assertions on shared surfaces (fieldset counts, section orders, selector-coverage enumerations on settings/sidepanel/newtab/popup pages)" alongside the existing CSS-token-invariant precedent. Cites the third-occurrence pattern S36 B-113 D-3 + S37 B-117 R3 + S42 B-041 D-1 as blocking precedent.
+
+#### [B-152] CLAUDE.md edit: C-15 R2 checklist for browser-API rejection-string verification (S42 retro #2) — ✅ DONE
+Added C-15 entry: when error classification depends on rejection-message substrings, R2 MUST verify the actual Chrome message format via 30-second SW REPL probe; mock layers MUST emit verified format. Cites S42 B-041 R4 fix-round (`_classifyError` mock-vs-real Chrome string mismatch) as blocking precedent.
+
+#### [B-153] CLAUDE.md edit: shared-surface consumer inventory in R2 (S42 retro #3) — ✅ DONE
+Extended "Shared File Governance" with mandatory "shared-surface consumer inventory" subsection in R2 chapters that introduce new consumers of shared `#settings-*` / `#sidepanel-*` / `#newtab-*` / `#popup-*` elements OR shared module-level state. Cites S42 B-041 R4 H-2 ghost-timer race as blocking precedent.
+
+#### [B-154] Multi-tab drag-and-drop (new feature) — ✅ DONE
+- **Scope**: extend B-134's single-tab drag to support multi-select drag for ATTACH/DETACH/MOVE_FLOATING/REORDER_OPEN. REORDER_FLOATING keeps single-tab semantics (multi-tab reorder within one group is ambiguous; deferred).
+- **Approach** (Approach A — sequential dispatch, product-owner approved): `_tabDragState.draggedTabIds: number[]` (always array; single = `[oneId]`). Drop fan-out per op. Partial-success accepted with insert-index bumping for contiguous landing.
+- **Filter rules**: same drag-class (Open Tabs vs floating), same source window, same source group (for floating). Mixed-class / cross-window selections silently exclude non-matches.
+- **Hotfixes shipped during S43**:
+  - REORDER_OPEN regressed in Edge for single-tab `[tabId]` array form vs scalar — fixed by branching on length.
+  - Custom drag ghost (`_buildMultiDragGhost` + `setDragImage`) rendered as Edge fallback "document with folded corner" icon. B-025 saved-bookmark multi-drag also affected. Filed B-155 follow-on; B-154 reverted to default browser ghost.
+- **Tests**: `tests/b154-multi-tab-drag.test.js` (9 tests covering AC1-AC5 + 4 source-text pins + partial-success).
+
+#### [B-155] Multi-drag count-badge ghost (Edge regression) — DEFERRED
+Filed P3/TBD as follow-on. Current Edge regressed both the original B-025 UAT-8 strategy and S43's on-screen+microtask hotfix attempt: `setDragImage` with `.multi-drag-ghost` renders as a fallback icon. Investigation candidates listed in BACKLOG row (canvas image, `Image()` object, alternate stacking context, accept default ghost permanently).
+
+#### [B-156] REORDER_OPEN drops N rows above target — ✅ DONE (pre-existing fix)
+- **Pre-existing B-145 regression** caught during B-150 R0 spike instrumentation.
+- **Root cause**: `_cleanupTabDragDom()` nulled `_tabDragRectCache` BEFORE the drop dispatch. By the time `_computeStripInsertIndex(state)` ran, cache was null → helper hit early-return path returning `state.pendingInsertIndex` (section-relative) instead of `target.tabIndex` (strip-absolute). For users with N saved-bookmark/floating tabs preceding Open Tabs section, dropped tabs landed N rows above target. Product-owner reported: 31 rows above (matches their precedent count).
+- **Fix**: cache survives `_cleanupTabDragDom`; explicit nulling moved to drop handler `finally` block + early-return paths + dragend cancel path.
+- **Tests**: `tests/b156-rect-cache-survives-drop-cleanup.test.js` (4 source-text pins).
+- **Why it evaded UAT**: chrome-mock fixtures don't seed Open Tabs sections with non-zero strip offsets, so section-relative === strip-absolute in tests.
+
+#### [B-157] Whole-group drop target for tab attach (new UX) — ✅ DONE
+- **Scope**: drop an Open Tab anywhere within a group's section (header, saved-bookmark area, floating area) to attach. Pre-B-157 the zone was only the area between saved bookmarks and any nested child group — collapsed to zero-height for groups with no floating tabs and excluded the header.
+- **Fix** (single line in `_buildTabDragRectCache`): zone top = `section.getBoundingClientRect().top` (was `savedRows[last].bottom` with `itemsContainer.top` fallback).
+- **Behavior with the existing midline math**: drops on header / saved area place at top of floating list (insertIndex 0); drops in floating area still use position-precision; empty floating area accepts drops at position 0.
+- **Saved-bookmark interleave** is acceptable per B-148 deferral — true interleave is a separate item.
+- **Tests**: `tests/b157-floating-zone-expansion.test.js` (2 source-text pins).
+
+### Velocity
+
+- Planned: 1 P1/XL Spike-First anchor (B-150) + 3 P3/XS Fast-Track piggybacks (B-151/152/153). 4 effort units committed.
+- Completed: 8 items shipped (1 anchor partial — Q1 fixed, Q2 deferred · 3 retro CLAUDE.md edits · 1 new feature B-154 · 1 new UX B-157 · 2 pre-existing fixes B-150 Q1 + B-156). 1 item filed-and-deferred (B-155).
+- **9 commits** since `release/v2` from S43 (post-S42 close at `24d44fa`).
+- **Test count delta**: 1892 → 1908 PASS / 0 fail (+16 net new tests across 4 new test files).
+- Pipeline duration: ~1 calendar day (kickoff 2026-05-01 evening → tag 2026-05-02).
+
+### Pipeline summary
+
+- **R0 spike instrumentation cycle** drove B-150 + B-156 root cause identification. Two rounds of console.log instrumentation in the SW dispatcher and the sidepanel REORDER_OPEN dispatch surfaced the actual error strings + cache-null state. Both removed at fix.
+- **Lean-mode bug-fix loop** continued from S42 close: skipped formal R1/R2 ceremony for the bug-fix items; product-owner smoke-test provided UAT signal at each iteration. Fast-Track XS bundle ran for the 3 retro CLAUDE.md edits.
+- **Hotfix-on-hotfix discipline** held: B-154 ship → user smoke test → REORDER_OPEN regression caught → hotfix → ghost regression caught → B-155 deferred + custom ghost dropped → B-156 pre-existing bug surfaced → fix → B-157 oversight surfaced → fix → ship. Six iteration rounds; all caught at user-side smoke testing rather than R4 review.
+
+### Process Improvements (Gate 7 retrospective)
+
+**What went well**:
+- R0 spike instrumentation was the right tool — both B-150 Q1 and B-156 needed in-flight log output to identify root cause (static analysis missed the dynamic-import-in-SW + cache-null-at-dispatch failure modes).
+- Cross-reviewer-converged S42 retros (B-151/152/153) shipped same-sprint as Fast-Track XS, immediately self-applied to B-154 R3 fix-scope test enumeration update (b091-settings-page tests caught at R3 rather than R4, vindicating the precedent).
+- Lean-mode bug-fix loop is converging: each ship → smoke-test → next-fix cycle averaged ~10 minutes of product-owner testing per round, faster than full R4 review cadence for bug-fix scope.
+
+**What to improve**:
+- Mock-vs-real Chromium behavior divergence keeps biting: B-150 Q1 (dynamic import), B-154 array-form `chrome.tabs.move` regression, B-155 setDragImage rendering — all worked in chrome-mock + tests but failed in real Edge. The B-152 C-15 retro action item (mandatory SW REPL probe at R2) closes one class but not all. Worth a deeper UAT pre-merge protocol — e.g., a "Edge smoke test" stage that the product-owner runs BEFORE PR merge for any tab-drag-class change. Filed as informal action item; not blocking.
+- B-156 (rect-cache lifecycle) had been silently broken since B-145 shipped in v1.35.0. UAT signature was "tabs land at top after drag" but only manifests for users with non-zero offset preceding Open Tabs section. Test fixtures should seed at least one fixture with saved-bookmark claims + floating tabs preceding Open Tabs section so this class of bug is reproducible in chrome-mock.
+
+**Action Items for Sprint 44**:
+- [ ] **B-XXX (file at S44 kickoff)** — chrome-mock test fixture: seed an Open Tabs section with non-zero strip offset (5+ saved-bookmark claimed tabs + 5+ floating tabs preceding) so strip-vs-section bugs are reproducible in tests. Fast-Track XS.
+- [ ] **B-XXX (file at S44 kickoff)** — Edge pre-merge smoke test protocol: documented checklist of drag/drop / setDragImage / sync paths to manually verify in real Edge before PR merge for any tab-class change. Fast-Track XS.
+
+### Final State
+
+- **Tests**: 1,908 / 1,908 passing · zero regressions · +82 net over pre-S42 baseline (1826)
+- **Release tag**: v1.37.0 cut on `release/v2`; `gh release create` skipped
+- **PR**: #48 merged to `release/v2` (merge commit `785a602`)
+- **Storage schema**: unchanged from v1.36.0 (still v5)
+- **Manifest permissions**: unchanged
+- **Sprints + hotfixes without rollback**: 20 (S23 → S43)
