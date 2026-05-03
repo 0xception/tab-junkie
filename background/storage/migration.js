@@ -86,7 +86,7 @@ const KNOWN_LEGACY_KEYS = ['junkie_bookmarks', 'junkie_groups', 'junkie_pinned_t
  * `pruneResolvedFloatingGroups` write transaction (§66.7). C-1a + C-1b
  * compliance recorded in §66.2.1 / §66.2.2.
  */
-export const KNOWN_VERSION = 5;
+export const KNOWN_VERSION = 6;
 
 /**
  * Ordered array of migration steps. Each step upgrades the schema from
@@ -149,6 +149,22 @@ const MIGRATION_STEPS = [
   {
     fromVersion: 4,
     toVersion: 5,
+    migrate: (snapshot) => snapshot,
+  },
+  /* B-159 §A (S43 close, 2026-05-03) — v5 → v6 governance bump. No-op
+     migrate: lazy data migration (option 2). `tj:items` records gain an
+     OPTIONAL `favIconUrl: string | null` so favicons persist across
+     extension restarts and tab closes (previously favicons were rendered
+     entirely from live `chrome.tabs.favIconUrl` — no persistence; closed
+     tabs got the letter-avatar fallback). Legacy v5 records lacking the
+     field render via the existing letter-avatar / Chrome _favicon API
+     fallback chain (B-159 §B). New writes stamp the field via the
+     capture path in `chrome.tabs.onUpdated` listener (one-shot per
+     session per item). The governance bump is required by C-1a even
+     when the data migration is lazy (C-1b option 2). */
+  {
+    fromVersion: 5,
+    toVersion: 6,
     migrate: (snapshot) => snapshot,
   },
 ];

@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Tab Junkie",
   "description": "Unified bookmark and tab manager",
-  "version": "1.37.1",
-  "permissions": ["tabs", "tabGroups", "storage", "sidePanel", "search"],
+  "version": "1.38.0",
+  "permissions": ["tabs", "tabGroups", "storage", "sidePanel", "search", "favicon"],
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"

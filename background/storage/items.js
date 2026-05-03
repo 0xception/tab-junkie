@@ -63,7 +63,7 @@ function validatePatch(patch) {
   }
   // M2: `updatedAt` is always overwritten by the mutator, so it must not be
   // in the caller-visible allowed patch list.
-  const allowed = ['title', 'url', 'groupId', 'sortOrder', 'lastAccessedAt'];
+  const allowed = ['title', 'url', 'groupId', 'sortOrder', 'lastAccessedAt', 'favIconUrl'];
   for (const k of Object.keys(patch)) {
     if (!allowed.includes(k)) {
       throw new StorageError(ERR_VALIDATION, 'updateItem: unknown field', { field: k });
@@ -92,6 +92,15 @@ function validatePatch(patch) {
   }
   if ('sortOrder' in patch && (typeof patch.sortOrder !== 'number' || !Number.isFinite(patch.sortOrder))) {
     throw new StorageError(ERR_VALIDATION, 'updateItem: sortOrder must be finite number');
+  }
+  /* B-159 §A (S43, v6) — OPTIONAL favIconUrl. null clears (e.g., reset);
+     non-empty string accepted (capture path gates via isSafeFaviconUrl
+     before calling updateItem, so any persisted URL is https/http/data:image).
+     Empty-string would be ambiguous vs "never observed" so we reject it. */
+  if ('favIconUrl' in patch
+    && patch.favIconUrl !== null
+    && (typeof patch.favIconUrl !== 'string' || patch.favIconUrl.length === 0)) {
+    throw new StorageError(ERR_VALIDATION, 'updateItem: favIconUrl must be non-empty string or null');
   }
 }
 

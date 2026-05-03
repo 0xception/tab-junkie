@@ -2,6 +2,22 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.38.0] — 2026-05-03 (B-159 favicon persistence)
+
+Same-day follow-on to v1.37.1 polish. Saved-bookmark favicons now persist across tab close + extension restart, with a Chrome `_favicon` API fallback for never-opened bookmarks.
+
+### New features
+- **Favicon persistence (B-159 §A)** — saved bookmarks remember the last-seen favicon. After you open a tab once, the favicon is captured and stored on the Item record; closing the tab no longer regresses to the letter-avatar. Schema `tj:items` v5 → v6 lazy migration adds optional `favIconUrl: string | null`. Capture is once-per-session-per-item via `chrome.tabs.onUpdated`; preserves any previously persisted favicon (no clobber).
+- **Chrome favicon-cache fallback (B-159 §B)** — adds `favicon` manifest permission to use Chrome's `_favicon` API (`chrome-extension://<id>/_favicon/?pageUrl=...`). Render fallback chain: live tab favicon → persisted Item favicon (§A) → Chrome `_favicon` API URL (§B) → letter-avatar. Imported / never-opened bookmarks get an icon from Chrome's own cache without requiring TJ to open the tab.
+
+### Note
+- **Schema bump v5 → v6 — extension toggle required.** After updating to v1.38.0, toggle the extension OFF then ON in your browser's extensions page (`edge://extensions` or `chrome://extensions`), or fully restart the browser. This flushes the service-worker module cache so the new schema is recognized.
+- **New manifest permission**: `favicon` — required by the Chrome `_favicon` API helper. The permission is local-only (no network); it grants access to Chrome's existing in-browser favicon cache.
+
+### Internal
+- Test count: 1908 → 1924 PASS (+16 from `tests/b159-favicon-persistence.test.js`). Five pre-existing pin tests updated (3 schema-version pins, 4 manifest-permission baseline pins).
+- New shared helper `getChromeFaviconUrl(pageUrl, size)` in `shared/favicon.js`. `isSafeFaviconUrl` now accepts `chrome-extension://` prefix.
+
 ## [1.37.1] — 2026-05-03 (B-158 polish hotfix)
 
 Same-cycle visual polish on top of v1.37.0. No functional change.

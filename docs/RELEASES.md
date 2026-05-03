@@ -4,6 +4,25 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.38.0 — B-159 favicon persistence (2026-05-03)
+
+**Tagged on `release/v2`.**
+
+Same-day follow-on to v1.37.1. Saved-bookmark favicons persist across tab close + extension restart; Chrome favicon-cache fallback for never-opened bookmarks.
+
+### New features
+- **§A persistence**: schema `tj:items` v5 → v6 lazy migration; optional `favIconUrl: string | null`. Capture once-per-session-per-item via `chrome.tabs.onUpdated`. Preserves prior persisted value.
+- **§B Chrome favicon-cache fallback**: adds `favicon` manifest permission. Renders `chrome-extension://<id>/_favicon/?pageUrl=...` URLs. Imported / never-opened bookmarks now show Chrome's cached icons.
+
+### Note
+- **Schema bump v5 → v6 — extension toggle required** (toggle OFF→ON in `edge://extensions` after update).
+- **New manifest permission**: `favicon` — local-only, no network.
+
+### Internal
+- Test count: 1908 → 1924 PASS (+16). 16-test new file `tests/b159-favicon-persistence.test.js`.
+
+---
+
 ## v1.37.1 — B-158 polish hotfix (2026-05-03)
 
 **Tagged on `release/v2`.**
