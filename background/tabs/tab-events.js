@@ -17,9 +17,10 @@ import {
   removeTabsByWindow,
   getLiveTabIndex,
 } from './live-tab-index.js';
-import { releaseClaimByTab, reevaluateTab, isClaimsReady, getClaimsMirror, markInherited, pruneInherited } from './tab-claims.js';
+import { releaseClaimByTab, reevaluateTab, isClaimsReady, getClaimsMirror, markInherited, pruneInherited, getItemIdForTab } from './tab-claims.js';
 import { detectDriftForTab, clearDrift } from './drift.js';
-import { listItems } from '../storage/items.js';
+import { listItems, getItem, updateItem } from '../storage/items.js';
+import { isSafeFaviconUrl } from '../../shared/favicon.js';
 import { broadcast, SCOPE } from '../broadcast.js';
 import { recordOpener, pruneOpener, pruneOpenersByWindow, walkOpenerChain } from './opener-chain.js';
 import { appendFloatingGroup, pruneFloatingGroupsByLiveTabId } from './floating-groups.js';
@@ -32,6 +33,45 @@ import { isSyncInFlight } from '../sync/chrome-sync.js';
 
 /** @type {Map<number, ReturnType<typeof setTimeout>>} per-tab debounce timers (H2) */
 const reevalTimers = new Map();
+
+/* B-159 §A (S43 close, 2026-05-03) — once-per-session set of itemIds we've
+   already stamped a favicon on. Prevents repeated writes when the same tab
+   navigates and emits multiple favIconUrl change events. The set lives for
+   the SW lifetime; on cold-start it resets, and the first onUpdated event
+   per item per session re-stamps if the persisted value is still empty.
+   Items that already carry a non-empty favIconUrl on disk are skipped on
+   the read inside `_maybePersistItemFavicon` regardless of set membership.
+   Trade-off: rebrand favicon changes won't propagate to disk after the
+   first stamp. Acceptable for v1; future iteration could add an explicit
+   "refresh favicon" gesture per item. */
+const _faviconStampedItemIds = new Set();
+
+/**
+ * B-159 §A — fire-and-forget capture: when a claimed tab's favicon updates,
+ * stamp the matching Item record's `favIconUrl` field IF the field is still
+ * empty/null on disk. One-shot per session per item via _faviconStampedItemIds.
+ *
+ * Pure side-effect; never throws (errors swallowed). Safe to call from any
+ * tab event listener.
+ *
+ * @param {number} tabId
+ * @param {string|undefined} favIconUrl
+ */
+function _maybePersistItemFavicon(tabId, favIconUrl) {
+  if (!favIconUrl || !isSafeFaviconUrl(favIconUrl)) return;
+  if (!isClaimsReady()) return;
+  const itemId = getItemIdForTab(tabId);
+  if (!itemId) return;
+  if (_faviconStampedItemIds.has(itemId)) return;
+  _faviconStampedItemIds.add(itemId);
+  /* Read the item once to avoid clobbering an existing persisted favicon —
+     the user may have a different favicon stamped from a prior session. */
+  getItem(itemId).then((item) => {
+    if (!item) return;
+    if (item.favIconUrl && item.favIconUrl.length > 0) return;
+    return updateItem(itemId, { favIconUrl });
+  }).catch(() => { /* never let favicon persistence break the dispatch */ });
+}
 
 /**
  * Register all tab and window event listeners. Must be called at module
@@ -70,6 +110,14 @@ export function registerTabEventListeners(readyPromise) {
 
     if (Object.keys(patch).length > 0) {
       updateTabEntry(tabId, patch);
+    }
+
+    /* B-159 §A — capture-once persistence to the Item record. Runs only
+       when the changeInfo carries a favIconUrl (the patch path above also
+       requires it for the LiveTabIndex update); uses the new normalized
+       `patch.favIconUrl` so we share `'' → no-op` semantics. */
+    if ('favIconUrl' in changeInfo && patch.favIconUrl) {
+      _maybePersistItemFavicon(tabId, patch.favIconUrl);
     }
 
     // B-004: broadcast when favIconUrl changes WITHOUT a simultaneous URL change.

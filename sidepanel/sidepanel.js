@@ -93,8 +93,11 @@ import { applyTheme as _sharedApplyTheme, applyDenseLayout as _sharedApplyDenseL
 import { buildIndex, diffAndPatch, search as searchIndex } from './search-index.js';
 
 /* B-022 R4 L-2: isSafeFaviconUrl promoted to shared/favicon.js so popup +
-   sidepanel share the same scheme allowlist. Byte-for-byte equivalent. */
-import { isSafeFaviconUrl } from '../shared/favicon.js';
+   sidepanel share the same scheme allowlist. Byte-for-byte equivalent.
+   B-159 §B (S43): getChromeFaviconUrl helper returns chrome-extension://
+   URLs from the Chrome `_favicon` API (requires `favicon` manifest
+   permission added at S43 close). Final fallback before letter-avatar. */
+import { isSafeFaviconUrl, getChromeFaviconUrl } from '../shared/favicon.js';
 
 /* B-097: openOrFocusSettingsTab factored out from inline gear-button dispatcher
    into shared/settings-tab.js (3rd-caller threshold reached: sidepanel + popup +
@@ -2587,8 +2590,19 @@ function buildItemRow(item, liveStates, driftRecords) {
   dragHandle.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="5" cy="4" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="5" cy="12" r="1.5"/><circle cx="11" cy="4" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="11" cy="12" r="1.5"/></svg>';
   row.appendChild(dragHandle);
 
-  /* B-004: favicon from live tab state, letter-avatar fallback */
-  const favIconUrl = liveStates?.[item.id]?.favIconUrl;
+  /* B-004: favicon from live tab state.
+     B-159 §A: liveStates fallback chain already prefers (a) live tab
+     favicon → (b) persisted Item.favIconUrl, so liveStates.favIconUrl is
+     "best stored" by the time we read it here.
+     B-159 §B: if no stored favicon, fall back to Chrome `_favicon` API URL
+     (requires `favicon` manifest permission). Letter-avatar is the final
+     fallback for items that resolve to neither (e.g., never-visited pages
+     before Chrome's cache populates). */
+  const liveFav = liveStates?.[item.id]?.favIconUrl;
+  const chromeFav = isSafeFaviconUrl(liveFav)
+    ? null
+    : getChromeFaviconUrl(item.url);
+  const favIconUrl = isSafeFaviconUrl(liveFav) ? liveFav : chromeFav;
   if (isSafeFaviconUrl(favIconUrl)) {
     const img = document.createElement('img');
     img.className = 'item-favicon';

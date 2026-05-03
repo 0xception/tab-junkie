@@ -111,8 +111,13 @@ export function defaultShape(partition) {
          v4→v5 (B-041 S42 §3.3) adds OPTIONAL `chromeTabGroupId: number | null`
          to PARTITION_GROUPS records; data migration is lazy (legacy records
          lack the field; first sync stamps it; stale mappings are cleared
-         transparently). */
-      return { schemaVersion: 5, createdAt: Date.now() };
+         transparently).
+         v5→v6 (B-159 §A, S43 close 2026-05-03) adds OPTIONAL `favIconUrl:
+         string | null` to PARTITION_ITEMS records so favicons persist across
+         tab close + extension restart. Data migration is lazy (legacy v5
+         items lack the field; first chrome.tabs.onUpdated observation with
+         a non-empty favicon stamps the field once-per-session-per-item). */
+      return { schemaVersion: 6, createdAt: Date.now() };
     case PARTITION_DRIFT:
       return {};
     case PARTITION_FLOATING_GROUPS:
@@ -135,10 +140,18 @@ function isBool(v) { return typeof v === 'boolean'; }
 function isNullableString(v) { return v === null || typeof v === 'string'; }
 
 function isItem(v) {
-  return v && typeof v === 'object'
-    && isString(v.id) && isString(v.title) && isString(v.url)
-    && isNullableString(v.groupId)
-    && isNumber(v.sortOrder) && isNumber(v.createdAt) && isNumber(v.updatedAt);
+  if (!v || typeof v !== 'object') return false;
+  if (!isString(v.id) || !isString(v.title) || !isString(v.url)) return false;
+  if (!isNullableString(v.groupId)) return false;
+  if (!isNumber(v.sortOrder) || !isNumber(v.createdAt) || !isNumber(v.updatedAt)) return false;
+  /* B-159 §A (S43, v5→v6) — OPTIONAL favIconUrl. Legacy v5 items lack the
+     field; null is valid; non-empty string is valid. Anything else is corrupt.
+     The capture path in `chrome.tabs.onUpdated` only stamps `isSafeFaviconUrl`
+     URLs, so the on-disk shape is constrained to https/http/data:image. */
+  if ('favIconUrl' in v
+    && v.favIconUrl !== null
+    && !isString(v.favIconUrl)) return false;
+  return true;
 }
 
 function isGroup(v) {

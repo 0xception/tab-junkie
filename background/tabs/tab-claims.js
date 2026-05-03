@@ -304,7 +304,14 @@ export async function reevaluateTab(tabId, newUrl, items) {
  * Build live states for all items from the in-memory claims mirror and
  * LiveTabIndex. Pure synchronous function.
  *
- * @param {Array<{id: string}>} items
+ * B-159 §A (S43 close, 2026-05-03) — `favIconUrl` falls back to the
+ * persisted `item.favIconUrl` when the live tab entry has no favicon
+ * (covers both (a) item not currently claimed → `tabEntry === undefined`
+ * and (b) claimed but Chrome hasn't surfaced the favicon yet). The render
+ * path (sidepanel.js buildItemRow) layers the Chrome `_favicon` API on
+ * top as a third fallback before letter-avatar.
+ *
+ * @param {Array<{id: string, favIconUrl?: string|null}>} items
  * @returns {Record<string, {live: boolean, active: boolean, audible: boolean, favIconUrl: string|null, tabId?: number, windowId?: number}>}
  *   `tabId` and `windowId` are present only when `live === true` (B-014 /
  *   B-026 widened the shape so the sidepanel can render the cross-window
@@ -315,7 +322,7 @@ export function buildLiveStates(items) {
   if (!claimsReady) {
     const states = {};
     for (const item of items) {
-      states[item.id] = { live: false, active: false, audible: false, favIconUrl: null };
+      states[item.id] = { live: false, active: false, audible: false, favIconUrl: item.favIconUrl || null };
     }
     return states;
   }
@@ -330,7 +337,9 @@ export function buildLiveStates(items) {
           live: true,
           active: tabEntry.active,
           audible: tabEntry.audible,
-          favIconUrl: tabEntry.favIconUrl || null,
+          /* B-159 §A: live tab favicon wins when present; otherwise fall
+             back to the persisted Item.favIconUrl. */
+          favIconUrl: tabEntry.favIconUrl || item.favIconUrl || null,
           tabId,
           /* B-014: surface the claim's current windowId so the sidepanel can
              render the cross-window badge on saved-item rows (AC7) without a
@@ -340,7 +349,7 @@ export function buildLiveStates(items) {
         continue;
       }
     }
-    states[item.id] = { live: false, active: false, audible: false, favIconUrl: null };
+    states[item.id] = { live: false, active: false, audible: false, favIconUrl: item.favIconUrl || null };
   }
   return states;
 }

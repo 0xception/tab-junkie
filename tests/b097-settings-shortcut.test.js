@@ -66,16 +66,16 @@ test('B-097 AC1-b: open-junkie-settings suggested_key.default is Alt+Comma', () 
   );
 });
 
-test('B-097 AC1-c: open-junkie-settings does not add any new manifest permissions', () => {
+test('B-097 AC1-c (B-159 §B update): open-junkie-settings does not add any new manifest permissions beyond current baseline', () => {
   const raw = fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8');
   const manifest = JSON.parse(raw);
-  /* commands is NOT a permissions entry — verify permissions unchanged from
-     the B-091 baseline: tabs, tabGroups, storage, sidePanel, search. */
-  const expected = ['tabs', 'tabGroups', 'storage', 'sidePanel', 'search'];
+  /* commands is NOT a permissions entry — verify permissions match the
+     current baseline (B-091 set + B-159 favicon). B-097 itself adds none. */
+  const expected = ['tabs', 'tabGroups', 'storage', 'sidePanel', 'search', 'favicon'];
   assert.deepEqual(
     manifest.permissions.slice().sort(),
     expected.slice().sort(),
-    'manifest.permissions must remain unchanged after adding the shortcut',
+    'manifest.permissions must match the current baseline (B-091 set + B-159 §B favicon)',
   );
 });
 

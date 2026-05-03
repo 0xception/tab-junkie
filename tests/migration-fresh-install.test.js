@@ -51,10 +51,10 @@ test('AC2: empty storage — runMigrations seeds partitions and resolves', async
  * by hand whenever KNOWN_VERSION bumps; this test forces the invariant
  * into a CI-visible failure if the two drift.
  */
-test('B-137 R5 L-3: defaultShape(PARTITION_META).schemaVersion === 5 (literal pin — paired-bump invariant)', () => {
+test('B-137 R5 L-3: defaultShape(PARTITION_META).schemaVersion === 6 (B-159 §A paired-bump invariant)', () => {
   const shape = defaultShape(PARTITION_META);
-  assert.equal(shape.schemaVersion, 5,
-    'defaultShape(PARTITION_META).schemaVersion must be the literal 5 — bump this when KNOWN_VERSION bumps');
+  assert.equal(shape.schemaVersion, 6,
+    'defaultShape(PARTITION_META).schemaVersion must be the literal 6 — bump this when KNOWN_VERSION bumps');
   assert.equal(shape.schemaVersion, KNOWN_VERSION,
     'defaultShape literal must equal KNOWN_VERSION (paired-bump invariant)');
 });
