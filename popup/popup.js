@@ -38,10 +38,6 @@ import {
 import { buildIndex, search } from '../sidepanel/search-index.js';
 import { buildHighlightedText } from '../shared/highlight.js';
 import { isSafeFaviconUrl } from '../shared/favicon.js';
-/* B-097: Settings tab dispatcher factored to shared/settings-tab.js
-   (3rd-caller threshold: sidepanel + popup + SW shortcut). C-11 discipline
-   preserved — fire-and-forget call before window.close(), no await between. */
-import { openOrFocusSettingsTab } from '../shared/settings-tab.js';
 /* B-088 fix #1 — shared theme applier. Popup ignores `applyDenseLayout`
    (the 320px popup has no compact layout). */
 import { applyTheme as _applyTheme } from '../shared/surface-prefs.js';
@@ -102,7 +98,10 @@ let _mode = 'loading';
    DOM refs
    ========================================================================= */
 
-let rootEl, inputEl, inputWrapEl, listEl, statusEl, emptyEl, skeletonEl, scrollEl, sidepanelBtnEl, sidepanelErrorEl, settingsBtnEl;
+/* B-161 (S43, 2026-05-03): `settingsBtnEl` removed — the Open Settings
+   button was deleted from popup.html. Settings is still reachable via
+   sidepanel gear icon + Alt+, keyboard shortcut. */
+let rootEl, inputEl, inputWrapEl, listEl, statusEl, emptyEl, skeletonEl, scrollEl, sidepanelBtnEl, sidepanelErrorEl;
 
 /* =========================================================================
    Entry point
@@ -170,7 +169,6 @@ function _bootQuickSearch() {
   scrollEl = document.getElementById('qs-results-scroll');
   sidepanelBtnEl = document.getElementById('popup-open-sidepanel-btn');
   sidepanelErrorEl = document.getElementById('qs-sidepanel-error');
-  settingsBtnEl = document.getElementById('popup-open-settings-btn');
 
   /* AC3 — programmatic focus plus native autofocus-style fallback. */
   if (inputEl) inputEl.focus();
@@ -185,10 +183,9 @@ function _bootQuickSearch() {
     sidepanelBtnEl.addEventListener('click', _onOpenSidepanelClick);
   }
 
-  /* B-095 AC2: Open Settings tab on button click. */
-  if (settingsBtnEl) {
-    settingsBtnEl.addEventListener('click', _onOpenSettingsClick);
-  }
+  /* B-161 — "Open Settings" button + click handler removed; the
+     `openOrFocusSettingsTab` import is no longer needed in this module
+     (sidepanel.js + service-worker.js still consume it). */
 
   _showSkeleton();
   loadInitial();
@@ -561,110 +558,14 @@ function _onKeyDown(e) {
     return;
   }
   if (e.key === 'Tab') {
-    /* B-022 R4 H-2 — focus trap. Result rows are not individually focusable
-       (selection lives in `aria-activedescendant`), so this is a logical
-       trap between the input, the "selected row" concept, and the footer buttons.
-       The Tab key always cycles within the popup — it never escapes to browser chrome.
-       Cycle (forward): input → rows (first…last) → sidepanel-btn → settings-btn → input
-       Cycle (reverse): input → settings-btn → sidepanel-btn → rows (last…first) → input
-       WCAG 2.1.2 No Keyboard Trap is satisfied by Escape closing the popup. */
-    const activatable = [];
-    for (let i = 0; i < _currentRows.length; i++) {
-      if (_currentRows[i].kind !== 'header') activatable.push(i);
-    }
+    /* B-161 — Tab opens the side panel directly. Pre-B-161 it cycled
+       focus through input → rows → footer buttons; Up/Down arrows already
+       cover row navigation, so the cycle was redundant. Reuses the
+       sidepanel button's click handler. WCAG 2.1.2: Escape still closes
+       the popup; Tab now exits to the side panel rather than trapping. */
     e.preventDefault();
     e.stopPropagation();
-
-    const onSidepanelBtn = sidepanelBtnEl && document.activeElement === sidepanelBtnEl;
-    const onSettingsBtn = settingsBtnEl && document.activeElement === settingsBtnEl;
-
-    if (e.shiftKey) {
-      /* Shift+Tab reverse cycle:
-         input          → settings-btn
-         settings-btn   → sidepanel-btn
-         sidepanel-btn  → last row (or input if no rows)
-         row N          → row N-1
-         row 0          → input */
-      if (document.activeElement === inputEl || (_selectedIndex === -1 && !onSidepanelBtn && !onSettingsBtn)) {
-        /* From input → jump to settings button. */
-        _selectedIndex = -1;
-        _renderSelection();
-        if (settingsBtnEl) settingsBtnEl.focus();
-        return;
-      }
-      if (onSettingsBtn) {
-        /* From settings-btn → sidepanel-btn. */
-        if (sidepanelBtnEl) sidepanelBtnEl.focus();
-        return;
-      }
-      if (onSidepanelBtn) {
-        /* From sidepanel-btn → last result row (or input if none). */
-        if (activatable.length === 0) {
-          inputEl.focus();
-          return;
-        }
-        _selectedIndex = activatable[activatable.length - 1];
-        inputEl.focus();
-        _renderSelection();
-        return;
-      }
-      /* On a result row — go to previous row or back to input. */
-      const pos = activatable.indexOf(_selectedIndex);
-      if (pos <= 0) {
-        _selectedIndex = -1;
-        inputEl.focus();
-        _renderSelection();
-        return;
-      }
-      _selectedIndex = activatable[pos - 1];
-      _renderSelection();
-      return;
-    }
-
-    /* Tab (no Shift) forward cycle:
-       input          → first row (or sidepanel-btn if no rows)
-       row N          → row N+1
-       last row       → sidepanel-btn
-       sidepanel-btn  → settings-btn
-       settings-btn   → input */
-    if (onSettingsBtn) {
-      /* From settings-btn → wrap back to input. */
-      _selectedIndex = -1;
-      _renderSelection();
-      inputEl.focus();
-      return;
-    }
-    if (onSidepanelBtn) {
-      /* From sidepanel-btn → settings-btn. */
-      if (settingsBtnEl) settingsBtnEl.focus();
-      return;
-    }
-    if (activatable.length === 0) {
-      /* No rows — cycle input → sidepanel-btn → settings-btn → input. */
-      if (document.activeElement === inputEl) {
-        if (sidepanelBtnEl) sidepanelBtnEl.focus();
-      } else {
-        inputEl.focus();
-      }
-      return;
-    }
-    if (_selectedIndex === -1) {
-      /* From input → first row. */
-      _selectedIndex = activatable[0];
-      inputEl.focus();
-      _renderSelection();
-      return;
-    }
-    const pos = activatable.indexOf(_selectedIndex);
-    if (pos === -1 || pos === activatable.length - 1) {
-      /* Last row → sidepanel-btn. */
-      _selectedIndex = -1;
-      _renderSelection();
-      if (sidepanelBtnEl) sidepanelBtnEl.focus();
-      return;
-    }
-    _selectedIndex = activatable[pos + 1];
-    _renderSelection();
+    void _onOpenSidepanelClick();
     return;
   }
   /* Everything else (ArrowLeft/ArrowRight, Home/End, Backspace, typable
@@ -1043,20 +944,6 @@ async function _onOpenSidepanelClick() {
   } finally {
     _sidepanelOpening = false;
   }
-}
-
-/* =========================================================================
-   B-095 + B-097: Open Settings button
-   C-11 DISCIPLINE (popup-teardown race): openOrFocusSettingsTab() is called
-   fire-and-forget (.catch swallows). window.close() is the immediately next
-   statement — no await between dispatch and close. Native runtime delivery
-   from the shared helper survives popup teardown. See §43.6 C-11.
-   ========================================================================= */
-
-function _onOpenSettingsClick(e) {
-  e.preventDefault();
-  openOrFocusSettingsTab().catch(() => { /* swallow — popup teardown */ });
-  window.close();
 }
 
 /* =========================================================================

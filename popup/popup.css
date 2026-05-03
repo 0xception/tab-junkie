@@ -438,8 +438,7 @@ mark {
   gap: 4px;
 }
 
-#popup-open-sidepanel-btn,
-#popup-open-settings-btn {
+#popup-open-sidepanel-btn {
   width: 100%;
   padding: 7px 12px;
   font-size: 13px;
@@ -454,13 +453,11 @@ mark {
   transition: background-color 120ms ease, color 120ms ease;
 }
 
-#popup-open-sidepanel-btn:hover,
-#popup-open-settings-btn:hover {
+#popup-open-sidepanel-btn:hover {
   background-color: var(--color-row-selected);
 }
 
-#popup-open-sidepanel-btn:focus-visible,
-#popup-open-settings-btn:focus-visible {
+#popup-open-sidepanel-btn:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
@@ -480,8 +477,7 @@ mark {
   #qs-input:focus {
     box-shadow: none;
   }
-  #popup-open-sidepanel-btn,
-  #popup-open-settings-btn {
+  #popup-open-sidepanel-btn {
     transition: none;
   }
 }
