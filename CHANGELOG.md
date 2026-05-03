@@ -2,6 +2,18 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.38.1] — 2026-05-03 (B-160 popup recency + sparse fallback)
+
+Same-day follow-on to v1.38.0. Popup's default view now reflects any-surface navigation activity (was popup-only) AND padding from most-recently-accessed items when recency is empty.
+
+### UX
+- **Comprehensive popup recency (B-160 §1)** — sidepanel + newtab navigations now feed the popup's recency partition. Pre-B-160 only popup-side activity counted; if you primarily used the sidepanel, the popup's "Recent" view stayed empty. Centralized in the SW MSG_NAVIGATE_TO_ITEM handler — any surface that navigates a saved bookmark or focuses a live tab feeds recency automatically.
+- **Sparse-recency fallback (B-160 §2)** — when the recency partition has fewer than 20 resolved rows (new install, storage cleared, all entries stale), the popup pads with most-recently-accessed saved items by `Item.lastAccessedAt`. The "🕑 No recent items yet" empty state only shows on truly empty collections.
+
+### Internal
+- New shared helper `appendRecencyEntry(id)` in `background/messages/storage-handlers.js`. MSG_RECENCY_ADD case refactored to call it. Popup `_activateRow` no longer dispatches MSG_RECENCY_ADD (centralized in SW).
+- Test count: 1924 → 1930 PASS (+6 from `tests/b160-comprehensive-recency.test.js`).
+
 ## [1.38.0] — 2026-05-03 (B-159 favicon persistence)
 
 Same-day follow-on to v1.37.1 polish. Saved-bookmark favicons now persist across tab close + extension restart, with a Chrome `_favicon` API fallback for never-opened bookmarks.

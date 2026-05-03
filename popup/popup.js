@@ -29,7 +29,11 @@ import {
   MSG_LIST_ITEMS,
   MSG_NAVIGATE_TO_ITEM,
   MSG_OPEN_STANDALONE,
-  MSG_RECENCY_ADD,
+  /* B-160 (S43): MSG_RECENCY_ADD no longer dispatched from popup.js — the
+     SW MSG_NAVIGATE_TO_ITEM handler centralizes recency-write across
+     surfaces. The constant is still exported from shared/messages.js for
+     any future direct caller (e.g., a surface that bypasses NAVIGATE_TO_
+     ITEM). Removed import to keep the popup module surface honest. */
 } from '../shared/messages.js';
 import { buildIndex, search } from '../sidepanel/search-index.js';
 import { buildHighlightedText } from '../shared/highlight.js';
@@ -406,21 +410,25 @@ function _applyFilter() {
 
 function _renderRecency() {
   const rows = [];
+  const recentRows = [];
+  const seenItemIds = new Set();
+
+  /* §39.3 D-3 — resolve recency-partition ids to displayable rows, dropping
+     stale entries. Newest-first per partition order. */
   if (_recencyEntries.length > 0) {
-    /* §39.3 D-3 — resolve ids to displayable rows, dropping stale entries. */
-    const recentRows = [];
     for (const entry of _recencyEntries) {
       if (!entry || typeof entry.id !== 'string') continue;
       if (entry.id.startsWith(PREFIX_ITEM)) {
         const itemId = entry.id.slice(PREFIX_ITEM.length);
         const item = _itemById.get(itemId);
-        if (item) {
+        if (item && !seenItemIds.has(item.id)) {
           recentRows.push({
             kind: 'saved',
             id: item.id,
             item,
             liveState: _liveStates[item.id] || null,
           });
+          seenItemIds.add(item.id);
         }
       } else if (entry.id.startsWith(PREFIX_URL)) {
         const url = entry.id.slice(PREFIX_URL.length);
@@ -432,14 +440,47 @@ function _renderRecency() {
       }
       if (recentRows.length >= RECENCY_VIEW_CAP) break;
     }
-    if (recentRows.length > 0) {
-      rows.push({ kind: 'header', label: 'Recent', count: recentRows.length });
-      for (const r of recentRows) rows.push(r);
-      _mode = 'recency';
-    } else {
-      _mode = 'empty-query-no-recency';
+  }
+
+  /* B-160 (S43, 2026-05-03) — sparse-recency fallback. When the recency
+     partition resolves to fewer rows than the view cap (e.g., new install,
+     storage cleared, all entries are stale), pad with the most-recently-
+     accessed saved items by `lastAccessedAt` desc, then `createdAt` as
+     tiebreaker. Items already in `recentRows` are deduped via
+     `seenItemIds`. Result: the popup's default view ALWAYS shows up to
+     RECENCY_VIEW_CAP relevant items even when recency is empty, instead of
+     the "🕑 No recent items yet" empty state. */
+  if (recentRows.length < RECENCY_VIEW_CAP && _items.length > 0) {
+    const padCandidates = _items
+      .filter((it) => !seenItemIds.has(it.id))
+      .slice()
+      .sort((a, b) => {
+        const aLA = typeof a.lastAccessedAt === 'number' ? a.lastAccessedAt : 0;
+        const bLA = typeof b.lastAccessedAt === 'number' ? b.lastAccessedAt : 0;
+        if (aLA !== bLA) return bLA - aLA;
+        const aCA = typeof a.createdAt === 'number' ? a.createdAt : 0;
+        const bCA = typeof b.createdAt === 'number' ? b.createdAt : 0;
+        return bCA - aCA;
+      });
+    for (const item of padCandidates) {
+      if (recentRows.length >= RECENCY_VIEW_CAP) break;
+      recentRows.push({
+        kind: 'saved',
+        id: item.id,
+        item,
+        liveState: _liveStates[item.id] || null,
+      });
+      seenItemIds.add(item.id);
     }
+  }
+
+  if (recentRows.length > 0) {
+    rows.push({ kind: 'header', label: 'Recent', count: recentRows.length });
+    for (const r of recentRows) rows.push(r);
+    _mode = 'recency';
   } else {
+    /* Fallback can't pad because there are no items at all (truly empty
+       install). Show the empty-state message. */
     _mode = 'empty-query-no-recency';
   }
   _currentRows = rows;
@@ -635,27 +676,17 @@ function _onKeyDown(e) {
    ========================================================================= */
 
 async function _activateRow(row) {
-  /* UAT-4 defect fix: Edge auto-closes the popup when `chrome.tabs.update`
-     activates a different tab. If we await MSG_NAVIGATE_TO_ITEM first, the
-     popup's JS context is torn down before the recency send is issued — the
-     message is never queued and the SW never sees it. Queue the recency
-     write FIRST (fire-and-forget — Chrome's native runtime delivers queued
-     messages even after the sender page closes) so it persists regardless
-     of how the navigate affects window focus.
-     recencyId is derivable from the row alone; no need to wait for navigate. */
-  let recencyId = null;
-  if (row.kind === 'saved') {
-    recencyId = PREFIX_ITEM + row.item.id;
-  } else if (row.kind === 'openTab') {
-    recencyId = PREFIX_URL + row.tab.url;
-  }
-
-  /* Fire recency FIRST. Don't await — we need the call to dispatch before
-     the navigate await closes the popup. .catch swallows any runtime error. */
-  if (recencyId !== null) {
-    _sendMessage({ type: MSG_RECENCY_ADD, payload: { id: recencyId } })
-      .catch(() => { /* swallow safe-mode / quota / transient */ });
-  }
+  /* B-160 (S43, 2026-05-03): the explicit MSG_RECENCY_ADD dispatch was
+     removed from this path. The SW MSG_NAVIGATE_TO_ITEM handler now feeds
+     the recency partition for both itemId and tabId variants — any-surface
+     navigation (sidepanel, newtab, popup, future surfaces) writes recency
+     centrally. The original B-022 UAT-4 popup-lifecycle concern doesn't
+     apply to the centralized path: all the navigation work (focus-shift +
+     recency append) happens inside the SW handler, which runs to
+     completion in SW context independent of popup teardown. The popup's
+     `await _sendMessage` may throw when Chrome closes the popup, but the
+     SW has already processed the recency-write by then (fire-and-forget
+     `appendRecencyEntry().catch()` after focus-shift inside the handler). */
 
   try {
     if (row.kind === 'saved') {

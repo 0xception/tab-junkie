@@ -204,6 +204,49 @@ function errorEnvelope(err) {
   return { ok: false, error: { code: ERR_TX_CONFLICT, message: 'Internal error', cause: err?.message ?? String(err) } };
 }
 
+/**
+ * B-160 (S43, 2026-05-03) — append a popup recency entry.
+ *
+ * Validates the id format (`item:` or `url:` prefix, length cap), then
+ * unshift/dedupe/trim in a single writeTransaction. No broadcast (popup
+ * is the sole reader, per B-022 §39.4.4).
+ *
+ * Shared by MSG_RECENCY_ADD (popup-to-SW direct) and the MSG_NAVIGATE_TO_ITEM
+ * dispatcher (any-surface navigation feeds recency automatically).
+ *
+ * @param {string} id  `item:<itemId>` or `url:<url>`
+ * @throws {StorageError} ERR_VALIDATION on bad id; ERR_TX_CONFLICT on quota
+ */
+async function appendRecencyEntry(id) {
+  if (typeof id !== 'string' || id.length === 0) {
+    throw new StorageError(ERR_VALIDATION, 'recencyAdd: id must be a non-empty string');
+  }
+  if (!(id.startsWith('item:') || id.startsWith('url:'))) {
+    throw new StorageError(ERR_VALIDATION, 'recencyAdd: id must be prefixed item: or url:');
+  }
+  /* Defensive upper bound — protects the partition from oversized URL
+     entries that would bloat storage past the quota guard. Item ids are
+     bounded by ULID length; URL ids are bounded by the same MAX_URL that
+     validates stored Item.url values. */
+  if (id.length > 4200) {
+    throw new StorageError(ERR_VALIDATION, 'recencyAdd: id exceeds maximum length');
+  }
+  const accessedAt = Date.now();
+  await writeTransaction([{
+    partition: PARTITION_RECENCY,
+    mutator: (current) => {
+      const existing = Array.isArray(current.entries) ? current.entries : [];
+      /* Dedupe: drop any prior entry with the same id, then unshift the
+         fresh one at the head (newest-first). */
+      const filtered = existing.filter((e) => e && e.id !== id);
+      const next = [{ id, accessedAt }, ...filtered];
+      /* Cap — single splice on write per §39.3 D-3. */
+      if (next.length > RECENCY_CAP) next.length = RECENCY_CAP;
+      return { schemaVersion: 1, entries: next };
+    },
+  }]);
+}
+
 /** @returns {Promise<*>} the typed success `data` for this message type */
 async function dispatch(type, payload) {
   const p = payload || {};
@@ -449,6 +492,12 @@ async function dispatch(type, payload) {
         } catch {
           throw new StorageError(ERR_NOT_FOUND, 'Tab not found');
         }
+        /* B-160 — feed popup recency from any-surface navigation. The url:
+           id is derived from the live tab's URL (popup uses the same key
+           per B-022 §39.2 D-3). Fire-and-forget; never break navigation. */
+        if (liveEntry.url) {
+          appendRecencyEntry('url:' + liveEntry.url).catch(() => { /* swallow */ });
+        }
         return { tabId: p.tabId, opened: false };
       }
 
@@ -499,6 +548,11 @@ async function dispatch(type, payload) {
 
       // AC8: bump lastAccessedAt
       await updateItem(p.itemId, { lastAccessedAt: Date.now() });
+
+      /* B-160 — feed popup recency from any-surface navigation. The
+         item: prefix matches the popup's PREFIX_ITEM (popup.js §39.2 D-3).
+         Fire-and-forget; never break navigation. */
+      appendRecencyEntry('item:' + p.itemId).catch(() => { /* swallow */ });
 
       return { tabId: resultTabId, opened };
     }
@@ -657,41 +711,12 @@ async function dispatch(type, payload) {
     }
     case MSG_RECENCY_ADD: {
       /* B-022 §39.3 D-3 — append a popup recency entry.
-       * Validate payload, then unshift/dedupe/trim in a single
-       * writeTransaction. No broadcast (popup is sole reader; §39.4.4).
-       * Prefix allow-list (C-7): only `item:` and `url:` are accepted —
-       * denies adversarial or accidental inputs with a permissive scheme
-       * set, per §39.2 D-3 ID stability contract. */
-      if (!p || typeof p !== 'object') {
-        throw new StorageError(ERR_VALIDATION, 'recencyAdd: payload required');
-      }
-      if (typeof p.id !== 'string' || p.id.length === 0) {
-        throw new StorageError(ERR_VALIDATION, 'recencyAdd: id must be a non-empty string');
-      }
-      if (!(p.id.startsWith('item:') || p.id.startsWith('url:'))) {
-        throw new StorageError(ERR_VALIDATION, 'recencyAdd: id must be prefixed item: or url:');
-      }
-      /* Defensive upper bound — protects the partition from oversized
-         URL entries that would bloat storage past the quota guard. Item
-         ids are bounded by ULID length; URL ids are bounded by the same
-         MAX_URL that validates stored Item.url values. */
-      if (p.id.length > 4200) {
-        throw new StorageError(ERR_VALIDATION, 'recencyAdd: id exceeds maximum length');
-      }
-      const accessedAt = Date.now();
-      await writeTransaction([{
-        partition: PARTITION_RECENCY,
-        mutator: (current) => {
-          const existing = Array.isArray(current.entries) ? current.entries : [];
-          /* Dedupe: drop any prior entry with the same id, then unshift the
-             fresh one at the head (newest-first). */
-          const filtered = existing.filter((e) => e && e.id !== p.id);
-          const next = [{ id: p.id, accessedAt }, ...filtered];
-          /* Cap — single splice on write per §39.3 D-3. */
-          if (next.length > RECENCY_CAP) next.length = RECENCY_CAP;
-          return { schemaVersion: 1, entries: next };
-        },
-      }]);
+       * B-160 (S43, 2026-05-03) — implementation moved to the shared
+       * `appendRecencyEntry` helper below so the SW MSG_NAVIGATE_TO_ITEM
+       * dispatcher can also feed recency from any-surface navigation
+       * (sidepanel, newtab, popup) without each caller dispatching a
+       * separate MSG_RECENCY_ADD message. */
+      await appendRecencyEntry(p?.id);
       return { ok: true };
     }
     case MSG_REORDER_FLOATING_MEMBERS: {
