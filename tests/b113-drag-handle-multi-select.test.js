@@ -87,19 +87,25 @@ test('B-113 T1 (AC1): buildItemRow appends .item-drag-handle with 6-circle SVG a
    ~2176; never in `buildOpenTabRow`). Showing a non-functional drag
    affordance would be dishonest UX.
    ========================================================================= */
-test('B-113 T2 (D-5): buildOpenTabRow does NOT contain .item-drag-handle (open-tab rows are not draggable)', () => {
+test('B-113 T2 (B-158 update): buildOpenTabRow DOES contain .item-drag-handle (now draggable per B-134)', () => {
   const src = readFile('sidepanel/sidepanel.js');
 
-  /* Locate `buildOpenTabRow` body — bounded between the function declaration
-     and the next top-level closer. */
+  /* Pre-B-158 this test pinned the OPPOSITE — that buildOpenTabRow MUST NOT
+     reference item-drag-handle. The original B-113 §56.3 D-5 reasoning was
+     that open-tab rows weren't draggable. B-134 (S40) introduced the 5-op
+     drag-and-drop for tab rows (REORDER_OPEN, REORDER_FLOATING, ATTACH,
+     DETACH, MOVE_FLOATING), making the original D-5 comment stale. B-158
+     (S43 close, 2026-05-03) restored the drag-handle affordance to give
+     all row types — saved-bookmarks AND tabs (Open + floating) — the same
+     checkbox/drag-handle visual contract. */
   const bodyMatch = src.match(/function buildOpenTabRow\([\s\S]*?\n\}\n/);
   assert.ok(bodyMatch, 'buildOpenTabRow function body must be parseable');
   const body = bodyMatch[0];
 
   assert.equal(
     body.includes('item-drag-handle'),
-    false,
-    'B-113 D-5: buildOpenTabRow must NOT reference item-drag-handle (D-5 binding correction; open-tab rows are not draggable)',
+    true,
+    'B-158: buildOpenTabRow MUST reference item-drag-handle so Open Tab rows + floating tab rows show the drag-handle affordance (parity with saved-bookmark rows; consistent with their B-134 draggable behavior)',
   );
 });
 
@@ -124,7 +130,7 @@ test('B-113 T3 (AC2+AC3+AC4): .item-drag-handle CSS rules — default hidden, ho
   assert.match(defaultBlock[0], /opacity:\s*0\s*;?/, 'B-113 AC2: default rule must declare opacity: 0');
   assert.match(defaultBlock[0], /pointer-events:\s*none\s*;?/, 'B-113 AC6: default rule must declare pointer-events: none (B-030 drag-passthrough)');
   assert.match(defaultBlock[0], /flex:\s*0\s+0\s+18px\s*;?/, 'B-113 D-2 (R4 M-1 fix): default rule must declare flex: 0 0 18px (matches .item-select slot)');
-  assert.match(defaultBlock[0], /margin-left:\s*-18px\s*;?/, 'B-113 D-2 (R4 M-1 fix): default rule must declare margin-left: -18px (overlap checkbox slot, no flex consumption)');
+  assert.match(defaultBlock[0], /margin-left:\s*-28px\s*;?/, 'B-158 (S43): default rule must declare margin-left: -28px (= -18 slot - 10 gap; pre-B-158 was -18px which absorbed the slot but left the parent .item-row flex `gap: 10px` between drag-handle and favicon, shifting row content right by 10px)');
 
   /* Hover reveal rule. */
   assert.match(
