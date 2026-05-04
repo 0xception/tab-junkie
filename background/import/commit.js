@@ -68,6 +68,27 @@ export async function commitImport({ items, groups, preferences }) {
     return clean;
   });
 
+  /* B-148 §3.5 (S44, v6→v7) — bootstrap renderOrder for every scrubbed group
+     from the scrubbed items. REPLACE-mode wipes floating-groups in the
+     subsequent transient-partition reset, so renderOrder is items-only at
+     this stage. Group items by groupId, sort by sortOrder asc, encode as
+     'item:<id>' refs. The shape validator (isGroup) accepts this form.
+     updatedAt is bumped to reflect the mutation. */
+  const itemsByGroup = new Map();
+  for (const it of scrubbedItems) {
+    if (it.groupId === null || it.groupId === undefined) continue;
+    if (!itemsByGroup.has(it.groupId)) itemsByGroup.set(it.groupId, []);
+    itemsByGroup.get(it.groupId).push(it);
+  }
+  for (const arr of itemsByGroup.values()) {
+    arr.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  }
+  for (const g of scrubbedGroups) {
+    const groupItems = itemsByGroup.get(g.id) || [];
+    g.renderOrder = groupItems.map((it) => 'item:' + it.id);
+    g.updatedAt = nowMs;
+  }
+
   /* Single atomic writeTransaction across items + groups + (optional) prefs.
      Mutator functions ignore the prior partition contents — this is a REPLACE.
      The writeTransaction runs the shape validators post-mutation; corrupt

@@ -469,3 +469,41 @@ test('B-148 9d: MSG_REORDER_FLOATING_MEMBERS legacy orderedTabIds path unchanged
   /* Legacy path delegates to reorderFloatingMembers; race-guard returns false. */
   assert.equal(resp.data.reordered, false); /* ERR_RACE from race-guard */
 });
+
+test('B-148 10: commitImport bootstraps renderOrder for every imported group from imported items', async () => {
+  const { commitImport } = await import('../background/import/commit.js');
+  const now = Date.now();
+  const groups = [
+    { id: 'g1', name: 'A', color: 'blue', parentId: null, sortOrder: 0, collapsed: false, createdAt: now, updatedAt: now },
+    { id: 'g2', name: 'B', color: 'red', parentId: null, sortOrder: 1, collapsed: false, createdAt: now, updatedAt: now },
+  ];
+  const items = [
+    /* g1: 3 items, intentionally out-of-order sortOrder */
+    { id: 'i1', title: 'A1', url: 'https://x.example/A1', groupId: 'g1', sortOrder: 2, createdAt: now, updatedAt: now },
+    { id: 'i2', title: 'A2', url: 'https://x.example/A2', groupId: 'g1', sortOrder: 0, createdAt: now, updatedAt: now },
+    { id: 'i3', title: 'A3', url: 'https://x.example/A3', groupId: 'g1', sortOrder: 1, createdAt: now, updatedAt: now },
+    /* g2: 1 item */
+    { id: 'i4', title: 'B1', url: 'https://x.example/B1', groupId: 'g2', sortOrder: 0, createdAt: now, updatedAt: now },
+    /* Ungrouped item — does NOT contribute to any group's renderOrder */
+    { id: 'i5', title: 'U', url: 'https://x.example/U', groupId: null, sortOrder: 0, createdAt: now, updatedAt: now },
+  ];
+  await commitImport({ items, groups });
+
+  const g1 = await getGroup('g1');
+  const g2 = await getGroup('g2');
+  /* g1.renderOrder should be sorted by sortOrder asc → i2, i3, i1. */
+  assert.deepEqual(g1.renderOrder, ['item:i2', 'item:i3', 'item:i1']);
+  /* g2.renderOrder has the single item. */
+  assert.deepEqual(g2.renderOrder, ['item:i4']);
+});
+
+test('B-148 10: commitImport with empty group sets renderOrder to []', async () => {
+  const { commitImport } = await import('../background/import/commit.js');
+  const now = Date.now();
+  const groups = [
+    { id: 'g1', name: 'Empty', color: 'blue', parentId: null, sortOrder: 0, collapsed: false, createdAt: now, updatedAt: now },
+  ];
+  await commitImport({ items: [], groups });
+  const g = await getGroup('g1');
+  assert.deepEqual(g.renderOrder, []);
+});
