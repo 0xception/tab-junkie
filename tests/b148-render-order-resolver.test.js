@@ -104,3 +104,9 @@ test('B-148 §3.7: sidepanel.js imports + uses resolveRenderOrder', () => {
      buildGroupSection contract). */
   assert.match(src, /resolveRenderOrder\(group/);
 });
+
+test('B-148 §3.7: newtab.js imports + uses resolveRenderOrder', () => {
+  const src = readFileSync(join(_testDir, '..', 'newtab', 'newtab.js'), 'utf8');
+  assert.match(src, /import \{[^}]*resolveRenderOrder[^}]*\} from .*shared\/render-order/);
+  assert.match(src, /resolveRenderOrder\(group/);
+});

@@ -47,6 +47,7 @@ import { isSafeFaviconUrl } from '../shared/favicon.js';
 import { buildIndex, search, diffAndPatch } from '../sidepanel/search-index.js';
 /* B-088 fix #1 — shared theme + dense-layout appliers. */
 import { applyTheme as _applyTheme, applyDenseLayout as _applyDenseLayout } from '../shared/surface-prefs.js';
+import { resolveRenderOrder } from '../shared/render-order.js';
 
 /* =========================================================================
    Tunables
@@ -966,24 +967,24 @@ function _buildGroupSection(group, groupKey, items, isChild = false) {
      can decide group visibility without a DOM walk. */
   const groupRows = [];
   const loweredQuery = _filterQuery.trim().toLowerCase();
-  for (const item of items) {
-    const row = _buildItemRow(item, loweredQuery);
-    list.appendChild(row);
-    _rowByItemId.set(item.id, row);
-    groupRows.push(row);
-  }
-
-  /* B-121 §60.6.2(c): synthetic floating-tab rows render after the saved
-     items so the visual order is (saved → floating). The X-button +
-     MSG_CLOSE_TABS wiring is delegated to `_onGridClick` (intercepts
-     `data-action="close-floating"` clicks and dispatches MSG_CLOSE_TABS).
-     ENTER/SPACE on the row activates the live tab via the tabId-only
-     MSG_NAVIGATE_TO_ITEM variant, matching the sidepanel Open-Tabs row
-     keyboard affordance. */
-  for (const member of floatingForGroup) {
-    const row = _buildFloatingTabRow(member);
-    list.appendChild(row);
-    groupRows.push(row);
+  /* B-148 §3.7 (S44, v6→v7) — single iteration over the resolver-produced
+     row sequence. Group.renderOrder is the user-defined interleaved order;
+     missing/empty falls back to saved-then-floating bootstrap. Stale refs
+     filtered silently by the resolver. The Ungrouped section passes
+     `group === null/undefined` → the resolver hits its bootstrap path
+     which only references items + floating. */
+  const renderRows = resolveRenderOrder(group, items, floatingForGroup);
+  for (const row of renderRows) {
+    if (row.kind === 'item') {
+      const rowEl = _buildItemRow(row.item, loweredQuery);
+      list.appendChild(rowEl);
+      _rowByItemId.set(row.item.id, rowEl);
+      groupRows.push(rowEl);
+    } else if (row.kind === 'floating') {
+      const rowEl = _buildFloatingTabRow(row.floatingMember);
+      list.appendChild(rowEl);
+      groupRows.push(rowEl);
+    }
   }
 
   section.appendChild(list);
