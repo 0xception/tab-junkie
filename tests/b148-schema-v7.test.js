@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import './_setup.js';
 import { KNOWN_VERSION } from '../background/storage/migration.js';
@@ -50,4 +50,31 @@ test('B-148 §3.2: isGroup rejects renderOrder entry with wrong prefix', () => {
 test('B-148 §3.2: isGroup rejects oversized renderOrder entry', () => {
   const oversized = 'item:' + 'X'.repeat(100);
   assert.throws(() => assertShape(PARTITION_GROUPS, [group({ renderOrder: [oversized] })]));
+});
+
+import { createGroup, updateGroup } from '../background/storage/groups.js';
+import { __resetMock } from './chrome-mock.js';
+
+beforeEach(async () => __resetMock());
+
+test('B-148 §3.3: updateGroup accepts renderOrder in patch + persists it', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const updated = await updateGroup(g.id, { renderOrder: ['item:01HZ'] });
+  assert.deepEqual(updated.renderOrder, ['item:01HZ']);
+});
+
+test('B-148 §3.3: updateGroup rejects renderOrder of wrong type', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  await assert.rejects(
+    () => updateGroup(g.id, { renderOrder: 'item:01HZ' }),
+    (err) => /renderOrder/.test(err.message),
+  );
+});
+
+test('B-148 §3.3: updateGroup rejects renderOrder entry with bad prefix', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  await assert.rejects(
+    () => updateGroup(g.id, { renderOrder: ['url:bad'] }),
+    (err) => /renderOrder/.test(err.message),
+  );
 });
