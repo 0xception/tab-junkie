@@ -27,7 +27,7 @@
 
 import { safeNormalizeForMatch } from '../../shared/url.js';
 import { writeTransaction } from '../storage/write-transaction.js';
-import { readPartition, PARTITION_FLOATING_GROUPS, PARTITION_ITEMS, MAX_URL } from '../storage/partitions.js';
+import { readPartition, PARTITION_FLOATING_GROUPS, PARTITION_GROUPS, PARTITION_ITEMS, MAX_URL } from '../storage/partitions.js';
 import { ulid } from '../storage/ids.js';
 import { getLiveTabIndex } from './live-tab-index.js';
 import { markInherited, getClaimsMirror } from './tab-claims.js';
@@ -327,68 +327,95 @@ export async function appendFloatingGroup(entry) {
     liveTabId: entry.liveTabId,
   };
 
-  await writeTransaction([{
-    partition: PARTITION_FLOATING_GROUPS,
-    mutator: (current) => {
-      const arr = Array.isArray(current) ? current : [];
+  /* B-148 §3.5 — closure flag: true only when the floating record was
+     actually appended (dedup path leaves it false). Consumed by the
+     PARTITION_GROUPS mutator below to guard the renderOrder write. */
+  let didAppend = false;
 
-      /* Origin: docs/findings/post-s41-pre-merge-triage.md Issue C — pre-
-         v1.35.0 hotfix bundle Fix C. Closes the duplicate-record failure
-         mode that surfaces in the SW-console `tj:floatingGroups` partition
-         and breaks `reorderFloatingMembers` parity (floating-groups.js:397-
-         401: `storageBucketSize` counts duplicates, `supplied.size` is
-         deduped → ERR_RACE on every legitimate reorder).
+  await writeTransaction([
+    {
+      partition: PARTITION_FLOATING_GROUPS,
+      mutator: (current) => {
+        const arr = Array.isArray(current) ? current : [];
 
-         Dedup key is the triple `(liveTabId, parentItemId, groupId)`.
-         User-data evidence: records 7/12 (`liveTabId 803725428`,
-         `parentItemId 01KQ37HNDV342WNA3V120MCRW0`) are duplicates and must
-         collapse; record 9 (`liveTabId 803725428` BUT
-         `parentItemId 01KQ37HNDV342WNA3V120MCRXS` — different parent) is a
-         legitimate "same tab is a floating member of two parents"
-         coexistence and MUST be preserved. The triple is the most-specific
-         key that captures both invariants.
+        /* Origin: docs/findings/post-s41-pre-merge-triage.md Issue C — pre-
+           v1.35.0 hotfix bundle Fix C. Closes the duplicate-record failure
+           mode that surfaces in the SW-console `tj:floatingGroups` partition
+           and breaks `reorderFloatingMembers` parity (floating-groups.js:397-
+           401: `storageBucketSize` counts duplicates, `supplied.size` is
+           deduped → ERR_RACE on every legitimate reorder).
 
-         B-141 self-application: B-137 §66.1 claimed to "structurally
-         eliminate" Issue 3 (race-toast) from the post-S40 spike. B-137
-         closed the resolver half; Fix A closed the orphan-on-close half;
-         this Fix C closes the duplicate-on-write half. All three converge
-         on the same parity check (line 397-401 above).
+           Dedup key is the triple `(liveTabId, parentItemId, groupId)`.
+           User-data evidence: records 7/12 (`liveTabId 803725428`,
+           `parentItemId 01KQ37HNDV342WNA3V120MCRW0`) are duplicates and must
+           collapse; record 9 (`liveTabId 803725428` BUT
+           `parentItemId 01KQ37HNDV342WNA3V120MCRXS` — different parent) is a
+           legitimate "same tab is a floating member of two parents"
+           coexistence and MUST be preserved. The triple is the most-specific
+           key that captures both invariants.
 
-         Option A semantics: when a matching triple exists, no-op (return
-         the array unchanged). Rationale: the existing record's
-         `floatingTabId` is the stable storage identity; preserving it
-         avoids invalidating any in-flight references. Drift in
-         `windowId` / `tabIndex` / `url` is recovered by the read-path
-         tier-(b) `(windowId, tabIndex)` geometry fallback in
-         `_resolveRecordIndexByTabId` (line 322-345 above) and by cold-start
-         re-bind in `reassociateFloatingGroups` (line 115-201 above), so
-         in-place updates are not required. */
-      const existing = arr.find((r) => r
-        && typeof r === 'object'
-        && r.liveTabId === stamped.liveTabId
-        && getParentItemId(r) === stamped.parentItemId
-        && r.groupId === stamped.groupId);
-      if (existing) {
-        return arr;
-      }
+           B-141 self-application: B-137 §66.1 claimed to "structurally
+           eliminate" Issue 3 (race-toast) from the post-S40 spike. B-137
+           closed the resolver half; Fix A closed the orphan-on-close half;
+           this Fix C closes the duplicate-on-write half. All three converge
+           on the same parity check (line 397-401 above).
 
-      /* B-134 §63.2.4 / §63.13.1: stamp `sortOrder` = current_max_in_group + 1
-         (or 0 when the group's bucket is empty). The mutator computes this
-         inside the writeTransaction so concurrent appends to the same bucket
-         see consistent ordering — same pattern as `bulkReorderItems` /
-         `bulkReorderGroups` use for per-bucket renormalisation. */
-      let maxSortOrder = -1;
-      for (const r of arr) {
-        if (r && r.groupId === stamped.groupId
-          && typeof r.sortOrder === 'number' && Number.isFinite(r.sortOrder)
-          && r.sortOrder > maxSortOrder) {
-          maxSortOrder = r.sortOrder;
+           Option A semantics: when a matching triple exists, no-op (return
+           the array unchanged). Rationale: the existing record's
+           `floatingTabId` is the stable storage identity; preserving it
+           avoids invalidating any in-flight references. Drift in
+           `windowId` / `tabIndex` / `url` is recovered by the read-path
+           tier-(b) `(windowId, tabIndex)` geometry fallback in
+           `_resolveRecordIndexByTabId` (line 322-345 above) and by cold-start
+           re-bind in `reassociateFloatingGroups` (line 115-201 above), so
+           in-place updates are not required. */
+        const existing = arr.find((r) => r
+          && typeof r === 'object'
+          && r.liveTabId === stamped.liveTabId
+          && getParentItemId(r) === stamped.parentItemId
+          && r.groupId === stamped.groupId);
+        if (existing) {
+          return arr;
         }
-      }
-      const stampedWithOrder = { ...stamped, sortOrder: maxSortOrder + 1 };
-      return [...arr, stampedWithOrder];
+
+        /* B-134 §63.2.4 / §63.13.1: stamp `sortOrder` = current_max_in_group + 1
+           (or 0 when the group's bucket is empty). The mutator computes this
+           inside the writeTransaction so concurrent appends to the same bucket
+           see consistent ordering — same pattern as `bulkReorderItems` /
+           `bulkReorderGroups` use for per-bucket renormalisation. */
+        let maxSortOrder = -1;
+        for (const r of arr) {
+          if (r && r.groupId === stamped.groupId
+            && typeof r.sortOrder === 'number' && Number.isFinite(r.sortOrder)
+            && r.sortOrder > maxSortOrder) {
+            maxSortOrder = r.sortOrder;
+          }
+        }
+        const stampedWithOrder = { ...stamped, sortOrder: maxSortOrder + 1 };
+        didAppend = true;
+        return [...arr, stampedWithOrder];
+      },
     },
-  }]);
+    {
+      /* B-148 §3.5 (S44, v6→v7) — append `floating:<floatingTabId>` to
+         target Group's renderOrder. Skipped on dedup-no-op path
+         (didAppend === false). Defensive: if the group has been deleted
+         between the SW read and now, findIndex returns -1 and we skip. */
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        if (!didAppend) return groups;
+        const idx = groups.findIndex((g) => g.id === stamped.groupId);
+        if (idx < 0) return groups;
+        const g = groups[idx];
+        const ref = 'floating:' + stamped.floatingTabId;
+        const renderOrder = Array.isArray(g.renderOrder) ? [...g.renderOrder] : [];
+        renderOrder.push(ref);
+        const next = [...groups];
+        next[idx] = { ...g, renderOrder, updatedAt: Date.now() };
+        return next;
+      },
+    },
+  ]);
 }
 
 /* =========================================================================

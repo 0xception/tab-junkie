@@ -207,3 +207,63 @@ test('B-148 8e: bulkDeleteItems with notFound ids does not corrupt renderOrder',
   const groupAfter = await getGroup(g.id);
   assert.deepEqual(groupAfter.renderOrder, []);
 });
+
+test('B-148 9a: appendFloatingGroup appends floating:<id> to target Group.renderOrder', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const it = await createItem({ title: 'T', url: 'https://x.example/', groupId: g.id, sortOrder: 0 });
+  const { appendFloatingGroup } = await import('../background/tabs/floating-groups.js');
+  await appendFloatingGroup({
+    groupId: g.id,
+    parentItemId: it.id,
+    windowId: 1,
+    tabIndex: 0,
+    url: 'https://x.example/',
+    savedAt: Date.now(),
+    liveTabId: 9001,
+  });
+  const groupAfter = await getGroup(g.id);
+  /* renderOrder should now have: ['item:<it.id>', 'floating:<the new ulid>'] */
+  assert.equal(groupAfter.renderOrder.length, 2);
+  assert.equal(groupAfter.renderOrder[0], 'item:' + it.id);
+  assert.match(groupAfter.renderOrder[1], /^floating:[A-Z0-9]+$/);
+});
+
+test('B-148 9a: appendFloatingGroup dedup path does NOT touch renderOrder', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const it = await createItem({ title: 'T', url: 'https://x.example/', groupId: g.id, sortOrder: 0 });
+  const { appendFloatingGroup } = await import('../background/tabs/floating-groups.js');
+  const entry = {
+    groupId: g.id,
+    parentItemId: it.id,
+    windowId: 1,
+    tabIndex: 0,
+    url: 'https://x.example/',
+    savedAt: Date.now(),
+    liveTabId: 9001,
+  };
+  await appendFloatingGroup(entry);
+  const lengthAfterFirst = (await getGroup(g.id)).renderOrder.length;
+  /* Second call with identical (liveTabId, parentItemId, groupId) → dedup */
+  await appendFloatingGroup(entry);
+  const groupAfter = await getGroup(g.id);
+  assert.equal(groupAfter.renderOrder.length, lengthAfterFirst, 'dedup path must NOT add a duplicate floating ref');
+});
+
+test('B-148 9a: appendFloatingGroup early-return on validation fail does NOT touch renderOrder', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const it = await createItem({ title: 'T', url: 'https://x.example/', groupId: g.id, sortOrder: 0 });
+  const groupBefore = await getGroup(g.id);
+  const { appendFloatingGroup } = await import('../background/tabs/floating-groups.js');
+  /* Missing required field — silently rejected */
+  await appendFloatingGroup({
+    groupId: g.id,
+    parentItemId: it.id,
+    /* windowId missing */
+    tabIndex: 0,
+    url: 'https://x.example/',
+    savedAt: Date.now(),
+    liveTabId: 9001,
+  });
+  const groupAfter = await getGroup(g.id);
+  assert.deepEqual(groupAfter.renderOrder, groupBefore.renderOrder);
+});
