@@ -3227,6 +3227,18 @@ function patchFloatingMembersSections(nextFloatingMembers) {
     const itemsContainer = section.querySelector('.group-items');
     if (!itemsContainer) continue;
 
+    /* B-148 §3.7 hotfix — when this group's record carries a non-empty
+       renderOrder, the user-defined interleaved row positions are
+       authoritative. Floating rows that are ALREADY in this container
+       must NOT be re-positioned to the staticAnchor (which would snap
+       them back into the legacy saved-then-floating zone). Cross-
+       container moves (row currently in another group) and new rows
+       (just built) still insert at staticAnchor as before. */
+    const groupRecord = (Array.isArray(_cachedGroups) ? _cachedGroups : []).find((g) => g.id === groupId);
+    const groupHasRenderOrder = groupRecord
+      && Array.isArray(groupRecord.renderOrder)
+      && groupRecord.renderOrder.length > 0;
+
     /* B-121 R4 code-reviewer M-1: capture the insertion anchor ONCE before
        the members loop. The anchor is the first child that is NEITHER a
        saved-item row NOR an existing floating row — typically a nested
@@ -3310,9 +3322,14 @@ function patchFloatingMembersSections(nextFloatingMembers) {
         existing.set(member.tabId, row);
       }
       /* Earlier inserts accumulate in correct order relative to the
-         static anchor (insertBefore with a null anchor appends). */
-      if (row.parentNode !== itemsContainer
-          || row.nextSibling !== staticAnchor) {
+         static anchor (insertBefore with a null anchor appends).
+         B-148 §3.7 hotfix: when this group has a renderOrder, leave
+         already-positioned rows alone (renderAll has placed them in
+         interleave order). Only cross-container or new rows insert. */
+      if (row.parentNode !== itemsContainer) {
+        itemsContainer.insertBefore(row, staticAnchor);
+      } else if (!groupHasRenderOrder
+          && row.nextSibling !== staticAnchor) {
         itemsContainer.insertBefore(row, staticAnchor);
       }
     }
