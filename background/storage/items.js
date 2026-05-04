@@ -285,6 +285,11 @@ export async function updateItem(id, patch) {
  */
 export async function deleteItem(id) {
   if (typeof id !== 'string') throw new StorageError(ERR_VALIDATION, 'deleteItem: id required');
+  /* B-148 §3.5 — closure carries deletedGroupId from items mutator to groups
+     mutator. Both mutators see the same serialized snapshot; sequencing is
+     by ops-array order. */
+  let deletedGroupId = null;
+  let didDelete = false;
   await writeTransaction([
     {
       partition: PARTITION_ITEMS,
@@ -292,10 +297,30 @@ export async function deleteItem(id) {
         const idx = items.findIndex((it) => it.id === id);
         if (idx < 0) return items; // idempotent no-op on unknown id
         // B-051 AC1/AC2: capture groupId before removal, then normalise that bucket.
-        const deletedGroupId = items[idx].groupId;
+        deletedGroupId = items[idx].groupId;
+        didDelete = true;
         const out = items.slice();
         out.splice(idx, 1);
         return normaliseGroupSortOrders(deletedGroupId, out);
+      },
+    },
+    {
+      /* B-148 §3.5 (S44, v6→v7) — strip `item:<id>` from owning Group's
+         renderOrder. Skips when the deleted item was Ungrouped, OR when
+         deleteItem was a no-op (unknown id). */
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        if (!didDelete || deletedGroupId === null) return groups;
+        const idx = groups.findIndex((g) => g.id === deletedGroupId);
+        if (idx < 0) return groups; /* defensive — group may have been deleted */
+        const g = groups[idx];
+        if (!Array.isArray(g.renderOrder) || g.renderOrder.length === 0) return groups;
+        const ref = 'item:' + id;
+        const filtered = g.renderOrder.filter((r) => r !== ref);
+        if (filtered.length === g.renderOrder.length) return groups; /* ref wasn't there */
+        const next = [...groups];
+        next[idx] = { ...g, renderOrder: filtered, updatedAt: Date.now() };
+        return next;
       },
     },
   ]);
