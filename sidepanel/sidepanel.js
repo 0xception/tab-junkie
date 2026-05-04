@@ -4587,9 +4587,14 @@ itemListEl.addEventListener('dragstart', (e) => {
     let payloadItemIds;
     let isMulti;
     if (!_selection.has(initiatorKey)) {
+      /* B-148 hotfix: was `_selection.clear() + _updateBulkBar()` which
+         emptied the Set but left data-selected="true" on the DOM rows
+         (visual desync — checkbox stays checked while state has cleared).
+         _clearSelection() iterates the Set FIRST, calling
+         _setRowSelected(row, false) on each row, then clears the Set —
+         keeping DOM and Set in sync. */
       if (_selection.size > 0) {
-        _selection.clear();
-        _updateBulkBar();
+        _clearSelection();
       }
       payloadItemIds = [itemId];
       isMulti = false;
@@ -5751,10 +5756,15 @@ async function _commitReorderAndRender(updates, opts = {}) {
        Only on multi-drops: single-item drags do not touch _selection, so
        forcing a clear on single-item drops would be surprising. Intentionally
        outside the catch block — on failure we revert to the pre-drop state
-       and leave selection intact so the user can retry. */
+       and leave selection intact so the user can retry.
+       B-148 hotfix: was `_selection.clear() + _updateBulkBar()` which left
+       the freshly-rendered rows showing data-selected="true" because
+       _reapplySelection (called from renderAll above) had just re-applied
+       data-selected from the Set onto the new DOM rows; the bare
+       _selection.clear() then emptied the Set without touching DOM. Use
+       _clearSelection() so DOM + Set clear together. */
     if (isMulti) {
-      _selection.clear();
-      _updateBulkBar();
+      _clearSelection();
     }
   } catch (err) {
     console.warn('[tab-junkie:item-drag] bulkReorderItems failed', err);
