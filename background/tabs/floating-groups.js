@@ -859,13 +859,52 @@ export async function pruneResolvedFloatingGroups(
  */
 export async function pruneFloatingGroupsByParentItemId(parentItemId) {
   if (typeof parentItemId !== 'string' || parentItemId.length === 0) return;
-  await writeTransaction([{
-    partition: PARTITION_FLOATING_GROUPS,
-    mutator: (current) => {
-      const arr = Array.isArray(current) ? current : [];
-      return arr.filter((entry) => getParentItemId(entry) !== parentItemId);
+  /* B-148 §3.5 — capture per-group prune set for the renderOrder strip. */
+  const prunedByGroup = new Map();
+  await writeTransaction([
+    {
+      partition: PARTITION_FLOATING_GROUPS,
+      mutator: (current) => {
+        const arr = Array.isArray(current) ? current : [];
+        return arr.filter((entry) => {
+          if (getParentItemId(entry) !== parentItemId) return true;
+          /* This record is being pruned — capture for renderOrder strip. */
+          if (entry && typeof entry.groupId === 'string'
+            && typeof entry.floatingTabId === 'string') {
+            if (!prunedByGroup.has(entry.groupId)) prunedByGroup.set(entry.groupId, new Set());
+            prunedByGroup.get(entry.groupId).add(entry.floatingTabId);
+          }
+          return false;
+        });
+      },
     },
-  }]);
+    {
+      /* B-148 §3.5 (S44, v6→v7) — strip floating:<id> refs from owning
+         groups' renderOrder. */
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        if (prunedByGroup.size === 0) return groups;
+        const next = [...groups];
+        let changed = false;
+        for (const [gid, floatingIds] of prunedByGroup) {
+          const idx = next.findIndex((g) => g.id === gid);
+          if (idx < 0) continue;
+          const g = next[idx];
+          if (!Array.isArray(g.renderOrder) || g.renderOrder.length === 0) continue;
+          const filtered = g.renderOrder.filter((ref) => {
+            if (!ref.startsWith('floating:')) return true;
+            const id = ref.slice('floating:'.length);
+            return !floatingIds.has(id);
+          });
+          if (filtered.length !== g.renderOrder.length) {
+            next[idx] = { ...g, renderOrder: filtered, updatedAt: Date.now() };
+            changed = true;
+          }
+        }
+        return changed ? next : groups;
+      },
+    },
+  ]);
 }
 
 /**
@@ -918,6 +957,10 @@ export async function pruneFloatingGroupsByLiveTabId(tabId) {
   const records = await readPartition(PARTITION_FLOATING_GROUPS);
   if (!Array.isArray(records) || records.length === 0) return 0;
 
+  /* B-148 §3.5 — capture (groupId, floatingTabId) for the renderOrder
+     strip in the second writeTransaction op. We pre-collect during
+     the existing read-only pre-flight to avoid duplicating the scan. */
+  const prunedByGroup = new Map();
   let willPrune = false;
   for (const entry of records) {
     if (!entry || typeof entry !== 'object') continue;
@@ -925,29 +968,61 @@ export async function pruneFloatingGroupsByLiveTabId(tabId) {
       && Number.isFinite(entry.liveTabId)
       && entry.liveTabId === tabId) {
       willPrune = true;
-      break;
+      if (typeof entry.groupId === 'string' && typeof entry.floatingTabId === 'string') {
+        if (!prunedByGroup.has(entry.groupId)) prunedByGroup.set(entry.groupId, new Set());
+        prunedByGroup.get(entry.groupId).add(entry.floatingTabId);
+      }
     }
   }
   if (!willPrune) return 0;
 
   let prunedCount = 0;
-  await writeTransaction([{
-    partition: PARTITION_FLOATING_GROUPS,
-    mutator: (current) => {
-      const arr = Array.isArray(current) ? current : [];
-      const next = arr.filter((entry) => {
-        if (!entry || typeof entry !== 'object') return true;
-        if (typeof entry.liveTabId === 'number'
-          && Number.isFinite(entry.liveTabId)
-          && entry.liveTabId === tabId) {
-          prunedCount += 1;
-          return false;
-        }
-        return true;
-      });
-      return next;
+  await writeTransaction([
+    {
+      partition: PARTITION_FLOATING_GROUPS,
+      mutator: (current) => {
+        const arr = Array.isArray(current) ? current : [];
+        const next = arr.filter((entry) => {
+          if (!entry || typeof entry !== 'object') return true;
+          if (typeof entry.liveTabId === 'number'
+            && Number.isFinite(entry.liveTabId)
+            && entry.liveTabId === tabId) {
+            prunedCount += 1;
+            return false;
+          }
+          return true;
+        });
+        return next;
+      },
     },
-  }]);
+    {
+      /* B-148 §3.5 (S44, v6→v7) — strip floating:<id> refs from owning
+         groups' renderOrder. prunedByGroup is populated by the pre-flight
+         pass above. */
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        if (prunedByGroup.size === 0) return groups;
+        const next = [...groups];
+        let changed = false;
+        for (const [gid, floatingIds] of prunedByGroup) {
+          const idx = next.findIndex((g) => g.id === gid);
+          if (idx < 0) continue;
+          const g = next[idx];
+          if (!Array.isArray(g.renderOrder) || g.renderOrder.length === 0) continue;
+          const filtered = g.renderOrder.filter((ref) => {
+            if (!ref.startsWith('floating:')) return true;
+            const id = ref.slice('floating:'.length);
+            return !floatingIds.has(id);
+          });
+          if (filtered.length !== g.renderOrder.length) {
+            next[idx] = { ...g, renderOrder: filtered, updatedAt: Date.now() };
+            changed = true;
+          }
+        }
+        return changed ? next : groups;
+      },
+    },
+  ]);
   return prunedCount;
 }
 
