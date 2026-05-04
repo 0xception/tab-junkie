@@ -89,3 +89,18 @@ test('B-148 T10: items NOT in this group are ignored at bootstrap', () => {
      re-filter. This test pins that contract — resolver TRUSTS its inputs. */
   assert.deepEqual(result.map((r) => r.ref), ['item:A', 'item:B']);
 });
+
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const _testDir = dirname(fileURLToPath(import.meta.url));
+
+test('B-148 §3.7: sidepanel.js imports + uses resolveRenderOrder', () => {
+  const src = readFileSync(join(_testDir, '..', 'sidepanel', 'sidepanel.js'), 'utf8');
+  /* Import statement present. */
+  assert.match(src, /import \{[^}]*resolveRenderOrder[^}]*\} from .*shared\/render-order/);
+  /* Function call present (with `group` as the first arg, matching the
+     buildGroupSection contract). */
+  assert.match(src, /resolveRenderOrder\(group/);
+});

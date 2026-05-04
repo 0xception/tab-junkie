@@ -68,6 +68,11 @@ import {
    than bare string literals. Only the WINDOW_MAP branch uses SCOPE for now —
    the other bare-string comparisons are out of scope per R4 findings. */
 import { SCOPE } from '../shared/scopes.js';
+
+/* B-148 §3.7: resolver-produced row sequence for interleaved saved + floating
+   render order. Falls back to saved-then-floating bootstrap when renderOrder
+   is missing/empty. */
+import { resolveRenderOrder } from '../shared/render-order.js';
 /* B-007 */
 import {
   filterGroupParentCandidates,
@@ -2390,15 +2395,18 @@ function buildGroupSection(group, byGroup, liveStates, driftRecords, isChild, fl
   itemsContainer.id = 'group-items-' + group.id;
   if (collapsed) itemsContainer.hidden = true;
 
-  for (const item of groupItems) {
-    itemsContainer.appendChild(buildItemRow(item, liveStates, driftRecords));
-  }
-
-  /* B-121 §60.5.1: synthetic floating-tab rows render after the saved-item
-     rows and BEFORE the inline empty-state fallback / nested child group
-     sections. Ungrouped section never has floating members. */
-  for (const member of floatingArr) {
-    itemsContainer.appendChild(buildFloatingTabRow(member));
+  /* B-148 §3.7 (S44, v6→v7) — single iteration over the resolver-produced
+     row sequence. Group.renderOrder is the user-defined interleaved order;
+     missing/empty falls back to saved-then-floating bootstrap (resolver
+     contract). Stale refs (item or floating record gone) are filtered
+     silently by the resolver. */
+  const renderRows = resolveRenderOrder(group, groupItems, floatingArr);
+  for (const row of renderRows) {
+    if (row.kind === 'item') {
+      itemsContainer.appendChild(buildItemRow(row.item, liveStates, driftRecords));
+    } else if (row.kind === 'floating') {
+      itemsContainer.appendChild(buildFloatingTabRow(row.floatingMember));
+    }
   }
 
   /* B-049: Inline empty state for groups with zero items.
