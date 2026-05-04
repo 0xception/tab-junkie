@@ -544,20 +544,59 @@ export async function bulkDeleteItems(ids) {
   const idSet = new Set(ids);
   const deleted = [];
   const notFound = [];
+  /* B-148 §3.5 — Map<groupId, Set<itemId>> of refs to strip per group.
+     Populated by items mutator; consumed by groups mutator. Items with
+     groupId === null are excluded (Ungrouped contributes no Group write). */
+  const stripByGroup = new Map();
 
   await writeTransaction([
     {
       partition: PARTITION_ITEMS,
       mutator: (items) => {
         const existingIds = new Set(items.map((it) => it.id));
+        const idToGroupId = new Map();
+        for (const it of items) {
+          if (idSet.has(it.id)) idToGroupId.set(it.id, it.groupId);
+        }
         for (const id of idSet) {
           if (existingIds.has(id)) {
             deleted.push(id);
+            const gid = idToGroupId.get(id);
+            if (gid !== null && gid !== undefined) {
+              if (!stripByGroup.has(gid)) stripByGroup.set(gid, new Set());
+              stripByGroup.get(gid).add(id);
+            }
           } else {
             notFound.push(id);
           }
         }
         return items.filter((it) => !idSet.has(it.id));
+      },
+    },
+    {
+      /* B-148 §3.5 (S44, v6→v7) — strip `item:<id>` refs from owning groups'
+         renderOrder. Iterates the per-group strip map populated above. */
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        if (stripByGroup.size === 0) return groups;
+        const next = [...groups];
+        let changed = false;
+        for (const [gid, idSetForGroup] of stripByGroup) {
+          const idx = next.findIndex((g) => g.id === gid);
+          if (idx < 0) continue; /* defensive — group may have been deleted */
+          const g = next[idx];
+          if (!Array.isArray(g.renderOrder) || g.renderOrder.length === 0) continue;
+          const filtered = g.renderOrder.filter((ref) => {
+            if (!ref.startsWith('item:')) return true;
+            const id = ref.slice('item:'.length);
+            return !idSetForGroup.has(id);
+          });
+          if (filtered.length !== g.renderOrder.length) {
+            next[idx] = { ...g, renderOrder: filtered, updatedAt: Date.now() };
+            changed = true;
+          }
+        }
+        return changed ? next : groups;
       },
     },
   ]);

@@ -162,3 +162,48 @@ test('B-148 8d: bulkCreateItems skipped FK-failed candidate is not in renderOrde
   assert.equal(groupAfter.renderOrder.length, 1);
   assert.equal(groupAfter.renderOrder[0], 'item:' + result.created[0].id);
 });
+
+test('B-148 8e: bulkDeleteItems strips multiple item:<id> refs from owning Group renderOrders', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const it1 = await createItem({ title: 'A', url: 'https://x.example/A', groupId: g.id, sortOrder: 0 });
+  const it2 = await createItem({ title: 'B', url: 'https://x.example/B', groupId: g.id, sortOrder: 1 });
+  const { bulkDeleteItems } = await import('../background/storage/items.js');
+  await bulkDeleteItems([it1.id, it2.id]);
+  const groupAfter = await getGroup(g.id);
+  assert.deepEqual(groupAfter.renderOrder, []);
+});
+
+test('B-148 8e: bulkDeleteItems splits strips across multiple owning groups', async () => {
+  const gA = await createGroup({ name: 'A', color: 'blue', parentId: null, sortOrder: 0 });
+  const gB = await createGroup({ name: 'B', color: 'red', parentId: null, sortOrder: 1 });
+  const itA = await createItem({ title: 'A1', url: 'https://x.example/A1', groupId: gA.id, sortOrder: 0 });
+  const itB = await createItem({ title: 'B1', url: 'https://x.example/B1', groupId: gB.id, sortOrder: 0 });
+  const { bulkDeleteItems } = await import('../background/storage/items.js');
+  await bulkDeleteItems([itA.id, itB.id]);
+  const gAAfter = await getGroup(gA.id);
+  const gBAfter = await getGroup(gB.id);
+  assert.deepEqual(gAAfter.renderOrder, []);
+  assert.deepEqual(gBAfter.renderOrder, []);
+});
+
+test('B-148 8e: bulkDeleteItems strips only deleted refs, preserves siblings', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const it1 = await createItem({ title: 'A', url: 'https://x.example/A', groupId: g.id, sortOrder: 0 });
+  const it2 = await createItem({ title: 'B', url: 'https://x.example/B', groupId: g.id, sortOrder: 1 });
+  const it3 = await createItem({ title: 'C', url: 'https://x.example/C', groupId: g.id, sortOrder: 2 });
+  const { bulkDeleteItems } = await import('../background/storage/items.js');
+  await bulkDeleteItems([it1.id, it3.id]);
+  const groupAfter = await getGroup(g.id);
+  assert.deepEqual(groupAfter.renderOrder, ['item:' + it2.id]);
+});
+
+test('B-148 8e: bulkDeleteItems with notFound ids does not corrupt renderOrder', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const it = await createItem({ title: 'A', url: 'https://x.example/A', groupId: g.id, sortOrder: 0 });
+  const { bulkDeleteItems } = await import('../background/storage/items.js');
+  const result = await bulkDeleteItems([it.id, 'GHOST_ID_1', 'GHOST_ID_2']);
+  assert.equal(result.deleted.length, 1);
+  assert.equal(result.notFound.length, 2);
+  const groupAfter = await getGroup(g.id);
+  assert.deepEqual(groupAfter.renderOrder, []);
+});
