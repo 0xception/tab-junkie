@@ -248,29 +248,63 @@ export async function updateItem(id, patch) {
   if (typeof id !== 'string') throw new StorageError(ERR_VALIDATION, 'updateItem: id required');
   validatePatch(patch);
   let updated = null;
-  let groupsSnapshot = [];
+  // B-148 §3.5 — closure carries prevGroupId + groupChanged from items mutator
+  // to groups mutator. ops are ordered ITEMS-then-GROUPS so items runs first
+  // and sets these before the groups mutator executes.
+  let prevGroupId = undefined;
+  let groupChanged = false;
   await writeTransaction([
-    {
-      partition: PARTITION_GROUPS,
-      mutator: (groups) => {
-        groupsSnapshot = groups;
-        return groups;
-      },
-    },
     {
       partition: PARTITION_ITEMS,
       mutator: (items) => {
         const idx = items.findIndex((it) => it.id === id);
         if (idx < 0) throw new StorageError(ERR_NOT_FOUND, 'Item not found', { id });
-        // C2: FK check for groupId in the patch, inside the same tx.
-        if ('groupId' in patch) {
-          assertGroupExists(patch.groupId, groupsSnapshot);
+        prevGroupId = items[idx].groupId;
+        if ('groupId' in patch && patch.groupId !== prevGroupId) {
+          groupChanged = true;
         }
         const next = { ...items[idx], ...patch, id: items[idx].id, createdAt: items[idx].createdAt, updatedAt: Date.now() };
         updated = next;
         const out = items.slice();
         out[idx] = next;
         return out;
+      },
+    },
+    {
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        // C2: FK check for groupId in the patch (groups mutator has direct access).
+        if ('groupId' in patch) {
+          assertGroupExists(patch.groupId, groups);
+        }
+        // B-148 §3.5 — renderOrder mutation when groupId changes.
+        if (!groupChanged) return groups;
+        const ref = 'item:' + id;
+        const nextGroups = [...groups];
+        // 1. Strip from source group (if item was in a non-null group).
+        if (prevGroupId !== null && prevGroupId !== undefined) {
+          const srcIdx = nextGroups.findIndex((g) => g.id === prevGroupId);
+          if (srcIdx >= 0) {
+            const src = nextGroups[srcIdx];
+            if (Array.isArray(src.renderOrder) && src.renderOrder.includes(ref)) {
+              const filtered = src.renderOrder.filter((r) => r !== ref);
+              nextGroups[srcIdx] = { ...src, renderOrder: filtered, updatedAt: Date.now() };
+            }
+          }
+        }
+        // 2. Append to target group (if patch.groupId is non-null).
+        if (patch.groupId !== null && patch.groupId !== undefined) {
+          const tgtIdx = nextGroups.findIndex((g) => g.id === patch.groupId);
+          if (tgtIdx >= 0) {
+            const tgt = nextGroups[tgtIdx];
+            const existing = Array.isArray(tgt.renderOrder) ? [...tgt.renderOrder] : [];
+            if (!existing.includes(ref)) {
+              existing.push(ref);
+              nextGroups[tgtIdx] = { ...tgt, renderOrder: existing, updatedAt: Date.now() };
+            }
+          }
+        }
+        return nextGroups;
       },
     },
   ]);

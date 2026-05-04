@@ -55,3 +55,51 @@ test('B-148 8b: deleteItem on unknown id is a no-op (idempotent)', async () => {
   const groupAfter = await getGroup(g.id);
   assert.deepEqual(groupAfter.renderOrder, ['item:' + it.id]);
 });
+
+test('B-148 8c: updateItem({groupId}) strips from source + appends to target Group renderOrder', async () => {
+  const gA = await createGroup({ name: 'A', color: 'blue', parentId: null, sortOrder: 0 });
+  const gB = await createGroup({ name: 'B', color: 'red', parentId: null, sortOrder: 1 });
+  const it = await createItem({ title: 'T', url: 'https://x.example/', groupId: gA.id, sortOrder: 0 });
+  const { updateItem } = await import('../background/storage/items.js');
+  await updateItem(it.id, { groupId: gB.id });
+  const gAAfter = await getGroup(gA.id);
+  const gBAfter = await getGroup(gB.id);
+  assert.deepEqual(gAAfter.renderOrder, []);
+  assert.deepEqual(gBAfter.renderOrder, ['item:' + it.id]);
+});
+
+test('B-148 8c: updateItem({groupId: null}) detach strips source only', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const it = await createItem({ title: 'T', url: 'https://x.example/', groupId: g.id, sortOrder: 0 });
+  const { updateItem } = await import('../background/storage/items.js');
+  await updateItem(it.id, { groupId: null });
+  const gAfter = await getGroup(g.id);
+  assert.deepEqual(gAfter.renderOrder, []);
+});
+
+test('B-148 8c: updateItem({groupId: g}) attach from Ungrouped appends target only', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const it = await createItem({ title: 'T', url: 'https://x.example/', groupId: null, sortOrder: 0 });
+  const { updateItem } = await import('../background/storage/items.js');
+  await updateItem(it.id, { groupId: g.id });
+  const gAfter = await getGroup(g.id);
+  assert.deepEqual(gAfter.renderOrder, ['item:' + it.id]);
+});
+
+test('B-148 8c: updateItem with no groupId in patch leaves renderOrder unchanged', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const it = await createItem({ title: 'T', url: 'https://x.example/', groupId: g.id, sortOrder: 0 });
+  const { updateItem } = await import('../background/storage/items.js');
+  await updateItem(it.id, { title: 'New title' });
+  const gAfter = await getGroup(g.id);
+  assert.deepEqual(gAfter.renderOrder, ['item:' + it.id]);
+});
+
+test('B-148 8c: updateItem({groupId: same}) is a no-op for renderOrder (no duplicate)', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const it = await createItem({ title: 'T', url: 'https://x.example/', groupId: g.id, sortOrder: 0 });
+  const { updateItem } = await import('../background/storage/items.js');
+  await updateItem(it.id, { groupId: g.id });
+  const gAfter = await getGroup(g.id);
+  assert.deepEqual(gAfter.renderOrder, ['item:' + it.id]);
+});
