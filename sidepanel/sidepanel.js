@@ -4898,12 +4898,40 @@ itemListEl.addEventListener('drop', async (e) => {
             && cluster.rowRefs.includes(draggedRef);
 
           if (canUseRenderOrder) {
-            const refsWithoutDragged = cluster.rowRefs.filter((ref) => ref !== draggedRef);
-            const insertAt = Math.max(0, Math.min(state.pendingInsertIndex, refsWithoutDragged.length));
+            /* B-148 multi-select hotfix — collect ALL selected refs (not just
+               the grabbed row), preserve their visual order, strip them from
+               rowRefs, then re-insert as a contiguous block at the drop
+               position. _computeMultiTabDragIds already filtered draggedTabIds
+               to the source group's floating class — every selected tabId
+               maps to a floating: ref via the parallel rowTabIds + rowRefs
+               arrays. The insertIndex shifts backward by the number of
+               selected refs ABOVE the original pendingInsertIndex so the
+               block lands at the visually-intuitive drop point. */
+            const selectedSet = new Set(state.draggedTabIds);
+            const selectedRefsInVisualOrder = [];
+            let selectedAboveCount = 0;
+            for (let i = 0; i < cluster.rowRefs.length; i++) {
+              if (selectedSet.has(cluster.rowTabIds[i])) {
+                selectedRefsInVisualOrder.push(cluster.rowRefs[i]);
+                if (i < state.pendingInsertIndex) selectedAboveCount += 1;
+              }
+            }
+            /* Defensive: if no selected refs resolved (cache gen mismatch
+               between dragstart and drop), fall back to single-tab behavior
+               using draggedRef alone. */
+            const blockRefs = selectedRefsInVisualOrder.length > 0
+              ? selectedRefsInVisualOrder
+              : [draggedRef];
+            const blockRefSet = new Set(blockRefs);
+            const refsWithoutBlock = cluster.rowRefs.filter((ref) => !blockRefSet.has(ref));
+            const insertAt = Math.max(
+              0,
+              Math.min(state.pendingInsertIndex - selectedAboveCount, refsWithoutBlock.length),
+            );
             const newRenderOrder = [
-              ...refsWithoutDragged.slice(0, insertAt),
-              draggedRef,
-              ...refsWithoutDragged.slice(insertAt),
+              ...refsWithoutBlock.slice(0, insertAt),
+              ...blockRefs,
+              ...refsWithoutBlock.slice(insertAt),
             ];
             const resp = await sendMessage(MSG_REORDER_FLOATING_MEMBERS, {
               groupId: state.sourceGroupId,

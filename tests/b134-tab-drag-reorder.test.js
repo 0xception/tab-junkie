@@ -798,10 +798,12 @@ test('B-134 T23 (§63.6.1): drop handler dispatches MSG_REORDER_FLOATING_MEMBERS
      B-154 (S43) widened the gap with an out-of-scope multi-tab comment block;
      window bumped 800 → 1500 to tolerate future doc/comment additions.
      B-148 (S44 Task 13) added the renderOrder construction branch + fallback
-     comment block; window bumped 1500 → 3000. */
+     comment block; window bumped 1500 → 3000.
+     B-148 multi-select hotfix added the contiguous-block strip+reinsert logic
+     and explanatory comment; window bumped 3000 → 4500. */
   assert.match(
     sidepanelJs,
-    /case 'REORDER_FLOATING'[\s\S]{0,3000}sendMessage\(MSG_REORDER_FLOATING_MEMBERS/,
+    /case 'REORDER_FLOATING'[\s\S]{0,4500}sendMessage\(MSG_REORDER_FLOATING_MEMBERS/,
     'REORDER_FLOATING must dispatch via MSG_REORDER_FLOATING_MEMBERS',
   );
 });
