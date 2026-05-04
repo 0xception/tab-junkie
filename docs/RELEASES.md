@@ -4,6 +4,24 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.39.0 — B-148 interleave floating tabs with saved bookmarks (2026-05-04)
+
+**Tagged on `release/v2`.**
+
+Sprint 44 anchor. Floating tabs and saved bookmarks within a TJ group can now be interleaved into one user-defined sequence. The order is owned by the Group record, persists across tab close + extension restart, and applies to sidepanel + newtab.
+
+- **Schema v6 → v7 lazy migration**: `tj:groups` gains optional `renderOrder: string[]` of prefix-encoded `item:<id>` / `floating:<floatingTabId>` refs. Legacy v6 groups bootstrap on first cold start.
+- **New `shared/render-order.js` resolver** — pure function consumed by sidepanel + newtab render paths.
+- **12 storage write sites** updated to maintain `renderOrder` atomically inside multi-partition `writeTransaction` (R0 spike A confirmed atomicity).
+- **Sidepanel drag**: drop a floating tab between two saved bookmarks; the new position persists across restart. Multi-select drag moves the block contiguously.
+- **Off-surface click clears multi-selection** — losing sidepanel focus now clears any active selection (mirrors Escape).
+
+**SW cache flush**: After upgrade, toggle the extension OFF then ON once.
+
+Tests: 2006 PASS (+76 over the 1930 v1.38.1 baseline).
+
+---
+
 ## v1.38.2 — B-161 popup Tab shortcut + settings button removed (2026-05-03)
 
 **Tagged on `release/v2`.**
