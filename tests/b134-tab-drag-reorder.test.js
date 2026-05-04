@@ -796,10 +796,12 @@ test('B-134 T23 (§63.6.1): drop handler dispatches MSG_REORDER_FLOATING_MEMBERS
   const sidepanelJs = readFile('sidepanel/sidepanel.js');
   /* The REORDER_FLOATING case must call sendMessage(MSG_REORDER_FLOATING_MEMBERS).
      B-154 (S43) widened the gap with an out-of-scope multi-tab comment block;
-     window bumped 800 → 1500 to tolerate future doc/comment additions. */
+     window bumped 800 → 1500 to tolerate future doc/comment additions.
+     B-148 (S44 Task 13) added the renderOrder construction branch + fallback
+     comment block; window bumped 1500 → 3000. */
   assert.match(
     sidepanelJs,
-    /case 'REORDER_FLOATING'[\s\S]{0,1500}sendMessage\(MSG_REORDER_FLOATING_MEMBERS/,
+    /case 'REORDER_FLOATING'[\s\S]{0,3000}sendMessage\(MSG_REORDER_FLOATING_MEMBERS/,
     'REORDER_FLOATING must dispatch via MSG_REORDER_FLOATING_MEMBERS',
   );
 });

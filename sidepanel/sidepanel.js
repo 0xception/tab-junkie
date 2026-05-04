@@ -460,6 +460,14 @@ let _pendingGroupPointerY = 0;
                                      // single-select = [draggedTabId]). Filtered to
                                      // grabbed row's class (Open Tabs vs floating),
                                      // window, and source group (for floating).
+       draggedFloatingTabId: string | null, // B-148 §3.8 D-2: floating row's
+                                     // storage-identity ulid (data-floating-tab-id).
+                                     // Used by REORDER_FLOATING dispatcher to build
+                                     // 'floating:<id>' ref in the new renderOrder
+                                     // payload. null when sourceMode==='OPEN' or
+                                     // when the row lacks data-floating-tab-id
+                                     // (legacy pre-S38 record) — dispatcher falls
+                                     // back to the legacy orderedTabIds path.
        sourceMode: 'OPEN' | 'FLOATING',
        sourceWindowId: number,
        sourceGroupId: string | null,    // null when sourceMode === 'OPEN'
@@ -3052,6 +3060,15 @@ function buildFloatingTabRow(member) {
   if (typeof member.parentItemId === 'string' && member.parentItemId.length > 0) {
     row.dataset.parentItemId = member.parentItemId;
   }
+  /* B-148 §3.7 / §3.8 D-1 (S44, v6→v7) — stamp data-floating-tab-id so the
+     drag rect-cache can build 'floating:<id>' refs at drop time. The
+     mirrored stamp is also performed in patchFloatingMembersSections's
+     in-place patch branch. Pre-S38 legacy records lacking floatingTabId
+     leave the attribute unset; the dispatcher falls back to the legacy
+     orderedTabIds path when the rect-cache rowRef is null. */
+  if (typeof member.floatingTabId === 'string' && member.floatingTabId.length > 0) {
+    row.dataset.floatingTabId = member.floatingTabId;
+  }
 
   /* B-130 hotfix: the dotted-bar visual cue is now painted via the
      `.item-row[data-floating="true"]` CSS override (border-left-style:
@@ -3257,6 +3274,11 @@ function patchFloatingMembersSections(nextFloatingMembers) {
         row.dataset.floating = 'true';
         if (typeof member.parentItemId === 'string' && member.parentItemId.length > 0) {
           row.dataset.parentItemId = member.parentItemId;
+        }
+        /* B-148 §3.7 — keep data-floating-tab-id in sync on the patch path
+           (mirror of buildFloatingTabRow's stamp). */
+        if (typeof member.floatingTabId === 'string' && member.floatingTabId.length > 0) {
+          row.dataset.floatingTabId = member.floatingTabId;
         }
         /* B-124 §61.5.1(c): _patchOpenTabRow re-applies buildItemRowAriaLabel
            (with the "live tab" suffix), so re-override here to keep the
@@ -4444,10 +4466,24 @@ itemListEl.addEventListener('dragstart', (e) => {
       sourceGroupId,
     );
 
+    /* B-148 §3.8 D-2 — capture the dragged floating row's storage
+       identity (floatingTabId ulid) so the REORDER_FLOATING dispatcher
+       can build a 'floating:<ftId>' ref for the new mixed-type
+       renderOrder payload. Open Tabs rows leave this as null (they
+       cannot REORDER_FLOATING). Floating rows missing data-floating-tab-id
+       (legacy pre-S38 records) also leave it null; the dispatcher detects
+       null and falls back to the legacy orderedTabIds path. */
+    const draggedFloatingTabId = (sourceMode === 'FLOATING'
+      && typeof tabRow.dataset.floatingTabId === 'string'
+      && tabRow.dataset.floatingTabId.length > 0)
+      ? tabRow.dataset.floatingTabId
+      : null;
+
     /* B-134 §63.3.1 — initialise state. */
     _tabDragState = {
       draggedTabId,
       draggedTabIds, // B-154
+      draggedFloatingTabId, // B-148 §3.8 D-2
       sourceMode,
       sourceWindowId,
       sourceGroupId,
@@ -4829,7 +4865,61 @@ itemListEl.addEventListener('drop', async (e) => {
              ambiguous (where do N tabs land within a single-group reorder?
              contiguous block? scattered? in selection order or visual order?).
              Use single-tab semantics; only the grabbed row moves. Other
-             selected tabs in the same group stay where they are. */
+             selected tabs in the same group stay where they are.
+
+             B-148 §3.8 D-2 (S44, v6→v7) — new payload shape per R0 spike C
+             Option A: dispatcher emits the FULL new interleaved
+             renderOrder string array; SW handler validates + writes via
+             updateGroup directly (no race-guard required — full-array
+             semantics).
+
+             Construction algorithm:
+               1. Read cached rowRefs[] from the source group's floating
+                  zone (live DOM order before drop).
+               2. Strip the dragged row's ref from its current position.
+               3. Re-insert at pendingInsertIndex.
+             Result is the new interleaved order including saved + floating
+             rows.
+
+             Fallback to legacy orderedTabIds path when:
+               - rect cache missing (defensive — drag started without cache)
+               - dragged row's floatingTabId unknown (pre-S38 legacy record)
+               - rowRefs contains nulls (one or more rows missing
+                 data-item-id / data-floating-tab-id) */
+          const cluster = _tabDragRectCache?.floatingZoneRects?.get(state.sourceGroupId);
+          const draggedRef = state.draggedFloatingTabId
+            ? 'floating:' + state.draggedFloatingTabId
+            : null;
+          const canUseRenderOrder = cluster
+            && Array.isArray(cluster.rowRefs)
+            && cluster.rowRefs.length > 0
+            && cluster.rowRefs.every((r) => r !== null)
+            && draggedRef !== null
+            && cluster.rowRefs.includes(draggedRef);
+
+          if (canUseRenderOrder) {
+            const refsWithoutDragged = cluster.rowRefs.filter((ref) => ref !== draggedRef);
+            const insertAt = Math.max(0, Math.min(state.pendingInsertIndex, refsWithoutDragged.length));
+            const newRenderOrder = [
+              ...refsWithoutDragged.slice(0, insertAt),
+              draggedRef,
+              ...refsWithoutDragged.slice(insertAt),
+            ];
+            const resp = await sendMessage(MSG_REORDER_FLOATING_MEMBERS, {
+              groupId: state.sourceGroupId,
+              renderOrder: newRenderOrder,
+            });
+            if (resp && resp.reordered === false) {
+              showToast(resp.reason === 'ERR_VALIDATION'
+                ? 'Couldn’t reorder tabs — please retry.'
+                : 'Floating-tab list changed during drag — please retry.');
+            }
+            return;
+          }
+
+          /* Legacy fallback — floating-only orderedTabIds payload. The SW
+             handler delegates to reorderFloatingMembers (sortOrder
+             renumber within the floating bucket only). */
           const orderedTabIds = _computeReorderFloatingPayload(
             state.sourceGroupId,
             state.draggedTabId,
@@ -6136,7 +6226,7 @@ function _cleanupGroupDragDom() {
        Open Tabs */
 function _buildTabDragRectCache() {
   const containerRect = itemListEl.getBoundingClientRect();
-  /** @type {Map<string, {top: number, bottom: number, rowMidlines: number[], rowTabIds: number[]}>} */
+  /** @type {Map<string, {top: number, bottom: number, rowMidlines: number[], rowTabIds: number[], rowRefs: (string|null)[]}>} */
   const floatingZoneRects = new Map();
   /** @type {Map<number, {rowMidlines: number[], rowTabIds: number[]}>} */
   const openTabsByWindow = new Map();
@@ -6148,7 +6238,17 @@ function _buildTabDragRectCache() {
     if (!groupId || groupId === '__ungrouped__') continue;
     const itemsContainer = section.querySelector(':scope > .group-items');
     if (!itemsContainer) continue;
-    const floatingRows = itemsContainer.querySelectorAll(':scope > .item-row[data-floating="true"]');
+    /* B-148 §3.7 / §3.8 D-1 (S44, v6→v7) — enumerate ALL :scope > .item-row
+       rows in the group (saved + floating), not just data-floating="true".
+       The drag insert position must respect the mixed sequence so drops
+       between a saved and a floating row land at the correct slot in the
+       resolved interleaved order. The renderOrder payload built at drop
+       time uses the parallel rowRefs[] (one per row, in DOM order) to
+       construct the new full interleaved order. Pre-B-148 the selector
+       was `[data-floating="true"]` only; the drop position was floating-
+       only (saved rows ignored), which produced misplaced indicators in
+       interleaved groups. */
+    const allRows = itemsContainer.querySelectorAll(':scope > .item-row');
 
     /* Zone vertical bounds (B-157, S43):
          top    — TOP of the group section (header included) so drops on the
@@ -6177,12 +6277,40 @@ function _buildTabDragRectCache() {
 
     const rowMidlines = [];
     const rowTabIds = [];
-    for (const row of floatingRows) {
+    /* B-148 §3.7 — parallel rowRefs[] for renderOrder construction at
+       drop time. Saved rows: 'item:<itemId>' (data-item-id). Floating
+       rows: 'floating:<floatingTabId>' (data-floating-tab-id, stamped
+       by buildFloatingTabRow / patchFloatingMembersSections). null
+       entries (a saved row missing data-item-id, or a floating row
+       missing data-floating-tab-id — e.g., legacy pre-S38 record) are
+       sentinels that disable the renderOrder dispatch path; the
+       REORDER_FLOATING dispatcher detects this and falls back to the
+       legacy orderedTabIds payload. */
+    const rowRefs = [];
+    for (const row of allRows) {
       const r = row.getBoundingClientRect();
       rowMidlines.push((r.top + r.bottom) / 2);
-      rowTabIds.push(Number(row.dataset.tabId));
+      const tabIdNum = Number(row.dataset.tabId);
+      /* Saved rows have no tabId — push -1 sentinel so the existing
+         `id !== draggedTabId` filter in _computeTabDropTarget /
+         _resolveTabDragIndicatorY treats them as "not the dragged row"
+         (kept in midlines). The dragged row's tabId is a finite number,
+         so -1 never collides. */
+      rowTabIds.push(Number.isFinite(tabIdNum) ? tabIdNum : -1);
+      const isFloating = row.dataset.floating === 'true';
+      if (isFloating) {
+        const ftId = row.dataset.floatingTabId;
+        rowRefs.push(typeof ftId === 'string' && ftId.length > 0
+          ? 'floating:' + ftId
+          : null);
+      } else {
+        const itemId = row.dataset.itemId;
+        rowRefs.push(typeof itemId === 'string' && itemId.length > 0
+          ? 'item:' + itemId
+          : null);
+      }
     }
-    floatingZoneRects.set(groupId, { top, bottom, rowMidlines, rowTabIds });
+    floatingZoneRects.set(groupId, { top, bottom, rowMidlines, rowTabIds, rowRefs });
   }
 
   /* Open Tabs section per-window clusters. */
