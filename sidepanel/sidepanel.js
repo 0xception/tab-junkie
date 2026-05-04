@@ -6898,12 +6898,40 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
            - the feature gate is off (§34.11 rollback path)
            - the index has been disabled by the graceful-degrade path
            - the cached items count is zero (cold-open never patches) */
+      /* B-148 §3.7 hotfix — Group.renderOrder changes broadcast as
+         SCOPE.ITEMS (the items-side write happens inside the same
+         writeTransaction). The diff-and-patch fast path compares ITEM
+         shape only; an items-noop where only renderOrder changed would
+         skip renderAll and leave row order stale. Detect renderOrder
+         drift across the prior _cachedGroups vs the freshly-fetched
+         groups and force the slow path when any group's renderOrder
+         differs. */
+      const renderOrderChanged = (function () {
+        if (!Array.isArray(_cachedGroups) || !Array.isArray(groups)) return false;
+        if (_cachedGroups.length !== groups.length) return true;
+        const prevById = new Map(_cachedGroups.map((g) => [g.id, g]));
+        for (const next of groups) {
+          const prev = prevById.get(next.id);
+          if (!prev) return true;
+          const prevRO = Array.isArray(prev.renderOrder) ? prev.renderOrder : null;
+          const nextRO = Array.isArray(next.renderOrder) ? next.renderOrder : null;
+          if (prevRO === null && nextRO === null) continue;
+          if (prevRO === null || nextRO === null) return true;
+          if (prevRO.length !== nextRO.length) return true;
+          for (let i = 0; i < prevRO.length; i++) {
+            if (prevRO[i] !== nextRO[i]) return true;
+          }
+        }
+        return false;
+      })();
+
       const canPatch =
         SEARCH_INDEX_ENABLED &&
         !_searchIndexDisabled &&
         _searchIndex !== null &&
         scope === 'items' &&
-        _cachedItems.length > 0;
+        _cachedItems.length > 0 &&
+        !renderOrderChanged;
 
       let patched = false;
       if (canPatch) {
