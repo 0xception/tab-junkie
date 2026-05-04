@@ -4282,6 +4282,22 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+/* Clear multi-selection when the sidepanel loses focus.
+   Off-surface click UX: selecting outside the sidepanel (browser tab strip,
+   another window, the page body) implicitly discards the selection — same
+   intent as the Escape handler above. Skips when:
+   - Not in selection mode (no-op).
+   - A drag is in flight: blur can race with the drag-and-drop operation;
+     clearing _selection mid-drag would invalidate state.draggedTabIds.
+   - A dialog is open: dialog-internal interactions can briefly trip focus
+     transitions; selection survives those (matches B-047 H-2 precedent). */
+window.addEventListener('blur', () => {
+  if (!_selectionMode) return;
+  if (_tabDragState || _itemDragState || _groupDragState) return;
+  if (dialogOverlayEl && !dialogOverlayEl.hidden) return;
+  _clearSelection();
+});
+
 function toggleGroup(header) {
   const groupId = header.dataset.groupId;
   const expanded = header.getAttribute('aria-expanded') === 'true';
