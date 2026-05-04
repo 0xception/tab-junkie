@@ -195,7 +195,19 @@ export async function createItem(input) {
       partition: PARTITION_GROUPS,
       mutator: (groups) => {
         groupsSnapshot = groups;
-        return groups;
+        /* B-148 §3.5 (S44, v6→v7) — append `item:<newId>` to target Group's
+           renderOrder. Skips when groupId is null (Ungrouped items don't
+           belong to any group). The append-at-end policy matches existing
+           Item.sortOrder normalisation: createItem appends to the bucket. */
+        if (item.groupId === null) return groups;
+        const idx = groups.findIndex((g) => g.id === item.groupId);
+        if (idx < 0) return groups; /* defensive — assertGroupExists in items mutator throws if missing */
+        const g = groups[idx];
+        const renderOrder = Array.isArray(g.renderOrder) ? [...g.renderOrder] : [];
+        renderOrder.push('item:' + item.id);
+        const next = [...groups];
+        next[idx] = { ...g, renderOrder, updatedAt: Date.now() };
+        return next;
       },
     },
     {
