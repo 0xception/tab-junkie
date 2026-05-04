@@ -17,7 +17,7 @@ export { buildLiveStates } from './tab-claims.js';
 export { getDriftRecords } from './drift.js';
 import { buildLiveTabIndex, getLiveTabIndex } from './live-tab-index.js';
 import { reconcileClaims, getClaimsMirror } from './tab-claims.js';
-import { reassociateFloatingGroups, preMarkInheritedFromFloatingGroups } from './floating-groups.js';
+import { reassociateFloatingGroups, preMarkInheritedFromFloatingGroups, bootstrapAndSweepRenderOrder } from './floating-groups.js';
 import { listItems } from '../storage/items.js';
 /* B-014 */
 import { initWindowOrdinals } from './window-ordinals.js';
@@ -63,4 +63,13 @@ export async function initializeLiveState(readyPromise) {
   await reconcileClaims(items);
   // B-001d AC10: re-associate floating groups after claims are established
   await reassociateFloatingGroups(getLiveTabIndex(), getClaimsMirror());
+  /* B-148 §3.6 (S44, v6→v7) — cold-start bootstrap + sweep of
+     Group.renderOrder. Runs AFTER reassociateFloatingGroups so the
+     floating-group records are reconciled. Idempotent — skips the write
+     when no group changed. */
+  try {
+    await bootstrapAndSweepRenderOrder();
+  } catch (err) {
+    console.warn('[tab-junkie] B-148 bootstrapAndSweepRenderOrder failed; renderOrder will lazily heal on next mutation', err);
+  }
 }

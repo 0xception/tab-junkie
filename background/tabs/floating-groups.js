@@ -1107,3 +1107,108 @@ export async function preMarkInheritedFromFloatingGroups() {
     }
   }
 }
+
+/**
+ * B-148 §3.6 (S44, v6→v7) — cold-start bootstrap + sweep of Group.renderOrder.
+ *
+ * Runs after reassociateFloatingGroups so the floating-group records are
+ * already reconciled (resolved records pruned, stale liveTabIds rewritten,
+ * duplicates merged). For each group:
+ *
+ * - Missing or empty renderOrder → bootstrap from items + floating-records
+ *   sortOrder (saved-then-floating, each by sortOrder asc).
+ * - Present renderOrder → filter out refs that don't resolve to any item
+ *   or floating record (stale-ref sweep).
+ *
+ * Single PARTITION_GROUPS writeTransaction. Skips the write entirely when
+ * no group changed (avoids storage churn on repeat cold starts where every
+ * group is already bootstrapped + clean).
+ *
+ * @returns {Promise<void>}
+ */
+export async function bootstrapAndSweepRenderOrder() {
+  const [groups, items, floatingRecords] = await Promise.all([
+    readPartition(PARTITION_GROUPS),
+    readPartition(PARTITION_ITEMS),
+    readPartition(PARTITION_FLOATING_GROUPS),
+  ]);
+  if (!Array.isArray(groups) || groups.length === 0) return;
+
+  /* Pre-index items + floating records by groupId for O(N) total work. */
+  const itemsByGroup = new Map();
+  if (Array.isArray(items)) {
+    for (const it of items) {
+      if (!it || typeof it.groupId !== 'string') continue;
+      if (!itemsByGroup.has(it.groupId)) itemsByGroup.set(it.groupId, []);
+      itemsByGroup.get(it.groupId).push(it);
+    }
+  }
+  const floatingByGroup = new Map();
+  if (Array.isArray(floatingRecords)) {
+    for (const fr of floatingRecords) {
+      if (!fr || typeof fr.groupId !== 'string') continue;
+      if (!floatingByGroup.has(fr.groupId)) floatingByGroup.set(fr.groupId, []);
+      floatingByGroup.get(fr.groupId).push(fr);
+    }
+  }
+
+  /* Build per-group resolution sets for the stale-ref sweep. */
+  const itemIdsByGroup = new Map();
+  for (const [gid, arr] of itemsByGroup) {
+    itemIdsByGroup.set(gid, new Set(arr.map((it) => it.id)));
+  }
+  const floatingIdsByGroup = new Map();
+  for (const [gid, arr] of floatingByGroup) {
+    floatingIdsByGroup.set(gid, new Set(arr.map((fr) => fr.floatingTabId)));
+  }
+
+  /* Compute the new renderOrder for each group; track whether anything changed. */
+  let anyChanged = false;
+  const updatedGroups = groups.map((g) => {
+    if (!g || typeof g.id !== 'string') return g;
+    const groupItems = itemsByGroup.get(g.id) || [];
+    const groupFloating = floatingByGroup.get(g.id) || [];
+    const itemIds = itemIdsByGroup.get(g.id) || new Set();
+    const floatingIds = floatingIdsByGroup.get(g.id) || new Set();
+
+    let nextRenderOrder;
+    if (!Array.isArray(g.renderOrder) || g.renderOrder.length === 0) {
+      /* Bootstrap path. */
+      const sortedItems = [...groupItems].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+      const sortedFloating = [...groupFloating].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+      nextRenderOrder = [
+        ...sortedItems.map((it) => 'item:' + it.id),
+        ...sortedFloating.map((fr) => 'floating:' + fr.floatingTabId),
+      ];
+    } else {
+      /* Sweep path — keep refs that resolve. */
+      nextRenderOrder = g.renderOrder.filter((ref) => {
+        if (typeof ref !== 'string') return false;
+        if (ref.startsWith('item:')) {
+          return itemIds.has(ref.slice('item:'.length));
+        }
+        if (ref.startsWith('floating:')) {
+          return floatingIds.has(ref.slice('floating:'.length));
+        }
+        return false;
+      });
+    }
+
+    /* Same array content → no change. */
+    const before = Array.isArray(g.renderOrder) ? g.renderOrder : null;
+    const sameLength = before && before.length === nextRenderOrder.length;
+    const sameContent = sameLength && before.every((v, i) => v === nextRenderOrder[i]);
+    if (sameContent) return g;
+    anyChanged = true;
+    return { ...g, renderOrder: nextRenderOrder, updatedAt: Date.now() };
+  });
+
+  if (!anyChanged) return;
+
+  await writeTransaction([
+    {
+      partition: PARTITION_GROUPS,
+      mutator: () => updatedGroups,
+    },
+  ]);
+}
