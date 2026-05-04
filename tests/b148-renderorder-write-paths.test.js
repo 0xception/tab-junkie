@@ -413,3 +413,59 @@ test('B-148 9c: pruneFloatingGroupsByParentItemId strips all floating:<id> refs 
   assert.equal(gAfter.renderOrder.length, 1);
   assert.equal(gAfter.renderOrder[0], 'item:' + it.id);
 });
+
+/* B-148 9d helpers — invoke handler via chrome.runtime.onMessage, matching
+   the pattern established in b134-tab-drag-reorder.test.js §setupHandlers. */
+import { registerStorageHandlers } from '../background/messages/storage-handlers.js';
+import { MSG_REORDER_FLOATING_MEMBERS } from '../shared/messages.js';
+
+function setupReorderHandlers() {
+  registerStorageHandlers(Promise.resolve());
+  const listener = chrome.runtime.onMessage._listeners[
+    chrome.runtime.onMessage._listeners.length - 1
+  ];
+  return (type, payload) => new Promise((resolve) => {
+    listener({ type, payload }, { id: chrome.runtime.id }, resolve);
+  });
+}
+
+test('B-148 9d: MSG_REORDER_FLOATING_MEMBERS with renderOrder writes Group.renderOrder directly', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const it1 = await createItem({ title: 'A', url: 'https://x.example/A', groupId: g.id, sortOrder: 0 });
+  const it2 = await createItem({ title: 'B', url: 'https://x.example/B', groupId: g.id, sortOrder: 1 });
+
+  const dispatch = setupReorderHandlers();
+  const resp = await dispatch(MSG_REORDER_FLOATING_MEMBERS, {
+    groupId: g.id,
+    renderOrder: ['item:' + it2.id, 'item:' + it1.id],
+  });
+  assert.equal(resp.data.reordered, true);
+  const groupAfter = await getGroup(g.id);
+  assert.deepEqual(groupAfter.renderOrder, ['item:' + it2.id, 'item:' + it1.id]);
+});
+
+test('B-148 9d: MSG_REORDER_FLOATING_MEMBERS with renderOrder rejects bad shape', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const dispatch = setupReorderHandlers();
+  const resp = await dispatch(MSG_REORDER_FLOATING_MEMBERS, {
+    groupId: g.id,
+    renderOrder: ['url:bad-prefix'],
+  });
+  assert.equal(resp.data.reordered, false);
+  assert.equal(resp.data.reason, 'ERR_VALIDATION');
+});
+
+test('B-148 9d: MSG_REORDER_FLOATING_MEMBERS legacy orderedTabIds path unchanged', async () => {
+  /* Verifies the new branch did not break the existing payload contract.
+     A tab ID with no floating record → ERR_RACE because the legacy path
+     reaches reorderFloatingMembers, which asserts the live floating set. */
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  await createItem({ title: 'T', url: 'https://x.example/T', groupId: g.id, sortOrder: 0 });
+  const dispatch = setupReorderHandlers();
+  const resp = await dispatch(MSG_REORDER_FLOATING_MEMBERS, {
+    groupId: g.id,
+    orderedTabIds: [12345], /* no floating record exists for tab 12345 → race */
+  });
+  /* Legacy path delegates to reorderFloatingMembers; race-guard returns false. */
+  assert.equal(resp.data.reordered, false); /* ERR_RACE from race-guard */
+});

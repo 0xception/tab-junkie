@@ -720,18 +720,45 @@ async function dispatch(type, payload) {
       return { ok: true };
     }
     case MSG_REORDER_FLOATING_MEMBERS: {
-      /* B-134 §63.8.1 — same-group reorder. Validates payload shape, then
-         delegates to `reorderFloatingMembers` which performs the atomic
-         renumber under a single writeTransaction.
+      /* B-148 §3.5 / §3.8 D-3 (S44, v6→v7) — NEW payload shape per R0 spike C
+         (Option A): {groupId, renderOrder: string[]} writes Group.renderOrder
+         directly. Caller (sidepanel drag at Task 13) computes the full new
+         interleaved order and sends it; SW handler validates per-element ref
+         shape then delegates to updateGroup.
 
-         Allow-list direction (C-7): payload is validated by positive
-         field/type checks; the SW handler asserts the supplied tabId set
-         matches the live floating-members resolution before writing.
-         Set-mismatch / vanished-tab races return reordered=false; the
-         sidepanel translates that to a toast (race-guard branch §63.10). */
+         LEGACY payload shape (B-134 §63.8.1): {groupId, orderedTabIds:
+         number[]} delegates to reorderFloatingMembers for the floating-only
+         sortOrder renumber. Retained for backwards compatibility until the
+         sidepanel client switches over (Task 13).
+
+         Allow-list direction (C-7): payload validated by positive
+         field/type checks. */
       if (!p || typeof p.groupId !== 'string' || p.groupId.length === 0) {
         return { reordered: false, reason: 'ERR_VALIDATION' };
       }
+      /* B-148 path — new {groupId, renderOrder} payload. */
+      if (Array.isArray(p.renderOrder)) {
+        for (const ref of p.renderOrder) {
+          if (typeof ref !== 'string' || ref.length === 0) {
+            return { reordered: false, reason: 'ERR_VALIDATION' };
+          }
+          if (!ref.startsWith('item:') && !ref.startsWith('floating:')) {
+            return { reordered: false, reason: 'ERR_VALIDATION' };
+          }
+          if (ref.length > 64) {
+            return { reordered: false, reason: 'ERR_VALIDATION' };
+          }
+        }
+        try {
+          await updateGroup(p.groupId, { renderOrder: p.renderOrder });
+        } catch (e) {
+          /* updateGroup throws on missing group / corrupt patch. The handler
+             surfaces the failure as a generic reordered:false outcome. */
+          return { reordered: false, reason: 'ERR_VALIDATION' };
+        }
+        return { reordered: true };
+      }
+      /* Legacy path — {groupId, orderedTabIds: number[]}. */
       if (!Array.isArray(p.orderedTabIds) || p.orderedTabIds.length === 0) {
         return { reordered: false, reason: 'ERR_VALIDATION' };
       }
