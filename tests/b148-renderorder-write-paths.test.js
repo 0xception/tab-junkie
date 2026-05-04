@@ -267,3 +267,90 @@ test('B-148 9a: appendFloatingGroup early-return on validation fail does NOT tou
   const groupAfter = await getGroup(g.id);
   assert.deepEqual(groupAfter.renderOrder, groupBefore.renderOrder);
 });
+
+test('B-148 9b: moveFloatingTab MOVE_FLOATING strips source + appends target renderOrder', async () => {
+  const gA = await createGroup({ name: 'A', color: 'blue', parentId: null, sortOrder: 0 });
+  const gB = await createGroup({ name: 'B', color: 'red', parentId: null, sortOrder: 1 });
+  const itA = await createItem({ title: 'A', url: 'https://x.example/A', groupId: gA.id, sortOrder: 0 });
+  const itB = await createItem({ title: 'B', url: 'https://x.example/B', groupId: gB.id, sortOrder: 0 });
+
+  const { appendFloatingGroup, moveFloatingTab } = await import('../background/tabs/floating-groups.js');
+  /* Seed the live tab via chrome.tabs.create so chrome.tabs.get(tabId) succeeds. */
+  const tab = await chrome.tabs.create({ url: 'https://x.example/F', windowId: 1 });
+  await appendFloatingGroup({
+    groupId: gA.id, parentItemId: itA.id, windowId: tab.windowId,
+    tabIndex: tab.index, url: tab.url, savedAt: Date.now(), liveTabId: tab.id,
+  });
+  /* Verify the source append happened. */
+  const gABefore = await getGroup(gA.id);
+  assert.equal(gABefore.renderOrder.length, 2); /* item:itA + floating:<new> */
+
+  /* Move the floating tab from gA → gB. */
+  const ok = await moveFloatingTab(tab.id, gA.id, gB.id, 0);
+  assert.equal(ok, true);
+
+  const gAAfter = await getGroup(gA.id);
+  const gBAfter = await getGroup(gB.id);
+  /* gA.renderOrder loses the floating ref. */
+  assert.equal(gAAfter.renderOrder.length, 1);
+  assert.equal(gAAfter.renderOrder[0], 'item:' + itA.id);
+  /* gB.renderOrder gains the floating ref (preserved floatingTabId). */
+  assert.equal(gBAfter.renderOrder.length, 2);
+  assert.equal(gBAfter.renderOrder[0], 'item:' + itB.id);
+  assert.match(gBAfter.renderOrder[1], /^floating:[A-Z0-9]+$/);
+});
+
+test('B-148 9b: moveFloatingTab DETACH strips source.renderOrder only', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const it = await createItem({ title: 'T', url: 'https://x.example/T', groupId: g.id, sortOrder: 0 });
+  const { appendFloatingGroup, moveFloatingTab } = await import('../background/tabs/floating-groups.js');
+  const tab = await chrome.tabs.create({ url: 'https://x.example/F', windowId: 1 });
+  await appendFloatingGroup({
+    groupId: g.id, parentItemId: it.id, windowId: tab.windowId,
+    tabIndex: tab.index, url: tab.url, savedAt: Date.now(), liveTabId: tab.id,
+  });
+  const gBefore = await getGroup(g.id);
+  assert.equal(gBefore.renderOrder.length, 2);
+
+  /* DETACH (targetGroupId = null) — note: sourceGroupId === null && targetGroupId === null is rejected,
+     and sourceGroupId === targetGroupId is rejected; DETACH path is sourceGroupId set, targetGroupId null. */
+  const ok = await moveFloatingTab(tab.id, g.id, null, 0);
+  assert.equal(ok, true);
+
+  const gAfter = await getGroup(g.id);
+  assert.equal(gAfter.renderOrder.length, 1);
+  assert.equal(gAfter.renderOrder[0], 'item:' + it.id);
+});
+
+test('B-148 9b: moveFloatingTab ATTACH appends target.renderOrder only', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const it = await createItem({ title: 'T', url: 'https://x.example/T', groupId: g.id, sortOrder: 0 });
+  const { moveFloatingTab } = await import('../background/tabs/floating-groups.js');
+  const tab = await chrome.tabs.create({ url: 'https://x.example/F', windowId: 1 });
+
+  /* ATTACH (sourceGroupId = null) — the target group has at least one saved item to anchor under. */
+  const ok = await moveFloatingTab(tab.id, null, g.id, 0);
+  assert.equal(ok, true);
+
+  const gAfter = await getGroup(g.id);
+  assert.equal(gAfter.renderOrder.length, 2); /* item:it + floating:<freshUlid> */
+  assert.equal(gAfter.renderOrder[0], 'item:' + it.id);
+  assert.match(gAfter.renderOrder[1], /^floating:[A-Z0-9]+$/);
+});
+
+test('B-148 9b: moveFloatingTab race-fail (source missing) does NOT touch any renderOrder', async () => {
+  const gA = await createGroup({ name: 'A', color: 'blue', parentId: null, sortOrder: 0 });
+  const gB = await createGroup({ name: 'B', color: 'red', parentId: null, sortOrder: 1 });
+  await createItem({ title: 'A', url: 'https://x.example/A', groupId: gA.id, sortOrder: 0 });
+  await createItem({ title: 'B', url: 'https://x.example/B', groupId: gB.id, sortOrder: 0 });
+  /* No floating record exists for tabId 99999 in gA — race-fail. */
+  const tab = await chrome.tabs.create({ url: 'https://x.example/F', windowId: 1 });
+  const { moveFloatingTab } = await import('../background/tabs/floating-groups.js');
+  const ok = await moveFloatingTab(tab.id, gA.id, gB.id, 0);
+  assert.equal(ok, false, 'race-fail expected because no source record exists in gA for this tabId');
+  /* Neither group's renderOrder changes. */
+  const gAAfter = await getGroup(gA.id);
+  const gBAfter = await getGroup(gB.id);
+  assert.equal(gAAfter.renderOrder.length, 1); /* just the item ref */
+  assert.equal(gBAfter.renderOrder.length, 1);
+});

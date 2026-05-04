@@ -626,6 +626,12 @@ export async function moveFloatingTab(tabId, sourceGroupId, targetGroupId, inser
   }
 
   let ok = true;
+
+  /* B-148 §3.5 — closure carries source/target floatingTabIds + groupIds
+     from the floating-groups mutator to the groups mutator. */
+  let appliedSourceFloatingTabId = null;
+  let appliedTargetFloatingTabId = null;
+
   await writeTransaction([{
     partition: PARTITION_FLOATING_GROUPS,
     mutator: (current) => {
@@ -642,6 +648,9 @@ export async function moveFloatingTab(tabId, sourceGroupId, targetGroupId, inser
         }
         sourceRecord = arr[sourceIdx];
         arr.splice(sourceIdx, 1);
+        if (sourceRecord && typeof sourceRecord.floatingTabId === 'string') {
+          appliedSourceFloatingTabId = sourceRecord.floatingTabId;
+        }
       }
 
       /* Renumber source bucket (DETACH or MOVE_FLOATING). */
@@ -694,6 +703,7 @@ export async function moveFloatingTab(tabId, sourceGroupId, targetGroupId, inser
           if (r.sortOrder >= clampedIdx) r.sortOrder += 1;
         }
 
+        appliedTargetFloatingTabId = floatingTabId;
         arr.push({
           floatingTabId,
           groupId: targetGroupId,
@@ -714,6 +724,46 @@ export async function moveFloatingTab(tabId, sourceGroupId, targetGroupId, inser
       }
 
       return arr;
+    },
+  },
+  {
+    /* B-148 §3.5 (S44, v6→v7) — strip source.renderOrder + append
+       target.renderOrder per the move semantics:
+       - DETACH (targetGroupId null): strip source only
+       - ATTACH (sourceGroupId null): append target only
+       - MOVE_FLOATING (both non-null): strip source AND append target
+       Race-fail path (ok === false) skips all writes. */
+    partition: PARTITION_GROUPS,
+    mutator: (groups) => {
+      if (!ok) return groups;
+      const next = [...groups];
+      let changed = false;
+      if (sourceGroupId !== null && appliedSourceFloatingTabId !== null) {
+        const idx = next.findIndex((g) => g.id === sourceGroupId);
+        if (idx >= 0) {
+          const g = next[idx];
+          const ref = 'floating:' + appliedSourceFloatingTabId;
+          if (Array.isArray(g.renderOrder) && g.renderOrder.includes(ref)) {
+            const filtered = g.renderOrder.filter((r) => r !== ref);
+            next[idx] = { ...g, renderOrder: filtered, updatedAt: Date.now() };
+            changed = true;
+          }
+        }
+      }
+      if (targetGroupId !== null && appliedTargetFloatingTabId !== null) {
+        const idx = next.findIndex((g) => g.id === targetGroupId);
+        if (idx >= 0) {
+          const g = next[idx];
+          const ref = 'floating:' + appliedTargetFloatingTabId;
+          const renderOrder = Array.isArray(g.renderOrder) ? [...g.renderOrder] : [];
+          if (!renderOrder.includes(ref)) {
+            renderOrder.push(ref);
+            next[idx] = { ...g, renderOrder, updatedAt: Date.now() };
+            changed = true;
+          }
+        }
+      }
+      return changed ? next : groups;
     },
   }]);
 
