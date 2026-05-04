@@ -103,3 +103,62 @@ test('B-148 8c: updateItem({groupId: same}) is a no-op for renderOrder (no dupli
   const gAfter = await getGroup(g.id);
   assert.deepEqual(gAfter.renderOrder, ['item:' + it.id]);
 });
+
+test('B-148 8d: bulkCreateItems appends multiple item:<id> refs to target Group renderOrder', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const { bulkCreateItems } = await import('../background/storage/items.js');
+  const result = await bulkCreateItems([
+    { title: 'A', url: 'https://x.example/A', groupId: g.id },
+    { title: 'B', url: 'https://x.example/B', groupId: g.id },
+    { title: 'C', url: 'https://x.example/C', groupId: g.id },
+  ]);
+  assert.equal(result.created.length, 3);
+  const groupAfter = await getGroup(g.id);
+  assert.equal(groupAfter.renderOrder.length, 3);
+  /* Append-in-input-order. */
+  assert.deepEqual(groupAfter.renderOrder, result.created.map((it) => 'item:' + it.id));
+});
+
+test('B-148 8d: bulkCreateItems splits refs across multiple target groups', async () => {
+  const gA = await createGroup({ name: 'A', color: 'blue', parentId: null, sortOrder: 0 });
+  const gB = await createGroup({ name: 'B', color: 'red', parentId: null, sortOrder: 1 });
+  const { bulkCreateItems } = await import('../background/storage/items.js');
+  const result = await bulkCreateItems([
+    { title: 'A1', url: 'https://x.example/A1', groupId: gA.id },
+    { title: 'B1', url: 'https://x.example/B1', groupId: gB.id },
+    { title: 'A2', url: 'https://x.example/A2', groupId: gA.id },
+  ]);
+  assert.equal(result.created.length, 3);
+  const gAAfter = await getGroup(gA.id);
+  const gBAfter = await getGroup(gB.id);
+  assert.equal(gAAfter.renderOrder.length, 2);
+  assert.equal(gBAfter.renderOrder.length, 1);
+});
+
+test('B-148 8d: bulkCreateItems skips Ungrouped (groupId null) from any Group write', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const { bulkCreateItems } = await import('../background/storage/items.js');
+  const result = await bulkCreateItems([
+    { title: 'A', url: 'https://x.example/A', groupId: g.id },
+    { title: 'B', url: 'https://x.example/B', groupId: null },
+  ]);
+  assert.equal(result.created.length, 2);
+  const groupAfter = await getGroup(g.id);
+  assert.equal(groupAfter.renderOrder.length, 1);
+  assert.match(groupAfter.renderOrder[0], /^item:/);
+});
+
+test('B-148 8d: bulkCreateItems skipped FK-failed candidate is not in renderOrder', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const { bulkCreateItems } = await import('../background/storage/items.js');
+  const result = await bulkCreateItems([
+    { title: 'A', url: 'https://x.example/A', groupId: g.id },
+    { title: 'B', url: 'https://x.example/B', groupId: 'GHOST_GROUP_ID' },
+  ]);
+  assert.equal(result.created.length, 1);
+  assert.equal(result.skipped.length, 1);
+  const groupAfter = await getGroup(g.id);
+  /* Only the successful one should be in renderOrder. */
+  assert.equal(groupAfter.renderOrder.length, 1);
+  assert.equal(groupAfter.renderOrder[0], 'item:' + result.created[0].id);
+});

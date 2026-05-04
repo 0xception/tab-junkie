@@ -424,6 +424,7 @@ export async function bulkCreateItems(inputs) {
   try {
     await writeTransaction([
       {
+        // Op 1: snapshot groups for items-mutator FK check; return unchanged.
         partition: PARTITION_GROUPS,
         mutator: (groups) => {
           groupsSnapshot = groups;
@@ -431,6 +432,7 @@ export async function bulkCreateItems(inputs) {
         },
       },
       {
+        // Op 2: FK-check candidates, commit items, populate txCreated.
         partition: PARTITION_ITEMS,
         mutator: (items) => {
           txCreated = [];
@@ -475,6 +477,33 @@ export async function bulkCreateItems(inputs) {
             if (normalised) txCreated[i] = normalised;
           }
           return merged;
+        },
+      },
+      {
+        // Op 3: append item:<id> refs to each affected Group's renderOrder.
+        // Receives the same groups array op 1 returned (unchanged snapshot)
+        // and now has access to txCreated populated by op 2.
+        // Ungrouped items (groupId === null) are skipped — they have no Group.
+        partition: PARTITION_GROUPS,
+        mutator: (groups) => {
+          if (txCreated.length === 0) return groups;
+          // Build a map of groupId → ordered list of new item refs.
+          const refsByGroup = new Map();
+          for (const item of txCreated) {
+            if (item.groupId === null) continue;
+            const refs = refsByGroup.get(item.groupId);
+            if (refs) {
+              refs.push('item:' + item.id);
+            } else {
+              refsByGroup.set(item.groupId, ['item:' + item.id]);
+            }
+          }
+          if (refsByGroup.size === 0) return groups;
+          return groups.map((g) => {
+            const newRefs = refsByGroup.get(g.id);
+            if (!newRefs) return g;
+            return { ...g, renderOrder: [...(g.renderOrder ?? []), ...newRefs] };
+          });
         },
       },
     ]);
