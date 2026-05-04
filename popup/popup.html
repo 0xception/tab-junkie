@@ -33,9 +33,14 @@
         <div id="qs-skeleton" class="qs-skeleton" hidden aria-hidden="true"></div>
       </div>
       <div id="qs-empty" hidden aria-hidden="true"></div>
+      <!-- B-161 (S43, 2026-05-03): "Open Settings" button removed (the
+           settings page is reachable via the sidepanel gear icon and the
+           Alt+, keyboard shortcut; product-owner judged it redundant on
+           the popup). The "Open side panel" button stays for mouse users;
+           keyboard users can press Tab from anywhere in the popup to
+           trigger the same action (see popup.js Tab handler). -->
       <div id="qs-footer">
         <button id="popup-open-sidepanel-btn" type="button" aria-label="Open side panel">Open side panel</button>
-        <button id="popup-open-settings-btn" type="button" aria-label="Open Settings">Open Settings</button>
         <div id="qs-sidepanel-error" class="qs-visually-hidden" role="alert" aria-live="assertive" aria-atomic="true"></div>
       </div>
     </div>

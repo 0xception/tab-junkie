@@ -2,6 +2,18 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.38.2] — 2026-05-03 (B-161 popup Tab shortcut + settings button removed)
+
+Same-day follow-on polish.
+
+### UX
+- **Tab opens side panel directly (B-161 §1)** — pressing Tab in the popup (with or without Shift) now opens the side panel immediately, same as clicking the "Open side panel" button. Up/Down arrows continue to navigate result rows; Enter activates the selected row; Escape closes the popup.
+- **"Open Settings" button removed (B-161 §2)** — the redundant settings button has been removed from the popup. Settings is still reachable via the sidepanel gear icon and the Alt+, keyboard shortcut.
+
+### Internal
+- Test count: 1930 → 1930 PASS (deleted `tests/b095-popup-settings-btn.test.js` (349 LOC, no longer applies); added `tests/b161-popup-tab-shortcut.test.js` (7 source-text pins). Net: 0).
+- ~70 LOC of focus-cycle logic in `_onKeyDown` reduced to ~5 LOC.
+
 ## [1.38.1] — 2026-05-03 (B-160 popup recency + sparse fallback)
 
 Same-day follow-on to v1.38.0. Popup's default view now reflects any-surface navigation activity (was popup-only) AND padding from most-recently-accessed items when recency is empty.

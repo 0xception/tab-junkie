@@ -4,6 +4,18 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.38.2 — B-161 popup Tab shortcut + settings button removed (2026-05-03)
+
+**Tagged on `release/v2`.**
+
+Same-day polish:
+- **§1 Tab opens side panel** — Tab (with/without Shift) directly invokes the sidepanel-open handler. Up/Down arrows still navigate rows.
+- **§2 Settings button removed** — popup-side settings button + handler + import all deleted. Settings still reachable via sidepanel gear icon + Alt+, shortcut.
+
+Tests: 1930 PASS (net unchanged: deleted b095 349 LOC, added b161 7 pins).
+
+---
+
 ## v1.38.1 — B-160 popup recency + sparse fallback (2026-05-03)
 
 **Tagged on `release/v2`.**
