@@ -507,3 +507,73 @@ test('B-148 10: commitImport with empty group sets renderOrder to []', async () 
   const g = await getGroup('g1');
   assert.deepEqual(g.renderOrder, []);
 });
+
+test('B-148 hotfix: bulkReorderItems reshuffles Group.renderOrder item: slots to match new sortOrder', async () => {
+  const g = await createGroup({ name: 'G', color: 'blue', parentId: null, sortOrder: 0 });
+  const itA = await createItem({ title: 'A', url: 'https://x.example/A', groupId: g.id, sortOrder: 0 });
+  const itB = await createItem({ title: 'B', url: 'https://x.example/B', groupId: g.id, sortOrder: 1 });
+  const itC = await createItem({ title: 'C', url: 'https://x.example/C', groupId: g.id, sortOrder: 2 });
+  /* Pre-condition — renderOrder built by createItem appends. */
+  const gBefore = await getGroup(g.id);
+  assert.deepEqual(gBefore.renderOrder, ['item:' + itA.id, 'item:' + itB.id, 'item:' + itC.id]);
+
+  /* Reorder: A → end (so new order is B, C, A). */
+  const { bulkReorderItems } = await import('../background/storage/items.js');
+  await bulkReorderItems([
+    { id: itA.id, sortOrder: 2 },
+    { id: itB.id, sortOrder: 0 },
+    { id: itC.id, sortOrder: 1 },
+  ]);
+
+  const gAfter = await getGroup(g.id);
+  assert.deepEqual(gAfter.renderOrder, ['item:' + itB.id, 'item:' + itC.id, 'item:' + itA.id]);
+});
+
+test('B-148 hotfix: bulkReorderItems preserves floating: ref positions in interleaved renderOrder', async () => {
+  /* Seed manually so we can plant a floating: ref between item: refs. */
+  await __resetMock();
+  const itA = { id: 'iA', title: 'A', url: 'https://x.example/A', groupId: 'g1', sortOrder: 0, createdAt: 1, updatedAt: 1 };
+  const itB = { id: 'iB', title: 'B', url: 'https://x.example/B', groupId: 'g1', sortOrder: 1, createdAt: 1, updatedAt: 1 };
+  const group = {
+    id: 'g1', name: 'G', color: 'blue', parentId: null, sortOrder: 0, collapsed: false,
+    createdAt: 1, updatedAt: 1,
+    /* Interleaved renderOrder — saved/floating/saved. */
+    renderOrder: ['item:iA', 'floating:F1', 'item:iB'],
+  };
+  const { writeTransaction } = await import('../background/storage/write-transaction.js');
+  const { PARTITION_GROUPS, PARTITION_ITEMS } = await import('../background/storage/partitions.js');
+  await writeTransaction([
+    { partition: PARTITION_GROUPS, mutator: () => [group] },
+    { partition: PARTITION_ITEMS, mutator: () => [itA, itB] },
+  ]);
+
+  /* Reorder: swap A and B. */
+  const { bulkReorderItems } = await import('../background/storage/items.js');
+  await bulkReorderItems([
+    { id: 'iA', sortOrder: 1 },
+    { id: 'iB', sortOrder: 0 },
+  ]);
+
+  const gAfter = await getGroup('g1');
+  /* Floating ref position preserved at slot 1; item: slots reshuffled. */
+  assert.deepEqual(gAfter.renderOrder, ['item:iB', 'floating:F1', 'item:iA']);
+});
+
+test('B-148 hotfix: bulkReorderItems cross-group strips item: from source group renderOrder', async () => {
+  const gA = await createGroup({ name: 'A', color: 'blue', parentId: null, sortOrder: 0 });
+  const gB = await createGroup({ name: 'B', color: 'red', parentId: null, sortOrder: 1 });
+  const it = await createItem({ title: 'T', url: 'https://x.example/T', groupId: gA.id, sortOrder: 0 });
+  const gABefore = await getGroup(gA.id);
+  assert.deepEqual(gABefore.renderOrder, ['item:' + it.id]);
+
+  const { bulkReorderItems } = await import('../background/storage/items.js');
+  await bulkReorderItems([
+    { id: it.id, sortOrder: 0, groupId: gB.id },
+  ]);
+
+  const gAAfter = await getGroup(gA.id);
+  const gBAfter = await getGroup(gB.id);
+  assert.deepEqual(gAAfter.renderOrder, []);
+  /* Target group renderOrder gets the moved item appended at end. */
+  assert.deepEqual(gBAfter.renderOrder, ['item:' + it.id]);
+});

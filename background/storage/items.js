@@ -731,6 +731,13 @@ export async function bulkReorderItems(updates) {
   const now = Date.now();
 
   let groupsSnapshot = [];
+  /* B-148 §3.5 (S44, v6→v7) — closure carries the affected items + per-group
+     summary across the items mutator → groups mutator handoff so the groups
+     mutator can reshuffle each affected Group.renderOrder's `item:*` slots
+     without re-deriving its own affected-group set. */
+  let postUpdateItems = null;
+  let affectedGroupsForRO = new Set();
+  let crossGroupMovedRefs = new Map(); /* sourceGroupId → Set<itemId> stripped */
   await writeTransaction([
     {
       partition: PARTITION_GROUPS,
@@ -760,7 +767,17 @@ export async function bulkReorderItems(updates) {
           updated.push(u.id);
           const src = itemById.get(u.id);
           if (src) affectedGroups.add(src.groupId);
-          if ('groupId' in u) affectedGroups.add(u.groupId ?? null);
+          if ('groupId' in u) {
+            affectedGroups.add(u.groupId ?? null);
+            /* B-148 — track cross-group moves so the groups mutator can
+               strip the item:<id> ref from the source group's renderOrder. */
+            const srcGid = src ? src.groupId : null;
+            const tgtGid = u.groupId ?? null;
+            if (srcGid !== null && srcGid !== tgtGid) {
+              if (!crossGroupMovedRefs.has(srcGid)) crossGroupMovedRefs.set(srcGid, new Set());
+              crossGroupMovedRefs.get(srcGid).add(u.id);
+            }
+          }
         }
 
         /* Apply per-item updates. */
@@ -783,7 +800,71 @@ export async function bulkReorderItems(updates) {
           out = normaliseGroupSortOrders(gid, out);
         }
 
+        /* B-148 — pass post-update items + affected groups to the groups
+           mutator below so it can reshuffle renderOrder slots. */
+        postUpdateItems = out;
+        affectedGroupsForRO = affectedGroups;
+
         return out;
+      },
+    },
+    {
+      /* B-148 §3.5 (S44, v6→v7) — reshuffle each affected group's
+         Group.renderOrder so the `item:<id>` slot order matches the new
+         Item.sortOrder, AND strip any item:<id> refs that left the group
+         via cross-group move. Preserves floating-row positions in the
+         interleaved order — only the saved-bookmark slots get reshuffled.
+         No-op when a group has no renderOrder yet (cold-start bootstrap
+         will derive). */
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        if (!postUpdateItems || affectedGroupsForRO.size === 0) return groups;
+        let changed = false;
+        const next = groups.map((g) => {
+          if (!affectedGroupsForRO.has(g.id)) return g;
+          /* Strip refs for items that left this group (cross-group moves). */
+          const movedAway = crossGroupMovedRefs.get(g.id);
+          let workingRO = Array.isArray(g.renderOrder) ? g.renderOrder : [];
+          if (movedAway && movedAway.size > 0) {
+            workingRO = workingRO.filter((ref) => {
+              if (!ref.startsWith('item:')) return true;
+              return !movedAway.has(ref.slice('item:'.length));
+            });
+          }
+          /* Reshuffle item: slots to match new sortOrder. Build the
+             slot-order list of items currently in this group, sorted by
+             new sortOrder asc. */
+          const groupItemsSorted = postUpdateItems
+            .filter((it) => (it.groupId ?? null) === g.id)
+            .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+          let slotIdx = 0;
+          const reshuffled = workingRO.map((ref) => {
+            if (!ref.startsWith('item:')) return ref;
+            const nextItem = groupItemsSorted[slotIdx++];
+            return nextItem ? 'item:' + nextItem.id : ref;
+          });
+          /* Append item: refs for items that joined this group via cross-
+             group move but aren't yet represented in workingRO. Also handles
+             the legacy v6 case where the target group had no renderOrder
+             yet — newly-arrived items get appended (first interleave seed). */
+          const refsInWorking = new Set(reshuffled.filter((r) => r.startsWith('item:')));
+          for (const it of groupItemsSorted) {
+            const ref = 'item:' + it.id;
+            if (!refsInWorking.has(ref)) reshuffled.push(ref);
+          }
+          /* Detect actual change (skip the rewrite when slot order matches). */
+          const wasArr = Array.isArray(g.renderOrder);
+          const same = wasArr
+            && reshuffled.length === g.renderOrder.length
+            && reshuffled.every((r, i) => r === g.renderOrder[i]);
+          if (same) return g;
+          /* Skip the write if reshuffled is empty AND the prior renderOrder
+             was missing/empty — no signal to add. */
+          if (!wasArr && reshuffled.length === 0) return g;
+          changed = true;
+          return { ...g, renderOrder: reshuffled, updatedAt: now };
+        });
+        return changed ? next : groups;
       },
     },
   ]);
