@@ -4939,19 +4939,48 @@ itemListEl.addEventListener('drop', async (e) => {
             /* B-148 multi-select hotfix — collect ALL selected refs (not just
                the grabbed row), preserve their visual order, strip them from
                rowRefs, then re-insert as a contiguous block at the drop
-               position. _computeMultiTabDragIds already filtered draggedTabIds
-               to the source group's floating class — every selected tabId
-               maps to a floating: ref via the parallel rowTabIds + rowRefs
-               arrays. The insertIndex shifts backward by the number of
-               selected refs ABOVE the original pendingInsertIndex so the
-               block lands at the visually-intuitive drop point. */
-            const selectedSet = new Set(state.draggedTabIds);
+               position.
+
+               Coordinate-frame note (off-by-one fix): _computeTabDropTarget
+               filters rowMidlines by `id !== draggedTabId` BEFORE computing
+               pendingInsertIndex. So pendingInsertIndex is a position in
+               `rowRefs minus the grabbed row` — NOT in the full rowRefs.
+               To map it into refsWithoutBlock (full rowRefs minus ALL
+               selected refs), subtract the number of OTHER-selected
+               siblings (selected but not the grabbed row) that appear
+               above pendingInsertIndex in the filtered-by-draggedTabId
+               array. Single-select case has zero such siblings — insertAt
+               equals pendingInsertIndex unchanged. */
+            const selectedTabIds = new Set(state.draggedTabIds);
+            const draggedTabId = state.draggedTabId;
+
+            /* Build (a) selectedRefsInVisualOrder — block to re-insert,
+                       (b) refsWithoutBlock — rowRefs minus all selected,
+                       (c) the filtered-by-draggedTabId-only ROW INDEX TO
+                           SIBLING-SELECTED MAP, used to compute siblingsAbove. */
             const selectedRefsInVisualOrder = [];
-            let selectedAboveCount = 0;
+            const refsWithoutBlock = [];
+            let siblingsAbove = 0;
+            let filteredIdx = 0; /* position in (rowRefs minus draggedTabId) */
             for (let i = 0; i < cluster.rowRefs.length; i++) {
-              if (selectedSet.has(cluster.rowTabIds[i])) {
-                selectedRefsInVisualOrder.push(cluster.rowRefs[i]);
-                if (i < state.pendingInsertIndex) selectedAboveCount += 1;
+              const ref = cluster.rowRefs[i];
+              const tabId = cluster.rowTabIds[i];
+              if (selectedTabIds.has(tabId)) {
+                selectedRefsInVisualOrder.push(ref);
+              } else {
+                refsWithoutBlock.push(ref);
+              }
+              /* Walk filtered-by-draggedTabId-only positions in lock-step. */
+              if (tabId !== draggedTabId) {
+                /* If this row is in the filtered array AND is a selected
+                   sibling (not the grabbed row) AND its filtered position
+                   is below pendingInsertIndex, count it. */
+                if (filteredIdx < state.pendingInsertIndex
+                    && selectedTabIds.has(tabId)
+                    && tabId !== draggedTabId) {
+                  siblingsAbove += 1;
+                }
+                filteredIdx += 1;
               }
             }
             /* Defensive: if no selected refs resolved (cache gen mismatch
@@ -4960,11 +4989,9 @@ itemListEl.addEventListener('drop', async (e) => {
             const blockRefs = selectedRefsInVisualOrder.length > 0
               ? selectedRefsInVisualOrder
               : [draggedRef];
-            const blockRefSet = new Set(blockRefs);
-            const refsWithoutBlock = cluster.rowRefs.filter((ref) => !blockRefSet.has(ref));
             const insertAt = Math.max(
               0,
-              Math.min(state.pendingInsertIndex - selectedAboveCount, refsWithoutBlock.length),
+              Math.min(state.pendingInsertIndex - siblingsAbove, refsWithoutBlock.length),
             );
             const newRenderOrder = [
               ...refsWithoutBlock.slice(0, insertAt),
