@@ -5160,6 +5160,127 @@ itemListEl.addEventListener('drop', async (e) => {
       return;
     }
 
+    /* B-148 §3.7 — saved-item drop INTO a floating-zone position. The
+       hit-test produced a floating-anchor target; the dispatcher computes
+       a new Group.renderOrder for the destination group with the dragged
+       refs spliced at the anchor position, then dispatches
+       MSG_REORDER_FLOATING_MEMBERS with the full renderOrder array.
+
+       Same-group case: only the renderOrder write is dispatched
+       (Group.renderOrder is the authoritative visual order; Item.sortOrder
+       drift is benign — cold-start sweep heals it).
+
+       Cross-group case: MSG_BULK_REORDER_ITEMS is dispatched FIRST to
+       update item.groupId + sortOrder, then MSG_REORDER_FLOATING_MEMBERS
+       writes the destination group's renderOrder. Source group's
+       renderOrder retains a stale item:<id> ref; the resolver filters
+       silently and cold-start sweep cleans it up. Cross-group + interleave
+       drag is acceptable for v1.39.0 with this benign trailing edge.
+    */
+    if (state.pendingIsFloatingAnchor && state.pendingAnchorRef && state.pendingDestGroupId) {
+      /* AC24 — race guard for renderOrder reads. */
+      if (state.cachedItemsGen !== _cachedItemsGen) {
+        try {
+          const itemsResp = await sendMessage(MSG_LIST_ITEMS);
+          _cachedItems = itemsResp.items;
+          _cachedItemsGen += 1;
+          const groupsResp = await sendMessage(MSG_LIST_GROUPS);
+          _cachedGroups = groupsResp;
+          _cachedGroupsGen += 1;
+        } catch (err) {
+          console.warn('[tab-junkie:b148] refresh on broadcast race failed', err);
+          showToast('Couldn’t save new order — try again');
+          return;
+        }
+      }
+
+      const destGroupId = state.pendingDestGroupId;
+      const destGroup = _cachedGroups.find((g) => g.id === destGroupId);
+      const currentRO = (destGroup && Array.isArray(destGroup.renderOrder))
+        ? destGroup.renderOrder
+        : null;
+      if (!currentRO) {
+        /* No renderOrder yet — the destination group hasn't been
+           bootstrapped (probably a fresh group with no floating tabs).
+           Fall through to the legacy path by re-routing to a saved-item
+           target. Since the user clearly intended an interleave drop,
+           the legacy path's append-at-end behavior is the closest
+           approximation; cold-start sweep will derive the correct
+           renderOrder on the next reload. */
+        showToast('Drop position requires a refresh — please retry.');
+        return;
+      }
+
+      const draggedRefs = [...state.payloadItemIds].map((id) => 'item:' + id);
+      const draggedRefSet = new Set(draggedRefs);
+      const filtered = currentRO.filter((r) => !draggedRefSet.has(r));
+      let anchorIdx = filtered.indexOf(state.pendingAnchorRef);
+      if (anchorIdx < 0) anchorIdx = filtered.length;
+      if (state.pendingInsertPosition === 'after') anchorIdx += 1;
+      const newRenderOrder = [
+        ...filtered.slice(0, anchorIdx),
+        ...draggedRefs,
+        ...filtered.slice(anchorIdx),
+      ];
+
+      /* Cross-group detection: any payload item whose source group differs
+         from destGroupId. */
+      const isCrossGroup = state.payloadItemIds.some((id) => {
+        const it = _cachedItems.find((x) => x.id === id);
+        return it && (it.groupId ?? null) !== destGroupId;
+      });
+
+      try {
+        if (isCrossGroup) {
+          /* Step A — bulkReorderItems handles groupId + sortOrder. */
+          const destSiblings = _cachedItems
+            .filter((it) => (it.groupId ?? null) === destGroupId
+              && !state.payloadSet.has(it.id))
+            .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+          const sortedIds = [...state.payloadItemIds].sort((a, b) => {
+            const ia = _cachedItems.find((x) => x.id === a);
+            const ib = _cachedItems.find((x) => x.id === b);
+            return (ia?.sortOrder ?? 0) - (ib?.sortOrder ?? 0);
+          });
+          /* Append-at-end is fine because Group.renderOrder takes
+             precedence visually; sortOrder just needs to be valid. */
+          const updates = computeMultiItemReorder(_cachedItems, sortedIds, destGroupId, destSiblings.length);
+          if (updates.length > 0) {
+            await sendMessage(MSG_BULK_REORDER_ITEMS, { updates });
+          }
+        }
+
+        /* Step B — Group.renderOrder write (the visual-truth dispatch). */
+        const resp = await sendMessage(MSG_REORDER_FLOATING_MEMBERS, {
+          groupId: destGroupId,
+          renderOrder: newRenderOrder,
+        });
+        if (resp && resp.reordered === false) {
+          showToast(resp.reason === 'ERR_VALIDATION'
+            ? 'Couldn’t reorder — please retry.'
+            : 'Item list changed during drag — please retry.');
+          return;
+        }
+
+        /* Re-fetch + renderAll so the sidepanel reflects the new order. */
+        const [itemsResp, groups] = await Promise.all([
+          sendMessage(MSG_LIST_ITEMS),
+          sendMessage(MSG_LIST_GROUPS),
+        ]);
+        _setWindowOrdinalMap(itemsResp.windowMap || {});
+        renderAll(itemsResp.items, groups, itemsResp.liveStates,
+          itemsResp.driftRecords, itemsResp.openTabs, itemsResp.floatingMembers);
+        _applyWindowMapToUI();
+
+        /* Multi-drop selection-clear parity with _commitReorderAndRender. */
+        if (state.isMulti) _clearSelection();
+      } catch (err) {
+        console.warn('[tab-junkie:b148] interleave-drop failed', err);
+        showToast('Couldn’t save new order — reverting');
+      }
+      return;
+    }
+
     if (!state.pendingTargetRowId) {
       return;
     }
@@ -5431,13 +5552,24 @@ itemListEl.addEventListener('dragend', () => {
    itemListEl scroll events; rebuilt lazily in the next rAF tick. */
 function _buildDragRectCache() {
   const rects = new Map();
+  /* B-148 §3.7 — floating-row rect cache, keyed by floatingTabId. Allows
+     the saved-item drop hit-test to recognize floating rows as drop
+     anchors so a saved bookmark can be dropped INTO the middle of a
+     group's floating zone (bidirectional interleave). */
+  const floatingRects = new Map();
   const rows = itemListEl.querySelectorAll('.item-row');
   for (const row of rows) {
+    if (row.dataset.floating === 'true') {
+      const ftId = row.dataset.floatingTabId;
+      if (ftId) floatingRects.set(ftId, row.getBoundingClientRect());
+      continue;
+    }
     const id = row.dataset.itemId;
     if (id) rects.set(id, row.getBoundingClientRect());
   }
   _dragRectCache = {
     rects,
+    floatingRects,
     containerRect: itemListEl.getBoundingClientRect(),
     invalid: false,
   };
@@ -5612,9 +5744,18 @@ function _dragTick() {
 
   _itemDragState.pendingTargetRowId = target.rowId;
   _itemDragState.pendingInsertPosition = target.insertPosition;
+  /* B-148 §3.7 — track floating-anchor metadata so the drop dispatcher
+     can route to the renderOrder write path. */
+  _itemDragState.pendingAnchorRef = target.anchorRef ?? null;
+  _itemDragState.pendingIsFloatingAnchor = !!target.isFloatingAnchor;
+  if (target.isFloatingAnchor && target.destGroupId) {
+    _itemDragState.pendingDestGroupId = target.destGroupId;
+  }
 
   /* SINGLE DOM write per frame: indicator transform + opacity. */
-  const rect = _dragRectCache.rects.get(target.rowId);
+  const rect = target.isFloatingAnchor
+    ? _dragRectCache.floatingRects.get(target.rowId)
+    : _dragRectCache.rects.get(target.rowId);
   const containerRect = _dragRectCache.containerRect;
   /* Account for itemListEl scrollTop so absolute position is container-local. */
   const scrollTop = itemListEl.scrollTop;
@@ -5655,6 +5796,28 @@ function _computeDropTarget(x, y) {
   /* B-030 — normal item-reorder target. */
   const row = hit.closest('.item-row');
   if (row) {
+    /* B-148 §3.7 — floating row as a drop anchor. The saved-item drag
+       can land between/on a floating row to insert the bookmark INTO
+       the interleaved order. Returns a target whose anchorRef carries
+       the floating: prefix so the drop dispatcher knows to write
+       Group.renderOrder via MSG_REORDER_FLOATING_MEMBERS. */
+    if (row.dataset.floating === 'true') {
+      const ftId = row.dataset.floatingTabId;
+      if (!ftId) return null;
+      const section = row.closest('.group-section[data-group-id]');
+      if (!section || !section.dataset || !section.dataset.groupId) return null;
+      const rect = _dragRectCache.floatingRects.get(ftId);
+      if (!rect) return null;
+      const mid = rect.top + rect.height / 2;
+      return {
+        type: 'item',
+        rowId: ftId,
+        anchorRef: 'floating:' + ftId,
+        destGroupId: section.dataset.groupId,
+        insertPosition: y < mid ? 'before' : 'after',
+        isFloatingAnchor: true,
+      };
+    }
     const id = row.dataset.itemId;
     /* B-025 — self-exclusion covers every payload member (not just initiator)
        so multi-drag pointer hover over a sibling in the payload is rejected. */
@@ -5663,7 +5826,7 @@ function _computeDropTarget(x, y) {
     const rect = _dragRectCache.rects.get(id);
     if (!rect) return null;
     const mid = rect.top + rect.height / 2;
-    return { type: 'item', rowId: id, insertPosition: y < mid ? 'before' : 'after' };
+    return { type: 'item', rowId: id, anchorRef: 'item:' + id, insertPosition: y < mid ? 'before' : 'after' };
   }
 
   /* B-025 UAT-3 fix — empty-group drop target (AC13e). When the pointer
