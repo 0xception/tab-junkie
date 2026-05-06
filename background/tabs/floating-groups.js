@@ -397,10 +397,18 @@ export async function appendFloatingGroup(entry) {
       },
     },
     {
-      /* B-148 §3.5 (S44, v6→v7) — append `floating:<floatingTabId>` to
+      /* B-148 §3.5 (S44, v6→v7) — insert `floating:<floatingTabId>` into
          target Group's renderOrder. Skipped on dedup-no-op path
          (didAppend === false). Defensive: if the group has been deleted
-         between the SW read and now, findIndex returns -1 and we skip. */
+         between the SW read and now, findIndex returns -1 and we skip.
+
+         B-148 hotfix (S44 polish): caller may pass an OPTIONAL
+         `entry.insertAfterRef` (`'item:<id>'` or `'floating:<id>'`) to
+         anchor the new ref directly after a specific row — used by the
+         opener-chain inheritance path so a new tab opened from page X
+         lands UNDER X visually, not at the end of the floating zone.
+         When the anchor isn't found in renderOrder OR no anchor was
+         supplied, fall back to append-at-end (legacy behavior). */
       partition: PARTITION_GROUPS,
       mutator: (groups) => {
         if (!didAppend) return groups;
@@ -409,7 +417,12 @@ export async function appendFloatingGroup(entry) {
         const g = groups[idx];
         const ref = 'floating:' + stamped.floatingTabId;
         const renderOrder = Array.isArray(g.renderOrder) ? [...g.renderOrder] : [];
-        renderOrder.push(ref);
+        let insertAt = renderOrder.length; /* default: append-at-end */
+        if (typeof entry.insertAfterRef === 'string' && entry.insertAfterRef.length > 0) {
+          const anchorIdx = renderOrder.indexOf(entry.insertAfterRef);
+          if (anchorIdx >= 0) insertAt = anchorIdx + 1;
+        }
+        renderOrder.splice(insertAt, 0, ref);
         const next = [...groups];
         next[idx] = { ...g, renderOrder, updatedAt: Date.now() };
         return next;

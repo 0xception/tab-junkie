@@ -577,3 +577,74 @@ test('B-148 hotfix: bulkReorderItems cross-group strips item: from source group 
   /* Target group renderOrder gets the moved item appended at end. */
   assert.deepEqual(gBAfter.renderOrder, ['item:' + it.id]);
 });
+
+test('B-148 hotfix: appendFloatingGroup with insertAfterRef inserts at anchor+1', async () => {
+  /* Seed a group with an existing interleaved renderOrder. */
+  await __resetMock();
+  const { writeTransaction } = await import('../background/storage/write-transaction.js');
+  const { PARTITION_GROUPS, PARTITION_ITEMS } = await import('../background/storage/partitions.js');
+  const itA = { id: 'iA', title: 'A', url: 'https://x.example/A', groupId: 'g1', sortOrder: 0, createdAt: 1, updatedAt: 1 };
+  const itB = { id: 'iB', title: 'B', url: 'https://x.example/B', groupId: 'g1', sortOrder: 1, createdAt: 1, updatedAt: 1 };
+  const group = {
+    id: 'g1', name: 'G', color: 'blue', parentId: null, sortOrder: 0, collapsed: false,
+    createdAt: 1, updatedAt: 1,
+    renderOrder: ['item:iA', 'item:iB'],
+  };
+  await writeTransaction([
+    { partition: PARTITION_GROUPS, mutator: () => [group] },
+    { partition: PARTITION_ITEMS, mutator: () => [itA, itB] },
+  ]);
+
+  const { appendFloatingGroup } = await import('../background/tabs/floating-groups.js');
+  await appendFloatingGroup({
+    groupId: 'g1',
+    parentItemId: 'iA',
+    windowId: 1,
+    tabIndex: 0,
+    url: 'https://x.example/F',
+    savedAt: Date.now(),
+    liveTabId: 9001,
+    insertAfterRef: 'item:iA',
+  });
+
+  const gAfter = await getGroup('g1');
+  /* The new floating ref should be at index 1 (between iA and iB), not at the end. */
+  assert.equal(gAfter.renderOrder.length, 3);
+  assert.equal(gAfter.renderOrder[0], 'item:iA');
+  assert.match(gAfter.renderOrder[1], /^floating:/);
+  assert.equal(gAfter.renderOrder[2], 'item:iB');
+});
+
+test('B-148 hotfix: appendFloatingGroup with unknown insertAfterRef falls back to append-at-end', async () => {
+  await __resetMock();
+  const { writeTransaction } = await import('../background/storage/write-transaction.js');
+  const { PARTITION_GROUPS, PARTITION_ITEMS } = await import('../background/storage/partitions.js');
+  const itA = { id: 'iA', title: 'A', url: 'https://x.example/A', groupId: 'g1', sortOrder: 0, createdAt: 1, updatedAt: 1 };
+  const group = {
+    id: 'g1', name: 'G', color: 'blue', parentId: null, sortOrder: 0, collapsed: false,
+    createdAt: 1, updatedAt: 1,
+    renderOrder: ['item:iA'],
+  };
+  await writeTransaction([
+    { partition: PARTITION_GROUPS, mutator: () => [group] },
+    { partition: PARTITION_ITEMS, mutator: () => [itA] },
+  ]);
+
+  const { appendFloatingGroup } = await import('../background/tabs/floating-groups.js');
+  await appendFloatingGroup({
+    groupId: 'g1',
+    parentItemId: 'iA',
+    windowId: 1,
+    tabIndex: 0,
+    url: 'https://x.example/F',
+    savedAt: Date.now(),
+    liveTabId: 9002,
+    insertAfterRef: 'item:GHOST_NOT_IN_RENDERORDER',
+  });
+
+  const gAfter = await getGroup('g1');
+  /* Fallback to append-at-end when anchor not found. */
+  assert.equal(gAfter.renderOrder.length, 2);
+  assert.equal(gAfter.renderOrder[0], 'item:iA');
+  assert.match(gAfter.renderOrder[1], /^floating:/);
+});
