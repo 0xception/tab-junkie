@@ -2142,10 +2142,16 @@ function _selectAll() {
  * a future broadcast-driven _clearSelection() from stealing an open picker.
  */
 function _clearSelection() {
-  for (const key of _selection) {
-    const row = _rowForSelectionKey(key);
-    _setRowSelected(row, false);
-  }
+  /* B-148 hotfix: clear via DOM sweep instead of Set-keyed lookup. The
+     Set→key→row lookup misses rows that match the key but aren't returned
+     by `_rowForSelectionKey` (which returns the FIRST querySelector match;
+     if the same key resolves to two DOM rows — e.g., a tab present in BOTH
+     the Open Tabs section AND a group's floating zone — only one gets
+     cleared, leaving the other visually selected after Set.clear()). The
+     querySelectorAll sweep covers every row carrying data-selected,
+     guaranteeing DOM ↔ Set parity post-clear. */
+  const stale = itemListEl.querySelectorAll('.item-row[data-selected="true"]');
+  for (const row of stale) _setRowSelected(row, false);
   _selection.clear();
   _lastSelectedId = null;
   _rangeAnchorId = null;
@@ -2155,8 +2161,22 @@ function _clearSelection() {
 /**
  * After renderAll() rebuilds the DOM, re-apply data-selected from the Set
  * and prune any keys that no longer resolve to a row (stale items, closed tabs).
+ *
+ * B-148 hotfix: defensive sweep BEFORE re-applying. Multiple async paths can
+ * leave stale `data-selected` on rows whose key has been pruned from the
+ * Set — including the patchFloatingMembersSections fast-path where rows are
+ * patched in place rather than rebuilt, and broadcast-driven re-renders that
+ * race with selection-clearing dispatch tails. The sweep makes _reapplySelection
+ * the sole source of DOM-vs-Set truth: clear everything first, then re-apply
+ * only the keys still in the Set.
  */
 function _reapplySelection() {
+  /* Sweep — clear data-selected on every row, including the .item-select
+     aria-checked mirror. Targets only rows that currently carry the
+     attribute so the no-op case (already-clean DOM) costs nothing. */
+  const stale = itemListEl.querySelectorAll('.item-row[data-selected="true"]');
+  for (const row of stale) _setRowSelected(row, false);
+
   const toRemove = [];
   const liveTabIds = new Set(_cachedOpenTabs.map((t) => t.tabId));
   for (const key of _selection) {
