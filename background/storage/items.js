@@ -195,7 +195,19 @@ export async function createItem(input) {
       partition: PARTITION_GROUPS,
       mutator: (groups) => {
         groupsSnapshot = groups;
-        return groups;
+        /* B-148 §3.5 (S44, v6→v7) — append `item:<newId>` to target Group's
+           renderOrder. Skips when groupId is null (Ungrouped items don't
+           belong to any group). The append-at-end policy matches existing
+           Item.sortOrder normalisation: createItem appends to the bucket. */
+        if (item.groupId === null) return groups;
+        const idx = groups.findIndex((g) => g.id === item.groupId);
+        if (idx < 0) return groups; /* defensive — assertGroupExists in items mutator throws if missing */
+        const g = groups[idx];
+        const renderOrder = Array.isArray(g.renderOrder) ? [...g.renderOrder] : [];
+        renderOrder.push('item:' + item.id);
+        const next = [...groups];
+        next[idx] = { ...g, renderOrder, updatedAt: Date.now() };
+        return next;
       },
     },
     {
@@ -236,29 +248,63 @@ export async function updateItem(id, patch) {
   if (typeof id !== 'string') throw new StorageError(ERR_VALIDATION, 'updateItem: id required');
   validatePatch(patch);
   let updated = null;
-  let groupsSnapshot = [];
+  // B-148 §3.5 — closure carries prevGroupId + groupChanged from items mutator
+  // to groups mutator. ops are ordered ITEMS-then-GROUPS so items runs first
+  // and sets these before the groups mutator executes.
+  let prevGroupId = undefined;
+  let groupChanged = false;
   await writeTransaction([
-    {
-      partition: PARTITION_GROUPS,
-      mutator: (groups) => {
-        groupsSnapshot = groups;
-        return groups;
-      },
-    },
     {
       partition: PARTITION_ITEMS,
       mutator: (items) => {
         const idx = items.findIndex((it) => it.id === id);
         if (idx < 0) throw new StorageError(ERR_NOT_FOUND, 'Item not found', { id });
-        // C2: FK check for groupId in the patch, inside the same tx.
-        if ('groupId' in patch) {
-          assertGroupExists(patch.groupId, groupsSnapshot);
+        prevGroupId = items[idx].groupId;
+        if ('groupId' in patch && patch.groupId !== prevGroupId) {
+          groupChanged = true;
         }
         const next = { ...items[idx], ...patch, id: items[idx].id, createdAt: items[idx].createdAt, updatedAt: Date.now() };
         updated = next;
         const out = items.slice();
         out[idx] = next;
         return out;
+      },
+    },
+    {
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        // C2: FK check for groupId in the patch (groups mutator has direct access).
+        if ('groupId' in patch) {
+          assertGroupExists(patch.groupId, groups);
+        }
+        // B-148 §3.5 — renderOrder mutation when groupId changes.
+        if (!groupChanged) return groups;
+        const ref = 'item:' + id;
+        const nextGroups = [...groups];
+        // 1. Strip from source group (if item was in a non-null group).
+        if (prevGroupId !== null && prevGroupId !== undefined) {
+          const srcIdx = nextGroups.findIndex((g) => g.id === prevGroupId);
+          if (srcIdx >= 0) {
+            const src = nextGroups[srcIdx];
+            if (Array.isArray(src.renderOrder) && src.renderOrder.includes(ref)) {
+              const filtered = src.renderOrder.filter((r) => r !== ref);
+              nextGroups[srcIdx] = { ...src, renderOrder: filtered, updatedAt: Date.now() };
+            }
+          }
+        }
+        // 2. Append to target group (if patch.groupId is non-null).
+        if (patch.groupId !== null && patch.groupId !== undefined) {
+          const tgtIdx = nextGroups.findIndex((g) => g.id === patch.groupId);
+          if (tgtIdx >= 0) {
+            const tgt = nextGroups[tgtIdx];
+            const existing = Array.isArray(tgt.renderOrder) ? [...tgt.renderOrder] : [];
+            if (!existing.includes(ref)) {
+              existing.push(ref);
+              nextGroups[tgtIdx] = { ...tgt, renderOrder: existing, updatedAt: Date.now() };
+            }
+          }
+        }
+        return nextGroups;
       },
     },
   ]);
@@ -273,6 +319,11 @@ export async function updateItem(id, patch) {
  */
 export async function deleteItem(id) {
   if (typeof id !== 'string') throw new StorageError(ERR_VALIDATION, 'deleteItem: id required');
+  /* B-148 §3.5 — closure carries deletedGroupId from items mutator to groups
+     mutator. Both mutators see the same serialized snapshot; sequencing is
+     by ops-array order. */
+  let deletedGroupId = null;
+  let didDelete = false;
   await writeTransaction([
     {
       partition: PARTITION_ITEMS,
@@ -280,10 +331,30 @@ export async function deleteItem(id) {
         const idx = items.findIndex((it) => it.id === id);
         if (idx < 0) return items; // idempotent no-op on unknown id
         // B-051 AC1/AC2: capture groupId before removal, then normalise that bucket.
-        const deletedGroupId = items[idx].groupId;
+        deletedGroupId = items[idx].groupId;
+        didDelete = true;
         const out = items.slice();
         out.splice(idx, 1);
         return normaliseGroupSortOrders(deletedGroupId, out);
+      },
+    },
+    {
+      /* B-148 §3.5 (S44, v6→v7) — strip `item:<id>` from owning Group's
+         renderOrder. Skips when the deleted item was Ungrouped, OR when
+         deleteItem was a no-op (unknown id). */
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        if (!didDelete || deletedGroupId === null) return groups;
+        const idx = groups.findIndex((g) => g.id === deletedGroupId);
+        if (idx < 0) return groups; /* defensive — group may have been deleted */
+        const g = groups[idx];
+        if (!Array.isArray(g.renderOrder) || g.renderOrder.length === 0) return groups;
+        const ref = 'item:' + id;
+        const filtered = g.renderOrder.filter((r) => r !== ref);
+        if (filtered.length === g.renderOrder.length) return groups; /* ref wasn't there */
+        const next = [...groups];
+        next[idx] = { ...g, renderOrder: filtered, updatedAt: Date.now() };
+        return next;
       },
     },
   ]);
@@ -353,6 +424,7 @@ export async function bulkCreateItems(inputs) {
   try {
     await writeTransaction([
       {
+        // Op 1: snapshot groups for items-mutator FK check; return unchanged.
         partition: PARTITION_GROUPS,
         mutator: (groups) => {
           groupsSnapshot = groups;
@@ -360,6 +432,7 @@ export async function bulkCreateItems(inputs) {
         },
       },
       {
+        // Op 2: FK-check candidates, commit items, populate txCreated.
         partition: PARTITION_ITEMS,
         mutator: (items) => {
           txCreated = [];
@@ -406,6 +479,33 @@ export async function bulkCreateItems(inputs) {
           return merged;
         },
       },
+      {
+        // Op 3: append item:<id> refs to each affected Group's renderOrder.
+        // Receives the same groups array op 1 returned (unchanged snapshot)
+        // and now has access to txCreated populated by op 2.
+        // Ungrouped items (groupId === null) are skipped — they have no Group.
+        partition: PARTITION_GROUPS,
+        mutator: (groups) => {
+          if (txCreated.length === 0) return groups;
+          // Build a map of groupId → ordered list of new item refs.
+          const refsByGroup = new Map();
+          for (const item of txCreated) {
+            if (item.groupId === null) continue;
+            const refs = refsByGroup.get(item.groupId);
+            if (refs) {
+              refs.push('item:' + item.id);
+            } else {
+              refsByGroup.set(item.groupId, ['item:' + item.id]);
+            }
+          }
+          if (refsByGroup.size === 0) return groups;
+          return groups.map((g) => {
+            const newRefs = refsByGroup.get(g.id);
+            if (!newRefs) return g;
+            return { ...g, renderOrder: [...(g.renderOrder ?? []), ...newRefs] };
+          });
+        },
+      },
     ]);
     // Transaction succeeded — safe to surface results
     created.push(...txCreated);
@@ -444,20 +544,59 @@ export async function bulkDeleteItems(ids) {
   const idSet = new Set(ids);
   const deleted = [];
   const notFound = [];
+  /* B-148 §3.5 — Map<groupId, Set<itemId>> of refs to strip per group.
+     Populated by items mutator; consumed by groups mutator. Items with
+     groupId === null are excluded (Ungrouped contributes no Group write). */
+  const stripByGroup = new Map();
 
   await writeTransaction([
     {
       partition: PARTITION_ITEMS,
       mutator: (items) => {
         const existingIds = new Set(items.map((it) => it.id));
+        const idToGroupId = new Map();
+        for (const it of items) {
+          if (idSet.has(it.id)) idToGroupId.set(it.id, it.groupId);
+        }
         for (const id of idSet) {
           if (existingIds.has(id)) {
             deleted.push(id);
+            const gid = idToGroupId.get(id);
+            if (gid !== null && gid !== undefined) {
+              if (!stripByGroup.has(gid)) stripByGroup.set(gid, new Set());
+              stripByGroup.get(gid).add(id);
+            }
           } else {
             notFound.push(id);
           }
         }
         return items.filter((it) => !idSet.has(it.id));
+      },
+    },
+    {
+      /* B-148 §3.5 (S44, v6→v7) — strip `item:<id>` refs from owning groups'
+         renderOrder. Iterates the per-group strip map populated above. */
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        if (stripByGroup.size === 0) return groups;
+        const next = [...groups];
+        let changed = false;
+        for (const [gid, idSetForGroup] of stripByGroup) {
+          const idx = next.findIndex((g) => g.id === gid);
+          if (idx < 0) continue; /* defensive — group may have been deleted */
+          const g = next[idx];
+          if (!Array.isArray(g.renderOrder) || g.renderOrder.length === 0) continue;
+          const filtered = g.renderOrder.filter((ref) => {
+            if (!ref.startsWith('item:')) return true;
+            const id = ref.slice('item:'.length);
+            return !idSetForGroup.has(id);
+          });
+          if (filtered.length !== g.renderOrder.length) {
+            next[idx] = { ...g, renderOrder: filtered, updatedAt: Date.now() };
+            changed = true;
+          }
+        }
+        return changed ? next : groups;
       },
     },
   ]);
@@ -592,6 +731,13 @@ export async function bulkReorderItems(updates) {
   const now = Date.now();
 
   let groupsSnapshot = [];
+  /* B-148 §3.5 (S44, v6→v7) — closure carries the affected items + per-group
+     summary across the items mutator → groups mutator handoff so the groups
+     mutator can reshuffle each affected Group.renderOrder's `item:*` slots
+     without re-deriving its own affected-group set. */
+  let postUpdateItems = null;
+  let affectedGroupsForRO = new Set();
+  let crossGroupMovedRefs = new Map(); /* sourceGroupId → Set<itemId> stripped */
   await writeTransaction([
     {
       partition: PARTITION_GROUPS,
@@ -621,7 +767,17 @@ export async function bulkReorderItems(updates) {
           updated.push(u.id);
           const src = itemById.get(u.id);
           if (src) affectedGroups.add(src.groupId);
-          if ('groupId' in u) affectedGroups.add(u.groupId ?? null);
+          if ('groupId' in u) {
+            affectedGroups.add(u.groupId ?? null);
+            /* B-148 — track cross-group moves so the groups mutator can
+               strip the item:<id> ref from the source group's renderOrder. */
+            const srcGid = src ? src.groupId : null;
+            const tgtGid = u.groupId ?? null;
+            if (srcGid !== null && srcGid !== tgtGid) {
+              if (!crossGroupMovedRefs.has(srcGid)) crossGroupMovedRefs.set(srcGid, new Set());
+              crossGroupMovedRefs.get(srcGid).add(u.id);
+            }
+          }
         }
 
         /* Apply per-item updates. */
@@ -644,7 +800,71 @@ export async function bulkReorderItems(updates) {
           out = normaliseGroupSortOrders(gid, out);
         }
 
+        /* B-148 — pass post-update items + affected groups to the groups
+           mutator below so it can reshuffle renderOrder slots. */
+        postUpdateItems = out;
+        affectedGroupsForRO = affectedGroups;
+
         return out;
+      },
+    },
+    {
+      /* B-148 §3.5 (S44, v6→v7) — reshuffle each affected group's
+         Group.renderOrder so the `item:<id>` slot order matches the new
+         Item.sortOrder, AND strip any item:<id> refs that left the group
+         via cross-group move. Preserves floating-row positions in the
+         interleaved order — only the saved-bookmark slots get reshuffled.
+         No-op when a group has no renderOrder yet (cold-start bootstrap
+         will derive). */
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        if (!postUpdateItems || affectedGroupsForRO.size === 0) return groups;
+        let changed = false;
+        const next = groups.map((g) => {
+          if (!affectedGroupsForRO.has(g.id)) return g;
+          /* Strip refs for items that left this group (cross-group moves). */
+          const movedAway = crossGroupMovedRefs.get(g.id);
+          let workingRO = Array.isArray(g.renderOrder) ? g.renderOrder : [];
+          if (movedAway && movedAway.size > 0) {
+            workingRO = workingRO.filter((ref) => {
+              if (!ref.startsWith('item:')) return true;
+              return !movedAway.has(ref.slice('item:'.length));
+            });
+          }
+          /* Reshuffle item: slots to match new sortOrder. Build the
+             slot-order list of items currently in this group, sorted by
+             new sortOrder asc. */
+          const groupItemsSorted = postUpdateItems
+            .filter((it) => (it.groupId ?? null) === g.id)
+            .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+          let slotIdx = 0;
+          const reshuffled = workingRO.map((ref) => {
+            if (!ref.startsWith('item:')) return ref;
+            const nextItem = groupItemsSorted[slotIdx++];
+            return nextItem ? 'item:' + nextItem.id : ref;
+          });
+          /* Append item: refs for items that joined this group via cross-
+             group move but aren't yet represented in workingRO. Also handles
+             the legacy v6 case where the target group had no renderOrder
+             yet — newly-arrived items get appended (first interleave seed). */
+          const refsInWorking = new Set(reshuffled.filter((r) => r.startsWith('item:')));
+          for (const it of groupItemsSorted) {
+            const ref = 'item:' + it.id;
+            if (!refsInWorking.has(ref)) reshuffled.push(ref);
+          }
+          /* Detect actual change (skip the rewrite when slot order matches). */
+          const wasArr = Array.isArray(g.renderOrder);
+          const same = wasArr
+            && reshuffled.length === g.renderOrder.length
+            && reshuffled.every((r, i) => r === g.renderOrder[i]);
+          if (same) return g;
+          /* Skip the write if reshuffled is empty AND the prior renderOrder
+             was missing/empty — no signal to add. */
+          if (!wasArr && reshuffled.length === 0) return g;
+          changed = true;
+          return { ...g, renderOrder: reshuffled, updatedAt: now };
+        });
+        return changed ? next : groups;
       },
     },
   ]);

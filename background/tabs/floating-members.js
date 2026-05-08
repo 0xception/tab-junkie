@@ -36,6 +36,12 @@ import { getParentItemId } from './floating-groups.js';
  * @property {number} [sortOrder]   B-134 §63.8.4 — explicit per-bucket
  *   sort key. OPTIONAL on the typedef so legacy v2 records lacking the
  *   field continue to work; the renderer reads either value.
+ * @property {string} [floatingTabId]   B-148 §3.7 — storage identity (ulid)
+ *   propagated from the source record so the renderer can stamp
+ *   data-floating-tab-id on the row + the drag-cache can build
+ *   'floating:<id>' refs for the new mixed-type renderOrder payload.
+ *   OPTIONAL on the typedef so pre-S38 legacy records (lacking the field)
+ *   flow through without it.
  */
 
 /**
@@ -156,6 +162,15 @@ export async function buildFloatingMembers(items) {
        without the field; the comparator below handles both shapes. */
     if (typeof record.sortOrder === 'number' && Number.isFinite(record.sortOrder)) {
       descriptor.sortOrder = record.sortOrder;
+    }
+    /* B-148 §3.7 / §3.8 D-1 (S44, v6→v7) — propagate floatingTabId so the
+       sidepanel can stamp data-floating-tab-id on the rendered row. The
+       drag-rect-cache uses this to construct a 'floating:<floatingTabId>'
+       ref in the new mixed-type renderOrder payload. Pre-S38 legacy records
+       lacking floatingTabId flow through without the field; the renderer
+       degrades to the legacy orderedTabIds dispatch path. */
+    if (typeof record.floatingTabId === 'string' && record.floatingTabId.length > 0) {
+      descriptor.floatingTabId = record.floatingTabId;
     }
 
     if (!out[parent.groupId]) out[parent.groupId] = [];

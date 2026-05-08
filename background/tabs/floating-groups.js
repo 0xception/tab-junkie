@@ -27,7 +27,7 @@
 
 import { safeNormalizeForMatch } from '../../shared/url.js';
 import { writeTransaction } from '../storage/write-transaction.js';
-import { readPartition, PARTITION_FLOATING_GROUPS, PARTITION_ITEMS, MAX_URL } from '../storage/partitions.js';
+import { readPartition, PARTITION_FLOATING_GROUPS, PARTITION_GROUPS, PARTITION_ITEMS, MAX_URL } from '../storage/partitions.js';
 import { ulid } from '../storage/ids.js';
 import { getLiveTabIndex } from './live-tab-index.js';
 import { markInherited, getClaimsMirror } from './tab-claims.js';
@@ -327,68 +327,108 @@ export async function appendFloatingGroup(entry) {
     liveTabId: entry.liveTabId,
   };
 
-  await writeTransaction([{
-    partition: PARTITION_FLOATING_GROUPS,
-    mutator: (current) => {
-      const arr = Array.isArray(current) ? current : [];
+  /* B-148 §3.5 — closure flag: true only when the floating record was
+     actually appended (dedup path leaves it false). Consumed by the
+     PARTITION_GROUPS mutator below to guard the renderOrder write. */
+  let didAppend = false;
 
-      /* Origin: docs/findings/post-s41-pre-merge-triage.md Issue C — pre-
-         v1.35.0 hotfix bundle Fix C. Closes the duplicate-record failure
-         mode that surfaces in the SW-console `tj:floatingGroups` partition
-         and breaks `reorderFloatingMembers` parity (floating-groups.js:397-
-         401: `storageBucketSize` counts duplicates, `supplied.size` is
-         deduped → ERR_RACE on every legitimate reorder).
+  await writeTransaction([
+    {
+      partition: PARTITION_FLOATING_GROUPS,
+      mutator: (current) => {
+        const arr = Array.isArray(current) ? current : [];
 
-         Dedup key is the triple `(liveTabId, parentItemId, groupId)`.
-         User-data evidence: records 7/12 (`liveTabId 803725428`,
-         `parentItemId 01KQ37HNDV342WNA3V120MCRW0`) are duplicates and must
-         collapse; record 9 (`liveTabId 803725428` BUT
-         `parentItemId 01KQ37HNDV342WNA3V120MCRXS` — different parent) is a
-         legitimate "same tab is a floating member of two parents"
-         coexistence and MUST be preserved. The triple is the most-specific
-         key that captures both invariants.
+        /* Origin: docs/findings/post-s41-pre-merge-triage.md Issue C — pre-
+           v1.35.0 hotfix bundle Fix C. Closes the duplicate-record failure
+           mode that surfaces in the SW-console `tj:floatingGroups` partition
+           and breaks `reorderFloatingMembers` parity (floating-groups.js:397-
+           401: `storageBucketSize` counts duplicates, `supplied.size` is
+           deduped → ERR_RACE on every legitimate reorder).
 
-         B-141 self-application: B-137 §66.1 claimed to "structurally
-         eliminate" Issue 3 (race-toast) from the post-S40 spike. B-137
-         closed the resolver half; Fix A closed the orphan-on-close half;
-         this Fix C closes the duplicate-on-write half. All three converge
-         on the same parity check (line 397-401 above).
+           Dedup key is the triple `(liveTabId, parentItemId, groupId)`.
+           User-data evidence: records 7/12 (`liveTabId 803725428`,
+           `parentItemId 01KQ37HNDV342WNA3V120MCRW0`) are duplicates and must
+           collapse; record 9 (`liveTabId 803725428` BUT
+           `parentItemId 01KQ37HNDV342WNA3V120MCRXS` — different parent) is a
+           legitimate "same tab is a floating member of two parents"
+           coexistence and MUST be preserved. The triple is the most-specific
+           key that captures both invariants.
 
-         Option A semantics: when a matching triple exists, no-op (return
-         the array unchanged). Rationale: the existing record's
-         `floatingTabId` is the stable storage identity; preserving it
-         avoids invalidating any in-flight references. Drift in
-         `windowId` / `tabIndex` / `url` is recovered by the read-path
-         tier-(b) `(windowId, tabIndex)` geometry fallback in
-         `_resolveRecordIndexByTabId` (line 322-345 above) and by cold-start
-         re-bind in `reassociateFloatingGroups` (line 115-201 above), so
-         in-place updates are not required. */
-      const existing = arr.find((r) => r
-        && typeof r === 'object'
-        && r.liveTabId === stamped.liveTabId
-        && getParentItemId(r) === stamped.parentItemId
-        && r.groupId === stamped.groupId);
-      if (existing) {
-        return arr;
-      }
+           B-141 self-application: B-137 §66.1 claimed to "structurally
+           eliminate" Issue 3 (race-toast) from the post-S40 spike. B-137
+           closed the resolver half; Fix A closed the orphan-on-close half;
+           this Fix C closes the duplicate-on-write half. All three converge
+           on the same parity check (line 397-401 above).
 
-      /* B-134 §63.2.4 / §63.13.1: stamp `sortOrder` = current_max_in_group + 1
-         (or 0 when the group's bucket is empty). The mutator computes this
-         inside the writeTransaction so concurrent appends to the same bucket
-         see consistent ordering — same pattern as `bulkReorderItems` /
-         `bulkReorderGroups` use for per-bucket renormalisation. */
-      let maxSortOrder = -1;
-      for (const r of arr) {
-        if (r && r.groupId === stamped.groupId
-          && typeof r.sortOrder === 'number' && Number.isFinite(r.sortOrder)
-          && r.sortOrder > maxSortOrder) {
-          maxSortOrder = r.sortOrder;
+           Option A semantics: when a matching triple exists, no-op (return
+           the array unchanged). Rationale: the existing record's
+           `floatingTabId` is the stable storage identity; preserving it
+           avoids invalidating any in-flight references. Drift in
+           `windowId` / `tabIndex` / `url` is recovered by the read-path
+           tier-(b) `(windowId, tabIndex)` geometry fallback in
+           `_resolveRecordIndexByTabId` (line 322-345 above) and by cold-start
+           re-bind in `reassociateFloatingGroups` (line 115-201 above), so
+           in-place updates are not required. */
+        const existing = arr.find((r) => r
+          && typeof r === 'object'
+          && r.liveTabId === stamped.liveTabId
+          && getParentItemId(r) === stamped.parentItemId
+          && r.groupId === stamped.groupId);
+        if (existing) {
+          return arr;
         }
-      }
-      const stampedWithOrder = { ...stamped, sortOrder: maxSortOrder + 1 };
-      return [...arr, stampedWithOrder];
+
+        /* B-134 §63.2.4 / §63.13.1: stamp `sortOrder` = current_max_in_group + 1
+           (or 0 when the group's bucket is empty). The mutator computes this
+           inside the writeTransaction so concurrent appends to the same bucket
+           see consistent ordering — same pattern as `bulkReorderItems` /
+           `bulkReorderGroups` use for per-bucket renormalisation. */
+        let maxSortOrder = -1;
+        for (const r of arr) {
+          if (r && r.groupId === stamped.groupId
+            && typeof r.sortOrder === 'number' && Number.isFinite(r.sortOrder)
+            && r.sortOrder > maxSortOrder) {
+            maxSortOrder = r.sortOrder;
+          }
+        }
+        const stampedWithOrder = { ...stamped, sortOrder: maxSortOrder + 1 };
+        didAppend = true;
+        return [...arr, stampedWithOrder];
+      },
     },
-  }]);
+    {
+      /* B-148 §3.5 (S44, v6→v7) — insert `floating:<floatingTabId>` into
+         target Group's renderOrder. Skipped on dedup-no-op path
+         (didAppend === false). Defensive: if the group has been deleted
+         between the SW read and now, findIndex returns -1 and we skip.
+
+         B-148 hotfix (S44 polish): caller may pass an OPTIONAL
+         `entry.insertAfterRef` (`'item:<id>'` or `'floating:<id>'`) to
+         anchor the new ref directly after a specific row — used by the
+         opener-chain inheritance path so a new tab opened from page X
+         lands UNDER X visually, not at the end of the floating zone.
+         When the anchor isn't found in renderOrder OR no anchor was
+         supplied, fall back to append-at-end (legacy behavior). */
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        if (!didAppend) return groups;
+        const idx = groups.findIndex((g) => g.id === stamped.groupId);
+        if (idx < 0) return groups;
+        const g = groups[idx];
+        const ref = 'floating:' + stamped.floatingTabId;
+        const renderOrder = Array.isArray(g.renderOrder) ? [...g.renderOrder] : [];
+        let insertAt = renderOrder.length; /* default: append-at-end */
+        if (typeof entry.insertAfterRef === 'string' && entry.insertAfterRef.length > 0) {
+          const anchorIdx = renderOrder.indexOf(entry.insertAfterRef);
+          if (anchorIdx >= 0) insertAt = anchorIdx + 1;
+        }
+        renderOrder.splice(insertAt, 0, ref);
+        const next = [...groups];
+        next[idx] = { ...g, renderOrder, updatedAt: Date.now() };
+        return next;
+      },
+    },
+  ]);
 }
 
 /* =========================================================================
@@ -599,6 +639,12 @@ export async function moveFloatingTab(tabId, sourceGroupId, targetGroupId, inser
   }
 
   let ok = true;
+
+  /* B-148 §3.5 — closure carries source/target floatingTabIds + groupIds
+     from the floating-groups mutator to the groups mutator. */
+  let appliedSourceFloatingTabId = null;
+  let appliedTargetFloatingTabId = null;
+
   await writeTransaction([{
     partition: PARTITION_FLOATING_GROUPS,
     mutator: (current) => {
@@ -615,6 +661,9 @@ export async function moveFloatingTab(tabId, sourceGroupId, targetGroupId, inser
         }
         sourceRecord = arr[sourceIdx];
         arr.splice(sourceIdx, 1);
+        if (sourceRecord && typeof sourceRecord.floatingTabId === 'string') {
+          appliedSourceFloatingTabId = sourceRecord.floatingTabId;
+        }
       }
 
       /* Renumber source bucket (DETACH or MOVE_FLOATING). */
@@ -667,6 +716,7 @@ export async function moveFloatingTab(tabId, sourceGroupId, targetGroupId, inser
           if (r.sortOrder >= clampedIdx) r.sortOrder += 1;
         }
 
+        appliedTargetFloatingTabId = floatingTabId;
         arr.push({
           floatingTabId,
           groupId: targetGroupId,
@@ -687,6 +737,46 @@ export async function moveFloatingTab(tabId, sourceGroupId, targetGroupId, inser
       }
 
       return arr;
+    },
+  },
+  {
+    /* B-148 §3.5 (S44, v6→v7) — strip source.renderOrder + append
+       target.renderOrder per the move semantics:
+       - DETACH (targetGroupId null): strip source only
+       - ATTACH (sourceGroupId null): append target only
+       - MOVE_FLOATING (both non-null): strip source AND append target
+       Race-fail path (ok === false) skips all writes. */
+    partition: PARTITION_GROUPS,
+    mutator: (groups) => {
+      if (!ok) return groups;
+      const next = [...groups];
+      let changed = false;
+      if (sourceGroupId !== null && appliedSourceFloatingTabId !== null) {
+        const idx = next.findIndex((g) => g.id === sourceGroupId);
+        if (idx >= 0) {
+          const g = next[idx];
+          const ref = 'floating:' + appliedSourceFloatingTabId;
+          if (Array.isArray(g.renderOrder) && g.renderOrder.includes(ref)) {
+            const filtered = g.renderOrder.filter((r) => r !== ref);
+            next[idx] = { ...g, renderOrder: filtered, updatedAt: Date.now() };
+            changed = true;
+          }
+        }
+      }
+      if (targetGroupId !== null && appliedTargetFloatingTabId !== null) {
+        const idx = next.findIndex((g) => g.id === targetGroupId);
+        if (idx >= 0) {
+          const g = next[idx];
+          const ref = 'floating:' + appliedTargetFloatingTabId;
+          const renderOrder = Array.isArray(g.renderOrder) ? [...g.renderOrder] : [];
+          if (!renderOrder.includes(ref)) {
+            renderOrder.push(ref);
+            next[idx] = { ...g, renderOrder, updatedAt: Date.now() };
+            changed = true;
+          }
+        }
+      }
+      return changed ? next : groups;
     },
   }]);
 
@@ -782,13 +872,52 @@ export async function pruneResolvedFloatingGroups(
  */
 export async function pruneFloatingGroupsByParentItemId(parentItemId) {
   if (typeof parentItemId !== 'string' || parentItemId.length === 0) return;
-  await writeTransaction([{
-    partition: PARTITION_FLOATING_GROUPS,
-    mutator: (current) => {
-      const arr = Array.isArray(current) ? current : [];
-      return arr.filter((entry) => getParentItemId(entry) !== parentItemId);
+  /* B-148 §3.5 — capture per-group prune set for the renderOrder strip. */
+  const prunedByGroup = new Map();
+  await writeTransaction([
+    {
+      partition: PARTITION_FLOATING_GROUPS,
+      mutator: (current) => {
+        const arr = Array.isArray(current) ? current : [];
+        return arr.filter((entry) => {
+          if (getParentItemId(entry) !== parentItemId) return true;
+          /* This record is being pruned — capture for renderOrder strip. */
+          if (entry && typeof entry.groupId === 'string'
+            && typeof entry.floatingTabId === 'string') {
+            if (!prunedByGroup.has(entry.groupId)) prunedByGroup.set(entry.groupId, new Set());
+            prunedByGroup.get(entry.groupId).add(entry.floatingTabId);
+          }
+          return false;
+        });
+      },
     },
-  }]);
+    {
+      /* B-148 §3.5 (S44, v6→v7) — strip floating:<id> refs from owning
+         groups' renderOrder. */
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        if (prunedByGroup.size === 0) return groups;
+        const next = [...groups];
+        let changed = false;
+        for (const [gid, floatingIds] of prunedByGroup) {
+          const idx = next.findIndex((g) => g.id === gid);
+          if (idx < 0) continue;
+          const g = next[idx];
+          if (!Array.isArray(g.renderOrder) || g.renderOrder.length === 0) continue;
+          const filtered = g.renderOrder.filter((ref) => {
+            if (!ref.startsWith('floating:')) return true;
+            const id = ref.slice('floating:'.length);
+            return !floatingIds.has(id);
+          });
+          if (filtered.length !== g.renderOrder.length) {
+            next[idx] = { ...g, renderOrder: filtered, updatedAt: Date.now() };
+            changed = true;
+          }
+        }
+        return changed ? next : groups;
+      },
+    },
+  ]);
 }
 
 /**
@@ -841,6 +970,10 @@ export async function pruneFloatingGroupsByLiveTabId(tabId) {
   const records = await readPartition(PARTITION_FLOATING_GROUPS);
   if (!Array.isArray(records) || records.length === 0) return 0;
 
+  /* B-148 §3.5 — capture (groupId, floatingTabId) for the renderOrder
+     strip in the second writeTransaction op. We pre-collect during
+     the existing read-only pre-flight to avoid duplicating the scan. */
+  const prunedByGroup = new Map();
   let willPrune = false;
   for (const entry of records) {
     if (!entry || typeof entry !== 'object') continue;
@@ -848,29 +981,61 @@ export async function pruneFloatingGroupsByLiveTabId(tabId) {
       && Number.isFinite(entry.liveTabId)
       && entry.liveTabId === tabId) {
       willPrune = true;
-      break;
+      if (typeof entry.groupId === 'string' && typeof entry.floatingTabId === 'string') {
+        if (!prunedByGroup.has(entry.groupId)) prunedByGroup.set(entry.groupId, new Set());
+        prunedByGroup.get(entry.groupId).add(entry.floatingTabId);
+      }
     }
   }
   if (!willPrune) return 0;
 
   let prunedCount = 0;
-  await writeTransaction([{
-    partition: PARTITION_FLOATING_GROUPS,
-    mutator: (current) => {
-      const arr = Array.isArray(current) ? current : [];
-      const next = arr.filter((entry) => {
-        if (!entry || typeof entry !== 'object') return true;
-        if (typeof entry.liveTabId === 'number'
-          && Number.isFinite(entry.liveTabId)
-          && entry.liveTabId === tabId) {
-          prunedCount += 1;
-          return false;
-        }
-        return true;
-      });
-      return next;
+  await writeTransaction([
+    {
+      partition: PARTITION_FLOATING_GROUPS,
+      mutator: (current) => {
+        const arr = Array.isArray(current) ? current : [];
+        const next = arr.filter((entry) => {
+          if (!entry || typeof entry !== 'object') return true;
+          if (typeof entry.liveTabId === 'number'
+            && Number.isFinite(entry.liveTabId)
+            && entry.liveTabId === tabId) {
+            prunedCount += 1;
+            return false;
+          }
+          return true;
+        });
+        return next;
+      },
     },
-  }]);
+    {
+      /* B-148 §3.5 (S44, v6→v7) — strip floating:<id> refs from owning
+         groups' renderOrder. prunedByGroup is populated by the pre-flight
+         pass above. */
+      partition: PARTITION_GROUPS,
+      mutator: (groups) => {
+        if (prunedByGroup.size === 0) return groups;
+        const next = [...groups];
+        let changed = false;
+        for (const [gid, floatingIds] of prunedByGroup) {
+          const idx = next.findIndex((g) => g.id === gid);
+          if (idx < 0) continue;
+          const g = next[idx];
+          if (!Array.isArray(g.renderOrder) || g.renderOrder.length === 0) continue;
+          const filtered = g.renderOrder.filter((ref) => {
+            if (!ref.startsWith('floating:')) return true;
+            const id = ref.slice('floating:'.length);
+            return !floatingIds.has(id);
+          });
+          if (filtered.length !== g.renderOrder.length) {
+            next[idx] = { ...g, renderOrder: filtered, updatedAt: Date.now() };
+            changed = true;
+          }
+        }
+        return changed ? next : groups;
+      },
+    },
+  ]);
   return prunedCount;
 }
 
@@ -954,4 +1119,109 @@ export async function preMarkInheritedFromFloatingGroups() {
       markInherited(matchedTabId);
     }
   }
+}
+
+/**
+ * B-148 §3.6 (S44, v6→v7) — cold-start bootstrap + sweep of Group.renderOrder.
+ *
+ * Runs after reassociateFloatingGroups so the floating-group records are
+ * already reconciled (resolved records pruned, stale liveTabIds rewritten,
+ * duplicates merged). For each group:
+ *
+ * - Missing or empty renderOrder → bootstrap from items + floating-records
+ *   sortOrder (saved-then-floating, each by sortOrder asc).
+ * - Present renderOrder → filter out refs that don't resolve to any item
+ *   or floating record (stale-ref sweep).
+ *
+ * Single PARTITION_GROUPS writeTransaction. Skips the write entirely when
+ * no group changed (avoids storage churn on repeat cold starts where every
+ * group is already bootstrapped + clean).
+ *
+ * @returns {Promise<void>}
+ */
+export async function bootstrapAndSweepRenderOrder() {
+  const [groups, items, floatingRecords] = await Promise.all([
+    readPartition(PARTITION_GROUPS),
+    readPartition(PARTITION_ITEMS),
+    readPartition(PARTITION_FLOATING_GROUPS),
+  ]);
+  if (!Array.isArray(groups) || groups.length === 0) return;
+
+  /* Pre-index items + floating records by groupId for O(N) total work. */
+  const itemsByGroup = new Map();
+  if (Array.isArray(items)) {
+    for (const it of items) {
+      if (!it || typeof it.groupId !== 'string') continue;
+      if (!itemsByGroup.has(it.groupId)) itemsByGroup.set(it.groupId, []);
+      itemsByGroup.get(it.groupId).push(it);
+    }
+  }
+  const floatingByGroup = new Map();
+  if (Array.isArray(floatingRecords)) {
+    for (const fr of floatingRecords) {
+      if (!fr || typeof fr.groupId !== 'string') continue;
+      if (!floatingByGroup.has(fr.groupId)) floatingByGroup.set(fr.groupId, []);
+      floatingByGroup.get(fr.groupId).push(fr);
+    }
+  }
+
+  /* Build per-group resolution sets for the stale-ref sweep. */
+  const itemIdsByGroup = new Map();
+  for (const [gid, arr] of itemsByGroup) {
+    itemIdsByGroup.set(gid, new Set(arr.map((it) => it.id)));
+  }
+  const floatingIdsByGroup = new Map();
+  for (const [gid, arr] of floatingByGroup) {
+    floatingIdsByGroup.set(gid, new Set(arr.map((fr) => fr.floatingTabId)));
+  }
+
+  /* Compute the new renderOrder for each group; track whether anything changed. */
+  let anyChanged = false;
+  const updatedGroups = groups.map((g) => {
+    if (!g || typeof g.id !== 'string') return g;
+    const groupItems = itemsByGroup.get(g.id) || [];
+    const groupFloating = floatingByGroup.get(g.id) || [];
+    const itemIds = itemIdsByGroup.get(g.id) || new Set();
+    const floatingIds = floatingIdsByGroup.get(g.id) || new Set();
+
+    let nextRenderOrder;
+    if (!Array.isArray(g.renderOrder) || g.renderOrder.length === 0) {
+      /* Bootstrap path. */
+      const sortedItems = [...groupItems].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+      const sortedFloating = [...groupFloating].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+      nextRenderOrder = [
+        ...sortedItems.map((it) => 'item:' + it.id),
+        ...sortedFloating.map((fr) => 'floating:' + fr.floatingTabId),
+      ];
+    } else {
+      /* Sweep path — keep refs that resolve. */
+      nextRenderOrder = g.renderOrder.filter((ref) => {
+        if (typeof ref !== 'string') return false;
+        if (ref.startsWith('item:')) {
+          return itemIds.has(ref.slice('item:'.length));
+        }
+        if (ref.startsWith('floating:')) {
+          return floatingIds.has(ref.slice('floating:'.length));
+        }
+        return false;
+      });
+    }
+
+    /* Same array content → no change. */
+    const before = Array.isArray(g.renderOrder) ? g.renderOrder : null;
+    const sameLength = before && before.length === nextRenderOrder.length;
+    const sameContent = sameLength && before.every((v, i) => v === nextRenderOrder[i]);
+    if (sameContent) return g;
+    anyChanged = true;
+    return { ...g, renderOrder: nextRenderOrder, updatedAt: Date.now() };
+  });
+
+  if (!anyChanged) return;
+
+  await writeTransaction([
+    {
+      partition: PARTITION_GROUPS,
+      mutator: () => updatedGroups,
+    },
+  ]);
 }

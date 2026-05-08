@@ -25,6 +25,10 @@ export const MAX_COLOR = 32;
 /** H-2: upper bound on bulkCreateItems inputs to prevent quota-exhaustion. */
 export const MAX_BULK_INPUTS = 500;
 
+/* B-148 §3.2 — Maximum length for a renderOrder ref entry. Prefix
+   ('item:' / 'floating:') + ULID (26 chars) + comfort buffer = 64. */
+export const MAX_REF_LENGTH = 64;
+
 export const PARTITION_ITEMS = 'items';
 export const PARTITION_GROUPS = 'groups';
 export const PARTITION_PREFS = 'prefs';
@@ -93,11 +97,13 @@ export function defaultShape(partition) {
     case PARTITION_PREFS:
       return { ...DEFAULT_PREFERENCES };
     case PARTITION_META:
-      /* B-041 §3.3 (S42) — fresh installs seed at v5 directly so no migration
-         step runs on first boot. `migration.js` KNOWN_VERSION = 5. Hardcoded
-         literal (not imported from migration.js) to keep the storage layer
-         independent of the migration runner — bumping this when KNOWN_VERSION
-         bumps is a deliberate, paired change.
+      /* Fresh installs seed at the current schemaVersion directly so no
+         migration step runs on first boot. `migration.js` KNOWN_VERSION = 7
+         (B-148 §3.1, S44). Hardcoded literal (not imported from migration.js)
+         to keep the storage layer independent of the migration runner —
+         bumping this when KNOWN_VERSION bumps is a deliberate, paired change
+         (C-1a paired-bump invariant; tests/migration-fresh-install.test.js
+         pins it).
          History: v1→v2 (B-121 §60.4.7) added floatingTabId + parentItemId.
          v2→v3 (B-134 §63.2.3) adds OPTIONAL `sortOrder` to PARTITION_FLOATING_GROUPS
          records; data migration is lazy (legacy records sort by (windowId, tabIndex)
@@ -116,8 +122,17 @@ export function defaultShape(partition) {
          string | null` to PARTITION_ITEMS records so favicons persist across
          tab close + extension restart. Data migration is lazy (legacy v5
          items lack the field; first chrome.tabs.onUpdated observation with
-         a non-empty favicon stamps the field once-per-session-per-item). */
-      return { schemaVersion: 6, createdAt: Date.now() };
+         a non-empty favicon stamps the field once-per-session-per-item).
+         v6→v7 (B-148 §3.1 + §3.2, S44 2026-05-03) adds OPTIONAL
+         `renderOrder: string[]` to PARTITION_GROUPS records (prefix-
+         encoded refs: `item:<id>` / `floating:<floatingTabId>`). Data
+         migration is lazy (C-1b option 2: legacy v6 groups lack the
+         field; cold-start `reassociateFloatingGroups` (Task 11)
+         bootstraps the missing array from current Item.sortOrder +
+         FloatingGroup.sortOrder; new writes stamp the field via the
+         per-write-site updates at Tasks 8a-e, 9a-d, 10). C-1a paired
+         bump: this literal moves to 7 in lock-step with KNOWN_VERSION. */
+      return { schemaVersion: 7, createdAt: Date.now() };
     case PARTITION_DRIFT:
       return {};
     case PARTITION_FLOATING_GROUPS:
@@ -166,6 +181,19 @@ function isGroup(v) {
   if ('chromeTabGroupId' in v
     && v.chromeTabGroupId !== null
     && !isNumber(v.chromeTabGroupId)) return false;
+  /* B-148 §3.2 (S44, v6→v7) — OPTIONAL renderOrder. Each entry must be a
+     prefix-encoded ref (`item:<id>` or `floating:<floatingTabId>`) and
+     no longer than MAX_REF_LENGTH. Empty array is valid. Anything else
+     is corrupt. Legacy v6 groups lack the field; new writes stamp it
+     via the per-write-site updates at Tasks 8a-e, 9a-d, 10. */
+  if ('renderOrder' in v) {
+    if (!Array.isArray(v.renderOrder)) return false;
+    for (const entry of v.renderOrder) {
+      if (typeof entry !== 'string' || entry.length === 0) return false;
+      if (!entry.startsWith('item:') && !entry.startsWith('floating:')) return false;
+      if (entry.length > MAX_REF_LENGTH) return false;
+    }
+  }
   return true;
 }
 

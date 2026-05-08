@@ -68,6 +68,11 @@ import {
    than bare string literals. Only the WINDOW_MAP branch uses SCOPE for now —
    the other bare-string comparisons are out of scope per R4 findings. */
 import { SCOPE } from '../shared/scopes.js';
+
+/* B-148 §3.7: resolver-produced row sequence for interleaved saved + floating
+   render order. Falls back to saved-then-floating bootstrap when renderOrder
+   is missing/empty. */
+import { resolveRenderOrder } from '../shared/render-order.js';
 /* B-007 */
 import {
   filterGroupParentCandidates,
@@ -455,6 +460,14 @@ let _pendingGroupPointerY = 0;
                                      // single-select = [draggedTabId]). Filtered to
                                      // grabbed row's class (Open Tabs vs floating),
                                      // window, and source group (for floating).
+       draggedFloatingTabId: string | null, // B-148 §3.8 D-2: floating row's
+                                     // storage-identity ulid (data-floating-tab-id).
+                                     // Used by REORDER_FLOATING dispatcher to build
+                                     // 'floating:<id>' ref in the new renderOrder
+                                     // payload. null when sourceMode==='OPEN' or
+                                     // when the row lacks data-floating-tab-id
+                                     // (legacy pre-S38 record) — dispatcher falls
+                                     // back to the legacy orderedTabIds path.
        sourceMode: 'OPEN' | 'FLOATING',
        sourceWindowId: number,
        sourceGroupId: string | null,    // null when sourceMode === 'OPEN'
@@ -2129,10 +2142,16 @@ function _selectAll() {
  * a future broadcast-driven _clearSelection() from stealing an open picker.
  */
 function _clearSelection() {
-  for (const key of _selection) {
-    const row = _rowForSelectionKey(key);
-    _setRowSelected(row, false);
-  }
+  /* B-148 hotfix: clear via DOM sweep instead of Set-keyed lookup. The
+     Set→key→row lookup misses rows that match the key but aren't returned
+     by `_rowForSelectionKey` (which returns the FIRST querySelector match;
+     if the same key resolves to two DOM rows — e.g., a tab present in BOTH
+     the Open Tabs section AND a group's floating zone — only one gets
+     cleared, leaving the other visually selected after Set.clear()). The
+     querySelectorAll sweep covers every row carrying data-selected,
+     guaranteeing DOM ↔ Set parity post-clear. */
+  const stale = itemListEl.querySelectorAll('.item-row[data-selected="true"]');
+  for (const row of stale) _setRowSelected(row, false);
   _selection.clear();
   _lastSelectedId = null;
   _rangeAnchorId = null;
@@ -2142,8 +2161,22 @@ function _clearSelection() {
 /**
  * After renderAll() rebuilds the DOM, re-apply data-selected from the Set
  * and prune any keys that no longer resolve to a row (stale items, closed tabs).
+ *
+ * B-148 hotfix: defensive sweep BEFORE re-applying. Multiple async paths can
+ * leave stale `data-selected` on rows whose key has been pruned from the
+ * Set — including the patchFloatingMembersSections fast-path where rows are
+ * patched in place rather than rebuilt, and broadcast-driven re-renders that
+ * race with selection-clearing dispatch tails. The sweep makes _reapplySelection
+ * the sole source of DOM-vs-Set truth: clear everything first, then re-apply
+ * only the keys still in the Set.
  */
 function _reapplySelection() {
+  /* Sweep — clear data-selected on every row, including the .item-select
+     aria-checked mirror. Targets only rows that currently carry the
+     attribute so the no-op case (already-clean DOM) costs nothing. */
+  const stale = itemListEl.querySelectorAll('.item-row[data-selected="true"]');
+  for (const row of stale) _setRowSelected(row, false);
+
   const toRemove = [];
   const liveTabIds = new Set(_cachedOpenTabs.map((t) => t.tabId));
   for (const key of _selection) {
@@ -2390,15 +2423,18 @@ function buildGroupSection(group, byGroup, liveStates, driftRecords, isChild, fl
   itemsContainer.id = 'group-items-' + group.id;
   if (collapsed) itemsContainer.hidden = true;
 
-  for (const item of groupItems) {
-    itemsContainer.appendChild(buildItemRow(item, liveStates, driftRecords));
-  }
-
-  /* B-121 §60.5.1: synthetic floating-tab rows render after the saved-item
-     rows and BEFORE the inline empty-state fallback / nested child group
-     sections. Ungrouped section never has floating members. */
-  for (const member of floatingArr) {
-    itemsContainer.appendChild(buildFloatingTabRow(member));
+  /* B-148 §3.7 (S44, v6→v7) — single iteration over the resolver-produced
+     row sequence. Group.renderOrder is the user-defined interleaved order;
+     missing/empty falls back to saved-then-floating bootstrap (resolver
+     contract). Stale refs (item or floating record gone) are filtered
+     silently by the resolver. */
+  const renderRows = resolveRenderOrder(group, groupItems, floatingArr);
+  for (const row of renderRows) {
+    if (row.kind === 'item') {
+      itemsContainer.appendChild(buildItemRow(row.item, liveStates, driftRecords));
+    } else if (row.kind === 'floating') {
+      itemsContainer.appendChild(buildFloatingTabRow(row.floatingMember));
+    }
   }
 
   /* B-049: Inline empty state for groups with zero items.
@@ -3044,6 +3080,15 @@ function buildFloatingTabRow(member) {
   if (typeof member.parentItemId === 'string' && member.parentItemId.length > 0) {
     row.dataset.parentItemId = member.parentItemId;
   }
+  /* B-148 §3.7 / §3.8 D-1 (S44, v6→v7) — stamp data-floating-tab-id so the
+     drag rect-cache can build 'floating:<id>' refs at drop time. The
+     mirrored stamp is also performed in patchFloatingMembersSections's
+     in-place patch branch. Pre-S38 legacy records lacking floatingTabId
+     leave the attribute unset; the dispatcher falls back to the legacy
+     orderedTabIds path when the rect-cache rowRef is null. */
+  if (typeof member.floatingTabId === 'string' && member.floatingTabId.length > 0) {
+    row.dataset.floatingTabId = member.floatingTabId;
+  }
 
   /* B-130 hotfix: the dotted-bar visual cue is now painted via the
      `.item-row[data-floating="true"]` CSS override (border-left-style:
@@ -3202,6 +3247,18 @@ function patchFloatingMembersSections(nextFloatingMembers) {
     const itemsContainer = section.querySelector('.group-items');
     if (!itemsContainer) continue;
 
+    /* B-148 §3.7 hotfix — when this group's record carries a non-empty
+       renderOrder, the user-defined interleaved row positions are
+       authoritative. Floating rows that are ALREADY in this container
+       must NOT be re-positioned to the staticAnchor (which would snap
+       them back into the legacy saved-then-floating zone). Cross-
+       container moves (row currently in another group) and new rows
+       (just built) still insert at staticAnchor as before. */
+    const groupRecord = (Array.isArray(_cachedGroups) ? _cachedGroups : []).find((g) => g.id === groupId);
+    const groupHasRenderOrder = groupRecord
+      && Array.isArray(groupRecord.renderOrder)
+      && groupRecord.renderOrder.length > 0;
+
     /* B-121 R4 code-reviewer M-1: capture the insertion anchor ONCE before
        the members loop. The anchor is the first child that is NEITHER a
        saved-item row NOR an existing floating row — typically a nested
@@ -3250,6 +3307,11 @@ function patchFloatingMembersSections(nextFloatingMembers) {
         if (typeof member.parentItemId === 'string' && member.parentItemId.length > 0) {
           row.dataset.parentItemId = member.parentItemId;
         }
+        /* B-148 §3.7 — keep data-floating-tab-id in sync on the patch path
+           (mirror of buildFloatingTabRow's stamp). */
+        if (typeof member.floatingTabId === 'string' && member.floatingTabId.length > 0) {
+          row.dataset.floatingTabId = member.floatingTabId;
+        }
         /* B-124 §61.5.1(c): _patchOpenTabRow re-applies buildItemRowAriaLabel
            (with the "live tab" suffix), so re-override here to keep the
            floating-tab label stable across title/active/audible patches. */
@@ -3280,9 +3342,14 @@ function patchFloatingMembersSections(nextFloatingMembers) {
         existing.set(member.tabId, row);
       }
       /* Earlier inserts accumulate in correct order relative to the
-         static anchor (insertBefore with a null anchor appends). */
-      if (row.parentNode !== itemsContainer
-          || row.nextSibling !== staticAnchor) {
+         static anchor (insertBefore with a null anchor appends).
+         B-148 §3.7 hotfix: when this group has a renderOrder, leave
+         already-positioned rows alone (renderAll has placed them in
+         interleave order). Only cross-container or new rows insert. */
+      if (row.parentNode !== itemsContainer) {
+        itemsContainer.insertBefore(row, staticAnchor);
+      } else if (!groupHasRenderOrder
+          && row.nextSibling !== staticAnchor) {
         itemsContainer.insertBefore(row, staticAnchor);
       }
     }
@@ -4235,6 +4302,22 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+/* Clear multi-selection when the sidepanel loses focus.
+   Off-surface click UX: selecting outside the sidepanel (browser tab strip,
+   another window, the page body) implicitly discards the selection — same
+   intent as the Escape handler above. Skips when:
+   - Not in selection mode (no-op).
+   - A drag is in flight: blur can race with the drag-and-drop operation;
+     clearing _selection mid-drag would invalidate state.draggedTabIds.
+   - A dialog is open: dialog-internal interactions can briefly trip focus
+     transitions; selection survives those (matches B-047 H-2 precedent). */
+window.addEventListener('blur', () => {
+  if (!_selectionMode) return;
+  if (_tabDragState || _itemDragState || _groupDragState) return;
+  if (dialogOverlayEl && !dialogOverlayEl.hidden) return;
+  _clearSelection();
+});
+
 function toggleGroup(header) {
   const groupId = header.dataset.groupId;
   const expanded = header.getAttribute('aria-expanded') === 'true';
@@ -4436,10 +4519,24 @@ itemListEl.addEventListener('dragstart', (e) => {
       sourceGroupId,
     );
 
+    /* B-148 §3.8 D-2 — capture the dragged floating row's storage
+       identity (floatingTabId ulid) so the REORDER_FLOATING dispatcher
+       can build a 'floating:<ftId>' ref for the new mixed-type
+       renderOrder payload. Open Tabs rows leave this as null (they
+       cannot REORDER_FLOATING). Floating rows missing data-floating-tab-id
+       (legacy pre-S38 records) also leave it null; the dispatcher detects
+       null and falls back to the legacy orderedTabIds path. */
+    const draggedFloatingTabId = (sourceMode === 'FLOATING'
+      && typeof tabRow.dataset.floatingTabId === 'string'
+      && tabRow.dataset.floatingTabId.length > 0)
+      ? tabRow.dataset.floatingTabId
+      : null;
+
     /* B-134 §63.3.1 — initialise state. */
     _tabDragState = {
       draggedTabId,
       draggedTabIds, // B-154
+      draggedFloatingTabId, // B-148 §3.8 D-2
       sourceMode,
       sourceWindowId,
       sourceGroupId,
@@ -4510,9 +4607,14 @@ itemListEl.addEventListener('dragstart', (e) => {
     let payloadItemIds;
     let isMulti;
     if (!_selection.has(initiatorKey)) {
+      /* B-148 hotfix: was `_selection.clear() + _updateBulkBar()` which
+         emptied the Set but left data-selected="true" on the DOM rows
+         (visual desync — checkbox stays checked while state has cleared).
+         _clearSelection() iterates the Set FIRST, calling
+         _setRowSelected(row, false) on each row, then clears the Set —
+         keeping DOM and Set in sync. */
       if (_selection.size > 0) {
-        _selection.clear();
-        _updateBulkBar();
+        _clearSelection();
       }
       payloadItemIds = [itemId];
       isMulti = false;
@@ -4821,7 +4923,116 @@ itemListEl.addEventListener('drop', async (e) => {
              ambiguous (where do N tabs land within a single-group reorder?
              contiguous block? scattered? in selection order or visual order?).
              Use single-tab semantics; only the grabbed row moves. Other
-             selected tabs in the same group stay where they are. */
+             selected tabs in the same group stay where they are.
+
+             B-148 §3.8 D-2 (S44, v6→v7) — new payload shape per R0 spike C
+             Option A: dispatcher emits the FULL new interleaved
+             renderOrder string array; SW handler validates + writes via
+             updateGroup directly (no race-guard required — full-array
+             semantics).
+
+             Construction algorithm:
+               1. Read cached rowRefs[] from the source group's floating
+                  zone (live DOM order before drop).
+               2. Strip the dragged row's ref from its current position.
+               3. Re-insert at pendingInsertIndex.
+             Result is the new interleaved order including saved + floating
+             rows.
+
+             Fallback to legacy orderedTabIds path when:
+               - rect cache missing (defensive — drag started without cache)
+               - dragged row's floatingTabId unknown (pre-S38 legacy record)
+               - rowRefs contains nulls (one or more rows missing
+                 data-item-id / data-floating-tab-id) */
+          const cluster = _tabDragRectCache?.floatingZoneRects?.get(state.sourceGroupId);
+          const draggedRef = state.draggedFloatingTabId
+            ? 'floating:' + state.draggedFloatingTabId
+            : null;
+          const canUseRenderOrder = cluster
+            && Array.isArray(cluster.rowRefs)
+            && cluster.rowRefs.length > 0
+            && cluster.rowRefs.every((r) => r !== null)
+            && draggedRef !== null
+            && cluster.rowRefs.includes(draggedRef);
+
+          if (canUseRenderOrder) {
+            /* B-148 multi-select hotfix — collect ALL selected refs (not just
+               the grabbed row), preserve their visual order, strip them from
+               rowRefs, then re-insert as a contiguous block at the drop
+               position.
+
+               Coordinate-frame note (off-by-one fix): _computeTabDropTarget
+               filters rowMidlines by `id !== draggedTabId` BEFORE computing
+               pendingInsertIndex. So pendingInsertIndex is a position in
+               `rowRefs minus the grabbed row` — NOT in the full rowRefs.
+               To map it into refsWithoutBlock (full rowRefs minus ALL
+               selected refs), subtract the number of OTHER-selected
+               siblings (selected but not the grabbed row) that appear
+               above pendingInsertIndex in the filtered-by-draggedTabId
+               array. Single-select case has zero such siblings — insertAt
+               equals pendingInsertIndex unchanged. */
+            const selectedTabIds = new Set(state.draggedTabIds);
+            const draggedTabId = state.draggedTabId;
+
+            /* Build (a) selectedRefsInVisualOrder — block to re-insert,
+                       (b) refsWithoutBlock — rowRefs minus all selected,
+                       (c) the filtered-by-draggedTabId-only ROW INDEX TO
+                           SIBLING-SELECTED MAP, used to compute siblingsAbove. */
+            const selectedRefsInVisualOrder = [];
+            const refsWithoutBlock = [];
+            let siblingsAbove = 0;
+            let filteredIdx = 0; /* position in (rowRefs minus draggedTabId) */
+            for (let i = 0; i < cluster.rowRefs.length; i++) {
+              const ref = cluster.rowRefs[i];
+              const tabId = cluster.rowTabIds[i];
+              if (selectedTabIds.has(tabId)) {
+                selectedRefsInVisualOrder.push(ref);
+              } else {
+                refsWithoutBlock.push(ref);
+              }
+              /* Walk filtered-by-draggedTabId-only positions in lock-step. */
+              if (tabId !== draggedTabId) {
+                /* If this row is in the filtered array AND is a selected
+                   sibling (not the grabbed row) AND its filtered position
+                   is below pendingInsertIndex, count it. */
+                if (filteredIdx < state.pendingInsertIndex
+                    && selectedTabIds.has(tabId)
+                    && tabId !== draggedTabId) {
+                  siblingsAbove += 1;
+                }
+                filteredIdx += 1;
+              }
+            }
+            /* Defensive: if no selected refs resolved (cache gen mismatch
+               between dragstart and drop), fall back to single-tab behavior
+               using draggedRef alone. */
+            const blockRefs = selectedRefsInVisualOrder.length > 0
+              ? selectedRefsInVisualOrder
+              : [draggedRef];
+            const insertAt = Math.max(
+              0,
+              Math.min(state.pendingInsertIndex - siblingsAbove, refsWithoutBlock.length),
+            );
+            const newRenderOrder = [
+              ...refsWithoutBlock.slice(0, insertAt),
+              ...blockRefs,
+              ...refsWithoutBlock.slice(insertAt),
+            ];
+            const resp = await sendMessage(MSG_REORDER_FLOATING_MEMBERS, {
+              groupId: state.sourceGroupId,
+              renderOrder: newRenderOrder,
+            });
+            if (resp && resp.reordered === false) {
+              showToast(resp.reason === 'ERR_VALIDATION'
+                ? 'Couldn’t reorder tabs — please retry.'
+                : 'Floating-tab list changed during drag — please retry.');
+            }
+            return;
+          }
+
+          /* Legacy fallback — floating-only orderedTabIds payload. The SW
+             handler delegates to reorderFloatingMembers (sortOrder
+             renumber within the floating bucket only). */
           const orderedTabIds = _computeReorderFloatingPayload(
             state.sourceGroupId,
             state.draggedTabId,
@@ -4966,6 +5177,127 @@ itemListEl.addEventListener('drop', async (e) => {
 
       if (updates.length === 0) return;
       await _commitReorderAndRender(updates, { isMulti: state.isMulti });
+      return;
+    }
+
+    /* B-148 §3.7 — saved-item drop INTO a floating-zone position. The
+       hit-test produced a floating-anchor target; the dispatcher computes
+       a new Group.renderOrder for the destination group with the dragged
+       refs spliced at the anchor position, then dispatches
+       MSG_REORDER_FLOATING_MEMBERS with the full renderOrder array.
+
+       Same-group case: only the renderOrder write is dispatched
+       (Group.renderOrder is the authoritative visual order; Item.sortOrder
+       drift is benign — cold-start sweep heals it).
+
+       Cross-group case: MSG_BULK_REORDER_ITEMS is dispatched FIRST to
+       update item.groupId + sortOrder, then MSG_REORDER_FLOATING_MEMBERS
+       writes the destination group's renderOrder. Source group's
+       renderOrder retains a stale item:<id> ref; the resolver filters
+       silently and cold-start sweep cleans it up. Cross-group + interleave
+       drag is acceptable for v1.39.0 with this benign trailing edge.
+    */
+    if (state.pendingIsFloatingAnchor && state.pendingAnchorRef && state.pendingDestGroupId) {
+      /* AC24 — race guard for renderOrder reads. */
+      if (state.cachedItemsGen !== _cachedItemsGen) {
+        try {
+          const itemsResp = await sendMessage(MSG_LIST_ITEMS);
+          _cachedItems = itemsResp.items;
+          _cachedItemsGen += 1;
+          const groupsResp = await sendMessage(MSG_LIST_GROUPS);
+          _cachedGroups = groupsResp;
+          _cachedGroupsGen += 1;
+        } catch (err) {
+          console.warn('[tab-junkie:b148] refresh on broadcast race failed', err);
+          showToast('Couldn’t save new order — try again');
+          return;
+        }
+      }
+
+      const destGroupId = state.pendingDestGroupId;
+      const destGroup = _cachedGroups.find((g) => g.id === destGroupId);
+      const currentRO = (destGroup && Array.isArray(destGroup.renderOrder))
+        ? destGroup.renderOrder
+        : null;
+      if (!currentRO) {
+        /* No renderOrder yet — the destination group hasn't been
+           bootstrapped (probably a fresh group with no floating tabs).
+           Fall through to the legacy path by re-routing to a saved-item
+           target. Since the user clearly intended an interleave drop,
+           the legacy path's append-at-end behavior is the closest
+           approximation; cold-start sweep will derive the correct
+           renderOrder on the next reload. */
+        showToast('Drop position requires a refresh — please retry.');
+        return;
+      }
+
+      const draggedRefs = [...state.payloadItemIds].map((id) => 'item:' + id);
+      const draggedRefSet = new Set(draggedRefs);
+      const filtered = currentRO.filter((r) => !draggedRefSet.has(r));
+      let anchorIdx = filtered.indexOf(state.pendingAnchorRef);
+      if (anchorIdx < 0) anchorIdx = filtered.length;
+      if (state.pendingInsertPosition === 'after') anchorIdx += 1;
+      const newRenderOrder = [
+        ...filtered.slice(0, anchorIdx),
+        ...draggedRefs,
+        ...filtered.slice(anchorIdx),
+      ];
+
+      /* Cross-group detection: any payload item whose source group differs
+         from destGroupId. */
+      const isCrossGroup = state.payloadItemIds.some((id) => {
+        const it = _cachedItems.find((x) => x.id === id);
+        return it && (it.groupId ?? null) !== destGroupId;
+      });
+
+      try {
+        if (isCrossGroup) {
+          /* Step A — bulkReorderItems handles groupId + sortOrder. */
+          const destSiblings = _cachedItems
+            .filter((it) => (it.groupId ?? null) === destGroupId
+              && !state.payloadSet.has(it.id))
+            .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+          const sortedIds = [...state.payloadItemIds].sort((a, b) => {
+            const ia = _cachedItems.find((x) => x.id === a);
+            const ib = _cachedItems.find((x) => x.id === b);
+            return (ia?.sortOrder ?? 0) - (ib?.sortOrder ?? 0);
+          });
+          /* Append-at-end is fine because Group.renderOrder takes
+             precedence visually; sortOrder just needs to be valid. */
+          const updates = computeMultiItemReorder(_cachedItems, sortedIds, destGroupId, destSiblings.length);
+          if (updates.length > 0) {
+            await sendMessage(MSG_BULK_REORDER_ITEMS, { updates });
+          }
+        }
+
+        /* Step B — Group.renderOrder write (the visual-truth dispatch). */
+        const resp = await sendMessage(MSG_REORDER_FLOATING_MEMBERS, {
+          groupId: destGroupId,
+          renderOrder: newRenderOrder,
+        });
+        if (resp && resp.reordered === false) {
+          showToast(resp.reason === 'ERR_VALIDATION'
+            ? 'Couldn’t reorder — please retry.'
+            : 'Item list changed during drag — please retry.');
+          return;
+        }
+
+        /* Re-fetch + renderAll so the sidepanel reflects the new order. */
+        const [itemsResp, groups] = await Promise.all([
+          sendMessage(MSG_LIST_ITEMS),
+          sendMessage(MSG_LIST_GROUPS),
+        ]);
+        _setWindowOrdinalMap(itemsResp.windowMap || {});
+        renderAll(itemsResp.items, groups, itemsResp.liveStates,
+          itemsResp.driftRecords, itemsResp.openTabs, itemsResp.floatingMembers);
+        _applyWindowMapToUI();
+
+        /* Multi-drop selection-clear parity with _commitReorderAndRender. */
+        if (state.isMulti) _clearSelection();
+      } catch (err) {
+        console.warn('[tab-junkie:b148] interleave-drop failed', err);
+        showToast('Couldn’t save new order — reverting');
+      }
       return;
     }
 
@@ -5240,13 +5572,24 @@ itemListEl.addEventListener('dragend', () => {
    itemListEl scroll events; rebuilt lazily in the next rAF tick. */
 function _buildDragRectCache() {
   const rects = new Map();
+  /* B-148 §3.7 — floating-row rect cache, keyed by floatingTabId. Allows
+     the saved-item drop hit-test to recognize floating rows as drop
+     anchors so a saved bookmark can be dropped INTO the middle of a
+     group's floating zone (bidirectional interleave). */
+  const floatingRects = new Map();
   const rows = itemListEl.querySelectorAll('.item-row');
   for (const row of rows) {
+    if (row.dataset.floating === 'true') {
+      const ftId = row.dataset.floatingTabId;
+      if (ftId) floatingRects.set(ftId, row.getBoundingClientRect());
+      continue;
+    }
     const id = row.dataset.itemId;
     if (id) rects.set(id, row.getBoundingClientRect());
   }
   _dragRectCache = {
     rects,
+    floatingRects,
     containerRect: itemListEl.getBoundingClientRect(),
     invalid: false,
   };
@@ -5421,9 +5764,18 @@ function _dragTick() {
 
   _itemDragState.pendingTargetRowId = target.rowId;
   _itemDragState.pendingInsertPosition = target.insertPosition;
+  /* B-148 §3.7 — track floating-anchor metadata so the drop dispatcher
+     can route to the renderOrder write path. */
+  _itemDragState.pendingAnchorRef = target.anchorRef ?? null;
+  _itemDragState.pendingIsFloatingAnchor = !!target.isFloatingAnchor;
+  if (target.isFloatingAnchor && target.destGroupId) {
+    _itemDragState.pendingDestGroupId = target.destGroupId;
+  }
 
   /* SINGLE DOM write per frame: indicator transform + opacity. */
-  const rect = _dragRectCache.rects.get(target.rowId);
+  const rect = target.isFloatingAnchor
+    ? _dragRectCache.floatingRects.get(target.rowId)
+    : _dragRectCache.rects.get(target.rowId);
   const containerRect = _dragRectCache.containerRect;
   /* Account for itemListEl scrollTop so absolute position is container-local. */
   const scrollTop = itemListEl.scrollTop;
@@ -5464,6 +5816,28 @@ function _computeDropTarget(x, y) {
   /* B-030 — normal item-reorder target. */
   const row = hit.closest('.item-row');
   if (row) {
+    /* B-148 §3.7 — floating row as a drop anchor. The saved-item drag
+       can land between/on a floating row to insert the bookmark INTO
+       the interleaved order. Returns a target whose anchorRef carries
+       the floating: prefix so the drop dispatcher knows to write
+       Group.renderOrder via MSG_REORDER_FLOATING_MEMBERS. */
+    if (row.dataset.floating === 'true') {
+      const ftId = row.dataset.floatingTabId;
+      if (!ftId) return null;
+      const section = row.closest('.group-section[data-group-id]');
+      if (!section || !section.dataset || !section.dataset.groupId) return null;
+      const rect = _dragRectCache.floatingRects.get(ftId);
+      if (!rect) return null;
+      const mid = rect.top + rect.height / 2;
+      return {
+        type: 'item',
+        rowId: ftId,
+        anchorRef: 'floating:' + ftId,
+        destGroupId: section.dataset.groupId,
+        insertPosition: y < mid ? 'before' : 'after',
+        isFloatingAnchor: true,
+      };
+    }
     const id = row.dataset.itemId;
     /* B-025 — self-exclusion covers every payload member (not just initiator)
        so multi-drag pointer hover over a sibling in the payload is rejected. */
@@ -5472,7 +5846,7 @@ function _computeDropTarget(x, y) {
     const rect = _dragRectCache.rects.get(id);
     if (!rect) return null;
     const mid = rect.top + rect.height / 2;
-    return { type: 'item', rowId: id, insertPosition: y < mid ? 'before' : 'after' };
+    return { type: 'item', rowId: id, anchorRef: 'item:' + id, insertPosition: y < mid ? 'before' : 'after' };
   }
 
   /* B-025 UAT-3 fix — empty-group drop target (AC13e). When the pointer
@@ -5592,10 +5966,15 @@ async function _commitReorderAndRender(updates, opts = {}) {
        Only on multi-drops: single-item drags do not touch _selection, so
        forcing a clear on single-item drops would be surprising. Intentionally
        outside the catch block — on failure we revert to the pre-drop state
-       and leave selection intact so the user can retry. */
+       and leave selection intact so the user can retry.
+       B-148 hotfix: was `_selection.clear() + _updateBulkBar()` which left
+       the freshly-rendered rows showing data-selected="true" because
+       _reapplySelection (called from renderAll above) had just re-applied
+       data-selected from the Set onto the new DOM rows; the bare
+       _selection.clear() then emptied the Set without touching DOM. Use
+       _clearSelection() so DOM + Set clear together. */
     if (isMulti) {
-      _selection.clear();
-      _updateBulkBar();
+      _clearSelection();
     }
   } catch (err) {
     console.warn('[tab-junkie:item-drag] bulkReorderItems failed', err);
@@ -6128,7 +6507,7 @@ function _cleanupGroupDragDom() {
        Open Tabs */
 function _buildTabDragRectCache() {
   const containerRect = itemListEl.getBoundingClientRect();
-  /** @type {Map<string, {top: number, bottom: number, rowMidlines: number[], rowTabIds: number[]}>} */
+  /** @type {Map<string, {top: number, bottom: number, rowMidlines: number[], rowTabIds: number[], rowRefs: (string|null)[]}>} */
   const floatingZoneRects = new Map();
   /** @type {Map<number, {rowMidlines: number[], rowTabIds: number[]}>} */
   const openTabsByWindow = new Map();
@@ -6140,7 +6519,17 @@ function _buildTabDragRectCache() {
     if (!groupId || groupId === '__ungrouped__') continue;
     const itemsContainer = section.querySelector(':scope > .group-items');
     if (!itemsContainer) continue;
-    const floatingRows = itemsContainer.querySelectorAll(':scope > .item-row[data-floating="true"]');
+    /* B-148 §3.7 / §3.8 D-1 (S44, v6→v7) — enumerate ALL :scope > .item-row
+       rows in the group (saved + floating), not just data-floating="true".
+       The drag insert position must respect the mixed sequence so drops
+       between a saved and a floating row land at the correct slot in the
+       resolved interleaved order. The renderOrder payload built at drop
+       time uses the parallel rowRefs[] (one per row, in DOM order) to
+       construct the new full interleaved order. Pre-B-148 the selector
+       was `[data-floating="true"]` only; the drop position was floating-
+       only (saved rows ignored), which produced misplaced indicators in
+       interleaved groups. */
+    const allRows = itemsContainer.querySelectorAll(':scope > .item-row');
 
     /* Zone vertical bounds (B-157, S43):
          top    — TOP of the group section (header included) so drops on the
@@ -6169,12 +6558,40 @@ function _buildTabDragRectCache() {
 
     const rowMidlines = [];
     const rowTabIds = [];
-    for (const row of floatingRows) {
+    /* B-148 §3.7 — parallel rowRefs[] for renderOrder construction at
+       drop time. Saved rows: 'item:<itemId>' (data-item-id). Floating
+       rows: 'floating:<floatingTabId>' (data-floating-tab-id, stamped
+       by buildFloatingTabRow / patchFloatingMembersSections). null
+       entries (a saved row missing data-item-id, or a floating row
+       missing data-floating-tab-id — e.g., legacy pre-S38 record) are
+       sentinels that disable the renderOrder dispatch path; the
+       REORDER_FLOATING dispatcher detects this and falls back to the
+       legacy orderedTabIds payload. */
+    const rowRefs = [];
+    for (const row of allRows) {
       const r = row.getBoundingClientRect();
       rowMidlines.push((r.top + r.bottom) / 2);
-      rowTabIds.push(Number(row.dataset.tabId));
+      const tabIdNum = Number(row.dataset.tabId);
+      /* Saved rows have no tabId — push -1 sentinel so the existing
+         `id !== draggedTabId` filter in _computeTabDropTarget /
+         _resolveTabDragIndicatorY treats them as "not the dragged row"
+         (kept in midlines). The dragged row's tabId is a finite number,
+         so -1 never collides. */
+      rowTabIds.push(Number.isFinite(tabIdNum) ? tabIdNum : -1);
+      const isFloating = row.dataset.floating === 'true';
+      if (isFloating) {
+        const ftId = row.dataset.floatingTabId;
+        rowRefs.push(typeof ftId === 'string' && ftId.length > 0
+          ? 'floating:' + ftId
+          : null);
+      } else {
+        const itemId = row.dataset.itemId;
+        rowRefs.push(typeof itemId === 'string' && itemId.length > 0
+          ? 'item:' + itemId
+          : null);
+      }
     }
-    floatingZoneRects.set(groupId, { top, bottom, rowMidlines, rowTabIds });
+    floatingZoneRects.set(groupId, { top, bottom, rowMidlines, rowTabIds, rowRefs });
   }
 
   /* Open Tabs section per-window clusters. */
@@ -6762,12 +7179,40 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
            - the feature gate is off (§34.11 rollback path)
            - the index has been disabled by the graceful-degrade path
            - the cached items count is zero (cold-open never patches) */
+      /* B-148 §3.7 hotfix — Group.renderOrder changes broadcast as
+         SCOPE.ITEMS (the items-side write happens inside the same
+         writeTransaction). The diff-and-patch fast path compares ITEM
+         shape only; an items-noop where only renderOrder changed would
+         skip renderAll and leave row order stale. Detect renderOrder
+         drift across the prior _cachedGroups vs the freshly-fetched
+         groups and force the slow path when any group's renderOrder
+         differs. */
+      const renderOrderChanged = (function () {
+        if (!Array.isArray(_cachedGroups) || !Array.isArray(groups)) return false;
+        if (_cachedGroups.length !== groups.length) return true;
+        const prevById = new Map(_cachedGroups.map((g) => [g.id, g]));
+        for (const next of groups) {
+          const prev = prevById.get(next.id);
+          if (!prev) return true;
+          const prevRO = Array.isArray(prev.renderOrder) ? prev.renderOrder : null;
+          const nextRO = Array.isArray(next.renderOrder) ? next.renderOrder : null;
+          if (prevRO === null && nextRO === null) continue;
+          if (prevRO === null || nextRO === null) return true;
+          if (prevRO.length !== nextRO.length) return true;
+          for (let i = 0; i < prevRO.length; i++) {
+            if (prevRO[i] !== nextRO[i]) return true;
+          }
+        }
+        return false;
+      })();
+
       const canPatch =
         SEARCH_INDEX_ENABLED &&
         !_searchIndexDisabled &&
         _searchIndex !== null &&
         scope === 'items' &&
-        _cachedItems.length > 0;
+        _cachedItems.length > 0 &&
+        !renderOrderChanged;
 
       let patched = false;
       if (canPatch) {

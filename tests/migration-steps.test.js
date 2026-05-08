@@ -85,13 +85,13 @@ test('AC4: migration steps registry is properly cleaned up between tests', async
   assert.equal(status.schemaVersion, KNOWN_VERSION);
 });
 
-test('B-159 §A: KNOWN_VERSION is 6 (governance bump for Item.favIconUrl)', () => {
-  /* C-1a check: KNOWN_VERSION MUST be incremented when the PARTITION_ITEMS
-     record shape changes. The constant being a literal `6` is asserted
+test('B-148 §3.1: KNOWN_VERSION is 7 (governance bump for Group.renderOrder)', () => {
+  /* C-1a check: KNOWN_VERSION MUST be incremented when the PARTITION_GROUPS
+     record shape changes. The constant being a literal `7` is asserted
      indirectly by the migration-chain integrity check (`MIGRATION_STEPS` has
-     steps for 1→2, 2→3, 3→4, 4→5, and 5→6, contiguous). */
-  assert.equal(KNOWN_VERSION, 6,
-    'KNOWN_VERSION must be 6 (B-159 §A schema bump for Item.favIconUrl)');
+     steps for 1→2, 2→3, 3→4, 4→5, 5→6, and 6→7, contiguous). */
+  assert.equal(KNOWN_VERSION, 7,
+    'KNOWN_VERSION must be 7 (B-148 §3.1 schema bump for Group.renderOrder)');
 });
 
 test('B-134 §63.2.4: v2 → v3 lazy migration — stored v2 advances to KNOWN_VERSION with no data rewrite', async () => {

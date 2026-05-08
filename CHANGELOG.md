@@ -2,6 +2,30 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.39.0] — 2026-05-04 (B-148 interleave floating tabs with saved bookmarks)
+
+Sprint 44 anchor. Floating tabs and saved bookmarks within a Tab Junkie group can now be interleaved into one user-defined sequence; the order is owned by the Group record, persists across tab close + extension restart, and applies to both sidepanel and newtab surfaces.
+
+### New features
+- **Interleave drag (B-148 §3.7 + §3.8)** — drop a floating tab anywhere within a group, including between two saved bookmarks. The new position persists across browser restart. Sidepanel + newtab honor the user-defined order. Quick-search popup unchanged.
+- **Off-surface click clears multi-selection** — when sidepanel focus is lost (clicking the browser tab strip, another window, or the page body), any active multi-selection clears. Mirrors the existing Escape-to-clear semantics. Skips during in-flight drags + while a dialog is open.
+
+### Internal
+- **Schema v6 → v7 lazy migration (B-148 §3.1)** — `tj:groups` records gain an OPTIONAL `renderOrder: string[]` of prefix-encoded refs (`item:<id>` / `floating:<floatingTabId>`). Legacy v6 groups bootstrap on first cold start via the new `bootstrapAndSweepRenderOrder()` pass; new writes always stamp the field. C-1a paired-bump (`KNOWN_VERSION` + `defaultShape(PARTITION_META).schemaVersion`); C-1b option 2 lazy data migration.
+- **`shared/render-order.js` resolver** — pure `resolveRenderOrder(group, items, floatingMembers)` returns `RenderRow[]`; bootstrap fallback (saved-by-sortOrder, then floating-by-sortOrder) when `renderOrder` missing/empty; stale refs filtered silently.
+- **12 multi-partition write sites updated**: createItem, deleteItem, updateItem({groupId}), bulkCreateItems, bulkDeleteItems, appendFloatingGroup, moveFloatingTab, pruneFloatingGroupsByLiveTabId, pruneFloatingGroupsByParentItemId, MSG_REORDER_FLOATING_MEMBERS handler, commitImport (replace mode), bootstrapAndSweepRenderOrder (cold-start). All atomic via `writeTransaction([{partition,...},...])` (R0 spike A confirmed multi-partition atomicity).
+- **Sidepanel drag hit-test extended** — `_buildTabDragRectCache` now enumerates ALL `.item-row` rows in the floating zone (saved + floating); REORDER_FLOATING dispatcher emits the new `{groupId, renderOrder: string[]}` payload (per R0 spike C Option A). Multi-select drag moves the selected rows as a contiguous block at the drop position.
+- **Broadcast fast-path renderOrder awareness** — sidepanel listener now detects `renderOrder` drift between cached vs freshly-fetched groups and forces a full `renderAll`. `patchFloatingMembersSections` preserves in-container row positions when a group has `renderOrder` set (avoids snapping interleaved rows back to the legacy saved-then-floating zone).
+- **Test count**: 1930 → 2006 PASS (+76 net).
+
+### Migration note
+Schema bump from v6 → v7 is **lazy** — existing profiles continue to work. **After updating, toggle the extension OFF then ON in `edge://extensions` once** to flush the SW module cache. The first cold-start derives `renderOrder` for every group from current Item.sortOrder + FloatingGroup.sortOrder. The new `appendFloatingGroup` and other write sites then stamp updates as the user interacts.
+
+### Rollback
+Downgrade to v1.38.x is NOT supported — `tj:meta.schemaVersion` will be ahead of the older `KNOWN_VERSION` constant; the older build will safe-mode lock the partition. To roll back: download v1.38.2, then in SW console: `await chrome.storage.local.set({'tj:meta': { schemaVersion: 6, createdAt: Date.now() } })` to manually reset (data integrity NOT guaranteed; legacy v6 groups will continue working but any v7-stamped renderOrder is discarded).
+
+---
+
 ## [1.38.2] — 2026-05-03 (B-161 popup Tab shortcut + settings button removed)
 
 Same-day follow-on polish.

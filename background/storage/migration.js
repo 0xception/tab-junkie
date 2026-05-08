@@ -85,8 +85,19 @@ const KNOWN_LEGACY_KEYS = ['junkie_bookmarks', 'junkie_groups', 'junkie_pinned_t
  * `liveTabId` onto matched-unclaimed legacy records as part of its existing
  * `pruneResolvedFloatingGroups` write transaction (§66.7). C-1a + C-1b
  * compliance recorded in §66.2.1 / §66.2.2.
+ *
+ * v6 → v7 (B-148 §3.1, S44) governance bump. No-op migrate: lazy data
+ * migration (option 2). `tj:groups` records gain an OPTIONAL
+ * `renderOrder: string[]` of prefix-encoded refs (`item:<id>` /
+ * `floating:<floatingTabId>`) used by sidepanel + newtab render-paths to
+ * display saved-bookmarks + floating-tabs in user-defined interleaved
+ * order. Legacy v6 groups lack the field; cold-start
+ * `reassociateFloatingGroups` (extended at Task 11) bootstraps the
+ * missing array from current Item.sortOrder + FloatingGroup.sortOrder
+ * on first cold-start post-upgrade. C-1a + C-1b compliance: governance
+ * bump required even when data migration is lazy (C-1b option 2).
  */
-export const KNOWN_VERSION = 6;
+export const KNOWN_VERSION = 7;
 
 /**
  * Ordered array of migration steps. Each step upgrades the schema from
@@ -165,6 +176,21 @@ const MIGRATION_STEPS = [
   {
     fromVersion: 5,
     toVersion: 6,
+    migrate: (snapshot) => snapshot,
+  },
+  /* B-148 §3.1 (S44) — v6 → v7 governance bump. No-op migrate: lazy data
+     migration (option 2). `tj:groups` records gain an OPTIONAL
+     `renderOrder: string[]` of prefix-encoded refs (`item:<id>` /
+     `floating:<floatingTabId>`) used by sidepanel + newtab render-paths
+     to display saved-bookmark + floating-tab rows in user-defined
+     interleaved order. Legacy v6 groups lack the field; cold-start
+     `reassociateFloatingGroups` (extended at Task 11) bootstraps the
+     missing array from current Item.sortOrder + FloatingGroup.sortOrder
+     on first cold-start post-upgrade. The governance bump is required
+     by C-1a even when data migration is lazy (C-1b option 2). */
+  {
+    fromVersion: 6,
+    toVersion: 7,
     migrate: (snapshot) => snapshot,
   },
 ];

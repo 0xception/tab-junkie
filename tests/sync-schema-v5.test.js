@@ -4,13 +4,13 @@ import './_setup.js';
 import { KNOWN_VERSION } from '../background/storage/migration.js';
 import { defaultShape, PARTITION_META, assertShape, PARTITION_GROUPS } from '../background/storage/shapes.js';
 
-test('KNOWN_VERSION is 6 (B-159 §A v5→v6 bump for favIconUrl)', () => {
-  assert.equal(KNOWN_VERSION, 6);
+test('KNOWN_VERSION is 7 (B-148 §3.1 v6→v7 bump for renderOrder)', () => {
+  assert.equal(KNOWN_VERSION, 7);
 });
 
-test('defaultShape(PARTITION_META) seeds schemaVersion: 6 (B-159 §A paired bump)', () => {
+test('defaultShape(PARTITION_META) seeds schemaVersion: 7 (B-148 §3.1 paired bump)', () => {
   const shape = defaultShape(PARTITION_META);
-  assert.equal(shape.schemaVersion, 6);
+  assert.equal(shape.schemaVersion, 7);
 });
 
 test('isGroup accepts a group without chromeTabGroupId (legacy v4 shape)', () => {

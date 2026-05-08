@@ -24,6 +24,8 @@ import { isSafeFaviconUrl } from '../../shared/favicon.js';
 import { broadcast, SCOPE } from '../broadcast.js';
 import { recordOpener, pruneOpener, pruneOpenersByWindow, walkOpenerChain } from './opener-chain.js';
 import { appendFloatingGroup, pruneFloatingGroupsByLiveTabId } from './floating-groups.js';
+import { readPartition } from '../storage/partitions.js';
+import { PARTITION_FLOATING_GROUPS } from '../storage/shapes.js';
 /* B-014 */
 import { registerWindow, unregisterWindow } from './window-ordinals.js';
 /* B-041 (S42 §67.6.6) — chrome-sync produces a storm of onMoved events
@@ -205,6 +207,35 @@ export function registerTabEventListeners(readyPromise) {
             const liveUrl = liveEntry.url || '';
             const liveIndex = liveEntry.index ?? tab.index;
             const liveWindowId = liveEntry.windowId ?? tab.windowId;
+            /* B-148 hotfix (S44 polish) — anchor the new floating tab DIRECTLY
+               UNDER the opener page in renderOrder so it appears next to the
+               page the user just clicked from. Two cases:
+               (a) opener tab is itself a floating record in the same group
+                   → anchor at `floating:<openerFloatingTabId>`
+               (b) opener resolves to the saved item via walkOpenerChain
+                   → anchor at `item:<result.itemId>`
+               Either way, appendFloatingGroup splices the new ref AT
+               anchor+1, not at end. Falls back to append-at-end when no
+               anchor resolves (e.g., legacy v6 group with no renderOrder). */
+            let insertAfterRef = 'item:' + result.itemId;
+            try {
+              const floatingRecords = await readPartition(PARTITION_FLOATING_GROUPS);
+              if (Array.isArray(floatingRecords)) {
+                const openerFloating = floatingRecords.find(
+                  (r) => r
+                    && typeof r === 'object'
+                    && r.groupId === result.groupId
+                    && r.liveTabId === tab.openerTabId
+                    && typeof r.floatingTabId === 'string'
+                    && r.floatingTabId.length > 0,
+                );
+                if (openerFloating) {
+                  insertAfterRef = 'floating:' + openerFloating.floatingTabId;
+                }
+              }
+            } catch {
+              /* swallow — fallback to item-anchor is correct on read failure */
+            }
             await appendFloatingGroup({
               groupId: result.groupId,
               parentItemId: result.itemId,
@@ -217,6 +248,8 @@ export function registerTabEventListeners(readyPromise) {
                  the `liveEntry` re-validation above (line 151-152) ensures
                  the tab is still alive at write time. */
               liveTabId: tab.id,
+              /* B-148 hotfix — see anchor comment above. */
+              insertAfterRef,
             });
             // B-125 (§59.3): mark the inherited tab so reevaluateTab will
             // skip the auto-claim branch. Placed strictly AFTER the

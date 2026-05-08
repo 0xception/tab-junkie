@@ -19,7 +19,7 @@ import {
   MAX_COLOR,
   readPartition,
 } from './partitions.js';
-import { MAX_BULK_INPUTS } from './shapes.js';
+import { MAX_BULK_INPUTS, MAX_REF_LENGTH } from './shapes.js';
 import { GROUP_COLORS } from '../../shared/constants.js';
 import { writeTransaction } from './write-transaction.js';
 import { ulid } from './ids.js';
@@ -116,7 +116,7 @@ function validateGroupPatch(patch) {
   /* B-041 (S42 §3.3) — extend allow-list with `chromeTabGroupId` (number|null)
      for the chrome-sync orchestrator to persist Chrome tab-group identity
      back to the TJ group record. C-7 allow-list direction. */
-  const allowed = ['name', 'color', 'parentId', 'sortOrder', 'collapsed', 'chromeTabGroupId'];
+  const allowed = ['name', 'color', 'parentId', 'sortOrder', 'collapsed', 'chromeTabGroupId', 'renderOrder'];
   for (const k of Object.keys(patch)) {
     if (!allowed.includes(k)) {
       throw new StorageError(ERR_VALIDATION, 'updateGroup: unknown field', { field: k });
@@ -142,6 +142,26 @@ function validateGroupPatch(patch) {
     && patch.chromeTabGroupId !== null
     && (typeof patch.chromeTabGroupId !== 'number' || !Number.isFinite(patch.chromeTabGroupId))) {
     throw new StorageError(ERR_VALIDATION, 'updateGroup: chromeTabGroupId must be number or null');
+  }
+  /* B-148 §3.3 (S44, v6→v7) — OPTIONAL renderOrder patch. Mirrors the
+     per-element rules in shapes.js#isGroup (string, non-empty, prefix
+     `item:` or `floating:`, length <= MAX_REF_LENGTH). C-7 allow-list
+     direction. */
+  if ('renderOrder' in patch) {
+    if (!Array.isArray(patch.renderOrder)) {
+      throw new StorageError(ERR_VALIDATION, 'updateGroup: renderOrder must be array');
+    }
+    for (const entry of patch.renderOrder) {
+      if (typeof entry !== 'string' || entry.length === 0) {
+        throw new StorageError(ERR_VALIDATION, 'updateGroup: renderOrder entry must be non-empty string');
+      }
+      if (!entry.startsWith('item:') && !entry.startsWith('floating:')) {
+        throw new StorageError(ERR_VALIDATION, 'updateGroup: renderOrder entry must be prefixed item: or floating:');
+      }
+      if (entry.length > MAX_REF_LENGTH) {
+        throw new StorageError(ERR_VALIDATION, 'updateGroup: renderOrder entry exceeds maximum length');
+      }
+    }
   }
 }
 
