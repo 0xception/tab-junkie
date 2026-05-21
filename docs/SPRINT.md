@@ -59,9 +59,9 @@ Three CLAUDE.md edit action items inherited from S44 retrospective; the [scrum-m
 
 - **Tier**: Full (M)
 - **Priority**: P1
-- **Status**: R1 (definition) — joint R0 spike with B-163 first
-- **Assigned To**: [product-manager] (R1) → [solution-architect] (joint R0 + R2)
-- **Blockers**: none
+- **Status**: **R0 PROVISIONAL (2026-05-21)** — picked combination (a) `chrome.tabs.onReplaced` listener + (c) `chrome.idle.onStateChanged` re-reconciliation. Blocking on empirical probe-script results from product-owner (Q1: does `onReplaced` actually fire on OS-discard or only on prerendering?). See `docs/findings/sprint-45.md` for full R0 output + probe script + 7 open R2 questions.
+- **Assigned To**: PRODUCT-OWNER (probe script) → [product-manager] (R1) → [solution-architect] (R2)
+- **Blockers**: ⚠️ Probe results — R0 cannot lock until product-owner pastes the SW-console probe output back. R1 ACs can be drafted in parallel against the PROVISIONAL design.
 - **Feature Context**:
   - Product-owner reports that over days of continuous use, across system sleep / laptop-lid-close cycles, saved-bookmark→tab claims progressively break: live tab appears in Open Tabs as if unclaimed, matching bookmark renders as non-live.
   - Distinct from B-149 (SW idle-shutdown, fixed) and B-163 (full browser restart, in-sprint sibling).
@@ -74,9 +74,9 @@ Three CLAUDE.md edit action items inherited from S44 retrospective; the [scrum-m
 
 - **Tier**: Full (M)
 - **Priority**: P2
-- **Status**: R1 (definition) — joint R0 spike with B-164 first
-- **Assigned To**: [product-manager] (R1) → [solution-architect] (joint R0 + R2)
-- **Blockers**: none
+- **Status**: **R0 LOCKED (2026-05-21)** — picked option (a) defer §53 paired-clear + add Phase-3 drift-URL fallback sweep + Phase-4 conditional drift drop. One product-owner decision pending at R2 (Q4: introduce fallback-only TTL on drift records, or accept no-TTL hijack risk?). See `docs/findings/sprint-45.md` for full R0 output.
+- **Assigned To**: [product-manager] (R1) → [solution-architect] (R2)
+- **Blockers**: none — R1 can start immediately.
 - **Feature Context**:
   - Today `reconcileClaims` Phase 2 uses ONLY `item.url` as the URL-match candidate. Phase 1 evictions paired-clear drift records (B-110 §53).
   - Result: a claimed item that drifts to URL X, then loses its claim across an SW idle + tab-recreate cycle, will NOT re-bind to a fresh tab on URL X — even though `tj:drift` recorded the drift before eviction.
@@ -89,8 +89,8 @@ Three CLAUDE.md edit action items inherited from S44 retrospective; the [scrum-m
 
 - **Tier**: Full (M) — auto-upgraded from Fast Track per CLAUDE.md "If an XS/S item introduces a new storage schema, new message types, new extension permissions, or cross-cutting changes…": R0 options (a) and (c) propose message-contract (MSG_PROMOTE_TAB payload extension) or storage-contract (`createItem({insertAt})`) changes; (b) is purely SW-side detection. R2 review needed regardless of option.
 - **Priority**: P2
-- **Status**: R1 (definition)
-- **Assigned To**: [product-manager] (R1) → [solution-architect] (R2)
+- **Status**: **R1 LOCKED (2026-05-21)** — 6 testable ACs: AC1 in-place position preservation (happy) · AC2 pre-S38 legacy fallback (no `floatingTabId` → append) · AC3 group-deleted-mid-flight (defensive Ungrouped fallback already at `sidepanel.js:3178-3182`) · AC4 tab-closed-mid-flight (ERR_NOT_FOUND toast path) · AC5 out-of-scope paths regression-free (right-click picker + Open-Tabs flow untouched) · AC6 renderOrder integrity (1-for-1 swap, no orphans/duplicates). DoR-7: N/A (additive write). Selector audit: N/A (no DOM rehome). Full AC block in `docs/findings/sprint-45.md` and BACKLOG.md row.
+- **Assigned To**: [solution-architect] (R2) — option-picker among R0 (a)/(b)/(c)
 - **Blockers**: none
 - **Feature Context**:
   - The floating-row `+` CTA (`_onFloatingSaveCtaClick` at `sidepanel/sidepanel.js:3169`) saves the floating tab into its parent group correctly (no modal), but the new bookmark lands at the BOTTOM of the group instead of taking over the floating tab's interleaved position.
