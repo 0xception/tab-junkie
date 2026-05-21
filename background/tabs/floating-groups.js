@@ -1140,14 +1140,26 @@ export async function preMarkInheritedFromFloatingGroups() {
  * @returns {Promise<void>}
  */
 export async function bootstrapAndSweepRenderOrder() {
-  const [groups, items, floatingRecords] = await Promise.all([
-    readPartition(PARTITION_GROUPS),
+  /* Read items + floating records OUTSIDE the writeTransaction — those
+     partitions aren't being mutated by this call, so a snapshot read is
+     safe and minor staleness reconciles on the next sweep cycle. The
+     CRITICAL race is the groups partition which we're about to write —
+     that read MUST happen inside the mutator to use the writeTransaction's
+     current snapshot (S44 R4 [code-reviewer] HIGH finding #1; pre-fix the
+     derivation ran outside the transaction then committed via
+     `mutator: () => updatedGroups`, a blind replace that clobbered any
+     concurrent group write landing in the narrow cold-start window
+     between readyPromise resolving and the first user gesture). */
+  const [items, floatingRecords] = await Promise.all([
     readPartition(PARTITION_ITEMS),
     readPartition(PARTITION_FLOATING_GROUPS),
   ]);
-  if (!Array.isArray(groups) || groups.length === 0) return;
 
-  /* Pre-index items + floating records by groupId for O(N) total work. */
+  /* Pre-index items + floating records by groupId for O(N) total work.
+     MEDIUM fix (S44 R4 finding #2): defensive filter against pre-S38
+     legacy floating records that lack a floatingTabId — without this the
+     bootstrap path emits the literal ref 'floating:undefined' which the
+     shape validator accepts but the resolver silently filters on render. */
   const itemsByGroup = new Map();
   if (Array.isArray(items)) {
     for (const it of items) {
@@ -1160,6 +1172,7 @@ export async function bootstrapAndSweepRenderOrder() {
   if (Array.isArray(floatingRecords)) {
     for (const fr of floatingRecords) {
       if (!fr || typeof fr.groupId !== 'string') continue;
+      if (typeof fr.floatingTabId !== 'string' || fr.floatingTabId.length === 0) continue;
       if (!floatingByGroup.has(fr.groupId)) floatingByGroup.set(fr.groupId, []);
       floatingByGroup.get(fr.groupId).push(fr);
     }
@@ -1175,53 +1188,61 @@ export async function bootstrapAndSweepRenderOrder() {
     floatingIdsByGroup.set(gid, new Set(arr.map((fr) => fr.floatingTabId)));
   }
 
-  /* Compute the new renderOrder for each group; track whether anything changed. */
-  let anyChanged = false;
-  const updatedGroups = groups.map((g) => {
-    if (!g || typeof g.id !== 'string') return g;
-    const groupItems = itemsByGroup.get(g.id) || [];
-    const groupFloating = floatingByGroup.get(g.id) || [];
-    const itemIds = itemIdsByGroup.get(g.id) || new Set();
-    const floatingIds = floatingIdsByGroup.get(g.id) || new Set();
-
-    let nextRenderOrder;
-    if (!Array.isArray(g.renderOrder) || g.renderOrder.length === 0) {
-      /* Bootstrap path. */
-      const sortedItems = [...groupItems].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-      const sortedFloating = [...groupFloating].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-      nextRenderOrder = [
-        ...sortedItems.map((it) => 'item:' + it.id),
-        ...sortedFloating.map((fr) => 'floating:' + fr.floatingTabId),
-      ];
-    } else {
-      /* Sweep path — keep refs that resolve. */
-      nextRenderOrder = g.renderOrder.filter((ref) => {
-        if (typeof ref !== 'string') return false;
-        if (ref.startsWith('item:')) {
-          return itemIds.has(ref.slice('item:'.length));
-        }
-        if (ref.startsWith('floating:')) {
-          return floatingIds.has(ref.slice('floating:'.length));
-        }
-        return false;
-      });
-    }
-
-    /* Same array content → no change. */
-    const before = Array.isArray(g.renderOrder) ? g.renderOrder : null;
-    const sameLength = before && before.length === nextRenderOrder.length;
-    const sameContent = sameLength && before.every((v, i) => v === nextRenderOrder[i]);
-    if (sameContent) return g;
-    anyChanged = true;
-    return { ...g, renderOrder: nextRenderOrder, updatedAt: Date.now() };
-  });
-
-  if (!anyChanged) return;
-
   await writeTransaction([
     {
       partition: PARTITION_GROUPS,
-      mutator: () => updatedGroups,
+      mutator: (currentGroups) => {
+        if (!Array.isArray(currentGroups) || currentGroups.length === 0) {
+          return currentGroups;
+        }
+
+        let anyChanged = false;
+        const updatedGroups = currentGroups.map((g) => {
+          if (!g || typeof g.id !== 'string') return g;
+          const groupItems = itemsByGroup.get(g.id) || [];
+          const groupFloating = floatingByGroup.get(g.id) || [];
+          const itemIds = itemIdsByGroup.get(g.id) || new Set();
+          const floatingIds = floatingIdsByGroup.get(g.id) || new Set();
+
+          let nextRenderOrder;
+          if (!Array.isArray(g.renderOrder) || g.renderOrder.length === 0) {
+            /* Bootstrap path. */
+            const sortedItems = [...groupItems].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+            const sortedFloating = [...groupFloating].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+            nextRenderOrder = [
+              ...sortedItems.map((it) => 'item:' + it.id),
+              ...sortedFloating.map((fr) => 'floating:' + fr.floatingTabId),
+            ];
+          } else {
+            /* Sweep path — keep refs that resolve. */
+            nextRenderOrder = g.renderOrder.filter((ref) => {
+              if (typeof ref !== 'string') return false;
+              if (ref.startsWith('item:')) {
+                return itemIds.has(ref.slice('item:'.length));
+              }
+              if (ref.startsWith('floating:')) {
+                return floatingIds.has(ref.slice('floating:'.length));
+              }
+              return false;
+            });
+          }
+
+          /* Same array content → no change. */
+          const before = Array.isArray(g.renderOrder) ? g.renderOrder : null;
+          const sameLength = before && before.length === nextRenderOrder.length;
+          const sameContent = sameLength && before.every((v, i) => v === nextRenderOrder[i]);
+          if (sameContent) return g;
+          anyChanged = true;
+          return { ...g, renderOrder: nextRenderOrder, updatedAt: Date.now() };
+        });
+
+        /* No-op when nothing changed — return the snapshot unmodified so
+           writeTransaction can short-circuit the write (avoids storage
+           churn on repeat cold starts where every group is already
+           bootstrapped + clean). */
+        if (!anyChanged) return currentGroups;
+        return updatedGroups;
+      },
     },
   ]);
 }
