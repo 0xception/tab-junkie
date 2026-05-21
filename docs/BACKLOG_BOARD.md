@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-05-21 · **Version:** 2.44.closed · **Total Items:** 154 · **Sprint 44 closed. v1.39.0 staged on `feature/sprint-44-interleave` (release/v2 tag pending). 1 anchor closed (B-148 interleave floating tabs with saved bookmarks) plus 10+ polish/hotfix rounds folded under the anchor. 5 new follow-on items filed and deferred: B-162 (Ctrl+Shift+T reopen, P3/M), B-163 (drift URL fallback, P2/M), B-164 (sleep desync, P1/M), B-165 (drop scroll preservation, P2/M), B-166 (floating + promote in-place, P2/S). Sprint 43 closed 2026-05-02 — v1.37.0/.1/.2 + v1.38.0/.1/.2 shipped on release/v2.**
+**Updated:** 2026-05-21 · **Version:** 2.45.opened · **Total Items:** 154 · **Sprint 45 OPEN.** Anchor: B-164 (P1/M sleep-wake claim desync). Siblings: B-163 (P2/M drift URL fallback — joint R0 spike with B-164) + B-166 (P2/S floating `+` promote-in-place). Sprint 44 closed 2026-05-21 with v1.39.0 tagged on release/v2 at merge commit `4ddc58a` (PR #54): B-148 interleave anchor + 10 polish/hotfix rounds + 5 new follow-on items filed (B-162..B-166); tests 1930 → 2016 PASS; schema v6 → v7 lazy.
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████████████████░  94% (144/154)  [S44 closed · v1.39.0 staged on feature/sprint-44-interleave]
+Overall Progress    ███████████████████░  94% (144/154)  [S45 open · 3 in-progress · v1.39.0 shipped on release/v2]
 ```
 
 ### Legend
@@ -119,6 +119,16 @@ Overall Progress    ███████████████████░
 ✅ B-085 — Add C-10 "Off-screen rect feasibility" to R2 Correctness Checklist · 🟠 · XS [S25 — v1.19.0]
 ⬜ B-086 — Sidepanel UI/UX design pass (post-feature-freeze polish) · ⚪ · M [filed S25 post-UAT; scheduled post-feature-parity]
 ✅ B-087 — Add C-11 "Popup-lifecycle message ordering" to R2 Correctness Checklist · 🟠 · XS [S27 Wave 1 — S26 retro HIGH action closed]
+
+---
+
+## Sprint 45 — Claim-desync correctness (active)
+
+> 0/3 done · 3 in progress · Sprint 45 opened 2026-05-21 on branch `feature/sprint-45-claim-desync` (off `release/v2` at v1.39.0 / `6600010`)
+
+🔄 B-164 — Saved-bookmark→tab claims survive system sleep / lid-close · 🟠 · M [S45 anchor — Full pipeline · siblings joint R0 spike with B-163 · likely C-13 missing `chrome.tabs.onReplaced` / `onDiscarded` listener · distinct from B-149 (SW idle) and B-163 (browser restart)]
+🔄 B-163 — Drift URL fallback on cold-start re-association · 🟡 · M [S45 sibling — Full pipeline · joint R0 spike with B-164 · R0 options: (a) defer §53 paired-clear / (b) Phase-2 `driftedToUrl` fallback / (c) `lastClaimedUrl` rolling field]
+🔄 B-166 — Floating `+` CTA promotes in-place (not bottom of group) · 🟡 · S [S45 small fix — Fast Track auto-upgrade-to-Full because R0 options (a)/(c) modify MSG_PROMOTE_TAB payload or createItem signature · R0 options: (a) UI-side `replaceFloatingId` hint / (b) SW-side detection / (c) `createItem({insertAt})`]
 
 ---
 
@@ -286,17 +296,19 @@ Overall Progress    ███████████████████░
 | Status | Count | % |
 |--------|-------|---|
 | ✅ Done | 144 | 94% |
-| 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 10 | 6% |
+| 🔄 In Progress | 3 | 2% |
+| ⬜ To Do | 7 | 4% |
 | 🧊 Icebox | 3 | 2% |
 
-(Done count: 144 post-S44 close. S44 shipped 1 anchor: B-148 interleave floating tabs with saved bookmarks (Spike-First XL, schema v6→v7 lazy + `shared/render-order.js` resolver + 12 atomic multi-partition write sites + sidepanel/newtab render-path consumption + 10+ polish/hotfix rounds). Five new follow-on items filed and deferred to S45+: B-162 (Ctrl+Shift+T reopen, P3/M), B-163 (drift URL fallback, P2/M), B-164 (sleep desync, P1/M), B-165 (drop scroll preservation, P2/M), B-166 (floating + promote in-place, P2/S). Total backlog 148 → 154 with B-162..B-166 added; B-148 moved from to-do to done.)
+(Done count: 144. Sprint 45 opened 2026-05-21 on branch `feature/sprint-45-claim-desync` off `release/v2` at v1.39.0. Three items moved from backlog → in-progress: B-164 (P1/M sleep-wake claim desync — anchor), B-163 (P2/M drift URL fallback — sibling), B-166 (P2/S floating `+` promote-in-place). Sprint 44 closed 2026-05-21 shipping B-148 interleave (Spike-First XL, schema v6→v7 lazy + `shared/render-order.js` resolver + 12 atomic multi-partition write sites + sidepanel/newtab render-path consumption + 10+ polish/hotfix rounds); v1.39.0 tagged on release/v2 at `4ddc58a` (PR #54). Five new follow-on items filed during S44 close — three (B-164/B-163/B-166) carried into S45, two (B-162, B-165) remain backlog.)
 
-**In Progress breakdown**: 0 items — sprint closed.
+**In Progress breakdown (3 items, Sprint 45)**:
+- 🟠 **P1** (1): **B-164** sleep/wake claim desync (M, S45 anchor)
+- 🟡 **P2** (2): **B-163** drift URL fallback (M, S45 sibling — joint R0 with B-164) · **B-166** floating + promote in-place (S, S45 small fix)
 
-**To-Do breakdown (10 items)**:
-- 🟠 **P1** (2): **B-150 Q2** lost-sync continuation (B-149 hypothesis mechanisms a/b/d still open; awaits real-world repro signal) · **B-164** sleep/wake claim desync (M, S45 candidate)
-- 🟡 **P2** (5): B-076 MIGRATION_STEPS hook (S) · **B-138** post-B-137 cleanup (XS, DEFERRED) · **B-163** drift URL fallback (M, S45 candidate) · **B-165** drop scroll preservation (M) · **B-166** floating + promote in-place (S, S45 candidate)
+**To-Do breakdown (7 items)**:
+- 🟠 **P1** (1): **B-150 Q2** lost-sync continuation (B-149 hypothesis mechanisms a/b/d still open; awaits real-world repro signal)
+- 🟡 **P2** (3): B-076 MIGRATION_STEPS hook (S) · **B-138** post-B-137 cleanup (XS, DEFERRED) · **B-165** drop scroll preservation (M)
 - ⚪ **P3** (3): **B-135** cross-window Open Tabs drag · B-086 sidepanel UI/UX umbrella (M) · **B-155** Edge multi-drag count-badge ghost (TBD, R0 candidate) · **B-162** Ctrl+Shift+T reopen position (M)
 
 **To-Do breakdown (8 items)**:
