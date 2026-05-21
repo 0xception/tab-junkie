@@ -2760,3 +2760,62 @@ Filed P3/TBD as follow-on. Current Edge regressed both the original B-025 UAT-8 
 - **Storage schema**: unchanged from v1.36.0 (still v5)
 - **Manifest permissions**: unchanged
 - **Sprints + hotfixes without rollback**: 20 (S23 → S43)
+
+---
+
+## Sprint 44 — B-148 interleave floating tabs with saved bookmarks (2026-05-02 → 2026-05-21)
+
+**Theme:** Promote saved-bookmark + floating-tab ordering out of the per-record `Item.sortOrder` / `FloatingGroup.sortOrder` strata and into a unified `Group.renderOrder: string[]` of prefix-encoded refs (`item:<id>` / `floating:<floatingTabId>`), so users can freely interleave the two row types within a group.
+**Release:** v1.39.0 (tagged on `release/v2` at merge commit `4ddc58a` · PR #54)
+**Tier:** Spike-First (XL — full R0 spike → R1 → R2 → R3 → R4 → R5 → R6 → R7)
+
+### Completed Items
+
+#### [B-148] Interleave floating tabs with saved bookmarks via `Group.renderOrder` — ✅ DONE
+- **Tier**: Spike-First (XL)
+- **Closed**: 2026-05-21
+- **Pipeline**: R0 spike ✅ (atomicity confirmation, canonical owner placement, drag-dispatcher payload shape) · R1 LOCKED ✅ · R2 ✅ (`docs/design/68-b-148-interleave-render-order.md`) · R3 ✅ (15-task initial build + 10 polish/hotfix rounds) · R4 Review ✅ (close-out: 1 HIGH + 1 MEDIUM + 4 LOW; HIGH+MEDIUM fixed in `13a4956`) · R5 ✅ (2016/2016 + product-owner Edge UAT) · R6 ✅ (chapter §68) · R7 skipped (CHANGELOG + RELEASES sufficient for the in-app changes)
+- **Key files** (35 changed, +3020 / -664):
+  - `background/storage/shapes.js` — schema v6 → v7; `isGroup` validator extended for optional `renderOrder: string[]`
+  - `background/storage/migration.js` — `KNOWN_VERSION` 6 → 7 + `defaultShape(PARTITION_META).schemaVersion` paired bump (C-1a)
+  - NEW `shared/render-order.js` — pure `resolveRenderOrder(group, items, floatingMembers) → RenderRow[]`; bootstrap fallback; stale-ref silent filtering
+  - `background/storage/items.js` — `createItem`, `deleteItem`, `updateItem({groupId})`, `bulkCreateItems`, `bulkDeleteItems`, `bulkReorderItems` (hotfix) all maintain `renderOrder` atomically
+  - `background/tabs/floating-groups.js` — `appendFloatingGroup`, `moveFloatingTab`, `pruneFloatingGroupsByLiveTabId`, `pruneFloatingGroupsByParentItemId`, `bootstrapAndSweepRenderOrder` (cold-start)
+  - `background/messages/storage-handlers.js` — `MSG_REORDER_FLOATING_MEMBERS` accepts new `{groupId, renderOrder}` payload; `commitImport` (replace mode) bootstraps `renderOrder` per imported group
+  - `sidepanel/sidepanel.js` — render path consumes resolver · drag hit-test extended for mixed-type drops · multi-select REORDER_FLOATING contiguous-block · broadcast fast-path skips `renderAll` when only `renderOrder` changed · `patchFloatingMembersSections` preserves in-container positions · `window.blur` clears multi-selection
+  - `newtab/newtab.js` — render path consumes resolver
+  - 8 new B-148 test files + 4 deltas to existing tests + b095 deletion
+- **Polish / hotfix rounds folded under the B-148 umbrella** (10, all pre-v1.39.0 ship): opener-chain inheritance anchor (`dd2ace2`) · multi-drop visual selection desync DOM-sweep (`7acdc46`) · `bulkReorderItems` Group.renderOrder fix (`f96962a`) · saved-into-floating bidirectional (`500fcc8`) · off-by-one floating-drag direction (`619477a`) · multi-drop selection Set sync (`bf3940d`) · window.blur clears selection (`0ff4ce3`) · `patchFloatingMembersSections` fast-path interleave preservation (`51f0db6`) · REORDER_FLOATING contiguous-block (`6ab19cf`) · broadcast fast-path skip (`db8f13e`)
+- **R4 close-out fix-round** (commit `13a4956`): HIGH `bootstrapAndSweepRenderOrder` cold-start race (read-outside / blind-replace → derivation moved INSIDE the writeTransaction mutator); MEDIUM `floating:undefined` ref filter for pre-S38 legacy records
+- **Follow-ups created** (filed during close-out, no S44 code): B-162 (P3/M Ctrl+Shift+T reopen), B-163 (P2/M drift URL fallback), B-164 (P1/M sleep/wake desync), B-165 (P2/M drop scroll preservation), B-166 (P2/S `+` CTA promote in-place)
+
+### Velocity
+- Planned: 1 XL anchor (B-148)
+- Completed: 1 XL anchor shipped as v1.39.0 + 10 polish/hotfix rounds + 5 docs-only backlog filings + 2 R4 close-out fix-round mutations + retroactive `v1.38.2` tag backfill + new §68 design chapter (670 lines)
+- Carried over: 0
+
+### Retrospective
+
+**What Went Well:**
+- R0 spike correctly de-risked the largest architectural unknown (multi-partition `writeTransaction` atomicity confirmed before R3 started; zero atomicity-class regressions downstream)
+- C-1a / C-1b paired-bump discipline held cleanly — schema v6 → v7 shipped with `KNOWN_VERSION` + `defaultShape` paired-bump + SW-flush note + explicit lazy migration choice (no rewrite step); zero migration-class regressions in UAT
+- Product-owner UAT cadence + R3 hotfix loop converged fast — each of the 10 polish/hotfix rounds was caught + fixed without re-spec'ing the AC; iterative R3 fix-rounds proved more efficient than holding all UAT for a single review pass
+
+**What to Improve:**
+- R2 write-site enumeration miss (`bulkReorderItems`) — not in the original 15-task R3 plan; required post-UAT hotfix `f96662a`. Parallels the S42 B-041 D-1 and S37 B-117 D-3 enumeration-class precedents already in CLAUDE.md "Fix-scope test-assertion enumeration" subsection (but for code write-sites, not test assertions). Strengthen R2's enumeration discipline to cover both.
+- R6 close gap on `docs/design/NN-*.md` chapter — §68 chapter was missed in the initial R6 close (no chapter existed when `299e147` cut the manifest+CHANGELOG+RELEASES for v1.39.0). Recovered at S44 close-out by [scrum-master] retroactively dispatching [solution-architect]. R6 close should produce the chapter BEFORE the version bump commit, not after.
+- R4 cold-start race shipped to v1.39.0 — `bootstrapAndSweepRenderOrder` had a read-outside / blind-replace race; narrow window (cold-start only, before first user gesture) so the ship was not blocked, but the gap shows R4 reviewers should also run on the close-out PR's full diff, not just per-item diffs. Caught + fixed during close-out review.
+
+**Action Items for Sprint 45**:
+- [ ] **[scrum-master]** Enforce R6 chapter authoring BEFORE the version-bump commit. No `manifest.json` version-bump / `CHANGELOG` / `RELEASES` commits permitted until the relevant `docs/design/NN-*.md` chapter exists AND the root `docs/SOLUTION_DESIGN.md` TOC has been extended. Update CLAUDE.md "Round 6: Close" to make this ordering explicit.
+- [ ] **[solution-architect]** Extend CLAUDE.md "Fix-scope test-assertion enumeration" subsection (currently scoped to test files) to ALSO cover code write-site enumeration when an R2 chapter introduces a new cross-cutting field/contract maintained at multiple write entry points (B-148's renderOrder across 12 sites is the new precedent; B-148 hotfix `f96662a` is the blocking case).
+- [ ] **[code-reviewer]** Add "blind-replace mutator" anti-pattern to the R4 review checklist. Any `mutator: () => precomputed` (or `mutator: (current) => somethingElse`) that ignores the `current` snapshot inside a `writeTransaction` is a HIGH-severity race candidate for the partition being written. S44 B-148 `bootstrapAndSweepRenderOrder` is the precedent.
+
+### Final State
+
+- **Tests**: 2,016 / 2,016 passing · zero regressions · +86 net over pre-S44 baseline (1930)
+- **Release tag**: `v1.39.0` cut on `release/v2` at merge commit `4ddc58a`; `gh release create` skipped per established pattern. Retroactive `v1.38.2` tag also backfilled at `2b93f99` during this close.
+- **PR**: #54 merged to `release/v2`
+- **Storage schema**: v6 → v7 (lazy migration; no eager rewrite step)
+- **Manifest permissions**: unchanged from v1.38.2
+- **Sprints + hotfixes without rollback**: 21 (S23 → S44)
