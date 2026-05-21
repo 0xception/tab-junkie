@@ -129,6 +129,66 @@ In `background/tabs/tab-claims.js` `reconcileClaims`:
 
 ---
 
+## R1 LOCKED — B-163 acceptance criteria (2026-05-21)
+
+**Tier**: Full (M). **Approach**: R0-LOCKED option (a) — defer §53 paired-clear + Phase-3 drift-URL fallback + Phase-4 conditional drift drop in `reconcileClaims`.
+
+**Scope**: After an MV3 SW idle shutdown, `reconcileClaims` currently evicts items whose tabs drifted to a new URL (Phase-1 drops them; Phase-2 misses because `item.url` no longer matches the live tab's URL). B-163 inserts a Phase-3 that reads drift records (`getDriftRecords`) and attempts a second match on `driftedToUrl`, and a Phase-4 that calls `clearDrift` only for items that fail both phases. User-visible result: a drifted-but-live claimed tab survives cold-start reconcile instead of silently becoming unclaimed.
+
+**DoR Gate 7 — destructive-action confirmation**: N/A — reconciliation algorithm change inside `reconcileClaims` (`background/tabs/tab-claims.js:121-226`). No user-initiated action; no destructive write.
+**Selector audit**: N/A — no DOM rehome.
+**Source-citation**: all code claims below cite `file:line`. One product-owner decision deferred at AC7.
+
+### AC1 — Cold-start drift re-association via driftedToUrl (happy path)
+Precondition: item X saved; tab drifts from `item.url` to `driftedToUrl`; `detectDriftForTab` writes drift record (`background/tabs/drift.js:54`); SW idles + cold-starts. Phase-1 (`tab-claims.js:152-161`) evicts; Phase-2 (`tab-claims.js:163-212`) misses on `item.url`. **Phase-3 (new)**: for each item still unbound after Phase-2, read drift record from `getDriftRecords()` (`drift.js:102-104`), normalize `driftedToUrl` via `safeNormalizeForMatch`, look up in same `urlToTabs` map, pop first unclaimed tab, write `reconciled[itemId] = tabId`. **PASS**: `claimsMirror[X.id] === tabId` after `writeClaims()` (`tab-claims.js:215`); item treated as open in `buildOpenTabs`. **FAIL**: item absent from `claimsMirror` despite live tab at `driftedToUrl`.
+
+### AC2 — Primary item.url still wins over drift URL when both match
+Precondition: item X has live tabs at BOTH `item.url` AND `driftedToUrl`. Phase-2 binds primary tab; Phase-3 only runs for items still unbound. **PASS**: bookmark binds to `item.url` tab, not `driftedToUrl` tab. **FAIL**: bookmark binds to drift URL while primary URL tab remains unclaimed.
+
+### AC3 — One-tab-per-drift-record cap (drift hijack mitigation)
+Precondition: two items X + Y both have drift records pointing at same `driftedToUrl`; only one live tab post-restart. Phase-3 iterates `evictedItemIds` by sortOrder; first qualifier pops the tabId via `available.shift()` + `claimedTabIds.add(tabId)` (same as Phase-2 `tab-claims.js:204-209`); second iteration finds empty list. **PASS**: exactly one of X/Y binds. **FAIL**: both bind same tabId OR neither binds.
+
+### AC4 — Drift dropped only when both URLs fail (§10.7 invariant preserved)
+Scenario A: Phase-3 binds X → §53 `clearDrift` block at `tab-claims.js:223-225` DEFERRED (no unconditional run for all evicted); Phase-4 runs only for items still unbound after Phase-3. Item X NOT in Phase-4 list. Drift record cleared naturally on next `detectDriftForTab` (URLs match post-reconcile, `drift.js:56-58`). Scenario B: Phase-3 finds no live tab → X added to Phase-4 list → `clearDrift(X.id)` called (`drift.js:86-96`). **PASS (A)**: drift partition has no stale record for X after next drift-detection; `claimsMirror[X.id]` set. **PASS (B)**: drift partition has no record for X post-reconcile; `claimsMirror[X.id]` absent. **FAIL**: drift persists for an item with no live tab (orphan leak) OR drift dropped prematurely for an item with live tab at `driftedToUrl` (data loss before re-bind).
+
+### AC5 — Inherited-tab skip in Phase-3 (parity with Phase-2)
+Precondition: tab T is in `inheritedTabs` Set (populated by `preMarkInheritedFromFloatingGroups` per B-125 §59.3 / §65.5). T's URL matches a drift record's `driftedToUrl`. Phase-3 applies same inherited-tab guard as Phase-2 at `tab-claims.js:200-203` (`while` loop pattern at `:198-206`): inherited candidates are shifted off without binding. **PASS**: no `claimsMirror` entry binds drifted item to inherited tabId; inherited tab's floating-group association undisturbed. **FAIL**: inherited tab T over-bound to drifted saved item.
+
+### AC6 — No regression on B-149 Phase-1 survival contract
+Precondition: stored claim `(itemId, tabId)` where tab URL drifted away from `item.url` but tab exists + item exists. B-149 contract: `tabEntry && item` is the full Phase-1 predicate at `tab-claims.js:155`. B-163 adds Phase-3/4 AFTER Phase-1/2; Phase-1 logic at `:152-161` UNCHANGED. **PASS**: existing B-149 regression tests continue passing without modification. **FAIL**: any B-149 test regresses OR Phase-1 re-introduces URL-match as survival predicate.
+
+### AC7 — TTL on drift records used as Phase-3 fallback keys (PRODUCT-OWNER R2 DECISION REQUIRED)
+Risk: drift record from months ago could match freshly-opened unrelated tab at same URL → wrong association. AC2 + AC3 reduce but don't eliminate. Two valid designs:
+- **(i) No TTL**: Phase-3 evaluates all drift records regardless of age. Accept residual hijack risk; rely on AC2 + AC3 mitigations. Simpler implementation.
+- **(ii) TTL = N days** (suggested 7): Phase-3 skips records where `Date.now() - drift.detectedAt > N * 86_400_000`. Skipped records still cleared by Phase-4 as if no match.
+
+**Default pending decision: NO TTL (option i)**. R2 cannot start until product-owner confirms (i) or selects (ii) with explicit N.
+
+### Out of scope (B-163)
+- §10.7 invariant (upheld; only `clearDrift` timing within `reconcileClaims` shifts)
+- B-149 Phase-1 contract (Phase-1 unchanged)
+- B-164 sleep/wake desync (sibling, chapter §69)
+- Re-introducing URL-match as Phase-1 survival predicate (B-149 prohibited)
+- `detectDriftForTab` runtime logic (unchanged)
+- Drift record schema (no new fields, no version bump)
+- C-14 generation-counter discipline (open Q6 — resolved at R2)
+
+---
+
+## R2 — B-166 (COMPLETE — 2026-05-21)
+
+**R2 PICK**: option (a) — UI-side `replaceFloatingId: string` optional payload field on `MSG_PROMOTE_TAB`. Justified on minimality + explicit intent at dispatch surface + backward-compat via optional-field semantics + matches B-148's "smallest fix per write-site" precedent.
+
+**Chapter**: `docs/design/71-b-166-promote-in-place.md` (~725 lines, 11 sections). TOC extended at `docs/SOLUTION_DESIGN.md:90`.
+
+**Fix-scope test-assertion enumeration (CLAUDE.md mandatory)**: 1 test file requires update (`tests/b124-floating-visual.test.js:250` — 1-line regex extension to allow `replaceFloatingId?` in payload pin). 6 other related test files pass unchanged (B-124 chapter coverage uses `MSG_PROMOTE_TAB` as constant import, coarse regex without payload pin, or surface-mocked dispatcher captures). 1 new test file (`tests/b166-promote-in-place.test.js`, ~10 cases) covers AC1–AC6 + C-7 validator paths.
+
+**Bonus finding from R2 research**: `claimTabForItem` does NOT prune the `tj:floatingGroups` record after MSG_PROMOTE_TAB succeeds today. Orphan persists until `chrome.tabs.onRemoved` (`tab-events.js:328`) OR cold-start reassociation. `buildFloatingMembers` filters by `claimedTabIds` so runtime UI is correct, but storage transient-orphans for the window. B-166's design prunes the floating record in the same `createItem` writeTransaction — closing this window incidentally. Documented in §71.3.2 / §71.6.6.
+
+**R3 hand-off**: 3-partition atomic-swap inside `createItem`'s writeTransaction (PARTITION_GROUPS splice-replace + PARTITION_ITEMS append unchanged + PARTITION_FLOATING_GROUPS prune). Test-assertion enumeration is 100% complete. No open product-owner decisions. R3 can start whenever scrum-master authorizes.
+
+---
+
 ## R4 — Deduplicated review findings
 
 _To be populated after R4 review round runs._
