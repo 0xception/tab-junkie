@@ -391,6 +391,75 @@ Risk: drift record from months ago could match freshly-opened unrelated tab at s
 
 ---
 
+## R1 LOCKED — B-164 acceptance criteria (2026-05-21, post-probe)
+
+**Tier**: Full (M). **Approach**: R0-LOCKED combination (a) `chrome.tabs.onReplaced` listener for 5-table claim-mirror remap + (c) `chrome.idle.onStateChanged` listener for defensive on-wake `reconcileClaims` rerun + `"idle"` manifest permission.
+
+**Scope**: B-164 is a purely additive SW change covering within-session tab-id rotation (validated by Test A) and on-wake defensive sweep (covers both Test B interpretations). No storage schema, no message contracts, no UI changes.
+
+**DoR Gate 7 — destructive-action confirmation**: N/A — adds two defensive read/remap paths; no user-initiated action; no destructive write. The `onReplaced` remap is in-memory mirror updates plus one atomic `writeTransaction` on `tj:floatingGroups` — correctness repair, not destructive.
+
+**Selector audit**: N/A — SW-background only, no DOM rehome.
+
+**Source-citation completeness**: all claims cite `file:line`. Probe-validated facts: (1) `onReplaced` fires on discard in modern Chromium/Edge; (2) `onUpdated.discarded` carries only the NEW tabId. No `R2-VERIFY` deferrals remain.
+
+### AC1 — Tab discard remap (PROBE Test A path)
+**Precondition**: item X claims `tabId: 803725065` in `claimsMirror` (`background/tabs/tab-claims.js:19`); tab is discarded via `chrome.tabs.discard(803725065)`. **Action**: Chromium fires `chrome.tabs.onReplaced(addedTabId: 803729449, removedTabId: 803725065)` (empirical Test A). The new `onReplaced` listener in `background/tabs/tab-events.js` handles it. **PASS**: within one event-loop tick, `claimsMirror[X.id] === 803729449` (new), NOT `803725065` (dead). Item X stays live/claimed in `buildOpenTabs` (`background/tabs/open-tabs.js:34-63`). **FAIL**: `claimsMirror[X.id]` stale or undefined.
+
+### AC2 — On-wake defensive reconcile (PROBE Test B class)
+**Precondition**: SW may have been asleep; any `onReplaced` events fired during sleep silently lost. **Action**: OS/display wakes; `chrome.idle.onStateChanged` fires with `state === 'active'` in new `background/tabs/idle-reconciler.js`. Requires `"idle"` permission. **PASS**: `reconcileClaims` invoked exactly once per `'active'` transition; stale entries repaired by existing Phase-1/Phase-2 logic. Duplicate invocations within same wake suppressed (debounce or flag per R2). **FAIL**: not invoked, OR invoked >1x per `'active'` (wasteful read storm), OR stale entries persist.
+
+### AC3 — claimsMirror 5-table remap atomicity
+**Precondition**: `onReplaced(addedTabId, removedTabId)` fires. All 5 in-memory tables must update consistently in a single synchronous sweep before any other handler observes partial state. **PASS — all 5 tables consistent with `addedTabId`**: (1) `claimsMirror` (`tab-claims.js:19`) rewritten; (2) `inheritedTabs` Set (`tab-claims.js:30`) — `add(added)` + `delete(removed)` in same block, no transient both/neither window; (3) `_faviconStampedItemIds` Set (`tab-events.js:49`) — same swap; (4) `reevalTimers` Map (`tab-events.js:37`) — re-key or clear per AC6; (5) `tj:floatingGroups[].liveTabId` (`floating-groups.js:208-211`) — atomic update inside single `writeTransaction`. **FAIL**: any table retains `removedTabId` reference after handler returns.
+
+### AC4 — Floating tab survives discard
+**Precondition**: floating tab claimed via opener-chain inheritance (B-125 §59.3 / §65.5); `tj:floatingGroups[].liveTabId === removedTabId`; tab discarded. Pre-fix: `buildFloatingMembers` filters by `claimedTabIds.has(liveTabId)` — stale `liveTabId` drops the row. **Action**: AC3 step (5) updates `liveTabId` atomically. **PASS**: floating row remains visible post-discard-restore; `tj:floatingGroups[].liveTabId === addedTabId`. **FAIL**: floating row disappears OR storage record retains stale `liveTabId`.
+
+### AC5 — Inherited-tab guard preserved after tabId rotation
+**Precondition**: `inheritedTabs` Set contains `removedTabId`. `onReplaced` fires. **PASS**: post-handler, `inheritedTabs.has(addedTabId) === true` AND `inheritedTabs.has(removedTabId) === false`. The Phase-2 skip guard at `tab-claims.js:200-203` continues working with new id; floating tab is not over-bound during next `reconcileClaims`. **FAIL**: Set retains `removedTabId` (dead, permanent no-op) OR loses both (inherited tab over-bound, violating §59.3 invariant).
+
+### AC6 — Race with reevaluateTab debounce resolved gracefully
+**Precondition**: `reevalTimers` entry for `removedTabId` exists (`tab-events.js:37`) with pending 100ms debounce; `onReplaced` fires before timer fires. **Contract** (R2 picks): re-key timer to `addedTabId` (preferred) OR clear with `clearTimeout` + `reevalTimers.delete(removedTabId)`. **FAIL conditions**: (a) debounce fires against `removedTabId` post-remap → `reevaluateTab(removedTabId)` finds no live tab → silently evicts remapped claim; OR (b) debounce fires against `addedTabId` BEFORE remap completes (ordering violation). **PASS**: no stale claim eviction attributable to debounce race; integration test (mocked `setTimeout`) confirms no `reevaluateTab(removedTabId)` call post-remap.
+
+### AC7 — "idle" permission added with C-6 minimization justification
+**Action**: R3 adds `"idle"` to `manifest.json` `permissions[]` (`manifest.json:6`). **PASS**: manifest contains `"idle"` at sprint close; C-6 minimization recorded in R2 chapter §69 (rationale: smallest-scope Chrome permission for reliable SW-wake on `'active'`; alternatives like `chrome.runtime.onConnect` keep-alive ports require persistent port management, heavier, no native OS-wake signal; `"idle"` is low-risk non-host non-sensitive); `CHANGELOG.md` v1.40.0 includes SW module-cache flush note (C-1a governance — new permission requires extension toggle OFF→ON). **FAIL**: manifest ships without `"idle"` OR C-6 justification absent OR CHANGELOG omits flush note.
+
+### AC8 — No B-149 / B-110 regression
+**Precondition**: existing `tests/b149-*.test.js` and `tests/b110-*.test.js` pass on branch prior to B-164 R3. **PASS**: full suite continues passing without modification. Specifically: (a) B-149 Phase-1 survival `tabEntry && item` at `tab-claims.js:155` unchanged; (b) B-110 §53 paired-clear semantics unchanged (B-164 does not touch `clearDrift` call sites — B-163 owns that surface); (c) runtime `detectDriftForTab` unchanged. **FAIL**: any b149/b110 regression OR `reconcileClaims` algorithm body altered (B-164 only adds on-wake invocation trigger; phases unchanged).
+
+### Out of scope (B-164)
+- B-163 drift URL fallback (sibling, chapter §70 — separate)
+- Cold-start reconciliation (B-149 done; B-164 covers within-session + on-wake)
+- Runtime drift detection (`detectDriftForTab` unchanged)
+- Schema changes (NONE)
+- Message contract changes (NONE)
+- UI changes (NONE)
+- C-14 generation-counter (Open Q6 — R2 resolves)
+- Order-of-events race (Q2 — R2 resolves via AC6 contract)
+
+---
+
+## R5 UAT — B-166 results (2026-05-21, product-owner Edge)
+
+| Case | Result | Notes |
+|---|---|---|
+| UAT-1 | ✅ PASS | Happy path in-place swap confirmed (F1 → saved bookmark at same row position) |
+| UAT-2 | ⚠️ INCONCLUSIVE | Product-owner ran `chrome.storage.local.get('tj:floatingGroups')` and dumped 30 records; no pre/post delta captured (no F1 tabId reference). Atomic prune was **indirectly validated** by UAT-1 PASS — if the prune hadn't fired, the row visualization in UAT-1 would have shown both the floating row AND the new bookmark row (12 vs the observed 11), which it did not. |
+| UAT-3 | ✅ PASS | §71.1 canonical 4-slot sibling preservation (F2 survived at index 3) |
+| UAT-4 | ✅ PASS | Persistence across SW restart (toggle OFF/ON; renderOrder preserved) |
+| UAT-5..10 | ⏭️ SKIPPED | Product-owner direction: "idk if this passes, requires knowing the tabID, i don't have that and this is potentially too technical for a UAT test, let's skip the rest. I'll smoke test in the future if I see issues." |
+
+**Effective Gate 2 status**: ✅ PASS by product-owner acceptance. Rationale: 2037 automated tests cover all 6 R1 ACs + bonus + C-7 + R4 fix-round additions; UAT-1/3/4 cover the user-observable happy path + the §71.1 canonical scenario + persistence; product-owner has agreed to smoke-test future issues. **B-166 R6 close may proceed.**
+
+### Retrospective action item (new, captured 2026-05-21)
+- **[test-engineer]** UAT scripts must rely on **UI-observable signals only** (visible row positions, toast text, focus states, persistent UI state across reload). SW-console state queries that require manual tabId lookup, ULID copying, or storage-shape introspection are **too technical for product-owner execution** and should be reserved for the automated test suite. Roll into Sprint 45 retrospective Action Items at close.
+
+---
+
 ## R4 — Deduplicated review findings
 
-_To be populated after R4 review round runs._
+### B-166 R4 (2026-05-21, deduplicated)
+- 0 CRITICAL / 0 HIGH / 4 MEDIUM (all fixed in `13a4956` per R4 fix-round) / 5 LOW (deferred — file as P3 backlog candidates at sprint close per R5 [test-engineer] notes)
+
+### B-163 R4
+_To be populated after parallel reviewers run._
