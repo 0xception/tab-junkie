@@ -278,14 +278,32 @@ export async function createItem(input) {
        chrome.storage.local.set still fires for the GROUPS + ITEMS writes,
        but the FLOATING_GROUPS partition is effectively a no-op write of
        its unchanged contents — preserves §68.6 idempotency-fast-path
-       semantics for the in-mutator branch). Independent of `groupId` —
-       the AC3 group-deleted-mid-flight path still cleans the floating
-       record. */
+       semantics for the in-mutator branch).
+
+       S45 R4 security M-1 — defensive cross-group prune scoping. The
+       prune originally matched on `floatingTabId` alone across the ENTIRE
+       partition, so a buggy dispatch that paired `{groupId: B,
+       replaceFloatingId: <ulid-of-record-in-A>}` would silently prune
+       Group A's record while the swap fork (which is correctly group-
+       scoped) no-op'd in Group B — a cross-group state corruption with
+       no caller-visible signal. Per §71.6.3 AC3, the Ungrouped fallback
+       path (`item.groupId === null`) STILL prunes unconditionally — that
+       is the documented AC3 invariant ("the floating record IS still
+       pruned … independent of `groupId`"). For all other paths, restrict
+       the match to records that ALSO live in the caller-specified group
+       (defense-in-depth: a correct caller paired with a matching record
+       still prunes; a malformed caller is a no-op). */
+    const pruneGroupId = item.groupId;
     ops.push({
       partition: PARTITION_FLOATING_GROUPS,
       mutator: (records) => {
         if (!Array.isArray(records) || records.length === 0) return records;
-        const next = records.filter((r) => r?.floatingTabId !== replaceFloatingId);
+        const next = records.filter((r) => {
+          if (r?.floatingTabId !== replaceFloatingId) return true; /* keep — different floating tab */
+          /* Match on floatingTabId. Now apply the M-1 group scope. */
+          if (pruneGroupId === null) return false; /* AC3 Ungrouped fallback — prune unconditionally per §71.6.3 */
+          return r?.groupId !== pruneGroupId; /* prune only if same group; keep (defensive) if different group */
+        });
         return next.length === records.length ? records : next;
       },
     });

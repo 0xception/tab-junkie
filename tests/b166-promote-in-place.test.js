@@ -436,3 +436,207 @@ test('B-166 T10 (C-7): empty-string and over-length replaceFloatingId rejected w
   assert.equal(respLong.ok, false, 'over-length replaceFloatingId must reject');
   assert.equal(respLong.error?.code, ERR_VALIDATION);
 });
+
+/* =========================================================================
+   T11 — §71.1 motivating canonical 4-slot scenario (M-2): promote one of
+   TWO floating tabs in the same group; verify the OTHER floating tab's
+   record is NOT pruned and its renderOrder slot survives untouched. The
+   stock seedInterleave helper only covers the 3-slot case, so the
+   sibling-floating-survives invariant was unexercised — this test fills
+   the gap with the exact `[item:A, floating:F1, item:B, floating:F2]`
+   shape called out in the chapter's problem statement.
+   ========================================================================= */
+test('B-166 T11 (M-2): promote F1 in [item:A, floating:F1, item:B, floating:F2] preserves F2 ref and F2 record', async () => {
+  await bootstrapHandlers();
+
+  const group = await createGroup({ name: 'Two-Floats', color: GROUP_COLORS[0], parentId: null });
+  const itA = await createItem({ title: 'A', url: 'https://a.example/', groupId: group.id });
+  const itB = await createItem({ title: 'B', url: 'https://b.example/', groupId: group.id });
+
+  /* Two live floating tabs in the same window. */
+  __setMockTabs([
+    { id: 700, url: 'https://f1.example/', title: 'F1', windowId: 1, active: false, audible: false, index: 0 },
+    { id: 701, url: 'https://f2.example/', title: 'F2', windowId: 1, active: false, audible: false, index: 1 },
+  ]);
+  await buildLiveTabIndex();
+
+  /* Two floating records, both anchored to itA as parent (mirrors the
+     existing seedInterleave anchor). */
+  await appendFloatingGroup({
+    groupId: group.id,
+    parentItemId: itA.id,
+    windowId: 1,
+    tabIndex: 0,
+    url: 'https://f1.example/',
+    savedAt: Date.now(),
+    liveTabId: 700,
+  });
+  await appendFloatingGroup({
+    groupId: group.id,
+    parentItemId: itA.id,
+    windowId: 1,
+    tabIndex: 1,
+    url: 'https://f2.example/',
+    savedAt: Date.now(),
+    liveTabId: 701,
+  });
+
+  /* Pull the two stamped floatingTabId ulids from the records. */
+  const recordsBefore = await readPartition(PARTITION_FLOATING_GROUPS);
+  const recF1 = recordsBefore.find((r) => r.liveTabId === 700);
+  const recF2 = recordsBefore.find((r) => r.liveTabId === 701);
+  assert.ok(recF1 && recF1.floatingTabId, 'pre-condition: F1 record exists with floatingTabId');
+  assert.ok(recF2 && recF2.floatingTabId, 'pre-condition: F2 record exists with floatingTabId');
+
+  /* Reshuffle renderOrder to the §71.1 canonical 4-slot shape. */
+  const groupNow = await getGroup(group.id);
+  const canonical = ['item:' + itA.id, 'floating:' + recF1.floatingTabId, 'item:' + itB.id, 'floating:' + recF2.floatingTabId];
+  await chrome.storage.local.set({
+    'tj:groups': [{ ...groupNow, renderOrder: canonical }],
+    'tj:floatingGroups': recordsBefore,
+  });
+
+  /* Promote F1 — F2's slot at index 3 must survive. */
+  const resp = await dispatch(MSG_PROMOTE_TAB, {
+    tabId: 700,
+    groupId: group.id,
+    replaceFloatingId: recF1.floatingTabId,
+  });
+  assert.equal(resp.ok, true, 'promote F1 must succeed');
+  const newItem = resp.data;
+
+  const after = await getGroup(group.id);
+  assert.deepEqual(
+    after.renderOrder,
+    ['item:' + itA.id, 'item:' + newItem.id, 'item:' + itB.id, 'floating:' + recF2.floatingTabId],
+    'M-2: F1 replaced 1-for-1; F2 ref still at index 3; surrounding slots intact',
+  );
+  assert.equal(after.renderOrder.length, 4, 'M-2: renderOrder length invariant (=4)');
+
+  /* F1's record is pruned; F2's record is intact. */
+  const recordsAfter = await readPartition(PARTITION_FLOATING_GROUPS);
+  assert.equal(
+    recordsAfter.some((r) => r.floatingTabId === recF1.floatingTabId),
+    false,
+    'M-2: F1 record pruned by the swap mutator',
+  );
+  assert.equal(
+    recordsAfter.some((r) => r.floatingTabId === recF2.floatingTabId),
+    true,
+    'M-2: F2 record survives the prune (sibling floating untouched)',
+  );
+
+  /* The new item exists in tj:items with the promoted URL. */
+  const items = await listItems();
+  const created = items.find((it) => it.id === newItem.id);
+  assert.ok(created, 'M-2: new item created in tj:items');
+  assert.equal(created.url, 'https://f1.example/', 'M-2: new item carries the F1 URL');
+});
+
+/* =========================================================================
+   T12 — M-1 defensive cross-group prune scoping: a malformed dispatch
+   that pairs `{groupId: B, replaceFloatingId: <ulid of a record in
+   group A>}` MUST NOT prune Group A's record (the bug the security
+   reviewer flagged: pre-M-1, the prune filtered on floatingTabId alone
+   across the entire partition, silently corrupting state in a different
+   group). Post-fix: Group A's record is preserved; Group B's renderOrder
+   gets the new item appended (since the hint can't match any
+   `floating:<id>` ref inside Group B); Group A's renderOrder is
+   untouched.
+   ========================================================================= */
+test('B-166 T12 (M-1): malformed cross-group dispatch does NOT prune the wrong group’s floating record', async () => {
+  await bootstrapHandlers();
+
+  const groupA = await createGroup({ name: 'GroupA', color: GROUP_COLORS[0], parentId: null });
+  const groupB = await createGroup({ name: 'GroupB', color: GROUP_COLORS[1], parentId: null });
+  const itAnchor = await createItem({ title: 'Anchor', url: 'https://anchor.example/', groupId: groupA.id });
+
+  /* Live tabs: one floating tab per group + one extra "victim" tab that
+     the malformed dispatch will promote into Group B. */
+  __setMockTabs([
+    { id: 800, url: 'https://groupa-f.example/', title: 'GA-Float', windowId: 1, active: false, audible: false, index: 0 },
+    { id: 801, url: 'https://groupb-f.example/', title: 'GB-Float', windowId: 1, active: false, audible: false, index: 1 },
+    { id: 802, url: 'https://victim.example/',   title: 'Victim',   windowId: 1, active: false, audible: false, index: 2 },
+  ]);
+  await buildLiveTabIndex();
+
+  await appendFloatingGroup({
+    groupId: groupA.id,
+    parentItemId: itAnchor.id,
+    windowId: 1,
+    tabIndex: 0,
+    url: 'https://groupa-f.example/',
+    savedAt: Date.now(),
+    liveTabId: 800,
+  });
+  await appendFloatingGroup({
+    groupId: groupB.id,
+    parentItemId: itAnchor.id, /* anchor lives in A but parent FK is just for stamping */
+    windowId: 1,
+    tabIndex: 1,
+    url: 'https://groupb-f.example/',
+    savedAt: Date.now(),
+    liveTabId: 801,
+  });
+
+  const recordsBefore = await readPartition(PARTITION_FLOATING_GROUPS);
+  const recA = recordsBefore.find((r) => r.liveTabId === 800);
+  const recB = recordsBefore.find((r) => r.liveTabId === 801);
+  assert.ok(recA && recA.floatingTabId, 'pre-condition: Group A floating record exists');
+  assert.ok(recB && recB.floatingTabId, 'pre-condition: Group B floating record exists');
+  assert.equal(recA.groupId, groupA.id, 'pre-condition: recA.groupId === groupA.id');
+  assert.equal(recB.groupId, groupB.id, 'pre-condition: recB.groupId === groupB.id');
+
+  const groupABefore = await getGroup(groupA.id);
+  const groupBBefore = await getGroup(groupB.id);
+
+  /* Malformed dispatch: target Group B, but supply Group A's
+     floatingTabId. Pre-M-1 this would prune recA silently. Post-M-1 it
+     must be a no-op on the floating partition (other than appending the
+     new item to Group B's renderOrder via the swap fork falling through
+     to append). */
+  const resp = await dispatch(MSG_PROMOTE_TAB, {
+    tabId: 802,
+    groupId: groupB.id,
+    replaceFloatingId: recA.floatingTabId, /* M-1 cross-group bug bait */
+  });
+  assert.equal(resp.ok, true, 'M-1: malformed dispatch still succeeds (does not throw)');
+  const newItem = resp.data;
+
+  /* Group A's record is untouched (this is the security M-1 invariant). */
+  const recordsAfter = await readPartition(PARTITION_FLOATING_GROUPS);
+  assert.equal(
+    recordsAfter.some((r) => r.floatingTabId === recA.floatingTabId),
+    true,
+    'M-1: Group A floating record SURVIVES — defensive cross-group scope held',
+  );
+  /* Group B's record is also untouched (the hint can't match anything in B). */
+  assert.equal(
+    recordsAfter.some((r) => r.floatingTabId === recB.floatingTabId),
+    true,
+    'M-1: Group B floating record is unaffected',
+  );
+
+  /* Group A's renderOrder is untouched. */
+  const groupAAfter = await getGroup(groupA.id);
+  assert.deepEqual(
+    groupAAfter.renderOrder,
+    groupABefore.renderOrder,
+    'M-1: Group A renderOrder is untouched by the malformed B-targeted dispatch',
+  );
+
+  /* Group B's renderOrder appended the new item (swap fork no-op, append
+     fallback fired because Group B's renderOrder has no
+     `floating:<recA.floatingTabId>` ref). */
+  const groupBAfter = await getGroup(groupB.id);
+  assert.equal(
+    groupBAfter.renderOrder.length,
+    groupBBefore.renderOrder.length + 1,
+    'M-1: Group B renderOrder grows by 1 (append branch fired in B because no matching ref)',
+  );
+  assert.equal(
+    groupBAfter.renderOrder[groupBAfter.renderOrder.length - 1],
+    'item:' + newItem.id,
+    'M-1: Group B renderOrder ends with the new item (append branch)',
+  );
+});

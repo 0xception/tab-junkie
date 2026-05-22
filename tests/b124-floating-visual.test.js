@@ -261,6 +261,24 @@ test('B-124 T-124-D: Save-CTA click handler dispatches MSG_PROMOTE_TAB with `{ t
     'click handler must dispatch MSG_PROMOTE_TAB with { tabId, groupId } (+ optional replaceFloatingId) payload',
   );
 
+  /* S45 R4 code+qa M-3 — the previous regex was weakened by the `|payload`
+     alternative to accommodate the post-B-166 build-the-payload branch;
+     any handler variable named `payload` would pass without the handler
+     actually wiring the B-166 fields. Add two specificity pins so the
+     test still verifies the B-166 extraction + payload-construction
+     contract is present in the handler body (not just any variable
+     named `payload`). */
+  assert.match(
+    body,
+    /row\.dataset\.floatingTabId/,
+    'B-166 (M-3): click handler must read `row.dataset.floatingTabId` to source the replaceFloatingId hint',
+  );
+  assert.match(
+    body,
+    /tabId,\s*groupId/,
+    'B-166 (M-3): payload construction must include the `tabId, groupId` pair (defends against a future refactor that drops the build-up line)',
+  );
+
   /* The error-translation block must use imported error constants
      (matches the Open-Tabs Save CTA pattern at sidepanel.js:6233). */
   assert.match(body, /ERR_SAFE_MODE/, 'error path must reference ERR_SAFE_MODE');
@@ -358,6 +376,25 @@ test('B-124 T-124-F (B-130): newtab _buildFloatingTabRow appends Save CTA + new 
     promoteMatch[1],
     /type:\s*MSG_PROMOTE_TAB/,
     '_promoteFloatingTab must send MSG_PROMOTE_TAB',
+  );
+
+  /* S45 R4 code+qa M-4 — the coarse `type: MSG_PROMOTE_TAB` regex above
+     does not verify the B-166 cross-surface parity: the newtab
+     dispatcher must extract `floatingTabId` from `_floatingMembers` (the
+     newtab equivalent of sidepanel's `row.dataset.floatingTabId`) AND
+     include it as `replaceFloatingId` on the payload so the SW handler's
+     in-place swap fires identically for newtab-initiated promotes. Pin
+     both the extraction and the payload-field name so a regression that
+     drops either half is caught at the source-text level. */
+  assert.match(
+    promoteMatch[1],
+    /m\.floatingTabId|floatingTabId/,
+    'B-166 (M-4): _promoteFloatingTab must read `floatingTabId` (extraction from _floatingMembers descriptors)',
+  );
+  assert.match(
+    promoteMatch[1],
+    /replaceFloatingId/,
+    'B-166 (M-4): _promoteFloatingTab payload must include `replaceFloatingId` so SW handler can splice-swap',
   );
 
   /* Newtab CSS — B-130 AC2: `.newtab-floating-bar` rule must be removed.
