@@ -461,6 +461,16 @@ Risk: drift record from months ago could match freshly-opened unrelated tab at s
 ### B-166 R4 (2026-05-21, deduplicated)
 - 0 CRITICAL / 0 HIGH / 4 MEDIUM (all fixed in `13a4956` per R4 fix-round) / 5 LOW (deferred — file as P3 backlog candidates at sprint close per R5 [test-engineer] notes)
 
+### R1 AC clarifications — B-164 (post-R2 chapter §69 authoring, 2026-05-21)
+
+The [solution-architect] discovered 3 code-reality discrepancies during R2 chapter authoring; all escalated rather than silently deviated (CLAUDE.md STOP-and-escalate rule). Recording here as R1 AC clarifications so R3 builds against the corrected contract:
+
+- **AC3 table-3 clarification**: `_faviconStampedItemIds` Set at `tab-events.js:67-68` is **itemId-keyed**, NOT tabId-keyed as the R1 AC3 enumeration originally implied. The Set is stable across tabId rotation; no remap is needed for table-3. AC3 PASS criteria for tables 1/2/4/5 remain unchanged; AC3 PASS criteria for table 3 becomes "no remap action needed by the `onReplaced` handler — verify the Set is structurally preserved (no incidental mutation)."
+- **AC6 race contract upgrade**: R1 AC6 suggested re-keying the pending debounce timer from `removedTabId → addedTabId`. R2 found this fails — the `setTimeout` callback captured `tabId = removedTabId` in its closure at `tab-events.js:159`; re-keying the Map entry alone leaves the captured value pointing at the dead id, so the timer would still fire `reevaluateTab(removedTabId, ...)` against a non-existent tab. **Contract upgraded to option (ii)**: `clearTimeout(timer)` + `reevalTimers.delete(removedTabId)` (no re-arm). The on-wake `reconcileClaims` rerun (fix (c)) is the safety net for any reevaluation that would otherwise have happened. AC6 PASS contract text-spirit preserved (no stale `reevaluateTab(removedTabId)` call post-remap).
+- **Minor citation correction**: existing `chrome.tabs.onRemoved` listener actually lives at `tab-events.js:308-331` (not `:296-336` as cited in R0). R3 references the correct location.
+
+---
+
 ### B-163 R4 (2026-05-21, deduplicated across 3 parallel reviewers)
 
 **Verdict: BLOCK R5** — 1 HIGH (convergent: security S-1 = qa F-1) requires fix-round before R5.

@@ -59,8 +59,8 @@ Three CLAUDE.md edit action items inherited from S44 retrospective; the [scrum-m
 
 - **Tier**: Full (M)
 - **Priority**: P1
-- **Status**: **R1 LOCKED (2026-05-21)** — 8 ACs against the empirically-validated R0 design: AC1 discard-remap (Test A path) · AC2 on-wake reconcile (Test B class) · AC3 5-table atomicity · AC4 floating-tab survives discard · AC5 inherited guard preserved post-rotation · AC6 reevaluateTab debounce race · AC7 `"idle"` permission + C-6 justification · AC8 no B-149/B-110 regression. DoR-7 N/A. Selector audit N/A. Full block in `docs/findings/sprint-45.md` "R1 LOCKED — B-164 acceptance criteria" section.
-- **Assigned To**: [solution-architect] (R2 chapter §69) — ready when authorized
+- **Status**: **R2 COMPLETE (2026-05-21)** — chapter §69 authored at `docs/design/69-b-164-sleep-claim-remap.md` (1249 lines). PICK combination (a) onReplaced + (c) idle + "idle" permission. **3 R1 AC clarifications properly escalated** (not silently deviated per CLAUDE.md): (1) AC3 table-3 `_faviconStampedItemIds` is itemId-keyed not tabId-keyed (no remap needed; AC3 PASS criteria preserved with clarification); (2) AC6 race upgraded option (i) re-key → option (ii) clearTimeout + delete because captured tabId in setTimeout closure would still fire against dead id post-rekey; (3) minor onRemoved listener line-range correction (`:308-331` not `:296-336`). Test-assertion enumeration: 4 permission-pin updates (b036/b037/b093/b097) + 1 chrome-mock infrastructure addition.
+- **Assigned To**: [frontend-engineer] (R3 build) — ready when authorized
 - **Blockers**: none
 - **Feature Context**:
   - Product-owner reports that over days of continuous use, across system sleep / laptop-lid-close cycles, saved-bookmark→tab claims progressively break: live tab appears in Open Tabs as if unclaimed, matching bookmark renders as non-live.
@@ -75,8 +75,8 @@ Three CLAUDE.md edit action items inherited from S44 retrospective; the [scrum-m
 - **Tier**: Full (M)
 - **Priority**: P2
 - **Status**: **R1 LOCKED (2026-05-21)** — 7 testable ACs: AC1 cold-start drift re-association (happy) · AC2 primary `item.url` wins over drift URL · AC3 one-tab-per-drift-record cap (hijack mitigation) · AC4 drift dropped only when both URLs fail (§10.7 invariant preserved) · AC5 inherited-tab skip in Phase-3 (B-125 parity) · AC6 zero B-149 Phase-1 regression · **AC7 PRODUCT-OWNER R2 DECISION REQUIRED — TTL on drift-as-fallback-key (None / 7 days / N days)**. Full block in `docs/findings/sprint-45.md` R1 LOCKED section.
-- **Assigned To**: [frontend-engineer] (R4 fix-round) → [test-engineer] (R5)
-- **Blockers**: ⚠️ **R4 BLOCK R5 — 1 HIGH finding (convergent security S-1 + qa F-1)**: `getDriftRecords()` at `tab-claims.js:241` not wrapped in try/catch → silent DoS on storage corruption. ~5 LOC fix per B-132 graceful-degradation precedent + 1 new test (T9 storage-failure path). Plus 5 LOWs (mostly comment/test-doc refinements). Full deduplication in `docs/findings/sprint-45.md` "B-163 R4" section.
+- **Assigned To**: [test-engineer] (R5 UAT) — ready when authorized
+- **Blockers**: none — **R4 fix-round COMPLETE 2026-05-21**: HIGH-1 fixed (try/catch around `getDriftRecords()` at `tab-claims.js:259-268`, B-132 graceful-degradation pattern); MED-2 fixed (T9 storage-failure test). Tests 2037 → 2038 PASS. 5 LOWs deferred to P3 backlog at sprint close. R6 As-Built TODO: chapter §70 needs Phase 3 graceful-degradation narrative added.
 - **Feature Context**:
   - Today `reconcileClaims` Phase 2 uses ONLY `item.url` as the URL-match candidate. Phase 1 evictions paired-clear drift records (B-110 §53).
   - Result: a claimed item that drifts to URL X, then loses its claim across an SW idle + tab-recreate cycle, will NOT re-bind to a fresh tab on URL X — even though `tj:drift` recorded the drift before eviction.
