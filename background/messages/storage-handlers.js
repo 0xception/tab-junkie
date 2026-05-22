@@ -379,6 +379,24 @@ async function dispatch(type, payload) {
       if (groupId !== null && typeof groupId !== 'string') {
         throw new StorageError(ERR_VALIDATION, 'promoteTab: groupId must be string or null');
       }
+      /* B-166 §71.4.2 — OPTIONAL `replaceFloatingId` hint. When the
+         caller is the floating-row `+` Save CTA (sidepanel or newtab),
+         this carries the row's storage identity (`floatingTabId` ulid)
+         so `createItem` can splice-replace the `floating:<id>` slot in
+         the target Group's renderOrder with the new `item:<id>` slot —
+         preserving the user-built interleave position. Allow-list per
+         C-7: must be a non-empty string of length ≤ 32 (ulid is 26 chars
+         + buffer). Absent → handler proceeds with the legacy append
+         branch (pre-S38 legacy rows, Open-Tabs Save flow, right-click
+         group picker — all unchanged). */
+      if (p.replaceFloatingId !== undefined) {
+        if (typeof p.replaceFloatingId !== 'string' || p.replaceFloatingId.length === 0) {
+          throw new StorageError(ERR_VALIDATION, 'promoteTab: replaceFloatingId must be a non-empty string');
+        }
+        if (p.replaceFloatingId.length > 32) {
+          throw new StorageError(ERR_VALIDATION, 'promoteTab: replaceFloatingId too long');
+        }
+      }
 
       // AC2: fetch the tab — chrome.tabs.get rejects if the tab doesn't exist
       let tab;
@@ -408,6 +426,7 @@ async function dispatch(type, payload) {
         title: tab.title || url,
         url,
         groupId,
+        replaceFloatingId: p.replaceFloatingId,
       });
 
       // AC6: immediately claim the tab

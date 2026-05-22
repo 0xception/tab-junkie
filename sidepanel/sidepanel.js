@@ -3180,7 +3180,21 @@ function _onFloatingSaveCtaClick(ev) {
   if (groupId && !_cachedGroups.some((g) => g.id === groupId)) {
     groupId = null;
   }
-  sendMessage(MSG_PROMOTE_TAB, { tabId, groupId }).catch((err) => {
+  /* B-166 §71.3.1: include the floating-row's storage identity
+     (`floatingTabId` ulid, stamped at row build per §60.4 D-1 / sidepanel
+     :3089-3091) so the SW handler can splice-replace the
+     `floating:<floatingTabId>` slot in the enclosing group's renderOrder
+     with the new `item:<id>` slot — preserving the user-built interleave
+     position instead of bottom-jumping. Pre-S38 legacy floating records
+     lack the `floatingTabId` attribute on their row; in that case omit
+     the field and the handler falls back to the legacy append behavior
+     (§71.6.2 AC2 graceful degradation). */
+  const floatingTabId = row.dataset.floatingTabId;
+  const payload = { tabId, groupId };
+  if (typeof floatingTabId === 'string' && floatingTabId.length > 0) {
+    payload.replaceFloatingId = floatingTabId;
+  }
+  sendMessage(MSG_PROMOTE_TAB, payload).catch((err) => {
     const code = err?.code;
     /* Mirrors the error translation table at sidepanel.js:6238. */
     if (code === ERR_SAFE_MODE) {

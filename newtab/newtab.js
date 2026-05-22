@@ -551,13 +551,26 @@ function _promoteFloatingTab(tabId, row) {
   /* Resolve the parent group's id from `_floatingMembers` so the promoted
      bookmark lands in the same group as its parent saved item. The
      descriptor's groupId is the `_floatingMembers` map key. Fallback to
-     null (Ungrouped) on miss — defensive, narrow race. */
+     null (Ungrouped) on miss — defensive, narrow race.
+     B-166 §71.3.1 cross-surface parity: also capture the descriptor's
+     floatingTabId (storage identity, B-148 §3.7 propagated by
+     buildFloatingMembers at floating-members.js:172-173) so the SW
+     handler can splice-replace the `floating:<id>` slot in renderOrder
+     with the new `item:<id>` slot instead of bottom-appending. The
+     interleave benefit applies identically to newtab as to sidepanel
+     (both consume `Group.renderOrder` via the shared resolver). Legacy
+     floating-members without a floatingTabId leave the field undefined
+     and the handler falls back to the append branch (AC2). */
   let groupId = null;
+  let floatingTabId = null;
   for (const [gid, arr] of Object.entries(_floatingMembers || {})) {
     if (!Array.isArray(arr)) continue;
     for (const m of arr) {
       if (m && m.tabId === tabId) {
         groupId = gid;
+        if (typeof m.floatingTabId === 'string' && m.floatingTabId.length > 0) {
+          floatingTabId = m.floatingTabId;
+        }
         break;
       }
     }
@@ -569,9 +582,11 @@ function _promoteFloatingTab(tabId, row) {
     groupId = null;
   }
   try {
+    const payload = { tabId, groupId };
+    if (floatingTabId) payload.replaceFloatingId = floatingTabId;
     const p = chrome.runtime.sendMessage({
       type: MSG_PROMOTE_TAB,
-      payload: { tabId, groupId },
+      payload,
     });
     if (p && typeof p.catch === 'function') {
       p.catch(() => { /* silent degrade — newtab has no toast surface. */ });

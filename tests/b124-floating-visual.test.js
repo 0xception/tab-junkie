@@ -212,10 +212,12 @@ test('B-124 T-124-C: buildFloatingTabRow appends a `.floating-row-save-cta` butt
 });
 
 /* =========================================================================
-   T-124-D — Save CTA click dispatches MSG_PROMOTE_TAB with {tabId, groupId}.
+   T-124-D — Save CTA click dispatches MSG_PROMOTE_TAB with {tabId, groupId}
+   (and optionally B-166 `replaceFloatingId` when the row carries a
+   `dataset.floatingTabId`).
    ========================================================================= */
 
-test('B-124 T-124-D: Save-CTA click handler dispatches MSG_PROMOTE_TAB with `{ tabId, groupId }`', () => {
+test('B-124 T-124-D: Save-CTA click handler dispatches MSG_PROMOTE_TAB with `{ tabId, groupId }` (+ optional `replaceFloatingId` per B-166)', () => {
   const js = readFile('sidepanel/sidepanel.js');
 
   /* The click handler is `_onFloatingSaveCtaClick`. Verify its body
@@ -245,10 +247,18 @@ test('B-124 T-124-D: Save-CTA click handler dispatches MSG_PROMOTE_TAB with `{ t
     /\.closest\(['"]\.group-section\[data-group-id\]['"]\)/,
     'click handler must resolve enclosing .group-section for groupId',
   );
+  /* B-166 §71.5.2 — the payload now accepts an optional
+     `replaceFloatingId` field built from `row.dataset.floatingTabId`.
+     Match either the original `{ tabId, groupId }` literal OR an object
+     that begins `{ tabId, groupId` and is dispatched via sendMessage.
+     The build-the-payload branch in the post-B-166 handler constructs
+     `const payload = { tabId, groupId }` then dispatches
+     `sendMessage(MSG_PROMOTE_TAB, payload)`, so the regex accepts both
+     spellings. */
   assert.match(
     body,
-    /sendMessage\(MSG_PROMOTE_TAB,\s*\{\s*tabId,\s*groupId\s*\}\)/,
-    'click handler must dispatch MSG_PROMOTE_TAB with { tabId, groupId } payload',
+    /sendMessage\(MSG_PROMOTE_TAB,\s*(?:\{\s*tabId,\s*groupId(?:,\s*replaceFloatingId)?\s*\}|payload)\)/,
+    'click handler must dispatch MSG_PROMOTE_TAB with { tabId, groupId } (+ optional replaceFloatingId) payload',
   );
 
   /* The error-translation block must use imported error constants

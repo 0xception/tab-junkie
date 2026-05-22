@@ -164,6 +164,8 @@ Risk: drift record from months ago could match freshly-opened unrelated tab at s
 
 **Default pending decision: NO TTL (option i)**. R2 cannot start until product-owner confirms (i) or selects (ii) with explicit N.
 
+**AC7 RESOLVED 2026-05-21 — product-owner selected option (i) NO TTL.** Rationale: rely on AC2 (primary URL wins) + AC3 (one-tab-per-drift-record cap) as sufficient hijack mitigations; simpler implementation; lower regression surface. R2 may proceed under option (i) — no date-comparison logic in Phase-3.
+
 ### Out of scope (B-163)
 - §10.7 invariant (upheld; only `clearDrift` timing within `reconcileClaims` shifts)
 - B-149 Phase-1 contract (Phase-1 unchanged)

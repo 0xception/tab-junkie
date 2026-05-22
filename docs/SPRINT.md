@@ -75,8 +75,8 @@ Three CLAUDE.md edit action items inherited from S44 retrospective; the [scrum-m
 - **Tier**: Full (M)
 - **Priority**: P2
 - **Status**: **R1 LOCKED (2026-05-21)** — 7 testable ACs: AC1 cold-start drift re-association (happy) · AC2 primary `item.url` wins over drift URL · AC3 one-tab-per-drift-record cap (hijack mitigation) · AC4 drift dropped only when both URLs fail (§10.7 invariant preserved) · AC5 inherited-tab skip in Phase-3 (B-125 parity) · AC6 zero B-149 Phase-1 regression · **AC7 PRODUCT-OWNER R2 DECISION REQUIRED — TTL on drift-as-fallback-key (None / 7 days / N days)**. Full block in `docs/findings/sprint-45.md` R1 LOCKED section.
-- **Assigned To**: PRODUCT-OWNER (AC7 TTL decision) → [solution-architect] (R2)
-- **Blockers**: ⚠️ AC7 TTL decision required before R2 starts.
+- **Assigned To**: [solution-architect] (R2) — ready to start
+- **Blockers**: none — AC7 RESOLVED 2026-05-21 (product-owner picked option (i) NO TTL; rely on AC2 primary-URL-wins + AC3 one-tab-per-record cap as sufficient hijack mitigations).
 - **Feature Context**:
   - Today `reconcileClaims` Phase 2 uses ONLY `item.url` as the URL-match candidate. Phase 1 evictions paired-clear drift records (B-110 §53).
   - Result: a claimed item that drifts to URL X, then loses its claim across an SW idle + tab-recreate cycle, will NOT re-bind to a fresh tab on URL X — even though `tj:drift` recorded the drift before eviction.
@@ -89,9 +89,9 @@ Three CLAUDE.md edit action items inherited from S44 retrospective; the [scrum-m
 
 - **Tier**: Full (M) — auto-upgraded from Fast Track per CLAUDE.md "If an XS/S item introduces a new storage schema, new message types, new extension permissions, or cross-cutting changes…": R0 options (a) and (c) propose message-contract (MSG_PROMOTE_TAB payload extension) or storage-contract (`createItem({insertAt})`) changes; (b) is purely SW-side detection. R2 review needed regardless of option.
 - **Priority**: P2
-- **Status**: **R2 COMPLETE (2026-05-21)** — chapter §71 authored at `docs/design/71-b-166-promote-in-place.md` (~725 lines, 11 sections). R2 PICK: option (a) UI-side `replaceFloatingId` optional payload field on MSG_PROMOTE_TAB. 3-partition atomic-swap inside `createItem`'s writeTransaction (PARTITION_GROUPS splice-replace + PARTITION_ITEMS append unchanged + PARTITION_FLOATING_GROUPS prune). Test-assertion enumeration 100% complete: 1 existing test 1-line regex update + 6 unchanged + 1 new ~10-case file. **Bonus**: design also closes a pre-existing orphan-floating-record window (`claimTabForItem` doesn't currently prune; B-166 does). No product-owner decisions blocking R3.
-- **Assigned To**: [frontend-engineer] (R3) — ready
-- **Blockers**: none — R3 build can start whenever [scrum-master] launches
+- **Status**: **R3 BUILD COMPLETE (2026-05-21)** — 6 files modified, 10 new tests, 2016 → 2026 PASS (zero regressions). Cross-surface extension: newtab `_promoteFloatingTab` also extended (R2 spec deviation escalated — §71 chapter said newtab unchanged, but both surfaces consume the same `Group.renderOrder`; agent extended in lockstep with proper escalation per CLAUDE.md). All 6 R1 ACs covered. Cascade-prune sibling-grep verified 3 MSG_PROMOTE_TAB sender sites + 1 SW handler (bulk-promote + right-click picker correctly omit the hint per AC5).
+- **Assigned To**: [code-reviewer] + [security-reviewer] + [qa-reviewer] (R4 parallel)
+- **Blockers**: none — R4 launching per Gate 1.
 - **Feature Context**:
   - The floating-row `+` CTA (`_onFloatingSaveCtaClick` at `sidepanel/sidepanel.js:3169`) saves the floating tab into its parent group correctly (no modal), but the new bookmark lands at the BOTTOM of the group instead of taking over the floating tab's interleaved position.
   - Root cause: `MSG_PROMOTE_TAB` (`background/messages/storage-handlers.js:407`) calls `createItem({title, url, groupId})` with no positioning hint; `createItem` (`background/storage/items.js:174-225`) unconditionally appends — `renderOrder.push('item:' + item.id)` at `:207` and `sortOrder: bucketSize` at `:220`. Post-B-148 the group `renderOrder` already contains a `floating:<floatingTabId>` entry at the visible position; the promote path neither reads nor replaces it.
