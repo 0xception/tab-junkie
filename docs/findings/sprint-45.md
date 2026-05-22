@@ -461,5 +461,18 @@ Risk: drift record from months ago could match freshly-opened unrelated tab at s
 ### B-166 R4 (2026-05-21, deduplicated)
 - 0 CRITICAL / 0 HIGH / 4 MEDIUM (all fixed in `13a4956` per R4 fix-round) / 5 LOW (deferred — file as P3 backlog candidates at sprint close per R5 [test-engineer] notes)
 
-### B-163 R4
-_To be populated after parallel reviewers run._
+### B-163 R4 (2026-05-21, deduplicated across 3 parallel reviewers)
+
+**Verdict: BLOCK R5** — 1 HIGH (convergent: security S-1 = qa F-1) requires fix-round before R5.
+
+| # | Source | file:line | Severity | Finding | Recommended fix |
+|---|---|---|---|---|---|
+| **HIGH-1** | security S-1 + qa F-1 (CONVERGENT) | `background/tabs/tab-claims.js:241` | **HIGH** | `getDriftRecords()` not wrapped in try/catch. `readPartition(PARTITION_DRIFT)` throws `StorageError(ERR_CORRUPT_DATA)` on any `chrome.storage.local.get` failure OR any single drift record failing shape validation (`shapes.js:264-279`). Because Phase 3 runs BEFORE `claimsMirror = reconciled` (`:284`) and `claimsReady = true` (`:286`), a rejection propagates out of `reconcileClaims` → `initializeLiveState` rejects → silent DoS: every saved item appears offline until browser restart. Pre-B-163, the §53 paired-clear ran AFTER `writeClaims + claimsReady = true`, so a failure was best-effort and non-blocking. B-163 inverted this. | Wrap `getDriftRecords()` in try/catch; on catch, log a console.warn and continue with `driftRecords = {}` (Phase 3 becomes no-op; Phase 4 still runs since `Promise.allSettled` swallows individual failures). Pattern: B-132 graceful-degradation at `background/tabs/index.js:58-62`. ~5 LOC. |
+| MED-2 | qa F-2 | `tests/b163-drift-fallback-reconcile.test.js` (no test) | MEDIUM | No test covers the `getDriftRecords()` storage-failure path. Pre-B-163 the failure mode was safe by construction; post-B-163 it's UX-breaking. This test gap is real regression risk. | After HIGH-1 fix lands: add T9 — seed `chrome.storage.local.get` to throw (or seed corrupt drift data); call `reconcileClaims`; assert Phase 1+2 claims are still written and `isClaimsReady() === true`. Test will fail until HIGH-1 fixed (confirms fix correctness). |
+| LOW-3 | code-reviewer 1 | `background/tabs/tab-claims.js:264` | LOW | Stale line-number citation: comment says `"mirrors the Phase-2 while-loop at :198-206 exactly"` but the actual Phase-2 inherited-tab while-loop is at `:217-225`. | Change `:198-206` to `:217-225`. |
+| LOW-4 | code-reviewer 2 | `background/tabs/tab-claims.js:279` | LOW | `claimedTabIds.add(claimedTabId)` after Phase-3 bind is a dead update in current scope (`claimedTabIds` already drove `urlToTabs` construction). Not harmful, mirrors Phase-2 for symmetry, but could mislead future maintainer. | Add inline comment explaining the symmetry rationale. No code change. |
+| LOW-5 | code-reviewer 3 | `tests/b163-drift-fallback-reconcile.test.js:1` | LOW | File header says `"B-163 R5 (AC1–AC7)"` but tests were committed at R3. | Change header to `"B-163 (AC1–AC7)"` or similar. |
+| LOW-6 | code-reviewer 4 | `tests/b163-drift-fallback-reconcile.test.js:129-165` (T2) | LOW | T2 doesn't assert that drift record for `item-X` is **retained** after Phase 2 recovery (the AC4(A) Phase-2-recovery + drift-retained path has no assertion). | Add `assert.ok(drift['item-X'], ...)` after the existing claim assertions. |
+| LOW-7 | qa F-3 | `tests/b163-drift-fallback-reconcile.test.js:357-425` (T8) | LOW | T8 proves NO-TTL behaviorally but cannot structurally prevent a future 100-year-TTL regression. Inherent to behavioral tests. | LOW-severity accept; T8 + the AC7 RESOLVED comment together are sufficient regression guard. No code change. |
+
+**Note**: security S-1 was rated MEDIUM (availability/resilience class); qa F-1 was rated HIGH (UX-breaking failure mode). Convergent finding — fix once, satisfies both. Using qa's HIGH classification for sprint accounting.

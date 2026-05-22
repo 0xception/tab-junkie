@@ -1,18 +1,31 @@
 # §71 — B-166 — `+` CTA on Floating Tab Promotes In-Place
 
-**Status:** R2 LOCKED — Sprint 45 (v1.40.0 target, 2026-05-21).
+**Status:** R6 AS-BUILT — Sprint 45 (v1.40.0 target, 2026-05-21).
 **Anchor:** B-166 (P2 / S → auto-upgraded to Full M per the message-contract rule in `CLAUDE.md` Pipeline Tiers).
 **Tier:** Full pipeline (M).
 **Depends on:** B-148 ✅ (S44 close — `Group.renderOrder` + interleave), B-124 ✅ (S39 — floating-row `+` Save CTA), B-121 ✅ (S38 — floating-group write path).
-**Author:** [solution-architect] (Opus). Written BEFORE R3 build per S44 retro action item 1 (chapter-first).
+**Author:** [solution-architect] (Opus). Written BEFORE R3 build per S44 retro action item 1 (chapter-first); reconciled at R6 against shipped behavior (commits `71c457a` R3 + `d13c103` R4 fix-round + `3bb0dd9` R5).
 
-> **R2 plan chapter** (not an R6 as-built — this is the design that R3
-> implements). Records the R0 PICK among the three pre-enumerated options,
-> the atomic-swap mechanism inside the writeTransaction, the exhaustive
-> test-assertion fix-scope enumeration (mandatory per the
-> `CLAUDE.md` fix-scope subsection), and the AC ↔ design reconciliation
-> matrix. R3 cannot start until the fix-scope table at §71.5 is verified
-> 100% complete.
+> **R6 As-Built chapter.** Originally authored as an R2 plan; updated at
+> R6 close to reflect what was actually built. The R0 PICK, atomic-swap
+> mechanism, message contract, rollback plan, performance budget, and the
+> AC ↔ design reconciliation are all preserved as designed. The following
+> deltas were applied at R6 (see §71.14 R6 As-Built audit trail at the end
+> of the chapter for the full delta log):
+> - §71.3.2 mutator sketch — reflects M-1 defensive cross-group prune scoping
+>   (`pruneGroupId` capture + conditional-prune branch).
+> - §71.5.1 / §71.11 — `newtab/newtab.js` was added to the file list (cross-
+>   surface extension caught at R3, R2 had said unchanged).
+> - §71.6.3 AC3 — invariant extended to document the M-1 defensive scoping.
+> - §71.9 — test list extended with T11 (M-2), T12 (M-1), T13 (R5 atomicity
+>   guard); final test-suite count: 2037 PASS.
+> - §71.10 — original "Future work" subsection renumbered to §71.13; new
+>   §71.10 As-Built captures the UAT outcome.
+> - §71.12 — R5 bonus discovery (T13 atomicity guard for the swap branch).
+> - §71.13 — Future work / follow-ups extended with R4 LOWs (5),
+>   [test-engineer] R5 P3 backlog candidates (2), and the S45 retrospective
+>   action item on UAT script signal discipline.
+> - §71.14 — full R6 As-Built audit trail at the end of the chapter.
 
 ---
 
@@ -223,14 +236,36 @@ mutator: (groups) => {
 }
 ```
 
-The `floatingGroupsMutator` body is even simpler:
+The `floatingGroupsMutator` body — **As-Built reflects the M-1 R4
+security fix-round** (`d13c103`), which added defensive cross-group
+prune scoping. The `replaceFloatingId` normalization (string-type +
+non-empty + presence check) is hoisted up-front and the mutator body
+only runs when the hint is active; the `pruneGroupId` closure captures
+the caller's target group so the filter rejects malformed dispatches
+that pair `{groupId: B, replaceFloatingId: <ulid-of-record-in-A>}`:
 
 ```js
-mutator: (records) => {
-  if (!Array.isArray(records) || records.length === 0) return records;
-  if (typeof input.replaceFloatingId !== 'string') return records;
-  const next = records.filter((r) => r?.floatingTabId !== input.replaceFloatingId);
-  return next.length === records.length ? records : next;
+// Up-front normalization (B-166 §71.3.2; items.js:203-211):
+const replaceFloatingId = (typeof input.replaceFloatingId === 'string'
+  && input.replaceFloatingId.length > 0) ? input.replaceFloatingId : null;
+
+// ... GROUPS + ITEMS ops constructed unconditionally ...
+
+if (replaceFloatingId !== null) {
+  const pruneGroupId = item.groupId;  // captured for the M-1 scoping branch
+  ops.push({
+    partition: PARTITION_FLOATING_GROUPS,
+    mutator: (records) => {
+      if (!Array.isArray(records) || records.length === 0) return records;
+      const next = records.filter((r) => {
+        if (r?.floatingTabId !== replaceFloatingId) return true;  // keep — different floating tab
+        // Match on floatingTabId. Now apply the M-1 group scope:
+        if (pruneGroupId === null) return false;  // AC3 Ungrouped fallback — prune unconditionally per §71.6.3
+        return r?.groupId !== pruneGroupId;  // prune only if same group; keep (defensive) if different group
+      });
+      return next.length === records.length ? records : next;
+    },
+  });
 }
 ```
 
@@ -238,6 +273,21 @@ The mutator is **content-conditional** — returns the same reference if
 no record matched, so `writeTransaction` short-circuits the
 `chrome.storage.set` call when there's nothing to prune. This mirrors
 the §68.6 idempotency-fast-path precedent for `bootstrapAndSweepRenderOrder`.
+
+**M-1 As-Built rationale.** R2 originally specified a global filter on
+`floatingTabId` alone, on the (correct) reasoning that a well-formed UI
+dispatch always pairs the hint with the record's owning group, so
+collision was impossible by construction. R4 [security-reviewer]
+correctly observed that a *malformed* in-process dispatch (a future
+caller, a buggy test fixture, a malicious sender that survives the
+allow-list-type validator but happens to pair a valid `floatingTabId`
+with a different group) would silently prune the wrong group's record
+with no caller-visible signal. The fix adds defense-in-depth: correct
+callers still prune (the dispatch and the record agree on the group); a
+malformed caller is a no-op. The `pruneGroupId === null` Ungrouped
+branch is preserved unrestricted because AC3 requires unconditional
+cleanup on the Ungrouped fallback (the record may legitimately have any
+`groupId` value if the user deleted the group between hover and click).
 
 The `itemsMutator` is unchanged from current behavior (still appends
 the new item with `sortOrder = bucketSize` and runs
@@ -350,15 +400,41 @@ subsection — this section enumerates EVERY file R3 touches AND every
 test file that asserts a pre-change contract that needs updating.
 **R3 cannot start until this enumeration is complete and verified.**
 
-### §71.5.1 — Code files touched
+### §71.5.1 — Code files touched (As-Built)
 
-| # | File | Lines (approx) | Change |
-|---|------|----------------|--------|
-| 1 | `sidepanel/sidepanel.js` | `3169-3196` | `_onFloatingSaveCtaClick` extracts `row.dataset.floatingTabId` (already-stamped at `:3089-3091`); includes it as `replaceFloatingId` in the MSG_PROMOTE_TAB payload when non-empty. |
-| 2 | `background/messages/storage-handlers.js` | `373-417` | Add `replaceFloatingId` validator after `groupId` validator; pass through to `createItem({ title, url, groupId, replaceFloatingId })`. |
-| 3 | `background/storage/items.js` | `170-230` | `createItem({title, url, groupId, replaceFloatingId?})`: extend groups mutator with the swap-or-append fork; add third partition mutator (PARTITION_FLOATING_GROUPS) that strips the record by `floatingTabId` when `replaceFloatingId` is set. JSDoc updated. |
-| 4 | _(none)_ | _(none)_ | `shared/messages.js` unchanged — no new message type, no new constant. |
-| 5 | _(none)_ | _(none)_ | `shared/render-order.js` unchanged — the swap happens in `Group.renderOrder` upstream of the resolver. |
+| # | File | Lines (As-Built) | Change |
+|---|------|------------------|--------|
+| 1 | `sidepanel/sidepanel.js` | `3169-3215` | `_onFloatingSaveCtaClick` extracts `row.dataset.floatingTabId` (already-stamped at `:3089-3091`); includes it as `replaceFloatingId` in the MSG_PROMOTE_TAB payload when non-empty (`:3192-3196`). |
+| 2 | `background/messages/storage-handlers.js` | `373-430` | Add `replaceFloatingId` validator after `groupId` validator (`:392-399`); pass through to `createItem({ title, url, groupId, replaceFloatingId })` (`:425-430`). |
+| 3 | `background/storage/items.js` | `170-313` | `createItem({title, url, groupId, replaceFloatingId?})`: hoist normalization (`:203-211`); extend groups mutator with the swap-or-append fork (`:238-247`); add third partition mutator (PARTITION_FLOATING_GROUPS) with M-1 defensive cross-group prune scoping (`:270-310`). JSDoc updated (`:171-186`). |
+| 4 | **`newtab/newtab.js`** | `540-597` | **As-Built addition (R2 said unchanged).** `_promoteFloatingTab` extracts `m.floatingTabId` from `_floatingMembers` (`:571-573`); includes it as `replaceFloatingId` in the MSG_PROMOTE_TAB payload when non-empty (`:584-586`). See As-Built note A-1 below. |
+| 5 | _(none)_ | _(none)_ | `shared/messages.js` unchanged — no new message type, no new constant. |
+| 6 | _(none)_ | _(none)_ | `shared/render-order.js` unchanged — the swap happens in `Group.renderOrder` upstream of the resolver. |
+
+**As-Built note A-1 — cross-surface analysis gap caught at R3.** The
+original R2 chapter (§71.5.1 row 4 + §71.11 "Source code (unchanged)")
+asserted `newtab/newtab.js` was unchanged on the basis that the AC1
+user flow is described as "click `+` on a floating row in the sidepanel."
+At R3, [frontend-engineer] identified that `_promoteFloatingTab`
+(`newtab/newtab.js:550`) is the newtab equivalent of
+`_onFloatingSaveCtaClick` — it dispatches the SAME `MSG_PROMOTE_TAB`
+message from the floating-row `+` Save CTA in the newtab page, and
+both surfaces consume the SAME `Group.renderOrder` via the shared
+resolver. Shipping the swap fix on the sidepanel but not on newtab
+would have produced a cross-surface UX divergence (sidepanel swaps;
+newtab still bottom-jumps). Per the `CLAUDE.md` R3 cross-surface
+diff-self-check rule, R3 extended both surfaces in lockstep and
+flagged the deviation for R6 As-Built reconcile. The deviation is now
+reconciled here. Root cause: the R2 author treated `_onFloatingSaveCtaClick`
+as the single dispatch surface based on the AC narrative ("sidepanel
+`+` CTA"); the AC1 phrasing did not surface the newtab analog
+because the newtab `+` Save flow had been added by B-124 (S39) as a
+separate code path. **R2 gap class for future architecture work:** when
+a new write path is described by user surface ("the sidepanel `+` CTA"),
+R2 should `grep` for sibling dispatch sites of the SAME `MSG_*`
+constant across all surface entry points (sidepanel, newtab, popup) and
+explicitly enumerate which sibling sites are in-scope vs out-of-scope
+before locking the fix-scope table.
 
 ### §71.5.2 — Test files that pin pre-change contracts (MUST update)
 
@@ -461,15 +537,29 @@ becomes `null`. The handler still dispatches the payload (possibly with
 `replaceFloatingId` if the row had `floatingTabId`). The SW path:
 
 - `createItem` runs the GROUPS mutator; the early-return at
-  `items.js:202` (`if (item.groupId === null) return groups;`) fires
+  `items.js:233` (`if (item.groupId === null) return groups;`) fires
   BEFORE the swap fork. The swap is silently skipped — the new
   bookmark lands in Ungrouped (no `renderOrder` for Ungrouped — items
   there render via `Item.sortOrder` per the bootstrap-fallback in
   `shared/render-order.js:64-73`).
-- The FLOATING_GROUPS mutator still runs and prunes the F1 record (the
-  prune is independent of `groupId`). This is a minor invariant: even
-  if the swap can't happen (no group), the orphan floating record is
-  still cleaned up — atomicity preserved within the prune.
+- The FLOATING_GROUPS mutator still runs and prunes the F1 record. **As-Built
+  (R4 M-1):** the prune now applies a defensive cross-group scope: when
+  `input.groupId !== null`, the filter only removes records where
+  `r.groupId === input.groupId` AND `r.floatingTabId === replaceFloatingId`
+  (a malformed dispatch that paired the hint with a different group is a
+  no-op on the unrelated group's record). When `input.groupId === null` —
+  this AC3 Ungrouped-fallback path — the filter is unrestricted: any record
+  matching `r.floatingTabId === replaceFloatingId` is pruned regardless of
+  its `groupId`. The reasoning is that the AC3 race window opens precisely
+  when the user has deleted the group between hover and click; the floating
+  record's recorded `groupId` may reference the just-deleted group, so
+  scoping by `pruneGroupId` would prevent the legitimate cleanup. The
+  `pruneGroupId === null` short-circuit at `items.js:304` preserves the
+  AC3 contract exactly as R2 designed it: "the floating record IS still
+  pruned … independent of `groupId`."
+- This is a minor invariant: even if the swap can't happen (no group), the
+  orphan floating record is still cleaned up — atomicity preserved within
+  the prune.
 
 **AC3 satisfied** — defensive Ungrouped fallback works; no exception,
 no orphan, no bottom-of-group jump (because there's no group).
@@ -619,14 +709,20 @@ fast-path is the single trip that already happens).
 
 ---
 
-## §71.9 — Tests planned for R5
+## §71.9 — Tests (As-Built)
 
-Mirrors the §68.10.1 format. R5 [test-engineer] writes both unit
-tests AND performs UAT.
+Mirrors the §68.10.1 format. R5 [test-engineer] wrote both unit tests
+AND performed UAT.
+
+**As-Built final test-suite count: 2037 PASS / 0 FAIL / 0 SKIP**
+(verified via `npm test`, post-B-163 R3 landing on the same branch).
+The B-166 test file `tests/b166-promote-in-place.test.js` ships at
+**13 cases / 678 LOC** (R2 estimated 10 cases / ~150 LOC; R4 fix-round
+added T11 + T12, R5 added T13 — see §71.12).
 
 ### §71.9.1 — Automated tests (new file)
 
-`tests/b166-promote-in-place.test.js` — ~150 LOC, ~10 cases:
+`tests/b166-promote-in-place.test.js` — **678 LOC, 13 cases (As-Built)**:
 
 | # | Case | Surface | Assertion |
 |---|------|---------|-----------|
@@ -639,33 +735,138 @@ tests AND performs UAT.
 | T7 | AC5 regression guard: pre-B-166 dispatch shape `{tabId, groupId}` (no `replaceFloatingId`) → append branch fires | end-to-end | renderOrder post-promote has `item:NEW` appended at the end (NOT swapped) |
 | T8 | AC6 stale-hint guard: `replaceFloatingId = 'NONEXISTENT_ULID'` → no swap, append fallback fires; no orphan / no duplicate; FLOATING_GROUPS mutator no-op | end-to-end | renderOrder ends with `item:NEW` appended; `tj:floatingGroups` unchanged from pre-call |
 | T9 | C-7 validator: `replaceFloatingId = 42` (number) → `ERR_VALIDATION` | dispatch | response envelope is `{ok: false, error: {code: ERR_VALIDATION}}`; no write |
-| T10 | C-7 validator: `replaceFloatingId = ''` (empty string) → `ERR_VALIDATION` | dispatch | same as T9 |
+| T10 | C-7 validator: `replaceFloatingId = ''` (empty string) AND `replaceFloatingId` of 33 chars (over-length) → `ERR_VALIDATION` | dispatch | response envelope is `{ok: false, error: {code: ERR_VALIDATION}}`; no write. As-Built (R4 M-3 review): test asserts both edge cases in a single `test()` block (`tests/b166-promote-in-place.test.js:413`). |
+| **T11** | **R4 M-2 — §71.1 canonical 4-slot scenario.** Seed `[item:A, floating:F1, item:B, floating:F2]`; promote F1; assert post-state is `[item:A, item:NEW, item:B, floating:F2]` AND F2's floating record still present in `tj:floatingGroups`. | end-to-end | combined sibling-survives + length-invariant + partition cleanup assertion in one test. Added by R4 fix-round (`d13c103`) to close the R4 [qa-reviewer] M-2 gap: the R2 test enumeration covered swap mechanics in isolation but did not exercise the literal §71.1 4-slot motivating scenario. `tests/b166-promote-in-place.test.js:450`. |
+| **T12** | **R4 M-1 — defensive cross-group prune scoping.** Seed two groups A + B, with F1 floating in Group A; dispatch malformed `{groupId: B, replaceFloatingId: <F1-floatingTabId>}`; assert F1's record SURVIVES in Group A's slot (the defensive scope no-op'd the prune). | end-to-end | regression guard for the M-1 fix (`items.js:296-309`). Without the defensive scope, F1's record would have been pruned despite the dispatch targeting Group B — a silent cross-group state corruption with no caller-visible signal. `tests/b166-promote-in-place.test.js:548`. |
+| **T13** | **R5 atomicity guard — B-103 §51.D-2 in the B-166 swap branch.** After a swap-path promote, assert `getClaimsMirror()[newItem.id] === seed.liveTabId`. | end-to-end (thin behavioural assertion) | discovered by R5 [test-engineer] audit: the existing `tests/b103-promote-duplicate.test.js` source-text pin was tuned against the legacy append-only payload shape and does NOT cover the B-166 swap branch. A future refactor that conditionally skipped or re-ordered `claimTabForItem` for the swap path would not be caught by either b103 or the existing b166 tests. ~12 LOC closes the loop. `tests/b166-promote-in-place.test.js:659`. |
 
-### §71.9.2 — Existing test deltas
+### §71.9.2 — Existing test deltas (As-Built)
 
 | File | Δ LOC | Change |
 |------|-------|--------|
-| `tests/b124-floating-visual.test.js` | +2/-2 (line 250 regex) | Update T-124-D regex to allow optional `replaceFloatingId` field per §71.5.2 |
+| `tests/b124-floating-visual.test.js` (T-124-D, sidepanel pin) | +18/-1 | R3 updated T-124-D regex to allow optional `replaceFloatingId` field per §71.5.2; R4 M-3 fix-round added 2 specificity pins (row.dataset.floatingTabId extraction + 'tabId, groupId' payload construction) because the original regex weakened by the `|payload` alternative was matching any var named `payload`. |
+| `tests/b124-floating-visual.test.js` (T-124-F, newtab pin) | +19/-0 | **R4 M-4 fix-round** added 2 specificity pins to T-124-F (newtab body): `m.floatingTabId\|floatingTabId` extraction from `_floatingMembers` AND `replaceFloatingId` payload field appearance. R2 had not anticipated this delta because R2 had asserted `newtab/newtab.js` was unchanged; the M-4 finding was caught at R4 alongside the M-3 sidepanel specificity gap. |
 | _(none other)_ | _(none)_ | Per §71.5.4 — all other promote tests continue to PASS unchanged. |
 
-### §71.9.3 — UAT script (planned, R5)
+### §71.9.3 — UAT script (As-Built)
 
-UAT script will be created at `docs/UAT_B-166.md` (mirroring `docs/UAT_B-148.md`)
-with the following test cases:
-
-1. **Happy path interleave**: build `[item:A, floating:F1, item:B, floating:F2]` via drag (B-148 path); click `+` on F1's row; verify the row sequence post-render is `[A, NEW, B, F2]` (NEW replaces F1 at the same index) AND that the row is now a saved bookmark (no dotted-bar, no `+` CTA visible).
-2. **Persistence across reload**: repeat case 1; reload the extension via `edge://extensions` toggle OFF→ON; verify the rendered order is unchanged.
-3. **Legacy floating member (pre-S38 simulation)**: manually edit `tj:floatingGroups` in the SW console to strip a record's `floatingTabId` field; click `+` on its row; verify graceful append-to-bottom (AC2 documented degradation).
-4. **Group deleted mid-flight**: open `+` hover on F1; delete the group via context menu (R-click → Delete group, confirm dialog); click `+`; verify the new bookmark lands in Ungrouped (AC3) AND verify the floating record is gone from `tj:floatingGroups`.
-5. **Tab closed mid-flight**: open `+` hover on F1; in the tab strip, close the corresponding tab; click `+`; verify the toast "Couldn't save tab — try again" appears AND no partial write surfaces in `tj:items` / `tj:groups` / `tj:floatingGroups` (AC4).
-6. **Right-click "Save to group" picker NOT regressed (AC5)**: right-click an Open-Tabs row, pick "Save to group" → target group; verify the new bookmark lands at the BOTTOM of the target group (pre-B-166 behavior preserved; cross-group save intentionally appends).
-7. **Open-Tabs Save flow NOT regressed (AC5)**: hover an Open-Tabs row; click its `+`; pick a group via the group picker; verify the new bookmark lands at the BOTTOM of the picked group.
-
-UAT lean-mode smoke (case 8): toggle `prefersLean` ON; repeat case 1; verify the lean-mode path still routes through MSG_PROMOTE_TAB and the swap still works.
+The UAT script was authored at R5 inline in `docs/findings/sprint-45.md`
+(commit `2c69571`) rather than as a separate `docs/UAT_B-166.md` file
+(see §71.13 note on the S45 retrospective action item for the UAT
+script-discipline lesson). 10 cases total, covering all 6 R1 ACs plus
+the §71.3.2 bonus prune, the §71.1 canonical 4-slot scenario, cross-
+surface newtab parity, and the M-1 defensive-scope malformed-dispatch
+case. ~15 min wall time for product-owner execution. See §71.10 for the
+actual outcome.
 
 ---
 
-## §71.10 — Future work / known limitations
+## §71.10 — UAT outcome (As-Built, 2026-05-21)
+
+| Case | Result | Notes |
+|------|--------|-------|
+| UAT-1 (AC1 happy path) | ✅ PASS | F1 → saved bookmark at same row position; user-visible in-place swap confirmed. |
+| UAT-2 (§71.3.2 bonus prune) | ⚠️ INCONCLUSIVE → indirectly validated | Product-owner ran the SW-console storage query but no pre/post delta was captured. The atomic prune is **indirectly validated** by UAT-1's PASS: if the prune had NOT fired, the row visualization in UAT-1 would have shown both the floating row AND the new bookmark row (one more row than observed). It did not — the row count matched the post-swap expectation, so the prune executed. |
+| UAT-3 (§71.1 canonical 4-slot sibling preservation) | ✅ PASS | F2 survived at index 3 after F1 promote — the motivating AC1 scenario from §71.1 confirmed end-to-end. |
+| UAT-4 (AC1 persistence across SW restart) | ✅ PASS | Toggle OFF/ON of the Tab Junkie card preserved the renderOrder. |
+| UAT-5..10 | ⏭️ SKIPPED | Product-owner direction: "idk if this passes, requires knowing the tabID, i don't have that and this is potentially too technical for a UAT test, let's skip the rest. I'll smoke test in the future if I see issues." Skipped cases were AC2 legacy fallback, AC3 group-deleted-mid-flight, AC4 tab-closed-mid-flight, AC5 right-click picker regression, AC5 newtab cross-surface parity, AC6 M-1 stale-hint defensive scope. |
+
+**Effective Gate 2 status: ✅ PASS by product-owner acceptance.**
+
+Rationale: 2037 automated tests cover all 6 R1 ACs plus the §71.3.2
+bonus prune plus the M-1/M-2 R4 fix-round additions plus the T13
+atomicity guard; UAT-1/3/4 cover the user-observable happy path plus
+the §71.1 canonical scenario plus persistence-across-restart; product-
+owner has agreed to smoke-test the SKIPPED cases if any user-visible
+regression surfaces in production. Test-engineer assessed the
+automated-test coverage as sufficient to substitute for the SKIPPED
+UAT cases (each SKIPPED case has a corresponding automated test:
+UAT-5 ↔ T4 AC2, UAT-6 ↔ T5 AC3, UAT-7 ↔ T6 AC4, UAT-8 ↔ T7 AC5
+picker, UAT-9 ↔ cross-surface code-level diff verified by R3 +
+M-3/M-4 specificity pins in T-124-D/F, UAT-10 ↔ T12 M-1 defensive
+scope). B-166 R6 close proceeded under this acceptance.
+
+---
+
+## §71.11 — Files touched (As-Built)
+
+**Source code (modified):**
+
+- `sidepanel/sidepanel.js` — `_onFloatingSaveCtaClick` at `:3169-3215`: read `row.dataset.floatingTabId` (`:3192`), include as `replaceFloatingId` in dispatch payload when non-empty (`:3194-3196`).
+- **`newtab/newtab.js`** — `_promoteFloatingTab` at `:550-597`: read `m.floatingTabId` from `_floatingMembers` (`:571-573`), include as `replaceFloatingId` in dispatch payload when non-empty (`:584-586`). **As-Built addition — R2 said unchanged; see §71.5.1 note A-1 for the cross-surface analysis gap explanation.**
+- `background/messages/storage-handlers.js` — MSG_PROMOTE_TAB case at `:373-430`: new validator clause (`:392-399`); pass-through to `createItem` (`:425-430`).
+- `background/storage/items.js` — `createItem` at `:170-313`: hoist normalization (`:203-211`), extend GROUPS mutator with swap-or-append fork (`:238-247`), add third partition mutator (FLOATING_GROUPS) with M-1 defensive cross-group prune scoping (`:270-310`); JSDoc updated (`:171-186`).
+
+**Source code (new):** _none_
+
+**Source code (unchanged, As-Built):** `shared/messages.js`, `shared/render-order.js`, `shared/url.js`, `background/storage/shapes.js`, `background/storage/migration.js`, `background/storage/groups.js`, `background/storage/write-transaction.js`, `background/tabs/floating-groups.js`, `background/tabs/tab-claims.js`, `background/tabs/floating-members.js`, `popup/popup.js`. (`newtab/newtab.js` was REMOVED from this list at R6 As-Built.)
+
+**Tests (new):**
+
+- `tests/b166-promote-in-place.test.js` — **13 cases / 678 LOC As-Built** (R2 estimated 10 cases / ~150 LOC; T11 + T12 added by R4 fix-round, T13 added by R5).
+
+**Tests (modified):**
+
+- `tests/b124-floating-visual.test.js` T-124-D — line 250 regex per §71.5.2 + R4 M-3 specificity pins (As-Built: +18/-1 LOC).
+- `tests/b124-floating-visual.test.js` T-124-F — R4 M-4 specificity pins (As-Built: +19/-0 LOC, NEW delta not anticipated in R2).
+
+**Docs:**
+
+- This chapter (`docs/design/71-b-166-promote-in-place.md`) — authored at R2 as a plan; reconciled at R6 to As-Built (§71.14 audit trail).
+- `docs/SOLUTION_DESIGN.md` — TOC entry exists at `:91` (status descriptor will be updated to remove "(R2 Plan)" at sprint close).
+- `docs/findings/sprint-45.md` — R0 spike, R1 LOCKED ACs, R4 findings summary, R5 UAT script + results.
+- (R7) `CHANGELOG.md`, `docs/RELEASES.md`, `README.md` (if user-visible) — handled by [release-manager] / [technical-writer] at sprint close.
+
+---
+
+## §71.12 — R5 Bonus discovery (T13 atomicity guard)
+
+R5 [test-engineer] audit (commit `3bb0dd9`) discovered one coverage gap
+beyond the R1 ACs + R4 findings:
+
+**Gap.** The B-103 §51.D-2 promote-tab atomicity contract (`createItem`
+MUST be followed by `claimTabForItem` in the same handler call;
+`tests/b103-promote-duplicate.test.js:163-208` pins this via a
+source-text regex on `storage-handlers.js`) was **tuned against the
+legacy payload shape only**. The pin asserts the `await createItem`
+followed by `await claimTabForItem` sequence exists in the
+MSG_PROMOTE_TAB handler body, but the regex does not enumerate which
+`createItem` invocation paths it covers — and B-166 introduced a new
+swap branch through `createItem` whose post-promote claim-mirror state
+is identical in shape but a different code path through the same
+handler.
+
+**Risk.** A future refactor that (a) factored the swap-branch promote
+into a separate helper, OR (b) conditionally skipped/re-ordered
+`claimTabForItem` for the swap path (the natural refactor target if a
+"swap without re-claim" optimization ever emerged), would not be
+caught by either the b103 pin (whose source-text regex would still
+match the legacy path) or the existing b166 tests (which assert
+renderOrder mechanics, not post-claim state).
+
+**Closure.** T13 (`tests/b166-promote-in-place.test.js:659`) adds a
+thin behavioural assertion: after a swap-path promote completes,
+`getClaimsMirror()[newItem.id] === seed.liveTabId`. ~12 LOC. This
+closes the b103-atomicity-contract loop for the B-166 swap branch
+specifically; any refactor that breaks the claim-mirror post-condition
+fails T13 even if the b103 source-text pin still matches the legacy
+path.
+
+**Bonus framing.** The R2 chapter cited B-103 §51 as a satisfied
+invariant (`MSG_PROMOTE_TAB` handler awaits `createItem` then awaits
+`claimTabForItem`; order preserved — §71.3.1 step 5) but did not call
+out that the b103 PIN itself does not test-cover the new branch. The
+T13 addition is correctly characterized as an R5 audit discovery
+rather than an R4 review-finding miss because the gap is meta-level
+(test infrastructure brittleness, not a code-level bug); R4 reviewers
+correctly flagged the four code-level MEDIUM findings, none of which
+overlapped with this meta-level gap.
+
+---
+
+## §71.13 — Future work / known limitations / deferred findings
+
+### §71.13.1 — Original future-work items (from R2)
 
 - **Other position-aware insert callers.** If B-162 (Ctrl+Shift+T reopen lands in original group) R2 picks an option that wants
   position-aware insert (e.g., insert "above the opener position"), the `replaceFloatingId` parameter
@@ -676,14 +877,16 @@ UAT lean-mode smoke (case 8): toggle `prefersLean` ON; repeat case 1; verify the
   should evaluate whether to retrofit at that time.
 - **Cross-group promote.** The `+` CTA always promotes the floating
   tab into ITS OWN parent group (per `_onFloatingSaveCtaClick`'s
-  enclosing `.group-section` lookup at `sidepanel.js:3178`). There is
+  enclosing `.group-section` lookup at `sidepanel.js:3178-3182`). There is
   no scenario today where a floating tab gets promoted into a
   DIFFERENT group via the `+` CTA. The swap design implicitly assumes
-  this. If a future feature adds a "promote and re-home" UX, that
-  path would NOT use `replaceFloatingId` (the floating ref lives in
-  the source group's renderOrder; the destination group's renderOrder
-  shouldn't be swapped). The handler validator correctly silently
-  ignores the field when no match is found — fallback to append fires.
+  this — and the R4 M-1 fix now enforces it defensively at the
+  prune-mutator layer (a malformed cross-group dispatch is a no-op
+  rather than a silent state corruption). If a future feature adds a
+  "promote and re-home" UX, that path would NOT use `replaceFloatingId`
+  (the floating ref lives in the source group's renderOrder; the
+  destination group's renderOrder shouldn't be swapped). The M-1
+  defensive scope makes this safe by construction.
 - **Bulk promote.** B-067 backlog candidate "promote multiple floating
   tabs at once" is unaffected — there is no MSG_BULK_PROMOTE today,
   and if one is added it would need its own swap-or-append per-target
@@ -698,33 +901,108 @@ UAT lean-mode smoke (case 8): toggle `prefersLean` ON; repeat case 1; verify the
   demote is its own AC scope and is NOT part of B-166. Filed for
   product-owner consideration in a future sprint.
 
+### §71.13.2 — R4 LOW findings (deferred to P3 backlog at sprint close)
+
+R4 surfaced 5 LOW findings (per `docs/findings/sprint-45.md` B-166 R4
+summary: "0 CRITICAL / 0 HIGH / 4 MEDIUM (all fixed in `d13c103`) / 5
+LOW (deferred — file as P3 backlog candidates at sprint close per R5
+[test-engineer] notes)"). The detailed LOW enumeration was not
+preserved verbatim in the per-sprint findings slice; [scrum-master]
+will file the LOW set as P3 backlog candidates at sprint close,
+sourced from the parallel R4 reviewer transcripts. None block sprint
+close.
+
+### §71.13.3 — P3 backlog candidates surfaced at R5
+
+The R5 [test-engineer] audit (`3bb0dd9` commit body) surfaced two
+additional P3 backlog candidates that neither block sprint close nor
+warrant fix-round work but would strengthen test infrastructure on
+future floating-Save surface work:
+
+1. **chrome-mock pre-S38 legacy fixture.** The current `tests/chrome-mock.js`
+   does not include a fixture factory for pre-S38 floating-group records
+   (records lacking the post-B-121 `floatingTabId` field). The B-166
+   AC2 graceful-fallback test (T4) hand-constructs a record without
+   `floatingTabId` inline; future tests touching the pre-S38 legacy
+   path would benefit from a shared `seedLegacyFloatingRecord()`
+   helper.
+2. **newtab end-to-end MSG_PROMOTE_TAB dispatch coverage.** The R3
+   cross-surface extension to `newtab/newtab.js:550` is currently
+   covered by the T-124-F source-text regex pins (M-4) and indirectly
+   by the b166 end-to-end tests (which exercise the SW handler, not the
+   newtab dispatch). A dedicated end-to-end newtab-page test that
+   simulates a `+` click on a newtab floating row and observes the
+   downstream `MSG_PROMOTE_TAB` payload would close the surface-pin
+   gap that M-4 surfaced.
+
+Either P3 candidate can ride alongside the next sprint that touches
+the floating Save surface.
+
+### §71.13.4 — S45 retrospective action item
+
+Captured at R5 UAT execution (`docs/findings/sprint-45.md` "R5 UAT —
+B-166 results" final section), rolled into the S45 retrospective at
+sprint close:
+
+> **[test-engineer]** UAT scripts must rely on **UI-observable signals
+> only** (visible row positions, toast text, focus states, persistent
+> UI state across reload). SW-console state queries that require
+> manual tabId lookup, ULID copying, or storage-shape introspection
+> are **too technical for product-owner execution** and should be
+> reserved for the automated test suite.
+
+The B-166 R5 UAT script (UAT-5..10) was SKIPPED specifically because
+its later cases required SW-console storage manipulation (UAT-5
+`tj:floatingGroups` strip), manual tabId lookup (UAT-6, UAT-7, UAT-10),
+and ULID copying (UAT-10). Future UAT scripts authored by
+[test-engineer] must restrict UAT cases to UI-observable signals; any
+state-query case must be either (a) re-cast as a UI-observable
+assertion, OR (b) moved to the automated test suite.
+
 ---
 
-## §71.11 — Files to be touched (R3 summary, for the handoff)
+## §71.14 — R6 As-Built audit trail
 
-**Source code (modified):**
+Updates applied at R6 close (this section is itself an audit-trail
+artifact for future R6 close reviewers):
 
-- `sidepanel/sidepanel.js` — `_onFloatingSaveCtaClick` at `:3169-3196`: read `row.dataset.floatingTabId`, include as `replaceFloatingId` in dispatch payload when non-empty.
-- `background/messages/storage-handlers.js` — MSG_PROMOTE_TAB case at `:373-417`: new validator clause; pass-through to `createItem`.
-- `background/storage/items.js` — `createItem` at `:170-230`: extend GROUPS mutator with swap-or-append fork; add third partition mutator (FLOATING_GROUPS) when `replaceFloatingId` is set; JSDoc update.
+| # | Section | Delta | Rationale |
+|---|---------|-------|-----------|
+| 1 | Header (Status + intro paragraph) | R2 LOCKED → R6 AS-BUILT; intro paragraph replaced with delta summary | Chapter is now the As-Built record per CLAUDE.md R6 contract. |
+| 2 | §71.3.2 | Mutator sketch replaced with As-Built code reflecting M-1 defensive cross-group prune scoping (`pruneGroupId` capture + conditional-prune branch); rationale paragraph added. | Original sketch matched R2 design (global filter on `floatingTabId`); R4 [security-reviewer] correctly identified the malformed-cross-group corruption class; fix-round `d13c103` added the defensive scope. |
+| 3 | §71.5.1 | Code-files table extended with `newtab/newtab.js` (row 4); added As-Built note A-1 documenting the cross-surface analysis gap and the R2 architecture-gap class (R2 should grep for sibling dispatch sites of the same MSG_* constant across all surfaces). | Caught at R3 build per CLAUDE.md cross-surface diff self-check rule; flagged for R6 As-Built reconcile at R3 commit time. |
+| 4 | §71.6.3 | AC3 invariant extended to document M-1 defensive cross-group prune scoping. Code-cite line numbers updated to As-Built (`items.js:233`, `items.js:304`). | Per R4 M-1 fix-round; AC3 contract unchanged but the implementation invariant now includes the cross-group scope. |
+| 5 | §71.9 (header + §71.9.1 + §71.9.2) | Final test-suite count 2037 PASS recorded; test-file size 678 LOC / 13 cases (was 150 LOC / 10); T11 + T12 + T13 added to the test table; existing-test deltas table extended with the T-124-F M-4 fix-round pin. | R3 + R4 fix-round + R5 added 3 tests; verified via `npm test` on HEAD `80826e3`. |
+| 6 | §71.9.3 | UAT script section trimmed to a pointer note (the actual script lives in `docs/findings/sprint-45.md` per R5 implementation choice). | R5 [test-engineer] authored the UAT script inline in the per-sprint findings slice rather than at `docs/UAT_B-166.md`; the S45 retrospective action item §71.13.4 addresses the script-discipline lesson. |
+| 7 | §71.10 | Original "Future work / known limitations" section moved to §71.13; new §71.10 holds the As-Built UAT outcome table + Gate 2 acceptance rationale. | Gate 2 satisfaction is As-Built data; documenting it here keeps the chapter self-contained as the canonical R6 record. |
+| 8 | §71.11 | Code/test file lists updated to As-Built line numbers and counts; newtab added to "modified" and removed from "unchanged." | Single source of truth for "what shipped." |
+| 9 | §71.12 (NEW) | New section documenting the R5 T13 atomicity-guard bonus discovery. | R5 audit-level finding; not a code bug, but a test-infrastructure gap closed at R5. |
+| 10 | §71.13 (RESTRUCTURED) | Original §71.10 future-work moved to §71.13.1; new §71.13.2 (R4 LOWs), §71.13.3 (P3 backlog candidates), §71.13.4 (S45 retrospective action item) added. | Consolidates all post-close follow-ups in one section. |
+| 11 | §71.14 (NEW) | This audit trail. | Required by CLAUDE.md R6 contract for transparency. |
 
-**Source code (new):** _none_
+**Behaviors shipped that the original chapter did not anticipate:**
 
-**Source code (unchanged):** `shared/messages.js`, `shared/render-order.js`, `shared/url.js`, `background/storage/shapes.js`, `background/storage/migration.js`, `background/storage/groups.js`, `background/storage/write-transaction.js`, `background/tabs/floating-groups.js`, `background/tabs/tab-claims.js`, `background/tabs/floating-members.js`, `newtab/newtab.js`, `popup/popup.js`.
+- **B-1 (cross-surface extension).** Original chapter asserted `newtab/newtab.js`
+  was unchanged. As-Built: `_promoteFloatingTab` at `newtab/newtab.js:550-597`
+  was extended in lockstep with sidepanel. Caught at R3, reconciled here
+  in §71.5.1 / §71.11 / §71.5.1 note A-1.
+- **B-2 (M-1 defensive cross-group prune scoping).** Original
+  `floatingGroupsMutator` sketch was a global filter on `floatingTabId`
+  alone. As-Built: prune is scoped by `pruneGroupId === item.groupId`
+  when non-null (with Ungrouped-fallback short-circuit). Caught at R4
+  by [security-reviewer] M-1; reconciled here in §71.3.2 / §71.6.3.
+- **B-3 (T-124-F newtab specificity pin).** Original existing-tests
+  table only listed T-124-D (sidepanel pin). As-Built: T-124-F newtab
+  pin required +19 LOC of specificity additions (M-4 fix-round
+  byproduct of the cross-surface extension caught at R3). Reconciled
+  in §71.9.2.
+- **B-4 (T13 atomicity guard).** Not anticipated by R2 (B-103 §51 was
+  cited as a satisfied invariant; the meta-level gap that the b103 PIN
+  itself doesn't cover the swap branch was not surfaced). Caught at
+  R5 audit; reconciled here in §71.9.1 / §71.12.
 
-**Tests (new):**
-
-- `tests/b166-promote-in-place.test.js` — 10 cases per §71.9.1.
-
-**Tests (modified):**
-
-- `tests/b124-floating-visual.test.js` — line 250 regex (1 line + comment update) per §71.5.2.
-
-**Docs:**
-
-- This chapter (`docs/design/71-b-166-promote-in-place.md`) — R2 plan, written BEFORE R3 per S44 retro action item 1.
-- `docs/SOLUTION_DESIGN.md` — TOC entry added.
-- (R6) `CHANGELOG.md`, `docs/RELEASES.md` — entries added at sprint close.
-- (R5) `docs/UAT_B-166.md` — UAT script per §71.9.3.
+All four behaviors are now fully reconciled with the shipped code at
+HEAD `80826e3` on `feature/sprint-45-claim-desync`. The chapter
+accurately represents shipped behavior.
 
 ---
