@@ -60,8 +60,8 @@ Three CLAUDE.md edit action items inherited from S44 retrospective; the [scrum-m
 - **Tier**: Full (M)
 - **Priority**: P1
 - **Status**: **R3 BUILD COMPLETE (2026-05-22)** — 13 files modified (manifest + 5 background + 5 tests + new b164 test file + chrome-mock infra). New `chrome.tabs.onReplaced` listener performing 5-table remap (table 3 no-op per R2 clarification; table 4 clearTimeout+delete per R2 option-ii). New `idle-reconciler.js` module with `setDetectionInterval(60)` + `_reconcileInFlight` dedup flag + B-132 graceful-degradation. New `remapFloatingGroupsLiveTabId` atomic writeTransaction (blind-replace check clean: `(current) =>` mutator). **Tests 2038 → 2048 PASS** (+10 new B-164 tests T1-T10; zero regressions; 4 baseline pin updates net-zero). Zero R2 spec deviations.
-- **Assigned To**: [code-reviewer] + [security-reviewer] + [qa-reviewer] (R4 parallel)
-- **Blockers**: none — R4 launching per Gate 1.
+- **Assigned To**: [frontend-engineer] (R4 fix-round, scope TBD) → [test-engineer] (R5)
+- **Blockers**: ⚠️ **R4 REVIEW DONE 2026-05-22**: 0 CRIT / 0 HIGH / 2 MEDIUM / 5 LOW (security-reviewer CLEAN; code-reviewer FIX RECOMMENDED; qa-reviewer FIX RECOMMENDED). M-1 dedup spy/counter test gap (qa+code overlap); **M-2 real race — `onReplaced` during `reconcileClaims` async gap silently overwrites B-164 remap with pre-remap snapshot at `tab-claims.js:309-310`** (qa-only NEW finding; safety nets exist but narrow drifted-URL window remains; R2 §69.5.4 claim about SW serialization wrong for async gaps). Per CLAUDE.md only CRIT/HIGH block R5 — both MEDIUMs are "fix-if-time" but M-2 is a real race worth product-owner attention. Full findings in `docs/findings/sprint-45.md` "B-164 R4" section.
 - **Feature Context**:
   - Product-owner reports that over days of continuous use, across system sleep / laptop-lid-close cycles, saved-bookmark→tab claims progressively break: live tab appears in Open Tabs as if unclaimed, matching bookmark renders as non-live.
   - Distinct from B-149 (SW idle-shutdown, fixed) and B-163 (full browser restart, in-sprint sibling).
@@ -75,8 +75,8 @@ Three CLAUDE.md edit action items inherited from S44 retrospective; the [scrum-m
 - **Tier**: Full (M)
 - **Priority**: P2
 - **Status**: **R1 LOCKED (2026-05-21)** — 7 testable ACs: AC1 cold-start drift re-association (happy) · AC2 primary `item.url` wins over drift URL · AC3 one-tab-per-drift-record cap (hijack mitigation) · AC4 drift dropped only when both URLs fail (§10.7 invariant preserved) · AC5 inherited-tab skip in Phase-3 (B-125 parity) · AC6 zero B-149 Phase-1 regression · **AC7 PRODUCT-OWNER R2 DECISION REQUIRED — TTL on drift-as-fallback-key (None / 7 days / N days)**. Full block in `docs/findings/sprint-45.md` R1 LOCKED section.
-- **Assigned To**: PRODUCT-OWNER (UAT execution — 4 UI-observable cases) → [solution-architect] (R6 As-Built §70)
-- **Blockers**: ⏳ UAT execution — 4 cases in `docs/findings/sprint-45.md` "R5 — B-163 UAT script" section; ~5-7 min runtime; **uses UI-observable signals only** (honors S45 retro action item; no SW-console state queries). **R5 audit done**: 100% AC coverage T1-T9 (suite 2048 PASS). R6 As-Built TODO after UAT: chapter §70 needs Phase 3 graceful-degradation narrative added (HIGH-1 fix-round).
+- **Assigned To**: PRODUCT-OWNER (UAT execution — 4 UI-observable cases) → sprint-close cleanup
+- **Blockers**: ⏳ UAT execution — 4 cases in `docs/findings/sprint-45.md` "R5 — B-163 UAT script" section; ~5-7 min runtime; UI-observable signals only. **R5 audit done** (100% AC coverage T1-T9; 2048 PASS). **R6 As-Built done** (chapter §70 flipped R2 LOCKED → R6 AS-BUILT; §70.3.1.1 graceful-degradation contract added; §70.13 R4 audit trail; SOLUTION_DESIGN TOC descriptor updated).
 - **Feature Context**:
   - Today `reconcileClaims` Phase 2 uses ONLY `item.url` as the URL-match candidate. Phase 1 evictions paired-clear drift records (B-110 §53).
   - Result: a claimed item that drifts to URL X, then loses its claim across an SW idle + tab-recreate cycle, will NOT re-bind to a fresh tab on URL X — even though `tj:drift` recorded the drift before eviction.

@@ -509,6 +509,26 @@ UI-observable signals only — no SW-console state queries, per S45 retrospectiv
 
 ---
 
+### B-164 R4 (2026-05-22, deduplicated across 3 parallel reviewers)
+
+**Verdict: FIX RECOMMENDED** — 0 CRITICAL / 0 HIGH / 2 MEDIUM / 5 LOW. R5 not blocked per CLAUDE.md (only CRIT/HIGH block) but **M-2 is a real race** worth fixing.
+
+| # | Source | file:line | Severity | Finding | Recommended fix |
+|---|---|---|---|---|---|
+| **M-1** | qa MED-1 + code LOW-3 (overlap) | `tests/b164-sleep-claim-remap.test.js:190-213` (T3) | MEDIUM | T3 asserts final-state only (`tabClaims['item-Z'] === 400`). The AC2 PASS criterion "invoked exactly once" + FAIL "invoked >1x (wasteful read storm)" are not structurally caught — if `_reconcileInFlight` dedup were broken and both reconciles ran to completion, the test would still pass on final-state. The `_reconcileInFlight` flag IS implemented correctly; the test just doesn't structurally prove it. | Add a spy/counter wrap around `reconcileClaims` invocations in T3; assert `callCount === 1` after both rapid `'active'` fires. ~15 LOC. |
+| **M-2** | qa (NEW finding, security/code did not flag) | `background/tabs/tab-claims.js:309-310` + `background/tabs/idle-reconciler.js:78-99` | MEDIUM | Narrow race: `reconcileClaims` (in-flight on wake) captures `storedClaims` at `tab-claims.js:143`, then awaits Phase 3/4 storage reads. During those `await`s, `onReplaced` can fire (because `isClaimsReady()` is true), calling `remapTabIdInClaims` which (a) rewrites `claimsMirror` in-memory + (b) persists via `writeClaims`. When `reconcileClaims` resumes, line 309 does `claimsMirror = reconciled` (built from pre-remap snapshot), then line 310 calls `writeClaims()` — overwriting `addedTabId` back to `removedTabId` in session storage. B-164's remap is silently erased in that window. Safety nets (Phase 2 URL match, B-163 Phase 3 drift URL) reduce risk but a drifted-URL tab discarded during wake-reconcile could fall through. R2 §69.5.4 "SW event-loop serialization" claim is wrong for async `await` gaps. | Option A (minimal): document the residual risk explicitly in `idle-reconciler.js` and accept the safety-net coverage. Option B (safe): add a `_reconcileActive` flag that blocks `onReplaced` from persisting during a wake-reconcile; queue late events for post-reconcile drain. ~10-15 LOC. |
+| L-1 | qa LOW-1 | `tests/b164-sleep-claim-remap.test.js` (no test) | LOW | No test for `chrome.idle.setDetectionInterval` throwing gracefully (`__setIdleSetDetectionIntervalReject` mock built specifically for this path but unused). | Add one test using the mock helper; ~15 LOC. |
+| L-2 | qa LOW-2 | `tests/b164-sleep-claim-remap.test.js` (no test) | LOW | No test for `'idle'` and `'locked'` state transitions being C-7 no-ops (production code is correct at `idle-reconciler.js:82`). | Add one test; ~10 LOC. |
+| L-3 | qa LOW-3 | `tests/b164-sleep-claim-remap.test.js:196-200` (T3 comment) | LOW | T3 comment says "both rapid fires complete" — opposite of the `_reconcileInFlight` design intent (second fire SHORT-CIRCUITS). | Reword comment; no code change. |
+| L-4 | code LOW-1 | `background/tabs/tab-events.js:395-398` | LOW | Comment says "Awaits the chrome.storage.session round-trip" — misleading. In-memory mirror update is synchronous before the first await; storage persistence is fire-and-forget via `.catch()`. | Update comment to clarify; no code change. |
+| L-5 | code LOW-2 | `background/tabs/tab-events.js:373-414` | LOW | `openerMap` (`background/tabs/opener-chain.js:12`) not remapped on `onReplaced`. Spec-aligned (R2 §69.5.1 marked `live-tab-index.js` unchanged; 5-table enum did not include `openerMap`). Narrow impact: only new tab opened from restored-tab WITHIN same SW lifetime would miss the opener-chain. Ephemeral state self-corrects on SW restart. | Add brief comment inside `onReplaced` handler noting intentional exclusion + self-correction rationale. Consider P3 backlog item if opener-chain correctness post-discard matters. |
+
+**Security-reviewer**: CLEAN — no findings across all 8 focus areas (C-6 minimization properly justified, CSP unchanged, input validation present, atomicity verified via writeTransaction txQueue serialization, `_reconcileInFlight` race-safe, no PII in console output, no schema bump).
+
+**Note on M-2**: this is the kind of "claim about serialization is wrong for async gaps" finding that's hard to surface without an Opus-level reviewer paying close attention to the await structure of `reconcileClaims`. The R2 chapter §69.5.4 will need an As-Built clarification at R6.
+
+---
+
 ### B-163 R4 (2026-05-21, deduplicated across 3 parallel reviewers)
 
 **Verdict: BLOCK R5** — 1 HIGH (convergent: security S-1 = qa F-1) requires fix-round before R5.
