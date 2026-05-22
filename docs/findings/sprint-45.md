@@ -191,6 +191,160 @@ Risk: drift record from months ago could match freshly-opened unrelated tab at s
 
 ---
 
+## R5 — B-166 UAT script (ready for product-owner execution)
+
+### Setup
+
+1. **Build under test**: HEAD = `2d578a4` ("docs: SPRINT.md — B-163 R2 status update") on branch `feature/sprint-45-claim-desync`. The B-166 R4-fix-round + R5 T13 are at HEAD's preceding commits (`d13c103` / `3bb0dd9`).
+2. Open `edge://extensions`, locate the Tab Junkie card, click the reload (↻) button. Confirm version reads **1.39.0** — B-166 ships in v1.40.0 at sprint-close release; the in-tree manifest is bumped by `[release-manager]` then.
+3. Open the side panel; confirm at least one group exists with both saved bookmarks AND floating tabs interleaved. If not, create the §71.1 canonical fixture:
+   - Create a group `UAT-Interleave`.
+   - Save two bookmarks **A** and **B** into it.
+   - Open two new tabs (call them **F1** and **F2**) and drag them into the group via the sidepanel drag-zone so the group's `renderOrder` becomes `[item:A, floating:F1, item:B, floating:F2]` (visible row order: A, F1, B, F2).
+4. *(Optional, for storage-inspection cases)*: open SW console via `edge://extensions` → Tab Junkie card → "Inspect views: service worker".
+
+---
+
+### UAT-1 — AC1 happy path (in-place position preservation)
+
+- **Preconditions**: `UAT-Interleave` group from Setup step 3 (visible row order A, F1, B, F2).
+- **Action**: Hover over the F1 row in the sidepanel; click the `+` "Save as bookmark" CTA.
+- **Expected**:
+  - F1 row visually transforms into a saved-bookmark row AT THE SAME POSITION (index 1).
+  - Post-render row order: `[A, F1-as-saved-bookmark, B, F2]` — NOT `[A, B, F2, F1-as-saved-bookmark]`.
+  - The dotted-bar floating-state indicator on the F1 row disappears (it's now a saved bookmark).
+  - The `+` CTA disappears from the row.
+  - No toast appears (silent success).
+- **Storage check (optional)**: in SW console run
+  ```js
+  chrome.storage.local.get('tj:groups').then(r => console.table(r['tj:groups'].find(g => g.name === 'UAT-Interleave').renderOrder))
+  ```
+  Verify the array reads `['item:<A>', 'item:<NEW>', 'item:<B>', 'floating:<F2-floatingTabId>']`.
+- **Result**: __
+
+### UAT-2 — §71.3.2 bonus prune (floating record pruned atomically)
+
+- **Preconditions**: complete UAT-1 first (F1 was just promoted).
+- **Action**: In SW console run
+  ```js
+  chrome.storage.local.get('tj:floatingGroups').then(r => console.table(r['tj:floatingGroups']))
+  ```
+- **Expected**: the record for F1 (the one whose `liveTabId` matched the F1 tab id) is GONE from `tj:floatingGroups`. Only the F2 record remains (plus any unrelated floating records across other groups).
+- **Result**: __
+
+### UAT-3 — §71.1 canonical 4-slot sibling preservation
+
+- **Preconditions**: **fresh** `UAT-Interleave` seed (re-do Setup step 3 if you used it for UAT-1).
+- **Action**: Click `+` on F1 ONLY.
+- **Expected**:
+  - Row order: `[A, F1-as-saved-bookmark, B, F2]` — F2 still visible at index 3 as a floating row with dotted-bar indicator and its own `+` CTA still present.
+  - F2's row state is COMPLETELY UNTOUCHED (the sidebar tab strip still owns F2 as an open tab; no claim mirror entry for F2; clicking F2's `+` should still work and produce the AC1 swap behavior on F2).
+- **Result**: __
+
+### UAT-4 — AC1 persistence across SW restart
+
+- **Preconditions**: complete UAT-1 (the swap happened).
+- **Action**: In `edge://extensions`, toggle the Tab Junkie card OFF then ON.
+- **Expected**:
+  - After reload, the sidebar still shows `[A, F1-as-saved-bookmark, B, F2]` in the same order.
+  - The new saved bookmark created from F1 still claims its live tab (no duplicate row appears in the Open Tabs section at the top of the sidebar).
+- **Result**: __
+
+### UAT-5 — AC2 pre-S38 legacy row → graceful append
+
+- **Preconditions**: `UAT-Interleave` seed with F1 still floating (re-seed if needed).
+- **Action**: In SW console, strip the `floatingTabId` field from F1's storage record:
+  ```js
+  chrome.storage.local.get('tj:floatingGroups').then(r => {
+    const records = r['tj:floatingGroups'].map(rec => {
+      if (rec.liveTabId === /*<F1-TAB-ID>*/) {  // replace with F1's actual tab id
+        const { floatingTabId, ...rest } = rec;
+        return rest;
+      }
+      return rec;
+    });
+    return chrome.storage.local.set({'tj:floatingGroups': records});
+  });
+  ```
+  Then reload the sidebar (`Ctrl+R` in the sidepanel) so the row rebuilds without `dataset.floatingTabId`. Click `+` on F1's row.
+- **Expected**:
+  - The new bookmark appears at the BOTTOM of the group (graceful append fallback), not at F1's position.
+  - The F1 floating row disappears (its tab is now claimed) and a new bookmark row appears at the group's end.
+  - No error toast.
+- **Result**: __
+
+### UAT-6 — AC3 group-deleted-mid-flight → Ungrouped fallback
+
+- **Preconditions**: fresh `UAT-Interleave` seed.
+- **Action**:
+  1. Hover the F1 row to surface its `+` CTA.
+  2. Right-click the group header → Delete group → confirm the destructive-action dialog.
+  3. Immediately (within ~5s) click the `+` button you were hovering. (If the row is gone, this UAT case validates the AC3 narrow race; skip if the row is no longer clickable.)
+- **Expected**:
+  - The promoted bookmark lands in **Ungrouped** (visible at the top of the sidepanel under the Ungrouped header).
+  - In SW console:
+    ```js
+    chrome.storage.local.get('tj:floatingGroups').then(r => console.table(r['tj:floatingGroups']))
+    ```
+    The F1 record is gone (AC3 invariant: prune runs independent of groupId).
+- **Result**: __ (mark **WARN** if the race window closed before you could click — that's expected on fast machines; AC3 covers the race, not the common case)
+
+### UAT-7 — AC4 tab-closed-mid-flight → ERR_NOT_FOUND toast
+
+- **Preconditions**: fresh `UAT-Interleave` seed.
+- **Action**:
+  1. Hover F1's row to surface its `+` CTA.
+  2. In the tab strip, close F1's tab.
+  3. Click the `+` CTA you were hovering.
+- **Expected**:
+  - Toast appears: **"Couldn't save tab — try again"**.
+  - No new bookmark row appears in the sidebar.
+  - Group's row order is unchanged (still `[A, F1, B, F2]` initially — F1 row will then vanish on the next render because `tab-events.js:328` prunes the floating record for closed tabs).
+  - SW console:
+    ```js
+    chrome.storage.local.get('tj:groups').then(r => console.table(r['tj:groups'].find(g => g.name === 'UAT-Interleave').renderOrder))
+    ```
+    No `item:<NEW>` appears; the `floating:<F1-floatingTabId>` ref will be pruned by the onRemoved cleanup, not by B-166's swap mutator (verify no partial state).
+- **Result**: __
+
+### UAT-8 — AC5 right-click "Save to group" picker NOT regressed
+
+- **Preconditions**: at least 2 groups exist (`UAT-Interleave` + a second group `Target`).
+- **Action**: Right-click an Open-Tabs row at the top of the sidebar; pick "Save to group" → "Target".
+- **Expected**:
+  - The new bookmark lands at the BOTTOM of `Target` (cross-group save intentionally appends — no swap, no in-place placement).
+  - No error toast.
+- **Result**: __
+
+### UAT-9 — AC5 newtab Open-Tabs `+` Save path (cross-surface parity)
+
+- **Preconditions**: `UAT-Interleave` + at least one floating tab.
+- **Action**: Open a new tab (newtab page). Find the floating tab in the floating section for `UAT-Interleave`; click its `+` Save CTA.
+- **Expected (cross-surface parity — M-4)**:
+  - The floating tab promotes IN-PLACE in the newtab page rendering (same renderOrder as the sidebar — newtab consumes the same `Group.renderOrder`).
+  - Switch to the sidebar — verify the same in-place swap is visible there as well (proves cross-surface parity).
+- **Result**: __
+
+### UAT-10 — AC6 stale hint guard / M-1 defensive scope (optional — narrow race)
+
+- **Preconditions**: `UAT-Interleave` with F1 floating; SW console open.
+- **Action**: In SW console, paste this to send a malformed promote with a bogus `replaceFloatingId`:
+  ```js
+  chrome.runtime.sendMessage({
+    type: 'tj/promoteTab',
+    payload: { tabId: /*<F1-TAB-ID>*/, groupId: '/*<UAT-INTERLEAVE-GROUP-ID>*/',
+               replaceFloatingId: 'BOGUS_DOES_NOT_EXIST_ULID' }
+  }).then(r => console.log('result:', r));
+  ```
+- **Expected**:
+  - Console logs `{ok: true, data: {…new item…}}`.
+  - Group's renderOrder: the new item appended at END (append-fallback because the hint matched no slot).
+  - F1's floating record SURVIVES in `tj:floatingGroups` (the M-1 defensive cross-group scope holds: the hint matched no F1 because the bogus ulid doesn't exist; the prune mutator no-ops).
+  - F1 row still visible as a floating row in the group.
+- **Result**: __
+
+---
+
 ## R4 — Deduplicated review findings
 
 _To be populated after R4 review round runs._
