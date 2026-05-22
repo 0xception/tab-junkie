@@ -75,8 +75,8 @@ Three CLAUDE.md edit action items inherited from S44 retrospective; the [scrum-m
 - **Tier**: Full (M)
 - **Priority**: P2
 - **Status**: **R1 LOCKED (2026-05-21)** — 7 testable ACs: AC1 cold-start drift re-association (happy) · AC2 primary `item.url` wins over drift URL · AC3 one-tab-per-drift-record cap (hijack mitigation) · AC4 drift dropped only when both URLs fail (§10.7 invariant preserved) · AC5 inherited-tab skip in Phase-3 (B-125 parity) · AC6 zero B-149 Phase-1 regression · **AC7 PRODUCT-OWNER R2 DECISION REQUIRED — TTL on drift-as-fallback-key (None / 7 days / N days)**. Full block in `docs/findings/sprint-45.md` R1 LOCKED section.
-- **Assigned To**: [solution-architect] (R2) — ready to start
-- **Blockers**: none — AC7 RESOLVED 2026-05-21 (product-owner picked option (i) NO TTL; rely on AC2 primary-URL-wins + AC3 one-tab-per-record cap as sufficient hijack mitigations).
+- **Assigned To**: [frontend-engineer] (R3) — ready when authorized
+- **Blockers**: none — **R2 COMPLETE 2026-05-21**: chapter §70 authored at `docs/design/70-b-163-drift-fallback-reconcile.md` (992 lines). PICK option (a). Fix-scope enumeration unusually clean (0 assertion changes, 3 docstring updates, 15 verify-no-change). Shared invariant with B-164 cross-referenced at §70.4. R3 build estimate: ~+30/-3 LOC in `tab-claims.js` + 3 docstring updates + new `tests/b163-drift-fallback-reconcile.test.js` (~250 LOC, 8 cases).
 - **Feature Context**:
   - Today `reconcileClaims` Phase 2 uses ONLY `item.url` as the URL-match candidate. Phase 1 evictions paired-clear drift records (B-110 §53).
   - Result: a claimed item that drifts to URL X, then loses its claim across an SW idle + tab-recreate cycle, will NOT re-bind to a fresh tab on URL X — even though `tj:drift` recorded the drift before eviction.
