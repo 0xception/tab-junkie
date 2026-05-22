@@ -54,6 +54,7 @@ import {
 import {
   reconcileClaims,
   markInherited,
+  isClaimsReady,
   __resetTabClaims,
 } from '../background/tabs/tab-claims.js';
 import { getDriftRecords } from '../background/tabs/drift.js';
@@ -426,5 +427,103 @@ test('B-163 T8 (AC7 NO-TTL): drift record age does NOT gate Phase-3 eligibility 
     ancient.claims['item-T'],
     fresh.claims['item-T'],
     'B-163 AC7: ancient and fresh detectedAt values MUST produce identical Phase-3 outcomes (NO-TTL contract)',
+  );
+});
+
+/* =========================================================================
+   T9 — R4 HIGH-1 (S45) regression guard for graceful-degradation on drift
+   partition read failure. Without the try/catch added at tab-claims.js:241
+   (B-163 R4 fix-round), a corrupt drift record causes `getDriftRecords()`
+   to throw `StorageError(ERR_CORRUPT_DATA)` out of Phase 3, which
+   propagates BEFORE `writeClaims()` and `claimsReady = true` run — silent
+   DoS where every saved item appears offline until browser restart.
+
+   Seed approach: corrupt-data via `seedPartitions` (bypasses validation
+   on write), then `readPartition`'s downstream `assertShape` call in
+   `getDriftRecords` throws on the non-string `driftedToUrl: 42`.
+   Per-key rejection isn't required because the corrupt-data path
+   reproduces the identical exception class. Pattern matches
+   `tests/b132-cold-start-inheritance.test.js` (B-132 graceful-degradation
+   precedent at `background/tabs/index.js:58-62`).
+
+   PASS assertions: (a) `isClaimsReady() === true` proves the catch path
+   continued execution past Phase 3 and reached the assignment at
+   tab-claims.js:286; (b) `claimsMirror` reflects Phase 1+2 results proves
+   `writeClaims()` ran despite the drift failure; (c) `console.warn` fired
+   exactly once with the graceful-degradation breadcrumb.
+   ========================================================================= */
+test('B-163 T9 (R4 HIGH-1): drift partition read failure → graceful degradation; claimsReady=true and Phase 1+2 claims still written', async () => {
+  /* One live tab at item-Y's primary URL (Phase 2 should bind Y). The
+     stillUnbound set will contain item-X (drifted; no live tab at item.url
+     post-restart) — that's what triggers the Phase 3 entry and the
+     getDriftRecords() call that we want to fail. */
+  __setMockTabs([tab(900, 'https://primary.example/Y')]);
+  await buildLiveTabIndex();
+
+  /* Phase 1: both stored claims (X+Y) point at dead tabIds so both enter
+     evictedItemIds. Phase 2: Y rebinds via item.url to tab 900; X stays
+     unbound → enters the Phase 3 stillUnbound set. */
+  __setSessionStore('tj:tabClaims', { 'item-X': 997, 'item-Y': 998 });
+
+  /* Seed CORRUPT drift data: `driftedToUrl: 42` is non-string, which
+     causes assertShape (shapes.js:264) to throw inside readPartition →
+     getDriftRecords rejects. seedPartitions bypasses write-side validation
+     so the corrupt record actually lands in storage. */
+  seedPartitions({
+    items: [
+      item('item-X', 'https://saved.example/X', 0),
+      item('item-Y', 'https://primary.example/Y', 1),
+    ],
+    drift: { 'item-X': { itemId: 'item-X', driftedToUrl: 42, detectedAt: 1 } },
+  });
+
+  /* Capture console.warn — mirrors `tests/b036-newtab.test.js:1289-1296`
+     and `tests/b035-standalone-window.test.js:148-150` patterns. */
+  const originalWarn = console.warn;
+  const warnCalls = [];
+  console.warn = (...args) => { warnCalls.push(args); };
+
+  try {
+    await reconcileClaims([
+      item('item-X', 'https://saved.example/X', 0),
+      item('item-Y', 'https://primary.example/Y', 1),
+    ]);
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  /* PASS (a): claimsReady flipped to true → catch path continued past
+     Phase 3 and reached tab-claims.js:286. Pre-fix this would be false
+     (the rejection unwound reconcileClaims before the assignment). */
+  assert.equal(
+    isClaimsReady(),
+    true,
+    'B-163 R4 HIGH-1: claimsReady MUST flip to true even when getDriftRecords throws — graceful degradation contract',
+  );
+
+  /* PASS (b): claimsMirror reflects Phase 1+2 results → writeClaims ran.
+     Y was bound by Phase 2; X stayed unbound (Phase 3 was a no-op because
+     driftRecords = {} after the catch). Pre-fix the entire claims write
+     would be lost because reconcileClaims rejected before line 285. */
+  const claims = __getSessionStore('tj:tabClaims');
+  assert.equal(
+    claims['item-Y'],
+    900,
+    'B-163 R4 HIGH-1: Phase 2 binding for item-Y MUST be persisted despite drift partition read failure',
+  );
+  assert.equal(
+    claims['item-X'],
+    undefined,
+    'B-163 R4 HIGH-1: item-X stays unbound (Phase 3 no-op under graceful degradation); no spurious binding',
+  );
+
+  /* PASS (c): graceful-degradation path fired exactly once. */
+  const matchingWarns = warnCalls.filter((args) =>
+    String(args[0]).includes('drift partition read failed'),
+  );
+  assert.equal(
+    matchingWarns.length,
+    1,
+    'B-163 R4 HIGH-1: console.warn must fire exactly once with the graceful-degradation breadcrumb',
   );
 });

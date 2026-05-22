@@ -238,7 +238,32 @@ export async function reconcileClaims(items) {
      `getDriftRecords()` storage read is gated and conditional. */
   const stillUnbound = evictedItemIds.filter((id) => !(id in reconciled));
   if (stillUnbound.length > 0) {
-    const driftRecords = await getDriftRecords();
+    /* B-163 R4 HIGH-1 (S45): graceful degradation on drift-partition read
+       failure. `getDriftRecords()` calls `readPartition(PARTITION_DRIFT)`
+       (drift.js:102-104) which throws `StorageError(ERR_CORRUPT_DATA)` if
+       any drift record fails `assertShape` (shapes.js:258-281) OR if
+       `chrome.storage.local.get` rejects. Without this guard the rejection
+       propagates out of reconcileClaims BEFORE `writeClaims()` + `claimsReady
+       = true` (:284-286), leaving every saved item appearing offline until
+       browser restart — silent DoS. Mirror the B-132 graceful-degradation
+       pattern at `background/tabs/index.js:58-62`: log a console.warn and
+       continue with `driftRecords = {}` so Phase 3 becomes a no-op for all
+       evicted items. Phase 4 still runs against `unrecovered = evictedItemIds
+       \ Phase-3-bound` (with Phase 3 a no-op, every evicted id flows into
+       Phase 4); the `Promise.allSettled` swallows individual `clearDrift`
+       failures. This preserves the pre-B-163 cold-start availability
+       contract: Phase 1+2 results are always committed regardless of
+       drift-partition health. */
+    let driftRecords = {};
+    try {
+      driftRecords = await getDriftRecords();
+    } catch (err) {
+      console.warn(
+        '[tab-junkie] reconcileClaims: drift partition read failed, skipping Phase 3 (graceful degradation per B-132 precedent)',
+        err?.code || err?.message || err,
+      );
+      // driftRecords stays {} — Phase 3 becomes no-op for all evicted items
+    }
     /* Iterate in sortOrder so the AC3 hijack-collision (two items drifted
        to the same URL, one live tab) resolves deterministically — same
        precedence as Phase 2's first-unclaimed-wins loop. */
