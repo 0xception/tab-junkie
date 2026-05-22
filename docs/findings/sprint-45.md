@@ -117,6 +117,52 @@ In `background/tabs/tab-claims.js` `reconcileClaims`:
 
 **How to run + what to observe**: Open `edge://extensions` → Tab Junkie card → click "service worker" under "Inspect views". Paste the snippet at the DevTools console prompt. You should immediately see `[B-164-probe +0.0s] PROBE START`. Run **Test A** first: `tjProbeDiscard()` lists current tabs; pick a non-active tabId from a different window and run `tjProbeDiscard(<id>)`; click that tab in the strip to reactivate it. Note whether `onReplaced` fires and whether `addedTabId !== removedTabId` — this confirms whether modern Chromium still rotates tabIds on discard-restore. Then run **Test B**: close the laptop lid for 30+ seconds, reopen. If `onReplaced` events appear post-wake, B-164 fix (a) is empirically confirmed. If only `onUpdated.discarded` (without onReplaced), fix (a) needs to listen on `onUpdated` with the `discarded` predicate instead. If no events at all, fix (c) is the sole remedy. Either way, capture the console log and paste back for R2 to lock the design.
 
+### Probe Results — RECEIVED 2026-05-21 (product-owner, Edge)
+
+**Test A — `chrome.tabs.discard(803725065)`**:
+```
++104.0s tjProbeDiscard — calling chrome.tabs.discard(803725065)...
++104.1s onReplaced FIRED { addedTabId: 803729449, removedTabId: 803725065 }
++104.1s onUpdated.discarded { tabId: 803729449, discarded: true, status: 'unloaded', url: '…excalidraw…/55tGi5lck9A' }
++104.1s tjProbeDiscard — returned: { resultId: 803729449, discarded: true }
++219.2s onUpdated.discarded { tabId: 803729449, discarded: false, status: 'unloaded', url: '…' }   ← user clicked tab to reactivate
+```
+
+**Key findings from Test A**:
+- ✅ **`chrome.tabs.onReplaced` fires on discard in modern Edge/Chromium** — synchronously, at the moment of discard (not at reactivation as the older Chromium docs hint).
+- ✅ **Tab id rotates** on discard — `removedTabId: 803725065` → `addedTabId: 803729449`. Confirms the C-13 remap requirement.
+- ✅ **`onReplaced` carries both pre- and post-discard ids** in its `(addedTabId, removedTabId)` arguments — sufficient to remap the 5-table claim mirror surface (claimsMirror + inheritedTabs + _faviconStampedItemIds + reevalTimers + `tj:floatingGroups[].liveTabId`).
+- ⚠️ `onUpdated.discarded` fires AFTER `onReplaced` and carries only the NEW tabId — not usable for the remap (no old-id reference). Confirms `onReplaced` is the only viable listener for fix (a).
+- ⚠️ Reactivation (user clicked the tab) only fires `onUpdated.discarded: false` with the NEW id — no `onReplaced` fires a second time. Confirms the id rotation happens once, at discard, and stays.
+
+**Test B — laptop lid close 30+ seconds**:
+```
+(no events logged in SW console)
+```
+
+**Key findings from Test B**:
+- ⚠️ No events received during or after the lid-close cycle. Two interpretations, both addressed by fix (c):
+  - **(B-i)** SW shut down during sleep (MV3 30s-idle rule); any tab events that fired post-sleep were silently lost — the well-known MV3 gap that B-149 / B-110 already grapple with.
+  - **(B-ii)** SW alive but Edge didn't discard any tabs in the 30s window — possible if no tabs hit the discard heuristic threshold during the brief sleep.
+- ⚠️ `idle.onStateChanged` was UNAVAILABLE during the probe because `"idle"` is not in the manifest. R3 will add it as part of fix (c).
+- ✅ `runtime.onStartup` did not fire — confirms it's browser-startup-only, not OS-wake-triggered (matches Chromium docs).
+
+### R0 LOCKED — B-164 (post-probe 2026-05-21)
+
+**Pick: combination (a) + (c)**. Test A empirically validated (a). Test B is inconclusive between SW-shutdown vs no-discards, but fix (c) is robust against both — it wakes the SW on `chrome.idle.onStateChanged === 'active'` and re-runs `reconcileClaims` as a defensive sweep that catches anything missed during sleep.
+
+**Final fix shape for R2**:
+1. **`chrome.tabs.onReplaced` listener** in `background/tabs/tab-events.js` — perform 5-table remap on `(addedTabId, removedTabId)`:
+   - `claimsMirror` (`tab-claims.js:19`) — rewrite any entry pointing at `removedTabId` to `addedTabId`
+   - `inheritedTabs` Set (`tab-claims.js:30`) — `add(addedTabId)` if `has(removedTabId)`, then `delete(removedTabId)`
+   - `_faviconStampedItemIds` Set (`tab-events.js:49`) — same idempotent pattern
+   - `reevalTimers` Map (`tab-events.js:37`) — preserve any pending timer keyed on the new tabId
+   - `liveTabId` field on every `tj:floatingGroups` record (`floating-groups.js:208-211`) — atomic update inside writeTransaction
+2. **`chrome.idle.onStateChanged` listener** in a new module `background/tabs/idle-reconciler.js` — on `state === 'active'`, defensively invoke the existing `reconcileClaims` (rebuilt LiveTabIndex + reread items partitions).
+3. **Manifest update**: add `"idle"` to `permissions[]` with C-6 minimization note (smallest-scope permission that delivers SW-wake-on-resume).
+
+**Schema**: unchanged (no C-1a/b). **Message contracts**: unchanged (no C-2). **UI**: no changes. **Purely additive SW work**.
+
 ### Open R2 Questions
 
 - **Q1 (B-164, blocking)**: Does `chrome.tabs.onReplaced` actually fire on OS-triggered discard-restore in modern Chromium/Edge, or only on prerendering? Probe Test A + B resolves; if "no", fix (a) is moot and (c) becomes the sole remedy.

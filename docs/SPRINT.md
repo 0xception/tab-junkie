@@ -59,9 +59,9 @@ Three CLAUDE.md edit action items inherited from S44 retrospective; the [scrum-m
 
 - **Tier**: Full (M)
 - **Priority**: P1
-- **Status**: **R0 PROVISIONAL (2026-05-21)** — picked combination (a) `chrome.tabs.onReplaced` listener + (c) `chrome.idle.onStateChanged` re-reconciliation. Blocking on empirical probe-script results from product-owner (Q1: does `onReplaced` actually fire on OS-discard or only on prerendering?). See `docs/findings/sprint-45.md` for full R0 output + probe script + 7 open R2 questions.
-- **Assigned To**: PRODUCT-OWNER (probe script) → [product-manager] (R1) → [solution-architect] (R2)
-- **Blockers**: ⚠️ Probe results — R0 cannot lock until product-owner pastes the SW-console probe output back. R1 ACs can be drafted in parallel against the PROVISIONAL design.
+- **Status**: **R0 LOCKED (2026-05-21 post-probe)** — combination (a) `chrome.tabs.onReplaced` listener + (c) `chrome.idle.onStateChanged` re-reconciliation, plus `"idle"` permission addition. Test A empirically confirmed `onReplaced` fires on discard AND rotates the tabId (`removedTabId: 803725065 → addedTabId: 803729449`). Test B inconclusive between SW-shutdown vs no-discards in the window, but fix (c) covers both. Full probe results + design in `docs/findings/sprint-45.md` "Probe Results" section.
+- **Assigned To**: [product-manager] (R1) → [solution-architect] (R2 chapter §69)
+- **Blockers**: none — R1 ACs can lock now against the empirically-validated design.
 - **Feature Context**:
   - Product-owner reports that over days of continuous use, across system sleep / laptop-lid-close cycles, saved-bookmark→tab claims progressively break: live tab appears in Open Tabs as if unclaimed, matching bookmark renders as non-live.
   - Distinct from B-149 (SW idle-shutdown, fixed) and B-163 (full browser restart, in-sprint sibling).
