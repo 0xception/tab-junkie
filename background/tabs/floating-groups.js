@@ -1040,6 +1040,81 @@ export async function pruneFloatingGroupsByLiveTabId(tabId) {
 }
 
 /**
+ * B-164 §69.3.1 table-5 — atomic remap of `liveTabId` on
+ * `chrome.tabs.onReplaced`.
+ *
+ * Mirrors the `pruneFloatingGroupsByLiveTabId` shape (read-only pre-flight
+ * fast-path; conditional `writeTransaction` only when at least one record
+ * matches). Where the prune path DELETES the record, this remap path
+ * UPDATES the `liveTabId` field in place — the floating-group record's
+ * identity (`floatingTabId` ulid) survives the rotation; only the runtime
+ * hint pointing at the live tab is rewritten. No `renderOrder` strip is
+ * needed because the group's `floating:<floatingTabId>` ref is keyed on
+ * the unchanged identity field, not on `liveTabId`.
+ *
+ * Fire-and-forget pattern (B-132 graceful-degradation precedent at
+ * `background/tabs/index.js:58-62`): if the `writeTransaction` fails
+ * (transient storage error), the next cold-start `reassociateFloatingGroups`
+ * sweep at `floating-groups.js:200-234` will re-resolve via position match
+ * (tier b) or URL fallback (tier c). The in-memory `LiveTabIndex` is updated
+ * independently via `onUpdated`/`onCreated` on the new tabId, so the
+ * runtime resolver is not blocked on the storage write.
+ *
+ * @param {number} removedTabId — the dead handle (pre-discard id)
+ * @param {number} addedTabId — the new id Chromium rotated to
+ * @returns {Promise<number>} count of records updated (for testability)
+ */
+export async function remapFloatingGroupsLiveTabId(removedTabId, addedTabId) {
+  if (typeof removedTabId !== 'number' || !Number.isFinite(removedTabId)) return 0;
+  if (typeof addedTabId !== 'number' || !Number.isFinite(addedTabId)) return 0;
+  if (removedTabId === addedTabId) return 0;
+
+  /* Pre-flight read — the common path on `chrome.tabs.onReplaced` is "tab
+     held no floating-group record", so a read-only fast-path avoids
+     invoking writeTransaction when there is nothing to update. Mirrors
+     the `pruneFloatingGroupsByLiveTabId` pre-flight at :970-971. */
+  const records = await readPartition(PARTITION_FLOATING_GROUPS);
+  if (!Array.isArray(records) || records.length === 0) return 0;
+
+  let willUpdate = false;
+  for (const entry of records) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (typeof entry.liveTabId === 'number'
+      && Number.isFinite(entry.liveTabId)
+      && entry.liveTabId === removedTabId) {
+      willUpdate = true;
+      break;
+    }
+  }
+  if (!willUpdate) return 0;
+
+  let updatedCount = 0;
+  /* S44 retro action #3 — blind-replace mutator anti-pattern guard.
+     The mutator MUST use the `current` snapshot inside the closure (NOT
+     a pre-computed array from the pre-flight read above) to avoid
+     overwriting concurrent writes that landed between read and write.
+     The pre-flight read is ONLY consulted for the fast-path decision; the
+     actual rewrite operates on `current` inside writeTransaction. */
+  await writeTransaction([{
+    partition: PARTITION_FLOATING_GROUPS,
+    mutator: (current) => {
+      const arr = Array.isArray(current) ? current : [];
+      return arr.map((entry) => {
+        if (!entry || typeof entry !== 'object') return entry;
+        if (typeof entry.liveTabId === 'number'
+          && Number.isFinite(entry.liveTabId)
+          && entry.liveTabId === removedTabId) {
+          updatedCount += 1;
+          return { ...entry, liveTabId: addedTabId };
+        }
+        return entry;
+      });
+    },
+  }]);
+  return updatedCount;
+}
+
+/**
  * B-132 §65.4: cold-start re-population of inheritedTabs from
  * tj:floatingGroups. For every record whose match resolves AND whose
  * matched tabId is NOT already claimed, call markInherited(matchedTabId)

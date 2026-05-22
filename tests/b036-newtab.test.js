@@ -99,16 +99,18 @@ test('B-036 AC1: manifest chrome_url_overrides.newtab still points to newtab/new
   );
 });
 
-test('B-036 AC22 (B-159 §B update): manifest permissions = S29 baseline + favicon', () => {
+test('B-036 AC22 (B-164 §69.3.3 update): manifest permissions = S29 baseline + favicon + idle', () => {
   /* Pre-B-159 the pin was `['tabs','tabGroups','storage','sidePanel','search']`
-     (S29 baseline). B-159 §B adds the `favicon` permission for Chrome's
-     `_favicon` API URL helper (final fallback after live + persisted
-     favicon, before letter-avatar). Updated to the new baseline. */
+     (S29 baseline). B-159 §B added the `favicon` permission for Chrome's
+     `_favicon` API URL helper. B-164 §69.3.3 adds the `idle` permission
+     for on-wake claim repair via chrome.idle.onStateChanged (the smallest-
+     scope chrome permission that delivers a SW-wake signal on OS-display
+     'active' transition). Updated to the new baseline. */
   const manifest = JSON.parse(MANIFEST_JSON);
   assert.deepEqual(
     manifest.permissions,
-    ['tabs', 'tabGroups', 'storage', 'sidePanel', 'search', 'favicon'],
-    'Permissions array must remain exactly ["tabs","tabGroups","storage","sidePanel","search","favicon"].',
+    ['tabs', 'tabGroups', 'storage', 'sidePanel', 'search', 'favicon', 'idle'],
+    'Permissions array must remain exactly ["tabs","tabGroups","storage","sidePanel","search","favicon","idle"].',
   );
 });
 

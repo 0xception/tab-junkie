@@ -478,3 +478,67 @@ export async function claimTabForItem(itemId, tabId) {
   claimsMirror[itemId] = tabId;
   await writeClaims();
 }
+
+/**
+ * B-164 §69.3.1 — synchronous tabId remap on `chrome.tabs.onReplaced`.
+ *
+ * Chrome rotates `tabId` whenever it discards/restores a tab (and during
+ * prerendering). The probe Test A (`docs/findings/sprint-45.md`) confirmed
+ * `chrome.tabs.onReplaced(addedTabId, removedTabId)` fires synchronously at
+ * the moment of discard; the old id is a permanent dead handle. Without
+ * remap, `claimsMirror[itemId] === removedTabId` violates the
+ * claim-mirror-authoritativeness invariant (§69.4) until cold-start.
+ *
+ * This helper performs the table-1 + table-2 swap:
+ *   (1) `claimsMirror` — rewrite the (single) entry whose value equals
+ *       `removedTabId` to `addedTabId`. The mirror is itemId-keyed; itemId
+ *       is stable across the rotation (C-4 itemId-stability).
+ *   (2) `inheritedTabs` Set — if `has(removedTabId)`, `add(addedTabId)`
+ *       then `delete(removedTabId)`. Single synchronous tick; no transient
+ *       window where both / neither ids are present.
+ *
+ * If neither table contained `removedTabId`, the helper is a no-op AND
+ * skips the `writeClaims()` storage round-trip (see `dirty` flag).
+ *
+ * NOTE — tables 3, 4, 5 are remapped at the call site in
+ * `tab-events.js` (table 3 is itemId-keyed → no remap needed per the R2
+ * AC3 clarification; table 4 is local module state; table 5 is the
+ * persisted `tj:floatingGroups[].liveTabId` field). Keeping this helper
+ * scoped to the two `tab-claims.js`-private structures preserves
+ * module encapsulation.
+ *
+ * @param {number} removedTabId — the dead handle (pre-discard id)
+ * @param {number} addedTabId — the new id Chromium rotated to
+ * @returns {Promise<void>}
+ */
+export async function remapTabIdInClaims(removedTabId, addedTabId) {
+  if (typeof removedTabId !== 'number' || !Number.isFinite(removedTabId)) return;
+  if (typeof addedTabId !== 'number' || !Number.isFinite(addedTabId)) return;
+  if (removedTabId === addedTabId) return;
+
+  let dirty = false;
+
+  // Table 1 — claimsMirror: rewrite the entry pointing at removedTabId.
+  // O(N over claimed items; typically <50). Only one entry can match
+  // because claimsMirror values are unique by construction (a tabId is
+  // claimed by at most one item; Phase 2's `claimedTabIds` Set + Phase 3's
+  // `available.shift()` pop enforce this).
+  for (const [itemId, claimedTabId] of Object.entries(claimsMirror)) {
+    if (claimedTabId === removedTabId) {
+      claimsMirror[itemId] = addedTabId;
+      dirty = true;
+    }
+  }
+
+  // Table 2 — inheritedTabs Set: swap membership atomically.
+  if (inheritedTabs.has(removedTabId)) {
+    inheritedTabs.add(addedTabId);
+    inheritedTabs.delete(removedTabId);
+    // Set membership is in-memory only; no `dirty` bump (inheritedTabs is
+    // ephemeral per `tab-claims.js:24` — it does not back to storage.session).
+  }
+
+  if (dirty) {
+    await writeClaims();
+  }
+}

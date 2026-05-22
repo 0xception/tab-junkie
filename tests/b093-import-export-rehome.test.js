@@ -525,13 +525,14 @@ test('B-093 M-2: _importInFlight stays true while confirm dialog open; cancel cl
    baseline). Fast Track S MUST NOT introduce new manifest entries.
    ========================================================================= */
 
-test('B-093 AC6 (B-159 §B update): manifest.json declares baseline permissions (incl. B-159 favicon), no web_accessible_resources, no CSP relaxation', () => {
+test('B-093 AC6 (B-164 §69.3.3 update): manifest.json declares baseline permissions (incl. B-164 idle), no web_accessible_resources, no CSP relaxation', () => {
   const manifest = JSON.parse(readFile('manifest.json'));
-  /* Pin baseline updated by B-159 §B (favicon permission added for Chrome
-     _favicon API URL helper). B-093 itself adds no permissions. */
+  /* Pin baseline updated by B-164 §69.3.3 (idle permission added for
+     chrome.idle.onStateChanged on-wake claim repair). B-093 itself
+     adds no permissions. */
   assert.deepEqual(
     manifest.permissions.sort(),
-    ['favicon', 'search', 'sidePanel', 'storage', 'tabGroups', 'tabs'].sort(),
+    ['favicon', 'idle', 'search', 'sidePanel', 'storage', 'tabGroups', 'tabs'].sort(),
     'permissions list matches current baseline',
   );
   assert.equal(manifest.web_accessible_resources, undefined, 'no web_accessible_resources block');

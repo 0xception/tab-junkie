@@ -348,6 +348,14 @@ const tabs = {
      in-memory mockTabs to match Chrome's shift behaviour. Tests can also
      dispatch directly via tabs.onMoved.__fire(tabId, moveInfo). */
   onMoved: createEventMock(),
+  /* B-164 §69.3.1 — onReplaced fires when Chromium rotates a tabId on
+     discard/restore (empirically verified via Test A probe). The
+     `__triggerOnReplaced(added, removed)` helper below is the test-side
+     dispatch surface; production listener registers via
+     chrome.tabs.onReplaced.addListener(handler). Tests can also call
+     tabs.onReplaced.__fire(added, removed) directly per the existing
+     createEventMock contract. */
+  onReplaced: createEventMock(),
 };
 
 // ============================================================================
@@ -465,6 +473,29 @@ const sidePanel = {
   },
 };
 
+/* B-164 §69.3.2 — minimal chrome.idle mock for the on-wake reconcile
+   listener. `setDetectionInterval` records arg + supports a reject hook
+   for graceful-degradation tests; `onStateChanged` is a standard
+   createEventMock so tests dispatch via __fire('active'|'idle'|'locked')
+   directly OR via the __triggerIdleState helper below. */
+const idleState = {
+  detectionInterval: null,
+  setDetectionIntervalReject: false,
+  setDetectionIntervalCalls: [],
+};
+
+const idle = {
+  setDetectionInterval(seconds) {
+    idleState.setDetectionIntervalCalls.push(seconds);
+    if (idleState.setDetectionIntervalReject) {
+      idleState.setDetectionIntervalReject = false;
+      throw new Error('chrome.idle.setDetectionInterval failed');
+    }
+    idleState.detectionInterval = seconds;
+  },
+  onStateChanged: createEventMock(),
+};
+
 const chromeMock = {
   __tabJunkieTestMock: true,
   storage: { local: storageLocal, session: storageSession },
@@ -473,6 +504,7 @@ const chromeMock = {
   tabGroups,
   windows,
   sidePanel,
+  idle,
 };
 
 export function installChromeMock() {
@@ -501,7 +533,14 @@ export function __resetMock() {
   tabs.onDetached._listeners.length = 0;
   tabs.onAttached._listeners.length = 0;
   tabs.onMoved._listeners.length = 0;
+  /* B-164 §69.3.1 — onReplaced listener cleanup. */
+  tabs.onReplaced._listeners.length = 0;
   tabs._moveCalls.length = 0;
+  /* B-164 §69.3.2 — chrome.idle state cleanup. */
+  idleState.detectionInterval = null;
+  idleState.setDetectionIntervalReject = false;
+  idleState.setDetectionIntervalCalls.length = 0;
+  idle.onStateChanged._listeners.length = 0;
   windows.onCreated._listeners.length = 0;
   windows.onRemoved._listeners.length = 0;
   windows.onFocusChanged._listeners.length = 0;
@@ -594,6 +633,47 @@ export function seedPartitions(partitions) {
     const key = k.startsWith('tj:') ? k : `tj:${k}`;
     state.store[key] = deepClone(v);
   }
+}
+
+/**
+ * B-164 §69.3.1 — convenience helper to dispatch chrome.tabs.onReplaced.
+ * Equivalent to `chrome.tabs.onReplaced.__fire(added, removed)`.
+ *
+ * @param {number} addedTabId
+ * @param {number} removedTabId
+ */
+export function __triggerOnReplaced(addedTabId, removedTabId) {
+  tabs.onReplaced.__fire(addedTabId, removedTabId);
+}
+
+/**
+ * B-164 §69.3.2 — convenience helper to dispatch chrome.idle.onStateChanged.
+ * Equivalent to `chrome.idle.onStateChanged.__fire(state)`.
+ *
+ * @param {'active'|'idle'|'locked'} state
+ */
+export function __triggerIdleState(state) {
+  idle.onStateChanged.__fire(state);
+}
+
+/**
+ * B-164 §69.3.2 — force the next chrome.idle.setDetectionInterval() to
+ * throw, exercising the graceful-degradation path.
+ *
+ * @param {boolean} reject
+ */
+export function __setIdleSetDetectionIntervalReject(reject) {
+  idleState.setDetectionIntervalReject = reject;
+}
+
+/**
+ * B-164 §69.3.2 — recorded chrome.idle.setDetectionInterval() arguments,
+ * for assertion of the R2-locked 60s interval choice.
+ *
+ * @returns {Array<number>}
+ */
+export function __getIdleSetDetectionIntervalCalls() {
+  return [...idleState.setDetectionIntervalCalls];
 }
 
 // Install immediately on import so storage modules see chrome at load time.

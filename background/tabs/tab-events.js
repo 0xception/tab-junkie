@@ -17,13 +17,13 @@ import {
   removeTabsByWindow,
   getLiveTabIndex,
 } from './live-tab-index.js';
-import { releaseClaimByTab, reevaluateTab, isClaimsReady, getClaimsMirror, markInherited, pruneInherited, getItemIdForTab } from './tab-claims.js';
+import { releaseClaimByTab, reevaluateTab, isClaimsReady, getClaimsMirror, markInherited, pruneInherited, getItemIdForTab, remapTabIdInClaims } from './tab-claims.js';
 import { detectDriftForTab, clearDrift } from './drift.js';
 import { listItems, getItem, updateItem } from '../storage/items.js';
 import { isSafeFaviconUrl } from '../../shared/favicon.js';
 import { broadcast, SCOPE } from '../broadcast.js';
 import { recordOpener, pruneOpener, pruneOpenersByWindow, walkOpenerChain } from './opener-chain.js';
-import { appendFloatingGroup, pruneFloatingGroupsByLiveTabId } from './floating-groups.js';
+import { appendFloatingGroup, pruneFloatingGroupsByLiveTabId, remapFloatingGroupsLiveTabId } from './floating-groups.js';
 import { readPartition } from '../storage/partitions.js';
 import { PARTITION_FLOATING_GROUPS } from '../storage/shapes.js';
 /* B-014 */
@@ -328,6 +328,89 @@ export function registerTabEventListeners(readyPromise) {
     pruneFloatingGroupsByLiveTabId(tabId).catch((err) => {
       console.warn('[tab-junkie] pruneFloatingGroupsByLiveTabId failed on tab removal', err);
     });
+  });
+
+  /**
+   * B-164 §69.3.1 — `chrome.tabs.onReplaced` 5-table remap.
+   *
+   * Chrome rotates tabIds at discard/restore time (empirically verified in
+   * the Test A probe — `docs/findings/sprint-45.md`); without this listener
+   * the in-memory mirror tables go stale and saved bookmarks falsely render
+   * as offline. The C-13 (Chrome event-feedback completeness) gap this
+   * closes is the discard write-API surface — `chrome.tabs.discard()` had
+   * no corresponding listener pre-B-164.
+   *
+   * Per R2 §69.3.1, the 5 tables remap as follows:
+   *   1. `claimsMirror`        — `remapTabIdInClaims` (tab-claims.js)
+   *   2. `inheritedTabs`       — `remapTabIdInClaims` (same helper)
+   *   3. `_faviconStampedItemIds` — NO-OP (itemId-keyed Set per R2 AC3
+   *                             clarification at `tab-events.js:49,67-68`;
+   *                             itemId is stable across tabId rotation, so
+   *                             no remap is needed for this table. Verified
+   *                             at R3 — `_maybePersistItemFavicon` adds the
+   *                             itemId from `getItemIdForTab(tabId)` at :68,
+   *                             not the tabId itself.)
+   *   4. `reevalTimers`        — `clearTimeout` + `delete` (R2 §69.3.4
+   *                             option (ii); no re-arm because the
+   *                             pending `setTimeout` callback captured
+   *                             `tabId = removedTabId` in its closure and
+   *                             cannot be re-keyed without re-arming a
+   *                             fresh closure; the on-wake `reconcileClaims`
+   *                             — fix (c) — is the safety net for any
+   *                             reevaluation lost to this branch.)
+   *   5. `tj:floatingGroups[].liveTabId` — `remapFloatingGroupsLiveTabId`
+   *                             (floating-groups.js); fire-and-forget per
+   *                             B-132 graceful-degradation precedent.
+   *
+   * AC contract (R1 LOCKED + R2 clarifications, `docs/findings/sprint-45.md`):
+   *   AC1 — tab discard remap (saved-item claim survives)
+   *   AC3 — 5-table atomicity (tables 1+2+4 synchronous; table 3 N/A;
+   *         table 5 atomic via single `writeTransaction`)
+   *   AC4 — floating tab survives discard (via table 5)
+   *   AC5 — inherited-tab guard preserved (via table 2)
+   *   AC6 — reevalTimer race resolved gracefully (via table 4 option (ii))
+   */
+  chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
+    if (typeof addedTabId !== 'number' || typeof removedTabId !== 'number') return;
+    if (addedTabId === removedTabId) return;
+    /* C-9(ii) defer: during cold-start before reconcileClaims resolves,
+       claimsMirror is {} and the storage partition has not been read.
+       Any tabId rotation in this window is observationally equivalent to
+       "the new tabId is the one that always existed"; reconcileClaims +
+       reassociateFloatingGroups will bind it correctly. Mirrors the
+       existing isClaimsReady() guard pattern at :64. */
+    if (!isClaimsReady()) return;
+
+    /* Table 4 — reevalTimers (R2 PICK option (ii): clearTimeout + delete,
+       no re-arm). The pending setTimeout closure captured tabId =
+       removedTabId; re-keying the Map entry alone would still call
+       reevaluateTab against the dead id. Option (ii) discards the
+       captured state along with the timer; the on-wake reconcileClaims
+       (fix (c)) is the safety net for any lost reevaluation. */
+    if (reevalTimers.has(removedTabId)) {
+      clearTimeout(reevalTimers.get(removedTabId));
+      reevalTimers.delete(removedTabId);
+    }
+
+    /* Tables 1+2 — claimsMirror + inheritedTabs (synchronous in-memory
+       mirror update + writeClaims persistence). Awaits the
+       chrome.storage.session round-trip; the `.catch` keeps the listener
+       boundary clean per the B-132 precedent. */
+    remapTabIdInClaims(removedTabId, addedTabId).catch((err) => {
+      console.warn('[tab-junkie] B-164 remapTabIdInClaims failed', err);
+    });
+
+    /* Table 5 — tj:floatingGroups[].liveTabId (atomic writeTransaction;
+       fire-and-forget). Pre-flight read inside the helper short-circuits
+       when no record's liveTabId matches removedTabId — common path. */
+    remapFloatingGroupsLiveTabId(removedTabId, addedTabId).catch((err) => {
+      console.warn('[tab-junkie] B-164 remapFloatingGroupsLiveTabId failed', err);
+    });
+
+    /* Broadcast so the sidepanel re-renders any rows whose tabId
+       reference may have shifted. Gated on requireClaimsReady so the
+       cold-start window is not flooded. */
+    broadcast(SCOPE.LIVE_STATE, 'tab/replaced', { requireClaimsReady: true });
   });
 
   /**

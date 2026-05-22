@@ -3,7 +3,7 @@
   "name": "Tab Junkie",
   "description": "Unified bookmark and tab manager",
   "version": "1.39.0",
-  "permissions": ["tabs", "tabGroups", "storage", "sidePanel", "search", "favicon"],
+  "permissions": ["tabs", "tabGroups", "storage", "sidePanel", "search", "favicon", "idle"],
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"
