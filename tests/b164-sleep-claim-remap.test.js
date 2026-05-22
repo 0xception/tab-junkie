@@ -61,6 +61,7 @@ import {
   __triggerOnReplaced,
   __triggerIdleState,
   __getIdleSetDetectionIntervalCalls,
+  __getSessionSetCount,
 } from './chrome-mock.js';
 import {
   buildLiveTabIndex,
@@ -81,6 +82,7 @@ import { registerTabEventListeners } from '../background/tabs/tab-events.js';
 import {
   registerIdleReconciler,
   __resetIdleReconciler,
+  __getPendingReplacements,
 } from '../background/tabs/idle-reconciler.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -187,30 +189,31 @@ test('B-164 T2 (AC2): chrome.idle.onStateChanged(active) invokes reconcileClaims
    event collapse to a single reconcile invocation per the
    _reconcileInFlight flag.
    ========================================================================= */
-test('B-164 T3 (AC2 dedup): duplicate active transitions are suppressed by _reconcileInFlight flag', async () => {
+test('B-164 T3 (AC2 dedup): duplicate active transitions short-circuit the second reconcileClaims via _reconcileInFlight', async () => {
   __setMockTabs([tab(400, 'https://example.com/z')]);
   await buildLiveTabIndex();
   __setSessionStore('tj:tabClaims', {});
   seedPartitions({ items: [item('item-Z', 'https://example.com/z')] });
 
-  /* Count writeClaims invocations indirectly by counting how many times
-     the persisted store mutates from {} to a non-empty Object. The simpler
-     proof: both rapid fires complete and the second one's _reconcileInFlight
-     branch returns immediately, so the final state is the same as one fire. */
+  /* R4 M-1: structural dedup proof. `reconcileClaims` calls `writeClaims`
+     exactly once per invocation (`tab-claims.js:310`), and `writeClaims`
+     calls `chrome.storage.session.set({ 'tj:tabClaims': ... })` exactly
+     once (`tab-claims.js:103-105`). Therefore the per-key counter
+     `__getSessionSetCount('tj:tabClaims')` reads the number of completed
+     reconcileClaims invocations. If `_reconcileInFlight` dedup is intact
+     the second 'active' fire short-circuits before the reconcile runs, so
+     the counter reads 1. If dedup is broken (the gate is removed or a
+     second reconcile slips through) the counter reads 2 — catching the
+     regression. */
   registerIdleReconciler(Promise.resolve());
   __triggerIdleState('active');
-  __triggerIdleState('active'); // second fire — should be suppressed
-  await new Promise((r) => setImmediate(r));
-  await new Promise((r) => setImmediate(r));
-  await new Promise((r) => setImmediate(r));
+  __triggerIdleState('active'); // second fire — must short-circuit
+  for (let i = 0; i < 5; i += 1) await new Promise((r) => setImmediate(r));
 
-  /* Both fires complete without error and the reconciled state is correct.
-     The flag-semantic guarantee is that the second listener invocation
-     short-circuited BEFORE awaiting readyPromise — verified by the fact
-     that no race between two concurrent reconciles produced a torn write
-     (the persisted state is exactly the single-run result). */
   assert.equal(__getSessionStore('tj:tabClaims')['item-Z'], 400,
-    'AC2 dedup: duplicate active fires must not produce a corrupted state');
+    'AC2 dedup: final state matches a single-reconcile result');
+  assert.equal(__getSessionSetCount('tj:tabClaims'), 1,
+    'AC2 dedup: writeClaims (chrome.storage.session.set on tj:tabClaims) must fire exactly once across two rapid active transitions');
 });
 
 /* =========================================================================
@@ -373,6 +376,123 @@ test('B-164 T9 (AC8): B-149 Phase-1 survival predicate unchanged by B-164 listen
 
   assert.equal(__getSessionStore('tj:tabClaims')['item-X'], 900,
     'AC8: B-149 Phase-1 survival contract preserved (drifted-but-live claim kept)');
+});
+
+/* =========================================================================
+   T11 — R4 M-2 (qa MED-2). chrome.tabs.onReplaced firing during the
+   wake-reconcile async-gap window is QUEUED (not silently overwritten by
+   reconcileClaims' pre-await snapshot commit), then DRAINED after the
+   reconcile finishes so the final state reflects the rotation. The race
+   gate is `_reconcileActive` in idle-reconciler.js; the queue is
+   `_pendingReplacements`; the drain runs BEFORE the flag clears so any
+   events arriving mid-drain are also queued.
+
+   Setup uses a deferred readyPromise so the wake-reconcile work is gated
+   on a single `defer.resolve()` call — the deterministic equivalent of
+   the production async-gap window between Phase-3 storage reads and the
+   final `claimsMirror = reconciled; await writeClaims()` commit.
+   ========================================================================= */
+test('B-164 T11 (R4 M-2): onReplaced during wake-reconcile is queued, then drained post-reconcile', async () => {
+  __setMockTabs([tab(100, 'https://example.com/x'), tab(200, 'https://example.com/x')]);
+  await buildLiveTabIndex();
+  __setSessionStore('tj:tabClaims', { 'item-X': 100 });
+  seedPartitions({ items: [item('item-X', 'https://example.com/x')] });
+  /* Seed an initial reconcile so isClaimsReady() returns true (the
+     onReplaced listener defers on cold-start before reconcile completes). */
+  await reconcileClaims([item('item-X', 'https://example.com/x')]);
+  assert.equal(getClaimsMirror()['item-X'], 100, 'precondition: claim bound to tabId 100');
+
+  registerTabEventListeners(Promise.resolve());
+
+  /* Deferred readyPromise — wake-reconcile work is suspended until
+     `defer.resolve()` fires. The synchronous `_reconcileActive = true`
+     inside the listener flips immediately. */
+  let resolveReady;
+  const readyPromise = new Promise((r) => { resolveReady = r; });
+  registerIdleReconciler(readyPromise);
+  __triggerIdleState('active');
+
+  /* Fire onReplaced WHILE the wake-reconcile is gated on readyPromise.
+     The listener must enqueue, not apply inline — proven by the queue
+     state below + the unchanged claimsMirror. */
+  __triggerOnReplaced(200, 100);
+  await new Promise((r) => setImmediate(r));
+
+  const pendingDuring = __getPendingReplacements();
+  assert.equal(pendingDuring.length, 1, 'M-2: onReplaced during active reconcile must enqueue, not apply inline');
+  assert.deepEqual(pendingDuring[0], { addedTabId: 200, removedTabId: 100 },
+    'M-2: queued entry matches the (added, removed) pair');
+  assert.equal(getClaimsMirror()['item-X'], 100,
+    'M-2: claimsMirror still points at removedTabId — inline remap correctly suppressed');
+
+  /* Release the gate. Wake-reconcile completes, then the drain replays
+     the queued event. */
+  resolveReady();
+  for (let i = 0; i < 8; i += 1) await new Promise((r) => setImmediate(r));
+
+  assert.equal(__getPendingReplacements().length, 0, 'M-2: queue drained post-reconcile');
+  assert.equal(getClaimsMirror()['item-X'], 200,
+    'M-2: post-drain, claimsMirror reflects the rotated tabId (NEW, not OLD)');
+  assert.equal(__getSessionStore('tj:tabClaims')['item-X'], 200,
+    'M-2: writeClaims persisted the post-drain remap (race scenario resolved)');
+});
+
+/* =========================================================================
+   T12 — R4 M-2 (drain ordering). Multiple onReplaced events queued during
+   the wake-reconcile window drain in FIFO order. Verified by sequencing
+   the rotation chain across three distinct items so the drain order is
+   observable in the final claimsMirror state + the recorded queue.
+   ========================================================================= */
+test('B-164 T12 (R4 M-2): multiple onReplaced events drain in FIFO order', async () => {
+  __setMockTabs([
+    tab(100, 'https://example.com/a'),
+    tab(200, 'https://example.com/a'),
+    tab(300, 'https://example.com/b'),
+    tab(400, 'https://example.com/b'),
+    tab(500, 'https://example.com/c'),
+    tab(600, 'https://example.com/c'),
+  ]);
+  await buildLiveTabIndex();
+  __setSessionStore('tj:tabClaims', { 'item-A': 100, 'item-B': 300, 'item-C': 500 });
+  seedPartitions({
+    items: [
+      item('item-A', 'https://example.com/a', 0),
+      item('item-B', 'https://example.com/b', 1),
+      item('item-C', 'https://example.com/c', 2),
+    ],
+  });
+  await reconcileClaims([
+    item('item-A', 'https://example.com/a', 0),
+    item('item-B', 'https://example.com/b', 1),
+    item('item-C', 'https://example.com/c', 2),
+  ]);
+
+  registerTabEventListeners(Promise.resolve());
+
+  let resolveReady;
+  const readyPromise = new Promise((r) => { resolveReady = r; });
+  registerIdleReconciler(readyPromise);
+  __triggerIdleState('active');
+
+  /* Three queued events in deterministic order. */
+  __triggerOnReplaced(200, 100); // item-A: 100 → 200
+  __triggerOnReplaced(400, 300); // item-B: 300 → 400
+  __triggerOnReplaced(600, 500); // item-C: 500 → 600
+  await new Promise((r) => setImmediate(r));
+
+  const pending = __getPendingReplacements();
+  assert.equal(pending.length, 3, 'three events queued during active reconcile');
+  assert.deepEqual(pending.map((p) => p.removedTabId), [100, 300, 500],
+    'M-2: queue preserves FIFO insertion order');
+
+  resolveReady();
+  for (let i = 0; i < 10; i += 1) await new Promise((r) => setImmediate(r));
+
+  assert.equal(__getPendingReplacements().length, 0, 'queue fully drained');
+  const mirror = getClaimsMirror();
+  assert.equal(mirror['item-A'], 200, 'item-A drained to new tabId 200');
+  assert.equal(mirror['item-B'], 400, 'item-B drained to new tabId 400');
+  assert.equal(mirror['item-C'], 600, 'item-C drained to new tabId 600');
 });
 
 /* =========================================================================

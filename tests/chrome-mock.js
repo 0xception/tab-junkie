@@ -18,6 +18,12 @@ const state = {
   bytesInUseOverride: null,
   /** @type {Record<string, any>} session storage (chrome.storage.session) */
   sessionStore: {},
+  /** B-164 R4 M-1 — per-key counter of chrome.storage.session.set calls.
+   *  Used by T3 to structurally prove that two rapid 'active' transitions
+   *  collapse to a single `writeClaims()` invocation; without dedup, the
+   *  counter would read 2 (one per reconcileClaims completion). */
+  /** @type {Record<string, number>} */
+  sessionSetCounts: {},
   /** @type {Array<{id: number, url: string, windowId: number, active: boolean, audible: boolean}>} */
   mockTabs: [],
   /** @type {Array<{id: number}>} B-014 — window-ordinal test fixtures */
@@ -121,6 +127,7 @@ const storageSession = {
   async set(obj) {
     for (const [k, v] of Object.entries(obj)) {
       state.sessionStore[k] = deepClone(v);
+      state.sessionSetCounts[k] = (state.sessionSetCounts[k] || 0) + 1;
     }
   },
   async remove(keys) {
@@ -519,6 +526,7 @@ export function __resetMock() {
   state.setError = null;
   state.bytesInUseOverride = null;
   state.sessionStore = {};
+  state.sessionSetCounts = {};
   state.mockTabs = [];
   state.mockWindows = [];
   state.moveRejectIds.clear();
@@ -620,6 +628,19 @@ export function __setSessionStore(key, value) {
 /** Read a session storage key directly. */
 export function __getSessionStore(key) {
   return deepClone(state.sessionStore[key]);
+}
+
+/**
+ * B-164 R4 M-1 — number of times `chrome.storage.session.set` has touched
+ * the given key since the last `__resetMock`. T3 uses this to assert that
+ * the `_reconcileInFlight` dedup flag in `idle-reconciler.js` collapses
+ * two rapid 'active' fires into a single `writeClaims()` invocation.
+ *
+ * @param {string} key
+ * @returns {number}
+ */
+export function __getSessionSetCount(key) {
+  return state.sessionSetCounts[key] || 0;
 }
 
 /** Return recorded sendMessage calls for spy assertions. */

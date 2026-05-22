@@ -44,6 +44,75 @@ import { listItems } from '../storage/items.js';
 
 let _reconcileInFlight = false;
 
+/* B-164 R4 M-2 (S45) — wake-reconcile race guard.
+ *
+ * `_reconcileInFlight` (above) is a *listener-entry* dedup flag: it short-
+ * circuits a second `chrome.idle.onStateChanged('active')` fire before its
+ * async work begins. It does NOT cover the async-gap race between an
+ * in-flight `reconcileClaims` and an interleaved `chrome.tabs.onReplaced`.
+ *
+ * The race (qa R4 M-2): `reconcileClaims` captures `storedClaims` at
+ * `tab-claims.js:141`, then awaits Phase-3 storage reads. During those
+ * awaits, `onReplaced` can fire (because `isClaimsReady()` is true),
+ * remapping `claimsMirror` + persisting via `writeClaims`. When
+ * `reconcileClaims` resumes at `tab-claims.js:309-310`, it overwrites
+ * `claimsMirror` with the pre-remap snapshot and persists — silently erasing
+ * the B-164 remap.
+ *
+ * Fix (Option B): block `onReplaced` from persisting during the wake-
+ * reconcile work. Pending replacements are queued in `_pendingReplacements`
+ * and drained AFTER `reconcileClaims` completes, BEFORE the flag is cleared,
+ * so any events that arrive mid-drain are also queued (preventing a
+ * drain-itself race). Order is FIFO via Array push + copy-and-clear.
+ *
+ * Coupling note: `tab-events.js` calls `isReconcileActive()` to decide
+ * whether to apply the remap inline OR enqueue. The drain calls the
+ * `_drainCallback` that `tab-events.js` registers via
+ * `setReplacementDrainCallback(fn)` — callback registration avoids a
+ * circular import (`idle-reconciler.js` → `tab-events.js`).
+ */
+let _reconcileActive = false;
+/** @type {Array<{addedTabId: number, removedTabId: number}>} */
+const _pendingReplacements = [];
+/** @type {((addedTabId: number, removedTabId: number) => void) | null} */
+let _drainCallback = null;
+
+/**
+ * Returns true while a wake-reconcile is between its first await and its
+ * final commit. `tab-events.js`'s `onReplaced` listener consults this to
+ * decide between inline remap (false) and enqueue (true).
+ *
+ * @returns {boolean}
+ */
+export function isReconcileActive() {
+  return _reconcileActive;
+}
+
+/**
+ * Append a tabId rotation to the pending-replacements queue. Called by
+ * `tab-events.js`'s `onReplaced` listener when `isReconcileActive()` is
+ * true. FIFO order preserved by Array push.
+ *
+ * @param {number} addedTabId
+ * @param {number} removedTabId
+ * @returns {void}
+ */
+export function enqueuePendingReplacement(addedTabId, removedTabId) {
+  _pendingReplacements.push({ addedTabId, removedTabId });
+}
+
+/**
+ * Register the drain callback that the wake-reconcile invokes after
+ * `reconcileClaims` completes. Called once from `registerTabEventListeners`
+ * with `_applyTabReplacement` bound. Idempotent — last registration wins.
+ *
+ * @param {(addedTabId: number, removedTabId: number) => void} fn
+ * @returns {void}
+ */
+export function setReplacementDrainCallback(fn) {
+  _drainCallback = fn;
+}
+
 /**
  * Register the chrome.idle on-wake reconcile listener. Must be called
  * synchronously at module scope (MV3 event-registration requirement).
@@ -85,6 +154,10 @@ export function registerIdleReconciler(readyPromise) {
        'active' transition is not blocked. */
     if (_reconcileInFlight) return;
     _reconcileInFlight = true;
+    /* R4 M-2: set the race-guard flag synchronously, BEFORE the first
+       await. From this point until the drain completes, onReplaced events
+       are queued rather than persisted (see tab-events.js:373). */
+    _reconcileActive = true;
 
     (async () => {
       try {
@@ -94,9 +167,23 @@ export function registerIdleReconciler(readyPromise) {
            Phase 2 claims unclaimed tabs by URL; B-163 Phases 3+4 handle
            drift. A rerun on a non-stale mirror is a fast no-op. */
         await reconcileClaims(items);
+        /* R4 M-2: drain queued onReplaced events BEFORE clearing
+           _reconcileActive. Copy-and-clear pattern: any events arriving
+           mid-drain are appended to _pendingReplacements and picked up by
+           the next iteration of the while loop. Once the array is empty
+           AND no further enqueue happens before the flag clears (the next
+           statement), the queue is provably drained. */
+        while (_pendingReplacements.length > 0 && _drainCallback) {
+          const drain = _pendingReplacements.slice();
+          _pendingReplacements.length = 0;
+          for (const { addedTabId, removedTabId } of drain) {
+            _drainCallback(addedTabId, removedTabId);
+          }
+        }
       } catch (err) {
         console.warn('[tab-junkie] B-164 on-wake reconcileClaims failed', err);
       } finally {
+        _reconcileActive = false;
         _reconcileInFlight = false;
       }
     })();
@@ -104,9 +191,22 @@ export function registerIdleReconciler(readyPromise) {
 }
 
 /**
- * Test hatch — reset the in-flight flag so back-to-back tests in the
+ * Test hatch — reset all module-level state so back-to-back tests in the
  * same process do not bleed state. Only used by test suites.
  */
 export function __resetIdleReconciler() {
   _reconcileInFlight = false;
+  _reconcileActive = false;
+  _pendingReplacements.length = 0;
+  _drainCallback = null;
+}
+
+/**
+ * Test hatch — return a snapshot of the pending-replacements queue so
+ * tests can assert FIFO order and queue-depth before/after the drain.
+ *
+ * @returns {Array<{addedTabId: number, removedTabId: number}>}
+ */
+export function __getPendingReplacements() {
+  return _pendingReplacements.slice();
 }
