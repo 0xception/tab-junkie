@@ -509,6 +509,48 @@ UI-observable signals only — no SW-console state queries, per S45 retrospectiv
 
 ---
 
+## R5 — B-164 UAT script (ready for product-owner execution)
+
+UI-observable signals where possible; one unavoidable SW-console discard trigger as the cheapest way to surface the `chrome.tabs.onReplaced` event class in a real browser context.
+
+### Setup
+Build under test: HEAD on `feature/sprint-45-claim-desync` (post B-164 R4 fix-round). Reload Tab Junkie in `edge://extensions`. Sidepanel open. ≥3 bookmarks visible with at least 2 currently open as live tabs (claim dot visible).
+
+### UAT-1 — chrome.tabs.discard happy path (sleep/wake event-sequence proxy)
+- Open `edge://extensions` → Tab Junkie card → "service worker" (Inspect views).
+- In SW console: `chrome.tabs.query({}).then(t => t.filter(x => !x.active).map(x => ({id: x.id, url: x.url})))` — pick the tabId of a non-active **bookmarked** tab. Call it `<discardId>`.
+- In SW console: `chrome.tabs.discard(<discardId>)`.
+- Click that tab in the strip to reactivate it.
+- **Expected**:
+  - Bookmark for that tab still shown as live/claimed in sidepanel (claim dot present, no orphan duplicate).
+  - Reactivated tab does NOT appear in Open Tabs section as a separate unclaimed orphan.
+  - SW console: no unhandled rejections; `chrome.storage.session.get('tj:tabClaims').then(console.log)` shows the new tabId mapped to the same item.
+- **Result**: __
+
+### UAT-2 — Real lid-close cycle (smoke)
+- Close laptop lid ≥5 min. Reopen.
+- Open sidepanel (don't refresh).
+- **Expected**:
+  - All bookmarks live/claimed pre-sleep STILL live/claimed.
+  - Open Tabs section has no new orphan entries for bookmarks you already had open.
+  - SW console (if open) shows at most one reconcile cycle on wake (M-1 dedup catches double-fire).
+- **Result**: __
+
+### UAT-3 — Multi-day smoke (long-tail symptom)
+- Use browser normally for 2-3 days through multiple sleep cycles.
+- Periodically check Open Tabs section item count.
+- **Expected**: count does NOT grow unboundedly. Original B-164 user-story symptom ("Open Tabs slowly accumulates orphans") is resolved.
+- **Result**: __ (mark **WARN** if any growth; capture screenshot + SW console snapshot of `tj:tabClaims`)
+
+### UAT-4 — idle.onStateChanged manual trigger (optional, technical)
+- In SW console: `chrome.idle.onStateChanged.dispatch('active')` (if the helper is unavailable in production, skip — covered by T2/T3 automation).
+- **Expected**: no crash; sidepanel does not flicker; existing claims intact; `chrome.storage.session.get('tj:tabClaims')` unchanged.
+- **Result**: __
+
+---
+
+---
+
 ### B-164 R4 (2026-05-22, deduplicated across 3 parallel reviewers)
 
 **Verdict: FIX RECOMMENDED** — 0 CRITICAL / 0 HIGH / 2 MEDIUM / 5 LOW. R5 not blocked per CLAUDE.md (only CRIT/HIGH block) but **M-2 is a real race** worth fixing.
