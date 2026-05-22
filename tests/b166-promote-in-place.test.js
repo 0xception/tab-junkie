@@ -32,6 +32,7 @@ import {
 } from '../background/tabs/live-tab-index.js';
 import {
   __resetTabClaims,
+  getClaimsMirror,
 } from '../background/tabs/tab-claims.js';
 import { registerStorageHandlers } from '../background/messages/storage-handlers.js';
 import {
@@ -638,5 +639,40 @@ test('B-166 T12 (M-1): malformed cross-group dispatch does NOT prune the wrong g
     groupBAfter.renderOrder[groupBAfter.renderOrder.length - 1],
     'item:' + newItem.id,
     'M-1: Group B renderOrder ends with the new item (append branch)',
+  );
+});
+
+/* =========================================================================
+   T13 — B-103 §51.D-2 atomicity preserved in the B-166 swap branch: after
+   a successful swap-path promote, the claim mirror records
+   `{newItem.id: liveTabId}`. The handler awaits `claimTabForItem` AFTER
+   `createItem` whether the swap branch fires or the append branch fires —
+   the b103 T2 source-text pin already guards the await ordering, but only
+   for the legacy payload shape. This T13 is a thin behavioural guard that
+   the swap branch (3-partition writeTransaction with FLOATING_GROUPS
+   prune) does not accidentally break the claim mirror invariant via a
+   future refactor that, e.g., conditionally skips the claim step when
+   `replaceFloatingId` is present, or wires the claim write inside the
+   transaction wrongly. Combined with T1 (post-swap renderOrder integrity)
+   this closes the AC1 + AC6 + B-103 §51 atomicity loop end-to-end.
+   ========================================================================= */
+test('B-166 T13 (B-103 §51 atomicity in swap branch): post-swap claim mirror records {newItem.id: liveTabId}', async () => {
+  await bootstrapHandlers();
+  const seed = await seedInterleave();
+
+  const resp = await dispatch(MSG_PROMOTE_TAB, {
+    tabId: seed.liveTabId,
+    groupId: seed.group.id,
+    replaceFloatingId: seed.floatingTabId,
+  });
+  assert.equal(resp.ok, true, 'swap-branch promote must succeed');
+  const newItem = resp.data;
+
+  /* Claim mirror records the new item → live tab id binding. */
+  const mirror = getClaimsMirror();
+  assert.equal(
+    mirror[newItem.id],
+    seed.liveTabId,
+    'B-103 §51 atomicity: swap-path promote must record {newItem.id: liveTabId} in claimsMirror',
   );
 });
