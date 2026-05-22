@@ -87,5 +87,6 @@
 - [§66 — B-137 — `tj:floatingGroups` v3→v4: `liveTabId` Adopted as Primary Live-Tab Join Key (R2 + R6 Close)](design/66-b-137-floating-tab-id-join-key.md)
 - [§67 — B-041 — Chrome Tab Group Sync (snapshot push, R2 lock)](design/67-b-041-chrome-tab-group-sync.md)
 - [§68 — B-148 — Interleave Floating Tabs With Saved Bookmarks (R6 Close)](design/68-b-148-interleave-render-order.md)
+- [§69 — B-164 — Sleep / Discard-Restore Claim-Mirror Remap (R2 Plan)](design/69-b-164-sleep-claim-remap.md)
 - [§70 — B-163 — Drift URL Fallback on Cold-Start Re-Association (R2 Plan)](design/70-b-163-drift-fallback-reconcile.md)
 - [§71 — B-166 — `+` CTA on Floating Tab Promotes In-Place (R6 As-Built)](design/71-b-166-promote-in-place.md)
