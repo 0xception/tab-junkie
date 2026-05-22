@@ -213,6 +213,14 @@ test('B-110 T3 (AC1+AC2 UI half): orphan drift record on non-live row stays hidd
    T4 — AC2 PRIMARY leak: reconcileClaims clears drift for claims evicted
    when the tab is missing from LiveTabIndex (the SW-sleep + tab-close
    cold-start sequence). Pre-fix this assertion would have FAILED.
+
+   B-163 §70 update (Sprint 45): the §53 paired-clear is now DEFERRED to
+   Phase 4 by B-163. For T4's scenario (orphaned drift after eviction with
+   ZERO live tabs in the mock), Phase 2 has no candidate at item.url AND
+   Phase 3 has no candidate at driftedToUrl — both URLs miss — so Phase 4
+   still fires `clearDrift('item-A')`. The PRIMARY-leak fix continues to
+   apply verbatim; the mechanism is now Phase 4 (B-163), not the §53
+   paired-clear (B-110). Assertion unchanged.
    ========================================================================= */
 test('B-110 T4 (AC2 PRIMARY): reconcileClaims clears drift when claim evicted via missing tab', async () => {
   resetAll();
@@ -295,6 +303,15 @@ test('B-149 T5 (B-099 D-1 cold-start): reconcileClaims PRESERVES URL-mismatched 
    from LiveTabIndex) — URL-mismatch is no longer an eviction trigger, see
    the inverted T5. T6's intent (no over-clearing of drift records on
    surviving claims) is preserved verbatim.
+
+   B-163 §70 update (Sprint 45): the §53 paired-clear is now DEFERRED to
+   Phase 4 by B-163. For T6's evicted half (item-B, missing tab + drifted
+   URL `https://drifted-b.com/` with no live tab matching it), Phase 3
+   finds no candidate (urlToTabs.get(driftedToUrl) returns undefined) → both
+   URLs miss → Phase 4 still fires `clearDrift('item-B')`. The over-
+   clearing guard for the surviving half (item-A) continues to hold because
+   item-A is in `reconciled` post-Phase-1 → not in `evictedItemIds` →
+   neither Phase 3 nor Phase 4 touches it. Assertions unchanged.
    ========================================================================= */
 test('B-110 T6 (AC2 regression guard): reconcileClaims preserves drift for surviving claims; clears drift only for legitimately-evicted (missing-tab) claims', async () => {
   resetAll();
