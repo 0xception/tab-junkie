@@ -471,6 +471,44 @@ The [solution-architect] discovered 3 code-reality discrepancies during R2 chapt
 
 ---
 
+## R5 — B-163 UAT script (ready for product-owner execution)
+
+UI-observable signals only — no SW-console state queries, per S45 retrospective action item.
+
+### Setup
+1. Build under test: HEAD on `feature/sprint-45-claim-desync` (post B-164 R3 commit).
+2. Reload Tab Junkie in `edge://extensions`. Open sidepanel.
+3. Create a group `UAT-Drift`. Save bookmark **A** at `https://example.com/A` and bookmark **B** at `https://example.com/B`.
+
+### UAT-1 — AC1 happy path (drift → cold-start re-association)
+- **Action**: Open bookmark A (new tab opens, A's row shows as live/claimed). Navigate that tab to `https://example.com/drifted-A`. Wait ~3s for drift detection — A row shows drift indicator but stays tied to the tab. Toggle Tab Junkie OFF then ON in `edge://extensions`. Reopen sidepanel.
+- **Expected**: A still associated with the drifted tab (still live, drift indicator still present, NOT offline, NO orphan entry in Open Tabs listing `example.com/drifted-A`).
+- **Result**: __
+
+### UAT-2 — AC2 primary URL wins
+- **Action**: From post-UAT-1 state, open `https://example.com/A` in a fresh tab (now two live tabs: `/A` and `/drifted-A`). Toggle extension OFF/ON. Reopen sidepanel.
+- **Expected**: A is associated with the `/A` tab (primary wins). `/drifted-A` tab shows up in Open Tabs as **unclaimed**. Drift indicator on A clears (URLs match again).
+- **Result**: __
+
+### UAT-3 — AC5 inherited-tab skip
+- **Action**: Fresh `UAT-Drift` seed (A live & drifted to `/drifted-A`); close the A tab. Open `https://example.com/drifted-A` via opener-chain inheritance from another bookmark in a different group (so the new tab becomes opener-chain-inherited into the parent's floating group). Toggle extension OFF/ON.
+- **Expected**: A is **NOT** re-bound to the inherited tab (A remains offline in `UAT-Drift`). The inherited tab keeps its floating-group association in its parent group.
+- **Result**: __
+
+### UAT-4 — Smoke (broad re-association sanity)
+- **Action**: Open A + B both. Navigate A → `/drifted-A`, B → `/drifted-B`. Wait ~5s for drift detection. Toggle extension OFF/ON. Reopen sidepanel.
+- **Expected**: Both A + B remain live/claimed with drift indicators. No orphan entries in Open Tabs for drifted URLs. Closing each drifted tab + toggling again: drifted bookmarks correctly fall back to offline (no orphan drift records leak).
+- **Result**: __
+
+### Cases NOT in UAT (automated coverage only)
+- AC3 hijack cap — controlled tabId timing required; T3 covers.
+- AC4 invariant — storage introspection required; T1/T3/T4/T5/T6 cover.
+- AC6 B-149 Phase-1 — SW-internal observation; T7 + full b149 regression suite cover.
+- AC7 NO-TTL — not visibly distinguishable (no UI for record age); T8 covers.
+- R4 HIGH-1 graceful degradation — requires injecting corrupt storage; T9 covers.
+
+---
+
 ### B-163 R4 (2026-05-21, deduplicated across 3 parallel reviewers)
 
 **Verdict: BLOCK R5** — 1 HIGH (convergent: security S-1 = qa F-1) requires fix-round before R5.
