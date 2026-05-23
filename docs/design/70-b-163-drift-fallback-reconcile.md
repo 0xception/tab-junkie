@@ -1,6 +1,6 @@
 # §70 — B-163 — Drift URL Fallback on Cold-Start Re-Association
 
-**Status:** R6 AS-BUILT — Sprint 45 (v1.40.0 shipped, 2026-05-22). R2 plan and as-shipped behavior are aligned; the only delta vs. the R2 plan is the R4 fix-round graceful-degradation try/catch around `getDriftRecords()` — see §70.13 R6 As-Built audit trail.
+**Status:** R6 AS-BUILT — Sprint 45 (v1.40.0 shipped, 2026-05-22). R2 plan and as-shipped behavior are aligned; **two** R4 fix-round deltas vs. the R2 plan: (1) graceful-degradation try/catch around `getDriftRecords()` (HIGH-1, fixed in `edd83c8`); (2) **R4 round-2 fix-round** — Phase 3 iteration source broadened from `evictedItemIds` to all unbound items per the R1 LOCKED wording (extension-reload regression caught at empirical UAT, fixed in `eb714fd`). See §70.13 R6 As-Built audit trail.
 **Anchor:** B-163 (P2 / M). Sibling of B-164 (chapter §69, R6 AS-BUILT).
 **Tier:** Full pipeline (M).
 **Depends on:** §10.5 (LiveTabIndex & TabClaims architecture — defines `claimsMirror`, `reconcileClaims`, `releaseClaimByTab`); §10.7 (Drift Detection Architecture — the **invariant** "drift records only exist for claimed items" that B-163 preserves with surgical timing change, NOT contract change); §46 (B-099 — Option B claim preservation; four-trigger release surface; the runtime D-1 contract that the cold-start path must mirror); §53 (B-110 — §53 paired-clear; the contract whose TIMING B-163 modifies); §65 (B-132 — cold-start claim-jump fix + inherited-tab Phase-2 skip precedent at `tab-claims.js:188-206` that B-163 mirrors in Phase-3); B-149 ✅ (Phase-1 URL-drift survival contract — `tabEntry && item` predicate; no design chapter, see `docs/BACKLOG.md:184` + `CHANGELOG.md:142`).
@@ -1143,10 +1143,51 @@ The chapter now reflects the shipped behavior in v1.40.0:
 
 - Phase 3 + Phase 4 implemented per §70.3.1 + §70.3.2.
 - Graceful-degradation guard implemented per §70.3.1.1.
-- 9-case automated test suite implemented per §70.9.1.
+- **Phase 3 iteration broadened per §70.13.6 (R4 round-2 fix).**
+- 10-case automated test suite implemented per §70.9.1 (T1–T9 + T10 round-2 regression guard).
 - 4-case UAT script ready for product-owner execution per §70.10.
 - AC1-AC7 all satisfied; AC4 §10.7 invariant preserved end-to-end;
   AC6 B-149 contract preserved (cross-validated by the
   `tests/b149-*` suite).
 - Single corrupt drift record cannot DoS the cold-start
   re-association path (T9 regression guard).
+- Extension reload (chrome.storage.session wipe) does not break
+  drift re-association (T10 regression guard).
+
+### §70.13.6 — R4 round-2 fix-round (extension-reload regression)
+
+**Discovered**: 2026-05-22 via product-owner empirical UAT — reloading the extension while a YouTube Music bookmark was in a drifted playlist state left the bookmark unclaimed and the tab as an orphan in the Open Tabs section. The exact user-story symptom B-163 was designed to fix.
+
+**Root cause**: the R3 implementation at `background/tabs/tab-claims.js:239` restricted Phase 3's iteration source:
+
+```js
+// R3 build (incorrect — silent spec deviation)
+const stillUnbound = evictedItemIds.filter((id) => !(id in reconciled));
+```
+
+On extension reload (toggle OFF/ON in `chrome://extensions`), `chrome.storage.session` is wiped per Chrome docs → `storedClaims = {}` → Phase 1 has nothing to evict → `evictedItemIds = []` → the `if (stillUnbound.length > 0)` gate at `:240` is false → Phase 3 entire block skipped. Drifted items with surviving live tabs at `driftedToUrl` had no path to re-association.
+
+**Why R4 didn't catch it**:
+- All 9 R3+R4-fix-round tests (T1–T9) seed `tj:tabClaims` with prior claims before calling `reconcileClaims`, so `evictedItemIds` is always non-empty in tests — the bug was masked by the test seed pattern.
+- The "fresh session storage + drift record + no prior claim" scenario was never seeded.
+- All three R4 reviewers checked the iteration source against the implementation but not against the R1 LOCKED contract wording.
+- code-reviewer found 1 LOW (dead-code symmetry comment) on this exact line but did not question the iteration source.
+- security-reviewer was CLEAN.
+- qa-reviewer focused on AC coverage gaps and the M-2 race; the extension-reload scenario was not in the audit matrix.
+
+**Fix**: broaden the iteration source to match the R1 LOCKED contract wording verbatim ("for each item still unbound after Phase-2"):
+
+```js
+// R4 round-2 fix (`eb714fd`)
+const stillUnbound = items
+  .filter((it) => !(it.id in reconciled))
+  .map((it) => it.id);
+```
+
+**Phase 2 still wins** primary-URL precedence (AC2 unchanged — items bound by Phase 2 are excluded from `stillUnbound`). **Phase 4 stays scoped** to `evictedItemIds` only — preserves §10.7 invariant for items that never had a session-storage claim; their drift records are managed by the runtime `detectDriftForTab` cycle, not by cold-start cleanup. **Inherited-tab skip and one-tab-per-record cap unchanged.**
+
+**T10 regression guard** at `tests/b163-drift-fallback-reconcile.test.js:540+`: seeds empty `tj:tabClaims` + a drift record + a live tab at `driftedToUrl`; calls `reconcileClaims`; asserts the item binds via Phase 3. Pre-fix the test fails (Phase 3 skipped); post-fix it passes.
+
+**Tests after round-2**: 2050 → 2051 PASS (+T10, zero regressions).
+
+**Lesson for S46 retro** — this is the SECOND spec-vs-implementation narrowing in S45 (the M-1 dedup test similarly verified final-state without proving the underlying invocation count). Candidate retro action: extend the R4 reviewer charters to include a "trace the implementation back to the R1 LOCKED contract wording verbatim — flag any narrowing" gate. Both narrowings in S45 were caught by reviewers that read the implementation; neither was caught by reviewers that diffed implementation against R1 contract wording.
