@@ -527,3 +527,80 @@ test('B-163 T9 (R4 HIGH-1): drift partition read failure → graceful degradatio
     'B-163 R4 HIGH-1: console.warn must fire exactly once with the graceful-degradation breadcrumb',
   );
 });
+
+/* =========================================================================
+   T10 (R4 round-2 fix — extension-reload regression guard)
+
+   Discovered via product-owner empirical UAT 2026-05-22: reloading the
+   extension while a bookmark was open in a drifted state left the
+   bookmark unclaimed and the tab as an orphan in Open Tabs — the exact
+   user-story symptom B-163 was supposed to fix.
+
+   Root cause: the original R3 implementation restricted Phase 3's
+   iteration source to `evictedItemIds.filter(id => !(id in reconciled))`.
+   On extension reload `chrome.storage.session` is wiped → `storedClaims
+   = {}` → Phase 1 has nothing to evict → `evictedItemIds = []` → Phase 3
+   skipped entirely. Drifted items with surviving live tabs at
+   `driftedToUrl` had no path to re-association.
+
+   The fix (tab-claims.js:239) broadens stillUnbound to ALL items not
+   yet in `reconciled`, matching the R1 LOCKED contract wording verbatim
+   ("for each item still unbound after Phase-2"). T1-T9 all seed
+   `tj:tabClaims` with prior claims so they hit the evictedItemIds path —
+   T10 specifically exercises the empty-evictedItemIds + drift-record
+   present + live tab at driftedToUrl scenario.
+
+   PASS predicate: after reconcileClaims with EMPTY session storage and a
+   live tab at driftedToUrl, the bookmark is bound to that tab via Phase 3.
+   Pre-fix this assertion fails (item.url tab does not exist, drift fallback
+   never runs because evictedItemIds is empty); post-fix it passes.
+   ========================================================================= */
+test('B-163 T10 (R4 round-2): extension-reload — empty session storage + drift record + live tab at driftedToUrl binds via Phase 3', async () => {
+  /* Live tab at the DRIFTED URL only. The original item.url has no live
+     tab (user navigated away then reloaded the extension). */
+  __setMockTabs([tab(700, 'https://music.youtube.com/watch?v=xyz')]);
+  await buildLiveTabIndex();
+
+  /* CRITICAL: session storage is EMPTY — simulates extension reload via
+     chrome://extensions toggle OFF/ON (which wipes chrome.storage.session
+     per Chrome docs). Do NOT call __setSessionStore('tj:tabClaims', ...).
+     Phase 1 has zero stored claims to validate; evictedItemIds = []; pre-fix
+     Phase 3 skipped entirely. */
+
+  /* Seed durable state: items partition has the YouTube Music bookmark;
+     drift partition holds the playlist URL the user navigated to before
+     reloading. */
+  seedPartitions({
+    items: [item('item-ytm', 'https://music.youtube.com/', 0)],
+    drift: {
+      'item-ytm': {
+        itemId: 'item-ytm',
+        driftedToUrl: 'https://music.youtube.com/watch?v=xyz',
+        detectedAt: Date.now(),
+      },
+    },
+  });
+
+  await reconcileClaims([item('item-ytm', 'https://music.youtube.com/', 0)]);
+
+  /* PASS: Phase 3 broadening reached item-ytm despite evictedItemIds being
+     empty; bound it to the drifted-URL tab. The user-visible effect: the
+     bookmark remains live/claimed and the tab does NOT appear as an orphan
+     in the Open Tabs section. */
+  const claims = __getSessionStore('tj:tabClaims');
+  assert.equal(
+    claims['item-ytm'],
+    700,
+    'B-163 R4 round-2: Phase 3 must bind item-ytm via driftedToUrl even when evictedItemIds is empty (extension-reload scenario)',
+  );
+
+  /* AC4(A) parity: drift record retained because Phase 3 re-bound the
+     item. Phase 4 stays scoped to evictedItemIds (empty here) so it does
+     not touch the drift record either way; runtime detectDriftForTab owns
+     the eventual clear when the tab navigates back to item.url. */
+  const drift = await getDriftRecords();
+  assert.ok(
+    drift['item-ytm'],
+    'B-163 R4 round-2: drift record retained after Phase-3-via-broadened-scope re-binding',
+  );
+});

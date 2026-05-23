@@ -230,13 +230,30 @@ export async function reconcileClaims(items) {
     }
   }
 
-  /* Phase 3 (B-163 §70.3.1): drift-URL fallback. For each item evicted in
-     Phase 1 AND still unbound after Phase 2, consult its drift record and
-     attempt to bind via `driftedToUrl` against the same `urlToTabs` map
-     Phase 2 already built. Skipped entirely when no items remain unbound
-     (the typical no-eviction or full-recovery case) so the
-     `getDriftRecords()` storage read is gated and conditional. */
-  const stillUnbound = evictedItemIds.filter((id) => !(id in reconciled));
+  /* Phase 3 (B-163 §70.3.1): drift-URL fallback. For ANY item still
+     unbound after Phase 2 — regardless of whether it had a prior claim in
+     session storage. Consult its drift record and attempt to bind via
+     `driftedToUrl` against the same `urlToTabs` map Phase 2 already built.
+
+     B-163 R4 round-2 fix (S45 post-UAT): the original R3 implementation
+     restricted this set to `evictedItemIds.filter(id => !(id in reconciled))`,
+     which silently broke the user-story symptom on **extension reload**:
+     `chrome.storage.session` is wiped on reload → `storedClaims = {}` →
+     Phase 1 has nothing to iterate → `evictedItemIds = []` → Phase 3
+     skipped entirely. Drifted items had no path to re-association after
+     reload (despite the durable `tj:drift` record). The fix matches the
+     R1 LOCKED contract wording verbatim: "for each item still unbound
+     after Phase-2". Phase 2 still wins primary-URL precedence (AC2);
+     Phase 4 stays scoped to `evictedItemIds` only (preserves §10.7
+     invariant for items that never had a session-storage claim — their
+     drift records are managed by the runtime detectDriftForTab cycle, not
+     by cold-start cleanup). T10 is the regression guard.
+
+     Skipped entirely when no items remain unbound (the typical full-
+     recovery case) so the `getDriftRecords()` storage read is gated. */
+  const stillUnbound = items
+    .filter((it) => !(it.id in reconciled))
+    .map((it) => it.id);
   if (stillUnbound.length > 0) {
     /* B-163 R4 HIGH-1 (S45): graceful degradation on drift-partition read
        failure. `getDriftRecords()` calls `readPartition(PARTITION_DRIFT)`
