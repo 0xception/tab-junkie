@@ -60,8 +60,8 @@ Three CLAUDE.md edit action items inherited from S44 retrospective; the [scrum-m
 - **Tier**: Full (M)
 - **Priority**: P1
 - **Status**: **R3 BUILD COMPLETE (2026-05-22)** — 13 files modified (manifest + 5 background + 5 tests + new b164 test file + chrome-mock infra). New `chrome.tabs.onReplaced` listener performing 5-table remap (table 3 no-op per R2 clarification; table 4 clearTimeout+delete per R2 option-ii). New `idle-reconciler.js` module with `setDetectionInterval(60)` + `_reconcileInFlight` dedup flag + B-132 graceful-degradation. New `remapFloatingGroupsLiveTabId` atomic writeTransaction (blind-replace check clean: `(current) =>` mutator). **Tests 2038 → 2048 PASS** (+10 new B-164 tests T1-T10; zero regressions; 4 baseline pin updates net-zero). Zero R2 spec deviations.
-- **Assigned To**: PRODUCT-OWNER (UAT execution — 4 cases) → [solution-architect] (R6 As-Built §69)
-- **Blockers**: ⏳ UAT execution — 4 cases in `docs/findings/sprint-45.md` "R5 — B-164 UAT script"; ~5-10 min runtime (UAT-3 is multi-day smoke). **R5 audit done** (100% AC coverage T1-T12; 2050 PASS; no new tests needed). **R6 As-Built TODO after UAT**: chapter §69.5.4 SW-serialization claim wrong for async gaps; needs update documenting new race-guard architecture (M-2 Option B fix).
+- **Assigned To**: PRODUCT-OWNER (UAT execution — 4 cases) → sprint-close cleanup
+- **Blockers**: ⏳ UAT execution — 4 cases in `docs/findings/sprint-45.md` "R5 — B-164 UAT script"; ~5-10 min runtime (UAT-3 is multi-day smoke). **R5 audit done** (100% AC coverage T1-T12; 2050 PASS). **R6 As-Built done** (chapter §69 1249 → 1400 lines; new §69.3.2.1 race-guard architecture; §69.5.4 corrected; §69.13 R6 audit trail; SOLUTION_DESIGN TOC flipped).
 - **Feature Context**:
   - Product-owner reports that over days of continuous use, across system sleep / laptop-lid-close cycles, saved-bookmark→tab claims progressively break: live tab appears in Open Tabs as if unclaimed, matching bookmark renders as non-live.
   - Distinct from B-149 (SW idle-shutdown, fixed) and B-163 (full browser restart, in-sprint sibling).
