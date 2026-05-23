@@ -137,12 +137,33 @@ async function writeClaims() {
  * @returns {Promise<void>}
  */
 export async function reconcileClaims(items) {
+  /* TEMP DEBUG (S45 post-UAT diagnostic, will be reverted) — capture
+     runtime state through Phase 3 to a chrome.storage.local key the
+     user can read after SW reload (SW console doesn't persist). */
+  const _dbg = {
+    timestamp: Date.now(),
+    entry: {
+      itemCount: items.length,
+      ytmItem: items.find((it) => it.url && it.url.toLowerCase().includes('music.youtube')) || null,
+    },
+  };
+
   // M5: warn if items is empty but stored claims exist
   const storedClaims = await readClaims();
+  _dbg.entry.storedClaimsKeys = Object.keys(storedClaims);
   if (items.length === 0 && Object.keys(storedClaims).length > 0) {
     console.warn('[tab-junkie] reconcileClaims called with 0 items but', Object.keys(storedClaims).length, 'stored claims exist — proceeding anyway');
   }
   const index = getLiveTabIndex();
+  _dbg.entry.liveIndexSize = index.size;
+  _dbg.entry.ytmTabFromIndex = (() => {
+    for (const [tabId, entry] of index) {
+      if (entry.url && entry.url.toLowerCase().includes('music.youtube')) {
+        return { tabId, url: entry.url };
+      }
+    }
+    return null;
+  })();
   const reconciled = {};
   const claimedTabIds = new Set();
   /* B-110 §53 (S36) / B-163 §70.3.2 (S45): track every claim that does
@@ -254,6 +275,16 @@ export async function reconcileClaims(items) {
   const stillUnbound = items
     .filter((it) => !(it.id in reconciled))
     .map((it) => it.id);
+
+  /* TEMP DEBUG */
+  _dbg.phase2 = {
+    reconciledKeys: Object.keys(reconciled),
+    stillUnboundCount: stillUnbound.length,
+    stillUnboundContainsYtm: _dbg.entry.ytmItem ? stillUnbound.includes(_dbg.entry.ytmItem.id) : null,
+    urlToTabsMusicYoutubeKeys: [...urlToTabs.keys()].filter((k) => k.includes('music.youtube')),
+    urlToTabsTotalKeys: urlToTabs.size,
+  };
+
   if (stillUnbound.length > 0) {
     /* B-163 R4 HIGH-1 (S45): graceful degradation on drift-partition read
        failure. `getDriftRecords()` calls `readPartition(PARTITION_DRIFT)`
@@ -288,9 +319,30 @@ export async function reconcileClaims(items) {
     const driftSorted = items
       .filter((it) => unboundSet.has(it.id))
       .sort((a, b) => a.sortOrder - b.sortOrder);
+    /* TEMP DEBUG */
+    _dbg.phase3 = {
+      driftRecordsKeys: Object.keys(driftRecords),
+      driftSortedCount: driftSorted.length,
+      iterations: [],
+    };
+
     for (const item of driftSorted) {
       const record = driftRecords[item.id];
-      if (!record) continue;
+      const _itDbg = (item.url && item.url.toLowerCase().includes('music.youtube')) ? {
+        itemId: item.id,
+        itemUrl: item.url,
+        hasRecord: !!record,
+        driftedToUrl: record?.driftedToUrl,
+        normalizedDrift: record ? safeNormalizeForMatch(record.driftedToUrl) : null,
+        availableLen: 0,
+        availableTabIds: [],
+        inheritedHits: 0,
+        finalClaimedTabId: null,
+      } : null;
+      if (!record) {
+        if (_itDbg) { _itDbg.skip = 'no-record'; _dbg.phase3.iterations.push(_itDbg); }
+        continue;
+      }
       /* AC7 RESOLVED — NO TTL: record.detectedAt is intentionally NOT
          consulted here. Stale drift records remain eligible for fallback
          re-binding; the AC2 primary-URL-wins + AC3 one-tab-per-record cap
@@ -299,9 +351,19 @@ export async function reconcileClaims(items) {
          §70.6.7. Do not add a `Date.now() - record.detectedAt > TTL_MS`
          gate here without first re-opening the AC7 product-owner decision. */
       const normalized = safeNormalizeForMatch(record.driftedToUrl);
-      if (!normalized) continue;
+      if (!normalized) {
+        if (_itDbg) { _itDbg.skip = 'normalize-failed'; _dbg.phase3.iterations.push(_itDbg); }
+        continue;
+      }
       const available = urlToTabs.get(normalized);
-      if (!available || available.length === 0) continue;
+      if (_itDbg) {
+        _itDbg.availableLen = available?.length || 0;
+        _itDbg.availableTabIds = available ? [...available] : [];
+      }
+      if (!available || available.length === 0) {
+        if (_itDbg) { _itDbg.skip = 'no-available-tabs'; _dbg.phase3.iterations.push(_itDbg); }
+        continue;
+      }
       /* AC5: inherited-tab skip — mirrors the Phase-2 while-loop at
          :198-206 exactly. Inherited candidates are popped without binding;
          the loop continues with the next candidate. If every candidate is
@@ -310,6 +372,7 @@ export async function reconcileClaims(items) {
       while (available.length > 0) {
         const candidate = available[0];
         if (inheritedTabs.has(candidate)) {
+          if (_itDbg) _itDbg.inheritedHits += 1;
           available.shift();
           continue;
         }
@@ -320,8 +383,23 @@ export async function reconcileClaims(items) {
         reconciled[item.id] = claimedTabId;
         claimedTabIds.add(claimedTabId);
       }
+      if (_itDbg) {
+        _itDbg.finalClaimedTabId = claimedTabId;
+        _dbg.phase3.iterations.push(_itDbg);
+      }
     }
   }
+
+  /* TEMP DEBUG — write before writeClaims so we capture state even if write fails */
+  _dbg.final = {
+    reconciledKeys: Object.keys(reconciled),
+    ytmFinalClaim: _dbg.entry.ytmItem ? (reconciled[_dbg.entry.ytmItem.id] || null) : null,
+    inheritedTabsSize: inheritedTabs.size,
+    ytmTabInInherited: _dbg.entry.ytmTabFromIndex ? inheritedTabs.has(_dbg.entry.ytmTabFromIndex.tabId) : null,
+  };
+  try {
+    await chrome.storage.local.set({ _b163_debug: _dbg });
+  } catch { /* ignore */ }
 
   claimsMirror = reconciled;
   await writeClaims();
