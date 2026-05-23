@@ -1,10 +1,12 @@
 # §69 — B-164 — Sleep / Discard-Restore Claim-Mirror Remap
 
-**Status:** R2 LOCKED — Sprint 45 (v1.40.0 target, 2026-05-21).
+**Status:** R6 AS-BUILT — Sprint 45 closed 2026-05-22 (v1.40.0). R2 plan locked 2026-05-21; R3 build commit `e2f3944`; R4 fix-round commit `c30e18c` (M-1 + M-2 Option B); R5 audit commit `f3914af` (no production code).
 **Anchor:** B-164 (P2 / M). Sibling of B-163 (chapter §70 — drift URL fallback).
 **Tier:** Full pipeline (M).
 **Depends on:** §10.5 (LiveTabIndex & TabClaims architecture — defines `claimsMirror`, `inheritedTabs`, `reconcileClaims`, the four explicit claim-release triggers); §10.8 (Floating-Group Re-Association — defines the `tj:floatingGroups[].liveTabId` field and the per-tab cascade-prune contract); §59 (B-125 — `inheritedTabs` Set lifecycle); §65 (B-132 — cold-start `preMarkInheritedFromFloatingGroups` + graceful-degradation pattern at `background/tabs/index.js:58-62`); §66 (B-137 — `liveTabId` as primary join key on `tj:floatingGroups`); §70 (B-163 — sibling cold-start fix; cite the shared invariant in §69.4 verbatim); B-149 ✅ (Phase-1 URL-drift survival — no design chapter; see `docs/BACKLOG.md:184` + `CHANGELOG.md:142`); B-110 ✅ (§53 paired-clear surfaces — `tab-events.js:319,419`).
-**Author:** [solution-architect] (Opus). Written BEFORE R3 build per S44 retro action item 1 (chapter-first).
+**Author:** [solution-architect] (Opus). Written BEFORE R3 build per S44 retro action item 1 (chapter-first); R6 As-Built reconciliation applied 2026-05-22.
+
+**R6 As-Built delta summary (one-line):** R4 surfaced a real async-gap race that the R2 §69.5.4 "SW event-loop serialization" claim missed; M-2 Option B (`_reconcileActive` flag + `_pendingReplacements` queue + drain-callback pattern) was added in `c30e18c` and is now the load-bearing architecture for wake-reconcile correctness — see §69.13 audit trail and the new §69.3.2.1 subsection.
 
 **Out-of-scope (explicit):**
 (a) cold-start reconciliation — B-149 (already shipped, Phase-1 survival predicate `tabEntry && item` at `tab-claims.js:174` unchanged) and B-132 (`preMarkInheritedFromFloatingGroups` at `tab-claims.js:58-62` unchanged) already own this surface;
@@ -399,6 +401,78 @@ the second pass in this exact case because the flag is module-scoped
 and resets between cold-starts; this is acceptable (one extra
 reconcile per cold-start-from-sleep is cheap).
 
+### §69.3.2.1 — Race-guard architecture (R4 M-2 Option B, As-Built)
+
+**R2 was wrong.** The original §69.5.4 narrative claimed that "SW event-loop serialization" made the `onReplaced` × wake-`reconcileClaims` interleaving safe. R4 qa MED-2 surfaced the real failure mode: **JavaScript's event loop only serializes synchronous blocks**. Once a function `await`s, other events can run and complete before the original function resumes. `reconcileClaims` captures `storedClaims` synchronously at `background/tabs/tab-claims.js:141`, then awaits Phase 3/4 storage reads. During those awaits, `onReplaced` can fire (because `isClaimsReady()` is true), call `remapTabIdInClaims` which rewrites `claimsMirror` in-memory + persists via `writeClaims`. When `reconcileClaims` resumes at `tab-claims.js:309-310`, it builds `reconciled` from the pre-remap snapshot and calls `writeClaims(reconciled)` — silently overwriting the post-remap `addedTabId` back to `removedTabId` in session storage. **The B-164 remap would be erased** in the narrow window of a drifted-URL tab discarded during wake-reconcile.
+
+**Fix shipped (commit `c30e18c`).** Option B: block `onReplaced` from persisting during the wake-reconcile work; queue late events for a post-reconcile drain.
+
+**Module-scoped state (`background/tabs/idle-reconciler.js`):**
+
+- `let _reconcileActive = false;` at `idle-reconciler.js:74` — race-guard flag, **distinct** from the pre-existing `_reconcileInFlight` listener-entry dedup flag at `:45`.
+- `const _pendingReplacements = []` at `idle-reconciler.js:76` — FIFO queue of `{addedTabId, removedTabId}` rotations.
+- `let _drainCallback = null` at `idle-reconciler.js:78` — callback registered by `tab-events.js` (avoids circular import).
+
+**Accessors exported from `idle-reconciler.js`:**
+
+- `isReconcileActive(): boolean` at `:87` — `tab-events.js`'s `onReplaced` listener consults this to choose inline-apply vs enqueue.
+- `enqueuePendingReplacement(addedTabId, removedTabId): void` at `:100` — Array push, preserves FIFO order.
+- `setReplacementDrainCallback(fn): void` at `:112` — idempotent (last registration wins).
+
+**Synchronous flag-set BEFORE the first await** (`idle-reconciler.js:160`):
+
+```js
+chrome.idle.onStateChanged.addListener((state) => {
+  if (state !== 'active') return;
+  if (_reconcileInFlight) return;
+  _reconcileInFlight = true;
+  _reconcileActive = true;  // <-- :160 — visible from the next microtask
+  (async () => { try { await readyPromise; ... } finally { ... } })();
+});
+```
+
+The `_reconcileActive = true` assignment is at module-level synchronous code, executed in the same tick as the listener entry. Any `onReplaced` event that fires from the next microtask onward observes `isReconcileActive() === true` and enqueues.
+
+**Drain loop** at `idle-reconciler.js:176-182` (copy-and-clear + while-loop re-check):
+
+```js
+while (_pendingReplacements.length > 0 && _drainCallback) {
+  const drain = _pendingReplacements.slice();
+  _pendingReplacements.length = 0;
+  for (const { addedTabId, removedTabId } of drain) {
+    _drainCallback(addedTabId, removedTabId);
+  }
+}
+```
+
+The drain runs **inside** the `_reconcileActive = true` window. Events arriving mid-drain still observe the flag and enqueue, so they're picked up by the next iteration of the while loop. `_reconcileActive = false` is set in the `finally` block at `:186` **after** the drain has fully exhausted.
+
+**Listener gating** (`background/tabs/tab-events.js:436-461`):
+
+```js
+chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
+  if (typeof addedTabId !== 'number' || typeof removedTabId !== 'number') return;
+  if (addedTabId === removedTabId) return;
+  if (!isClaimsReady()) return;
+  if (isReconcileActive()) {           // :455 — race-guard
+    enqueuePendingReplacement(addedTabId, removedTabId);
+    return;
+  }
+  _applyTabReplacement(addedTabId, removedTabId);  // :460 — inline apply
+});
+```
+
+The 5-table remap body was extracted into a module-level `_applyTabReplacement(addedTabId, removedTabId)` helper at `tab-events.js:103-134` so the same code path serves both (a) the inline-apply path when no wake-reconcile is in flight and (b) the queued-drain path inside `idle-reconciler.js`. Drain wiring happens at register-time via `setReplacementDrainCallback(_applyTabReplacement)` at `tab-events.js:434` — callback injection avoids a circular import (`idle-reconciler.js` would otherwise have to import from `tab-events.js`).
+
+**Race-safety reasoning (4 invariants):**
+
+1. **Drain runs INSIDE the flag-true window.** The `while` loop body executes before `_reconcileActive = false` in the `finally`, so any mid-drain `onReplaced` still observes `isReconcileActive() === true` and enqueues (does NOT bypass into inline-apply).
+2. **`while`-loop re-checks queue length after each pass.** Events arriving while the drain's `for` loop is running are appended to `_pendingReplacements`; the next while iteration picks them up. The loop only exits when the queue is provably empty.
+3. **`slice()` + `length = 0` is a synchronous snapshot.** No `await` between the read and the clear; no entry can be lost between snapshot and reset.
+4. **Flag clear in `finally` happens AFTER the while loop exits.** Synchronous code in `tab-events.js:455` either observes `flag = true` and enqueues OR `flag = false` and inline-applies; there is no torn-read window between the two states. The transition from `true → false` is atomic in the single-threaded SW event loop.
+
+**Why Option B over Option A (residual-risk acceptance).** Product-owner authorized the safe option because the residual risk under Option A — a drifted-URL tab discarded during the ~10ms wake-reconcile async window — was directly user-visible (the original B-164 user-story symptom). The +40 LOC for Option B closes the gap definitively at the cost of one module-state coupling (the drain callback registration). Cheaper than carrying the risk forward.
+
 ### §69.3.3 — `"idle"` permission addition (C-6 minimization)
 
 **Manifest change:**
@@ -580,7 +654,20 @@ test file that asserts a pre-change contract that needs updating.
 | 9 | _(none)_ | _(none)_ | `background/tabs/drift.js`, `background/storage/migration.js`, `background/storage/shapes.js`, `shared/messages.js`, `shared/url.js`, `sidepanel/`, `newtab/`, `popup/` — all unchanged. |
 | 10 | `tests/chrome-mock.js` | new event mocks | Add `tabs.onReplaced: createEventMock()` after the existing `tabs.onMoved: createEventMock()` at `:350`. Add `chrome.idle` surface: `idle: { setDetectionInterval(n) { /* noop, record arg */ }, onStateChanged: createEventMock() }`. Add `tabs.onReplaced._listeners.length = 0` and `idle.onStateChanged._listeners.length = 0` to `__resetMock()` at `:483-516`. ~20 LOC. |
 
-**Total code surface:** 1 manifest change, 6 source files modified, 1 new source file, 1 test infrastructure change. Approximately +130 / -0 LOC net (purely additive).
+**Total code surface (R2 plan):** 1 manifest change, 6 source files modified, 1 new source file, 1 test infrastructure change. Approximately +130 / -0 LOC net (purely additive).
+
+#### §69.5.1.1 — As-Built deltas from R4 fix-round (commit `c30e18c`)
+
+The R3 build (commit `e2f3944`) shipped the R2 plan as written. The R4 fix-round added the following on top:
+
+| # | File | As-Built change |
+|---|------|-----------------|
+| 1 | `background/tabs/idle-reconciler.js` | Extended with the M-2 race-guard architecture: `_reconcileActive` flag at `:74`; `_pendingReplacements: Array` at `:76`; `_drainCallback` at `:78`; exported accessors `isReconcileActive` at `:87`, `enqueuePendingReplacement` at `:100`, `setReplacementDrainCallback` at `:112`; flag-set synchronously at `:160` BEFORE the first await; drain loop at `:176-182` (copy-and-clear + while-loop re-check); flag clear in `finally` at `:186` AFTER drain. Test hatches `__resetIdleReconciler` at `:197` extended to reset the new state; `__getPendingReplacements` at `:210` added. **~+90 LOC over R3.** |
+| 2 | `background/tabs/tab-events.js` | Extracted module-level `_applyTabReplacement(addedTabId, removedTabId)` helper at `:103-134` (the 5-table remap body that previously lived inline in the `onReplaced` listener). Listener body at `:436-461` now gates on `isReconcileActive()`: true → `enqueuePendingReplacement`; false → inline `_applyTabReplacement`. Drain-callback wiring `setReplacementDrainCallback(_applyTabReplacement)` at `:434`. Imports `isReconcileActive`, `enqueuePendingReplacement`, `setReplacementDrainCallback` from `./idle-reconciler.js` at `:39-43`. **~+15 LOC net (extraction + gate); behavior-preserving for the inline path.** |
+| 3 | `tests/chrome-mock.js` | Added `sessionSetCounts: {}` per-key counter at `:26`; per-key increment hook in the session-set path at `:130`; reset in `__resetMock` at `:529`; new exported helper `__getSessionSetCount(key)` at `:642-644`. Enables the M-1 dedup structural assertion. **~+5 LOC.** |
+| 4 | `tests/b164-sleep-claim-remap.test.js` | T3 rewritten in place (`:192-217`) — was final-state-only; now asserts `__getSessionSetCount('tj:tabClaims') === 1` after two rapid `'active'` fires (structural dedup proof: detects `_reconcileInFlight` regression). T11 added at `:395-438` — M-2 race scenario via deferred `readyPromise`: onReplaced during wake-reconcile is queued, NOT applied inline; post-drain, `claimsMirror['item-X'] === 200` (post-remap), not 100 (pre-remap snapshot the M-2 race would have produced). T12 added at `:446-496` — multiple onReplaced events drain in FIFO order. **~+110 LOC (T11 + T12 + T3 rewrite).** |
+
+**As-Built total code surface:** R2 plan + the 4 deltas above. R3 (`e2f3944`) + R4 fix-round (`c30e18c`) net ~+250 / -0 LOC across source + tests. Test suite count: 2048 → 2050 (T11 + T12 added; T3 modified in place).
 
 ### §69.5.2 — Test files that pin pre-change contracts (MUST update / VERIFY)
 
@@ -696,17 +783,20 @@ The full consumer inventory:
 | `getItemIdForTab` | `tab-claims.js:464-467` | READ | Synchronous O(n) scan |
 | Drift detection (`detectDriftForTab`) | `drift.js:29-59` | READ (via `getItemIdForTab`) | Read-only; runs in event-handler context |
 
-**Coordination mechanism for the new consumers.** Both new B-164 consumers
-(`remapTabIdInClaims` invoked from the `onReplaced` handler, and the
-on-wake `reconcileClaims` invoked from `idle-reconciler.js`) operate
-inside the single-thread SW event loop. Chrome events serialize through
-the same queue (`onReplaced` cannot fire while `idle.onStateChanged` is
-running, and vice versa, because both callbacks execute on the SW main
-thread). The `_reconcileInFlight` flag prevents reentrant reconcile
-calls from rapid `'active'` transitions. The synchronous in-memory
-mirror writes complete before the `await writeClaims()` resumes, so
-no consumer can observe a torn `claimsMirror` value. **No race-condition
-class introduced.**
+**Coordination mechanism for the new consumers (As-Built per R4 M-2 Option B).** The original R2 narrative claimed that "SW event-loop serialization" made the `remapTabIdInClaims` × wake-`reconcileClaims` interleaving safe. **This was incorrect.** The JS event loop only serializes synchronous blocks; once a function `await`s, other events can run and complete before the original function resumes. `reconcileClaims` captures its `storedClaims` snapshot synchronously at `tab-claims.js:141`, then awaits Phase 3/4 storage reads — during those awaits an `onReplaced` event could fire, persist the remap, then be silently overwritten by the pre-remap snapshot when `reconcileClaims` resumes and calls `writeClaims` at `:309-310`. R4 qa MED-2 surfaced this gap; the fix-round commit `c30e18c` closed it.
+
+The shipped coordination uses two flags plus a queue plus a callback (see §69.3.2.1 for the full architecture):
+
+| Flag / structure | File:line | Purpose |
+|------------------|-----------|---------|
+| `_reconcileInFlight` | `idle-reconciler.js:45` | **Listener-entry dedup** — suppresses a second `'active'` fire before its async work begins (the original R2 flag, unchanged). |
+| `_reconcileActive` | `idle-reconciler.js:74` | **Race-guard** (NEW) — set synchronously before the first `await`, cleared in `finally` AFTER the drain completes. `onReplaced` consults this to choose enqueue vs inline-apply. |
+| `_pendingReplacements: Array<{addedTabId, removedTabId}>` | `idle-reconciler.js:76` | **FIFO queue** (NEW) — buffers `onReplaced` events that fire while a wake-reconcile is in flight. |
+| `_drainCallback` | `idle-reconciler.js:78` | **Callback injection** (NEW) — `tab-events.js` registers `_applyTabReplacement` here at register-time, avoiding a circular import. |
+
+The four-invariant race-safety argument is at §69.3.2.1. The net effect: any `onReplaced` event that fires between the wake-reconcile's first `await` and its final `writeClaims` commit is buffered, then replayed via the drain callback **after** `reconcileClaims` completes but **before** the race-guard flag clears. The final session-storage state reflects the post-remap binding, not the pre-remap snapshot.
+
+For the in-session steady-state path (no wake-reconcile in flight), the original synchronous-mirror reasoning still holds: `_reconcileActive === false`; the listener takes the inline-apply branch at `tab-events.js:460`; `remapTabIdInClaims` rewrites the in-memory mirror synchronously before the `await writeClaims()` resumes; no consumer can observe a torn `claimsMirror` value. **No race-condition class introduced in the inline path.**
 
 **`inheritedTabs: Set<number>` (`tab-claims.js:30`)**
 
@@ -1055,13 +1145,13 @@ automated tests AND performs UAT.
 
 ### §69.9.1 — Automated tests (new file)
 
-`tests/b164-sleep-claim-remap.test.js` — ~300 LOC, 10 cases:
+`tests/b164-sleep-claim-remap.test.js` — ~410 LOC As-Built (was ~300 in R2 plan), **12 cases** (R2 planned T1-T10; R4 fix-round added T11 + T12 for M-2 race coverage; T3 rewritten in place for M-1 structural dedup proof):
 
 | # | Case | Surface | Assertion |
 |---|------|---------|-----------|
 | T1 | AC1: tab discard remap (saved-item claim survives) | end-to-end via `tabs.onReplaced.__fire` | Seed: 1 item X claimed to `tabId 100`. Fire `chrome.tabs.onReplaced.__fire(200, 100)`. Assert: `claimsMirror[X] === 200`; `claimsMirror[X] !== 100`; `chrome.storage.session.get('tj:tabClaims')` reflects the new id. |
 | T2 | AC2: on-wake reconcile rerun | end-to-end via `chrome.idle.onStateChanged.__fire` | Seed: 1 item X claimed; simulate cold-start; fire `chrome.idle.onStateChanged.__fire('active')`. Assert: `reconcileClaims` was invoked (spy via wrap or assertion on a side-effect like `claimsMirror` rebuild count); `_reconcileInFlight` cleared after. |
-| T3 | AC2 dedup: duplicate `'active'` suppression | end-to-end | Fire `chrome.idle.onStateChanged.__fire('active')` twice rapidly. Assert: `reconcileClaims` invocation count = 1 (second call suppressed by `_reconcileInFlight` flag). |
+| T3 | AC2 dedup: duplicate `'active'` suppression (**M-1 As-Built rewrite**) | end-to-end + per-key session-set counter | Fire `chrome.idle.onStateChanged.__fire('active')` twice rapidly. Assert: final state matches single-reconcile result AND `__getSessionSetCount('tj:tabClaims') === 1` after both fires. The counter assertion is the structural dedup proof — `writeClaims` is called exactly once per `reconcileClaims` invocation, so a broken `_reconcileInFlight` gate would yield counter = 2. (R2-planned T3 asserted final-state only — could not distinguish a working gate from a broken-but-idempotent one. M-1 closed this gap.) |
 | T4 | AC3: 5-table atomicity | end-to-end | Seed: 1 item X claimed to tabId 100; 1 inherited tab 100; 1 floating-group record with `liveTabId: 100`; 1 reevalTimer for 100. Fire `onReplaced(200, 100)`. Assert: claimsMirror[X]=200, inheritedTabs.has(200) && !inheritedTabs.has(100), floating record's liveTabId=200, reevalTimers.has(100)===false && reevalTimers.has(200)===false (per option (ii)). |
 | T5 | AC4: floating tab survives discard | end-to-end | Seed: floating-group record with `liveTabId: 100`, no saved-item claim; mock tabs include both 100 (about to be discarded) and 200 (new id). Fire `onReplaced(200, 100)`. Assert: `tj:floatingGroups` record's `liveTabId === 200`; subsequent `buildFloatingMembers` call returns the floating member entry for 200. |
 | T6 | AC5: inheritedTabs guard preserved | end-to-end | Seed: `inheritedTabs.add(100)`. Fire `onReplaced(200, 100)`. Assert: `inheritedTabs.has(200) === true && inheritedTabs.has(100) === false`. Subsequent `reevaluateTab(200, matchingUrl, items)` early-returns at the `inheritedTabs.has(tabId)` gate (line 385); no claim binding occurs. |
@@ -1069,6 +1159,8 @@ automated tests AND performs UAT.
 | T8 | AC7: manifest contains "idle" | static manifest read | `JSON.parse(readFile('manifest.json')).permissions.includes('idle') === true`. (Cross-covered by the 4 existing-test docstring updates in §69.5.2; T8 is the dedicated test specifically tied to AC7.) |
 | T9 | AC8: B-149 + B-110 regression guard | end-to-end | Run the canonical B-149 T1 scenario (drifted-but-live claim survives cold-start) AND the canonical B-110 T4 scenario (drift drop on missing-tab eviction) on a build that has B-164's new listeners registered. Assert: both pass identically to pre-B-164 (defense-in-depth duplicate of the b149/b110 test files; verifies B-164 listeners don't side-effect into those paths). |
 | T10 | AC1 defensive: `onReplaced` for non-mirror tabId | end-to-end | Seed: no item claims tabId 100; no inherited tab 100; no floating record with liveTabId 100; no reevalTimer 100. Fire `onReplaced(200, 100)`. Assert: no `chrome.storage.session.set` call (writeClaims short-circuits because no entry needed remapping; the helper must check before writing); no `writeTransaction` call (pre-flight read fast-path short-circuits); zero side-effects. |
+| **T11** | **R4 M-2 As-Built: onReplaced during wake-reconcile is queued, not silently overwritten** | end-to-end via deferred `readyPromise` + `__getPendingReplacements` test hatch | Seed: item-X claimed to tabId 100; reconcile run; `claimsMirror['item-X'] === 100`. Register `registerIdleReconciler(deferredReadyPromise)`; fire `'active'` (sets `_reconcileActive = true` synchronously, then awaits the deferred ready). While the wake-reconcile is gated, fire `onReplaced(200, 100)`. Assert: `__getPendingReplacements()` has 1 entry `{addedTabId: 200, removedTabId: 100}`; `claimsMirror['item-X']` still equals 100 (inline remap was correctly suppressed by `isReconcileActive()` gate). Resolve `readyPromise`; drain microtasks. Assert: `__getPendingReplacements()` is empty; `claimsMirror['item-X'] === 200` (post-drain remap applied); `__getSessionStore('tj:tabClaims')['item-X'] === 200` (writeClaims persisted the post-drain remap, NOT the pre-remap snapshot the M-2 race would have produced). |
+| **T12** | **R4 M-2 As-Built: multiple onReplaced events drain in FIFO order** | end-to-end via deferred `readyPromise` + multi-event queue | Seed: items A/B/C claimed to tabIds 100/300/500. Register wake-reconcile gated on deferred ready. Fire `onReplaced(200, 100)`, `onReplaced(400, 300)`, `onReplaced(600, 500)` in order. Assert before drain: `__getPendingReplacements().map(p => p.removedTabId)` deeply equals `[100, 300, 500]` (FIFO insertion order preserved by Array.push). Resolve ready; drain microtasks. Assert after drain: `claimsMirror['item-A'] === 200`, `claimsMirror['item-B'] === 400`, `claimsMirror['item-C'] === 600`; queue empty. |
 
 ### §69.9.2 — Existing test deltas (per §69.5.2)
 
@@ -1085,12 +1177,13 @@ automated tests AND performs UAT.
 (one line each) + 4 docstring touches + 1 test-infrastructure addition
 (~20 LOC).
 
-### §69.9.3 — Net test-suite delta
+### §69.9.3 — Net test-suite delta (As-Built)
 
-- 10 new cases (T1-T10) in a new file (~300 LOC).
-- 4 one-line assertion updates + 4 docstring touches in existing files.
-- 1 chrome-mock infrastructure addition (~20 LOC).
-- Total: ~320 LOC added across the test suite.
+- **12** new cases (T1-T12) in `tests/b164-sleep-claim-remap.test.js` (~410 LOC). R2 planned 10; R4 fix-round added T11 + T12 for M-2 race coverage; T3 rewritten in place for M-1 structural dedup proof.
+- 4 one-line assertion updates + 4 docstring touches in existing files (R2-plan delta — shipped unchanged in R3).
+- chrome-mock infrastructure additions: original R3 `tabs.onReplaced` + `chrome.idle.*` event mocks (~20 LOC) **plus** R4 As-Built `sessionSetCounts` per-key counter + `__getSessionSetCount(key)` helper (~5 LOC).
+- **Total:** ~+435 LOC added across the test suite over R2 plan baseline.
+- **Final suite count: 2050/2050 PASS** (R3 commit `e2f3944` produced 2048; R4 fix-round `c30e18c` added T11 + T12 to reach 2050; R5 audit `f3914af` confirmed 100% AC coverage with no further test additions needed).
 
 ---
 
@@ -1142,8 +1235,14 @@ visibly:
 UAT lean-mode smoke: case 2 with `prefersLean` ON; verify wake handler
 still fires and reconciles. The wake handler is preference-independent.
 
-Detailed UAT script with step-by-step actions deferred to R5
-[test-engineer].
+**As-Built UAT script** (R5 [test-engineer] persisted 2026-05-22, commit `f3914af`): the step-by-step UAT script lives in `docs/findings/sprint-45.md` under the "R5 — B-164 UAT script (ready for product-owner execution)" section. 4 cases covering UI-observable behavior + 1 SW-console step (`chrome.tabs.discard(<id>)` is the unavoidable trigger for the `chrome.tabs.onReplaced` event class — no UI-only path exists):
+
+- **UAT-1** — `chrome.tabs.discard` happy path via SW console (AC1 + AC3 + AC4 + AC5).
+- **UAT-2** — laptop lid-close + reopen cycle smoke (AC2).
+- **UAT-3** — multi-day Open-Tabs-doesn't-grow smoke (the original B-164 user-story symptom verification).
+- **UAT-4** — `chrome.idle.onStateChanged` manual trigger (optional, technical; covered structurally by T2/T3 automation).
+
+**Status:** UAT PASS pending product-owner execution. The script was authored Opus-grade by R5 [test-engineer] with a 5-10 minute runtime budget (UAT-3 is multi-day passive observation).
 
 ---
 
@@ -1190,6 +1289,10 @@ Detailed UAT script with step-by-step actions deferred to R5
   states are explicit no-ops. Future work could leverage `'locked'`
   for proactive state-persistence (e.g., flush in-flight broadcasts
   before screen-off) but no user-visible need exists today.
+- **R5 P3 follow-ups deferred to backlog (sprint close 2026-05-22).** Three R4 LOW findings declined cheap-fix in-sprint and were filed as P3 candidates:
+  - **LOW-1 — `chrome.idle.setDetectionInterval` reject-path test.** The chrome-mock helper `__setIdleSetDetectionIntervalReject` was built specifically for this branch but currently unused. The production `try/catch` at `idle-reconciler.js:139-145` is correct and B-132-pattern-aligned; an explicit test would harden the regression-guard. ~15 LOC. Filed P3.
+  - **LOW-2 — `'idle'` / `'locked'` state no-op test.** Production code at `idle-reconciler.js:151` is correct (`if (state !== 'active') return;`); C-7 allow-list semantics structurally verified by inspection but not by an explicit assertion. ~10 LOC. Filed P3.
+  - **LOW-5 — `openerMap` remap on `onReplaced`.** `background/tabs/opener-chain.js:12` is not remapped on `onReplaced`. Spec-aligned (R2 §69.5.1 marked `live-tab-index.js` and opener-chain explicitly unchanged). Narrow impact: only a new tab opened FROM a restored tab WITHIN the same SW lifetime would miss the opener-chain. Ephemeral state self-corrects on SW restart. Filed P3; promote to active work only if opener-chain correctness post-discard ever surfaces in UAT.
 
 ---
 
@@ -1224,7 +1327,7 @@ Detailed UAT script with step-by-step actions deferred to R5
 
 **Tests (new):**
 
-- `tests/b164-sleep-claim-remap.test.js` — 10 cases per §69.9.1.
+- `tests/b164-sleep-claim-remap.test.js` — 12 cases per §69.9.1 (R2 planned 10; R4 added T11 + T12 for M-2; T3 rewritten in place for M-1).
 
 **Tests (modified — assertion + docstring):**
 
@@ -1235,7 +1338,7 @@ Detailed UAT script with step-by-step actions deferred to R5
 
 **Tests (infrastructure):**
 
-- `tests/chrome-mock.js` — add `tabs.onReplaced` + `chrome.idle` surface mocks + `__resetMock` cleanup additions.
+- `tests/chrome-mock.js` — R3 added `tabs.onReplaced` + `chrome.idle` surface mocks + `__resetMock` cleanup additions; R4 fix-round added `sessionSetCounts` per-key counter + `__getSessionSetCount(key)` helper for the M-1 dedup structural assertion.
 
 **Tests (optional comment-only):**
 
@@ -1243,7 +1346,55 @@ Detailed UAT script with step-by-step actions deferred to R5
 
 **Docs:**
 
-- This chapter (`docs/design/69-b-164-sleep-claim-remap.md`) — R2 plan, written BEFORE R3 per S44 retro action item 1.
-- `docs/SOLUTION_DESIGN.md` — TOC entry added at line 90 (above §70).
+- This chapter (`docs/design/69-b-164-sleep-claim-remap.md`) — R2 plan written BEFORE R3 per S44 retro action item 1; R6 As-Built reconciliation applied 2026-05-22 (header status flip; §69.3.2.1 race-guard architecture; §69.5.1.1 fix-round deltas; §69.5.4 coordination-mechanism correction; §69.9 test-count update; §69.10 UAT script reference; §69.11 P3 follow-ups; §69.13 audit trail).
+- `docs/SOLUTION_DESIGN.md` — TOC entry added at line 90 (above §70); R6 As-Built reconciliation flipped descriptor from "R2 Plan" → "R6 As-Built".
 - (R6) `CHANGELOG.md`, `docs/RELEASES.md` — entries added at sprint close including the C-1a-class toggle-OFF-ON install-time note for the `"idle"` permission grant.
-- (R5) UAT cases per §69.10 — written into the sprint UAT script.
+- (R5) UAT cases per §69.10 — persisted in `docs/findings/sprint-45.md` § "R5 — B-164 UAT script" (4 cases, commit `f3914af`).
+
+---
+
+## §69.13 — R6 As-Built audit trail
+
+### §69.13.1 — Pipeline trace
+
+| Round | Commit | Date | Outcome |
+|-------|--------|------|---------|
+| R0 spike | (findings only) | 2026-05-21 | Joint B-164 + B-163 R0 spike output, probe Test A confirmed `chrome.tabs.onReplaced` fires on discard with `addedTabId !== removedTabId`. R0 LOCKED (a) + (c). |
+| R1 LOCKED | (findings only) | 2026-05-21 | 8 ACs locked post-probe. |
+| R2 LOCKED | (chapter authored) | 2026-05-21 | This chapter `docs/design/69-b-164-sleep-claim-remap.md` written BEFORE R3 per S44 retro AI-1. |
+| R3 build | `e2f3944` | 2026-05-22 | R2 plan shipped as written: `idle-reconciler.js` new (R2-shape, no race-guard); `tab-events.js` `onReplaced` listener registered; `tab-claims.js` `remapTabIdInClaims` helper; `floating-groups.js` `remapFloatingGroupsLiveTabId` helper; `"idle"` permission added; 4 manifest pin tests updated; chrome-mock extended; `tests/b164-sleep-claim-remap.test.js` T1-T10 added. |
+| R4 review | (parallel) | 2026-05-22 | code + security + qa reviewed in parallel. Findings: **0 CRITICAL / 0 HIGH / 2 MEDIUM / 5 LOW**. security-reviewer CLEAN across all 8 focus areas. Per CLAUDE.md, only CRIT/HIGH block R5; product-owner authorized M-1 + M-2 fix-round in-sprint. |
+| R4 fix-round | `c30e18c` | 2026-05-22 | M-1 (T3 dedup structural counter via `sessionSetCounts` + `__getSessionSetCount` helper) + M-2 Option B (`_reconcileActive` flag + `_pendingReplacements` queue + `_drainCallback` + `_applyTabReplacement` extraction). T11 + T12 added. Suite 2048 → 2050 PASS. |
+| R5 audit | `f3914af` | 2026-05-22 | [test-engineer] Opus audit confirmed 100% AC coverage across T1-T12; no further automated tests needed. UAT script (4 cases) persisted in `docs/findings/sprint-45.md`. UAT PASS pending product-owner execution. |
+| R6 close | (this chapter) | 2026-05-22 | As-Built reconciliation applied. |
+
+### §69.13.2 — R4 findings summary
+
+| Severity | Count | Disposition |
+|----------|-------|-------------|
+| CRITICAL | 0 | — |
+| HIGH | 0 | — |
+| MEDIUM | 2 | Both fixed in `c30e18c`. M-1 = structural dedup test gap (T3 final-state-only assertion); M-2 = async-gap race between wake-`reconcileClaims` and inline `onReplaced` remap. |
+| LOW | 5 | LOW-3 (T3 misleading comment) + LOW-4 (`tab-events.js:395-398` misleading comment) — **incidentally resolved** by the M-1 / M-2 comment rewrites. LOW-1 (`setDetectionInterval` reject-path test) + LOW-2 (`'idle'`/`'locked'` no-op test) + LOW-5 (`openerMap` exclusion) — **deferred to P3 backlog** at sprint close per §69.11. |
+
+[security-reviewer] verdict: **CLEAN** across all 8 focus areas:
+1. C-6 permission minimization (`"idle"` properly justified).
+2. CSP unchanged.
+3. Input validation present (`typeof addedTabId === 'number'` etc.).
+4. Atomicity verified via `writeTransaction` `txQueue` serialization.
+5. `_reconcileInFlight` race-safe (per the original R2 reasoning, which holds for the listener-entry dedup case).
+6. No PII in console output.
+7. No schema bump (governance correctly N/A per C-1b; permission-level toggle-OFF-ON note correctly documented per C-1a-class governance).
+8. Service-worker cold-start safe (synchronous module-scope registration).
+
+### §69.13.3 — Behaviors shipped that the R2 chapter did not anticipate
+
+**Primary As-Built finding: the M-2 race-guard architecture itself.** The R2 §69.5.4 narrative claimed "SW event-loop serialization" provided coordination safety. This was correct for the inline-apply path (no wake-reconcile in flight) but **incorrect** for the wake-reconcile-in-flight path: JS event-loop serialization only covers synchronous blocks, not async-await gaps. `reconcileClaims` captures `storedClaims` synchronously at `tab-claims.js:141`, then awaits Phase 3/4 storage reads; during those awaits an `onReplaced` event could persist a remap, then be silently overwritten by the pre-remap snapshot when `reconcileClaims` resumes and calls `writeClaims` at `:309-310`.
+
+R4 qa MED-2 caught the gap. The fix-round closed it with Option B: `_reconcileActive` flag (set synchronously before the first await; cleared in `finally` AFTER the drain), `_pendingReplacements` FIFO queue, `_drainCallback` callback injection (avoids circular import), `_applyTabReplacement` extraction so the same code path serves both the inline-apply and queued-drain branches. See §69.3.2.1 for the full architecture; §69.5.4 for the corrected coordination-mechanism narrative.
+
+**No other As-Built deltas of consequence.** The R2 plan for the inline `onReplaced` remap, the `chrome.idle` listener registration, the `"idle"` permission, the 4 test pin updates, and the new helper exports all shipped as written.
+
+### §69.13.4 — Lessons for future R2 chapters
+
+This is the second sprint in a row where an R2 "single-thread SW event-loop serialization" reasoning held up for the synchronous path but missed an async-gap race. (The first was Sprint 40 B-134 H-1 over-trip class, fixed via content-conditional setter guards per the C-14 generation-counter content-predicate rule.) The pattern is: an R2 author reasons correctly about the synchronous control flow but does not enumerate the await-suspension points where the synchronous reasoning breaks down. **R2 reviewers should grep for `await` in any function cited as serialized and explicitly enumerate the suspension boundaries before sign-off.** Filed as a candidate R2 Correctness Checklist addendum for the next S46 retrospective (no chapter rule change applied today — single instance of this exact framing).
