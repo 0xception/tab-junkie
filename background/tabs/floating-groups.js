@@ -1166,24 +1166,45 @@ export async function preMarkInheritedFromFloatingGroups() {
     if (!record || typeof record !== 'object') continue;
 
     let matchedTabId = null;
+    const normalizedRecordUrl = safeNormalizeForMatch(record.url);
 
-    // POSITION MATCH (mirrors floating-groups.js:124-130)
+    /* POSITION MATCH WITH URL CORROBORATION (B-132 fix, S45 post-UAT
+       2026-05-22). Was originally position-only matching (mirrored
+       floating-groups.js:124-130). Discovered to produce false-positive
+       inheritance markings: a stale floating-group record's
+       `(windowId, tabIndex)` could coincidentally match an unrelated tab
+       that landed at the same position as tab indices shifted over time.
+       The falsely-marked tab was then skipped by the `inheritedTabs`
+       guards in `reconcileClaims` Phase 2 AND Phase 3 — breaking the
+       B-163 user-story symptom relief in the YT Music + playlist-drift
+       scenario (user reload diagnostic captured tabId in inheritedTabs
+       despite no floating-group record actually pointing at it).
+
+       Fix: when position matches but the record carries a URL, require
+       URL corroboration. If URLs clearly mismatch, this is a stale-
+       position false positive (a different tab is now at this slot);
+       skip the position match. The URL-fallback branch below still runs
+       and may match the record to a live tab via URL alone.
+
+       Records without `record.url` (legacy / unverifiable) fall through
+       to position-only match as before — backward-compatible. */
     for (const [tabId, entry] of liveTabIndex) {
       if (entry.windowId === record.windowId && entry.index === record.tabIndex) {
+        if (normalizedRecordUrl && safeNormalizeForMatch(entry.url) !== normalizedRecordUrl) {
+          // URL mismatch despite position match — different tab, skip.
+          break;
+        }
         matchedTabId = tabId;
         break;
       }
     }
 
-    // URL FALLBACK (mirrors floating-groups.js:132-143)
-    if (matchedTabId === null) {
-      const normalizedStored = safeNormalizeForMatch(record.url);
-      if (normalizedStored) {
-        for (const [tabId, entry] of liveTabIndex) {
-          if (safeNormalizeForMatch(entry.url) === normalizedStored) {
-            matchedTabId = tabId;
-            break;
-          }
+    // URL FALLBACK (mirrors floating-groups.js:132-143) — unchanged.
+    if (matchedTabId === null && normalizedRecordUrl) {
+      for (const [tabId, entry] of liveTabIndex) {
+        if (safeNormalizeForMatch(entry.url) === normalizedRecordUrl) {
+          matchedTabId = tabId;
+          break;
         }
       }
     }
