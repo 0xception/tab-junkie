@@ -37,16 +37,6 @@ const inheritedTabs = new Set();
  */
 export function markInherited(tabId) {
   inheritedTabs.add(tabId);
-  /* TEMP DEBUG (S45 post-UAT): capture every call so we can identify which
-     code path is marking the YT Music tab as inherited. Will be reverted. */
-  try {
-    if (!globalThis._s45_mark_trace) globalThis._s45_mark_trace = [];
-    globalThis._s45_mark_trace.push({
-      tabId,
-      ts: Date.now(),
-      stack: (new Error('mark-trace')).stack?.split('\n').slice(1, 5).join(' | '),
-    });
-  } catch { /* ignore */ }
 }
 
 /**
@@ -147,29 +137,12 @@ async function writeClaims() {
  * @returns {Promise<void>}
  */
 export async function reconcileClaims(items) {
-  /* TEMP DEBUG (S45 post-UAT) — capture YT Music path through reconcile. */
-  const _dbg = {
-    ts: Date.now(),
-    inheritedTabsAtEntry: [...inheritedTabs],
-    inheritedTabsAtEntrySize: inheritedTabs.size,
-    markTrace: globalThis._s45_mark_trace || [],
-    ytmItem: items.find((it) => it.url && it.url.toLowerCase().includes('music.youtube')) || null,
-  };
-
   // M5: warn if items is empty but stored claims exist
   const storedClaims = await readClaims();
   if (items.length === 0 && Object.keys(storedClaims).length > 0) {
     console.warn('[tab-junkie] reconcileClaims called with 0 items but', Object.keys(storedClaims).length, 'stored claims exist — proceeding anyway');
   }
   const index = getLiveTabIndex();
-  _dbg.ytmTabFromIndex = (() => {
-    for (const [tabId, entry] of index) {
-      if (entry.url && entry.url.toLowerCase().includes('music.youtube')) {
-        return { tabId, url: entry.url, ytmInInherited: inheritedTabs.has(tabId) };
-      }
-    }
-    return null;
-  })();
   const reconciled = {};
   const claimedTabIds = new Set();
   /* B-110 §53 (S36) / B-163 §70.3.2 (S45): track every claim that does
@@ -349,14 +322,6 @@ export async function reconcileClaims(items) {
       }
     }
   }
-
-  /* TEMP DEBUG — finalize trace before commit */
-  _dbg.final = {
-    reconciledKeys: Object.keys(reconciled),
-    ytmFinalClaim: _dbg.ytmItem ? (reconciled[_dbg.ytmItem.id] || null) : null,
-    ytmTabInInheritedAtEnd: _dbg.ytmTabFromIndex ? inheritedTabs.has(_dbg.ytmTabFromIndex.tabId) : null,
-  };
-  try { await chrome.storage.local.set({ _s45_reconcile_trace: _dbg }); } catch { /* ignore */ }
 
   claimsMirror = reconciled;
   await writeClaims();

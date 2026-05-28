@@ -1155,17 +1155,8 @@ export async function remapFloatingGroupsLiveTabId(removedTabId, addedTabId) {
  * @returns {Promise<void>}
  */
 export async function preMarkInheritedFromFloatingGroups() {
-  /* TEMP DEBUG (S45 post-UAT): build-id sentinel — if this string appears in
-     the captured trace, the URL-corroboration fix IS the loaded version. */
-  const _B132_BUILD_ID = 'ea84211-url-corroboration-fix-2026-05-22';
-  const _trace = { buildId: _B132_BUILD_ID, ts: Date.now(), records: [], marks: [] };
-  try { globalThis._s45_premark_trace = _trace; } catch { /* ignore */ }
-
   const records = await readPartition(PARTITION_FLOATING_GROUPS);
-  if (!Array.isArray(records) || records.length === 0) {
-    try { await chrome.storage.local.set({ _s45_premark_trace: _trace }); } catch { /* ignore */ }
-    return;
-  }
+  if (!Array.isArray(records) || records.length === 0) return;
 
   const liveTabIndex = getLiveTabIndex();
   const claimsMirror = getClaimsMirror();
@@ -1220,29 +1211,10 @@ export async function preMarkInheritedFromFloatingGroups() {
 
     // Mark only matched + unclaimed candidates. The already-claimed branch
     // is the reassociateFloatingGroups prune-target (§60.4.3 step 3).
-    /* TEMP DEBUG — capture each record's outcome (only for records whose
-       match would touch a music.youtube tab; otherwise just count). */
-    const matchedEntry = matchedTabId !== null ? liveTabIndex.get(matchedTabId) : null;
-    const _isYtm = matchedEntry?.url?.toLowerCase().includes('music.youtube') ||
-                   record.url?.toLowerCase().includes('music.youtube');
-    if (_isYtm) {
-      _trace.records.push({
-        recordUrl: record.url,
-        recordWindowId: record.windowId,
-        recordTabIndex: record.tabIndex,
-        matchedTabId,
-        matchedTabUrl: matchedEntry?.url,
-        wouldMark: matchedTabId !== null && !claimedTabIds.has(matchedTabId),
-      });
-    }
     if (matchedTabId !== null && !claimedTabIds.has(matchedTabId)) {
-      if (_isYtm) _trace.marks.push({ tabId: matchedTabId, url: matchedEntry?.url, source: 'preMark' });
       markInherited(matchedTabId);
     }
   }
-
-  /* TEMP DEBUG — persist trace */
-  try { await chrome.storage.local.set({ _s45_premark_trace: _trace }); } catch { /* ignore */ }
 }
 
 /**
