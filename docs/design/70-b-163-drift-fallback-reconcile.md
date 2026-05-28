@@ -1137,6 +1137,20 @@ rationale, and the test pin at
 blocking for v1.40.0 ship; filed as a P3 documentation-debt
 item for a future polish sprint.
 
+### §70.13.7 — Cascade dependency on B-132 preMark fix (2026-05-22)
+
+The B-163 R4 round-2 Phase-3 broadening (§70.13.6 above, commit `eb714fd`) was **necessary but not sufficient** to close the user-story symptom (drifted bookmark re-binds after extension reload). Empirical UAT on the YouTube Music + playlist-drift scenario showed Phase 3 reaching the item and locating the right tab in `urlToTabs` — but the inherited-tab skip loop popped the tab via a false-positive entry in `inheritedTabs`.
+
+The false positive originated in **B-132 `preMarkInheritedFromFloatingGroups`** (`background/tabs/floating-groups.js:1165-1196`), which matched floating-group records to live tabs by `(windowId, tabIndex)` position alone — no URL corroboration. A stale floating-group record whose stored position coincidentally matched an unrelated tab's current position would falsely mark that tab as inherited. Pre-B-163 this was a silent no-op in production (Phase 2 had no code path that needed to bind a tab not at `item.url`). The B-163 Phase 3 broadening exposed it.
+
+**The sibling fix** at `background/tabs/floating-groups.js:1165-1198` (commit `ea84211`) requires URL corroboration on position match: if position matches but the record's URL clearly differs from the candidate tab's URL, the position match is treated as a stale-position false positive and skipped. Records without URL fall through to position-only as before. Full narrative in `docs/design/65-b-132-cold-start-claim-jump-fix.md` §65.15.
+
+**Without the B-132 fix, the B-163 fix would not have delivered its user-story benefit.** The two are dependently linked — they ship together as a single architectural fix-chain that closes the cold-start re-association path for drifted bookmarks. The test guard pair (B-163 T10 in `tests/b163-drift-fallback-reconcile.test.js` + B-132 T-132-I in `tests/b132-cold-start-inheritance.test.js`) jointly prevents regression of either layer.
+
+**Maintainer note**: future changes to `preMarkInheritedFromFloatingGroups` matching predicates MUST consider the impact on the B-163 Phase 3 binding path. The current `inheritedTabs` guard in Phase 3 is correct (B-125 inheritance is genuinely "spoken for"), but any change that re-introduces marking based on weaker signals (position-only, partial URL match, etc.) will silently break drifted-bookmark re-association.
+
+---
+
 ### §70.13.5 — As-shipped behavior confirmation
 
 The chapter now reflects the shipped behavior in v1.40.0:
