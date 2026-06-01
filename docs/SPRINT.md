@@ -55,57 +55,70 @@ Three CLAUDE.md edit action items inherited from S44 retrospective; the [scrum-m
 
 ## Active Items
 
-### [B-164] Saved-bookmark→tab claims survive system sleep / lid-close
-
-- **Tier**: Full (M)
-- **Priority**: P1
-- **Status**: **R3 BUILD COMPLETE (2026-05-22)** — 13 files modified (manifest + 5 background + 5 tests + new b164 test file + chrome-mock infra). New `chrome.tabs.onReplaced` listener performing 5-table remap (table 3 no-op per R2 clarification; table 4 clearTimeout+delete per R2 option-ii). New `idle-reconciler.js` module with `setDetectionInterval(60)` + `_reconcileInFlight` dedup flag + B-132 graceful-degradation. New `remapFloatingGroupsLiveTabId` atomic writeTransaction (blind-replace check clean: `(current) =>` mutator). **Tests 2038 → 2048 PASS** (+10 new B-164 tests T1-T10; zero regressions; 4 baseline pin updates net-zero). Zero R2 spec deviations.
-- **Assigned To**: PRODUCT-OWNER (UAT execution — 4 cases) → sprint-close cleanup
-- **Blockers**: ⏳ UAT execution — 4 cases in `docs/findings/sprint-45.md` "R5 — B-164 UAT script"; ~5-10 min runtime (UAT-3 is multi-day smoke). **R5 audit done** (100% AC coverage T1-T12; 2050 PASS). **R6 As-Built done** (chapter §69 1249 → 1400 lines; new §69.3.2.1 race-guard architecture; §69.5.4 corrected; §69.13 R6 audit trail; SOLUTION_DESIGN TOC flipped).
-- **Feature Context**:
-  - Product-owner reports that over days of continuous use, across system sleep / laptop-lid-close cycles, saved-bookmark→tab claims progressively break: live tab appears in Open Tabs as if unclaimed, matching bookmark renders as non-live.
-  - Distinct from B-149 (SW idle-shutdown, fixed) and B-163 (full browser restart, in-sprint sibling).
-  - Strongest root-cause lead: zero `chrome.tabs.onReplaced` / `onDiscarded` listeners in `background/`; claim mirror keyed `itemId → tabId` (`background/tabs/tab-claims.js:19`) never remapped if Chrome rotates tab ids on discard/restore post-sleep. Maps to CLAUDE.md C-13 (Chrome event-feedback completeness).
-- **Handoff Notes**: R0 spike (joint with B-163) must confirm the actual Chrome event sequence on sleep/wake (which of `onReplaced`/`onDiscarded`/nothing/SW-cold-start fires) — fix shape depends on it. 30-second SW REPL probe (`chrome.tabs.discard(N)` → compare id before/after reactivation) is a minimum check.
-- **Files Changed**: (none yet)
-- **Parallel Opportunity**: Joint R0 spike with B-163 (siblings); R1 + R3 can run in parallel with B-166 (independent surface).
-
-### [B-163] Drift URL fallback on cold-start re-association
-
-- **Tier**: Full (M)
-- **Priority**: P2
-- **Status**: **R1 LOCKED (2026-05-21)** — 7 testable ACs: AC1 cold-start drift re-association (happy) · AC2 primary `item.url` wins over drift URL · AC3 one-tab-per-drift-record cap (hijack mitigation) · AC4 drift dropped only when both URLs fail (§10.7 invariant preserved) · AC5 inherited-tab skip in Phase-3 (B-125 parity) · AC6 zero B-149 Phase-1 regression · **AC7 PRODUCT-OWNER R2 DECISION REQUIRED — TTL on drift-as-fallback-key (None / 7 days / N days)**. Full block in `docs/findings/sprint-45.md` R1 LOCKED section.
-- **Assigned To**: PRODUCT-OWNER (UAT execution — 4 UI-observable cases) → sprint-close cleanup
-- **Blockers**: ⏳ UAT execution — 4 cases in `docs/findings/sprint-45.md` "R5 — B-163 UAT script" section; ~5-7 min runtime; UI-observable signals only. **R5 audit done** (100% AC coverage T1-T9; 2048 PASS). **R6 As-Built done** (chapter §70 flipped R2 LOCKED → R6 AS-BUILT; §70.3.1.1 graceful-degradation contract added; §70.13 R4 audit trail; SOLUTION_DESIGN TOC descriptor updated).
-- **Feature Context**:
-  - Today `reconcileClaims` Phase 2 uses ONLY `item.url` as the URL-match candidate. Phase 1 evictions paired-clear drift records (B-110 §53).
-  - Result: a claimed item that drifts to URL X, then loses its claim across an SW idle + tab-recreate cycle, will NOT re-bind to a fresh tab on URL X — even though `tj:drift` recorded the drift before eviction.
-  - R0 options pre-enumerated in BACKLOG: (a) defer §53 paired-clear + Phase-3 sweep / (b) Phase-2 fallback lookup against `driftedToUrl` / (c) persist `lastClaimedUrl` rolling field on Items.
-- **Handoff Notes**: Joint R0 spike with B-164 (both touch the claim re-binding lifecycle). Out of scope: re-introducing URL-match as a Phase-1 survival predicate (B-149 specifically inverted that).
-- **Files Changed**: (none yet)
-- **Parallel Opportunity**: Sibling of B-164 — joint R0 spike, then independent R1+ pipelines.
-
-### [B-166] `+` CTA on floating tab promotes in-place (not bottom of group)
-
-- **Tier**: Full (M) — auto-upgraded from Fast Track per CLAUDE.md "If an XS/S item introduces a new storage schema, new message types, new extension permissions, or cross-cutting changes…": R0 options (a) and (c) propose message-contract (MSG_PROMOTE_TAB payload extension) or storage-contract (`createItem({insertAt})`) changes; (b) is purely SW-side detection. R2 review needed regardless of option.
-- **Priority**: P2
-- **Status**: **R3 BUILD COMPLETE (2026-05-21)** — 6 files modified, 10 new tests, 2016 → 2026 PASS (zero regressions). Cross-surface extension: newtab `_promoteFloatingTab` also extended (R2 spec deviation escalated — §71 chapter said newtab unchanged, but both surfaces consume the same `Group.renderOrder`; agent extended in lockstep with proper escalation per CLAUDE.md). All 6 R1 ACs covered. Cascade-prune sibling-grep verified 3 MSG_PROMOTE_TAB sender sites + 1 SW handler (bulk-promote + right-click picker correctly omit the hint per AC5).
-- **Status**: ✅ **DONE through R6 (2026-05-21)** — chapter §71 As-Built reconciled (11-row delta table + 4 behaviors-shipped-the-chapter-didn't-anticipate documented). SOLUTION_DESIGN.md TOC descriptor updated R2 Plan → R6 As-Built. Awaiting sprint close to mark BACKLOG.md status → done.
-- **Assigned To**: [scrum-master] (sprint-close cleanup)
-- **Blockers**: none
-- **Feature Context**:
-  - The floating-row `+` CTA (`_onFloatingSaveCtaClick` at `sidepanel/sidepanel.js:3169`) saves the floating tab into its parent group correctly (no modal), but the new bookmark lands at the BOTTOM of the group instead of taking over the floating tab's interleaved position.
-  - Root cause: `MSG_PROMOTE_TAB` (`background/messages/storage-handlers.js:407`) calls `createItem({title, url, groupId})` with no positioning hint; `createItem` (`background/storage/items.js:174-225`) unconditionally appends — `renderOrder.push('item:' + item.id)` at `:207` and `sortOrder: bucketSize` at `:220`. Post-B-148 the group `renderOrder` already contains a `floating:<floatingTabId>` entry at the visible position; the promote path neither reads nor replaces it.
-  - R0 options pre-enumerated in BACKLOG: (a) UI-side `replaceFloatingId` hint on MSG_PROMOTE_TAB / (b) SW-side detection / (c) general-purpose `createItem({insertAt})` parameter.
-- **Handoff Notes**: Out of scope: right-click `_openOpenTabContextMenu` "Save to group" picker path (intentional UX for cross-group saves — confirmed at filing); Open-Tabs save flows (no group to preserve position within).
-- **Files Changed**: (none yet)
-- **Parallel Opportunity**: Independent of B-164 + B-163; can run start-to-end in parallel.
+_None — all three S45 items closed below._
 
 ---
 
 ## Completed This Sprint
 
-_None yet — sprint just opened._
+### [B-164] Saved-bookmark→tab claims survive system sleep / lid-close
+
+- **Tier**: Full (M)
+- **Priority**: P1
+- **Status**: ✅ **DONE through R6 (S45 close, 2026-05-28)**
+- **As-Shipped Summary**: New `chrome.tabs.onReplaced` listener (`background/tabs/tab-events.js`) performs an atomic 5-table remap (claimsMirror, inheritedTabs, drift, floatingGroups.liveTabId, openerMap) within a single `writeTransaction`. New `background/tabs/idle-reconciler.js` module subscribes to `chrome.idle.onStateChanged` with `setDetectionInterval(60)` and triggers a defensive `reconcileClaims` on wake — guarded by an `_reconcileActive` flag + `_pendingReplacements` queue + drain-callback pattern (R4 M-2 Option B) so concurrent `onReplaced` events during the reconcile pass are queued and drained, not lost. New `"idle"` manifest permission. New `remapFloatingGroupsLiveTabId` atomic write site. **Tests**: T1–T12 (10 from R3 + T11 dedup-counter / T12 race-guard from R4 fix-round); 2038 → 2050 PASS, zero regressions. **R4 findings**: 2 MEDIUM closed (M-1 dedup, M-2 race-guard); 5 LOWs deferred to P3 backlog. **R6 As-Built**: chapter §69 (1249 → 1400 lines), new §69.3.2.1 race-guard architecture subsection, §69.5.4 SW event-loop serialization claim corrected, §69.13 R6 audit trail, SOLUTION_DESIGN TOC descriptor R2 Plan → R6 As-Built.
+- **Files Changed**: `manifest.json`, `background/service-worker.js`, `background/tabs/tab-events.js`, `background/tabs/tab-claims.js`, `background/tabs/floating-groups.js`, `background/tabs/idle-reconciler.js` (new), `tests/b164-sleep-claim-remap.test.js` (new, T1–T12), `tests/chrome-mock.js` (chrome.idle + chrome.tabs.onReplaced infra), `tests/b132-cold-start-inheritance.test.js` (baseline pin), `tests/b149-drifted-claim-survives-cold-start.test.js` (baseline pin), `docs/design/69-b-164-sleep-claim-remap.md` (new R6 As-Built chapter), `docs/SOLUTION_DESIGN.md` (TOC §69 entry).
+
+### [B-163] Drift URL fallback on cold-start re-association (incl. B-132 sibling fix)
+
+- **Tier**: Full (M)
+- **Priority**: P2
+- **Status**: ✅ **DONE through R6 (S45 close, 2026-05-28)**
+- **As-Shipped Summary**: `reconcileClaims` extended with Phase 3 (drift-URL fallback lookup) and Phase 4 (conditional drift drop). Phase 3 iterates all unbound items (R4 round-2 scope broadening from R3's initial `evictedItemIds` source — extension-reload regression caught at empirical UAT and fixed in `eb714fd`); primary `item.url` always wins over `drift.driftedToUrl`; one-tab-per-drift-record cap mitigates hijack risk; inherited-tab skip preserves B-125 parity. Phase 4 drops drift records only when BOTH `item.url` and `driftedToUrl` failed to match (§10.7 invariant preserved). `getDriftRecords()` wrapped in try/catch graceful degradation (R4 HIGH-1, fixed in `edd83c8`) — storage-read failure logs and continues with empty drift map rather than aborting reconcile. **Sibling B-132 fix**: `preMarkInheritedFromFloatingGroups` (`background/tabs/floating-groups.js`) now requires URL corroboration on position match (commit `ea84211`) — closes a stale-position false-positive surfaced at S45 post-UAT review. **Tests**: T1–T10 covering happy-path re-association, primary-wins, one-tab cap, drift-preservation when only one URL matches, inherited-tab skip, B-149 Phase-1 regression guard, storage-failure graceful degradation, R4 round-2 unbound-items iteration. **R6 As-Built**: chapter §70 (R2 LOCKED → R6 AS-BUILT), §70.3.1.1 graceful-degradation contract, §70.13 audit trail, §70.13.7 cascade narrative for the R4 round-2 + B-132 sibling fix. §65.15 R6 As-Built addendum added to B-132 chapter for the post-UAT URL-corroboration fix. SOLUTION_DESIGN TOC descriptor updated.
+- **Files Changed**: `background/tabs/tab-claims.js`, `background/tabs/floating-groups.js`, `background/tabs/index.js`, `background/messages/storage-handlers.js`, `tests/b163-drift-fallback-reconcile.test.js` (new, T1–T10), `tests/b110-drift-non-live-fix.test.js` (baseline pin), `tests/b132-cold-start-inheritance.test.js` (URL-corroboration test), `docs/design/70-b-163-drift-fallback-reconcile.md` (new R6 As-Built chapter), `docs/design/65-b-132-cold-start-claim-jump-fix.md` (§65.15 S45 addendum), `docs/SOLUTION_DESIGN.md` (TOC §70 entry).
+
+### [B-166] `+` CTA on floating tab promotes in-place (not bottom of group)
+
+- **Tier**: Full (M) — auto-upgraded from Fast Track (S) per the message-contract rule (MSG_PROMOTE_TAB payload extension).
+- **Priority**: P2
+- **Status**: ✅ **DONE through R6 (S45 close, 2026-05-28)**
+- **As-Shipped Summary**: R0 picked option (a) — UI-side `replaceFloatingId` hint on `MSG_PROMOTE_TAB`. Sidepanel `_onFloatingSaveCtaClick` (`sidepanel/sidepanel.js:3169`) and newtab `_promoteFloatingTab` (cross-surface extension per R3 escalation — both surfaces consume the same `Group.renderOrder`) pass `row.dataset.floatingTabId` as the hint. SW handler in `background/messages/storage-handlers.js` detects the hint and performs an atomic 3-partition swap (items + groups.renderOrder + floatingGroups) within a single `writeTransaction`: `createItem` lands the new item, the `floating:<id>` entry in `group.renderOrder` is swapped for `item:<newItemId>` at the same index, and the floating-tab row is pruned from `floatingGroups`. Cascade-prune sibling-grep verified — 3 MSG_PROMOTE_TAB sender sites + 1 SW handler; bulk-promote + right-click picker correctly omit the hint (AC5). **R4 fix-round**: 4 MEDIUM findings closed (cross-group prune scoping + 4-slot canonical test + source-text pin tightening). **Tests**: T1–T13 (10 from R3 + 3 R4 fix-round incl. T13 atomicity guard in the swap branch); 2016 → 2029 PASS. **R6 As-Built**: chapter §71 reconciled — 11-row delta table + 4 "behaviors shipped the chapter didn't anticipate" documented.
+- **Files Changed**: `background/messages/storage-handlers.js`, `background/storage/items.js`, `sidepanel/sidepanel.js`, `newtab/newtab.js`, `tests/b166-promote-in-place.test.js` (new, T1–T13), `tests/b124-floating-visual.test.js` (baseline pin), `docs/design/71-b-166-promote-in-place.md` (new R6 As-Built chapter), `docs/SOLUTION_DESIGN.md` (TOC §71 entry).
+
+### Backlog filing during S45
+
+- **[B-167]** Durable `tj:itemClaims` architectural rework filed 2026-05-28 (P2 / XL / Spike-First). S45 surfaced three URL-inference bugs in four days (B-163 Phase 3 scope narrowing; B-132 preMark position-only false-positive; M-1 dedup test verifying final-state-not-invocation-count) — all fixed point-wise, but underlying pattern is that `tj:tabClaims` lives in `chrome.storage.session` (wiped on every reload/restart/crash) forcing URL re-inference. R0 spike candidates: durable `tj:itemClaims` partition, `chrome.sessions` API integration, URL-history-per-claim, or combination. P2 / XL — queued for S46+ triage.
+
+---
+
+## Sprint Retrospective — Sprint 45
+
+### Velocity
+
+- **Planned**: 3 items (B-164 P1/M anchor + B-163 P2/M sibling + B-166 P2/S→Full)
+- **Completed**: 3 items shipped + sibling B-132 fix (post-UAT cascade) + 1 new backlog filed (B-167)
+- **Tests**: 1930 (S44 baseline) → **2052 PASS** (+122 net, zero regressions)
+- **Carried over**: 0
+- **Cascade fix-rounds in-sprint**: 4 (B-163 R4 HIGH-1 graceful degradation · B-163 R4 round-2 Phase-3 broadening · B-164 R4 M-1/M-2 race-guard · B-132 sibling preMark URL corroboration)
+- **Diagnostics shipped + reverted**: 2 instrumentation rounds via `chrome.storage.local._s45_*` traces; reverted at root-cause identification (`cb20b96`)
+
+### What Went Well
+
+- **Probe-driven R0 spike.** B-164's `chrome.tabs.onReplaced` empirical probe in real Edge captured the exact event sequence (`addedTabId: 803729449, removedTabId: 803725065` on `chrome.tabs.discard`) eliminating R0 guesswork that would otherwise have lurked into R3. The probe-script-then-design pattern should be precedent for any item investigating Chrome event-feedback gaps (C-13 class).
+- **Cascade-fix iteration converged within the sprint.** Three URL-inference bugs (R3 Phase 3 narrowing; R4 round-2 broadening; B-132 preMark position-only) each surfaced via different signal pathways — R4 reviewer convergence on the HIGH-1 graceful-degradation gap; empirical UAT on the Phase 3 scope; deeper UAT trace on the preMark false positive. All closed before merge; the user-story symptom is now empirically validated end-to-end.
+- **Filing B-167 as backlog instead of rushing architectural rework into S45.** Patches genuinely work; architectural concern recorded with full R0 spike candidates enumerated; S46 product-owner gets clean optionality without S45 scope creep.
+
+### What to Improve
+
+- **Spec-vs-implementation narrowing pattern surfaced THREE times in S45.** B-163 R3 narrowed Phase 3 from R1's "all unbound" to "evictedItemIds only"; M-1 dedup test verified final-state instead of invocation count; preMark used position-only match from R2's spec that documented both position AND URL paths. R4 reviewers caught some via convergence; empirical UAT caught the rest. The pattern is "the implementation simplifies a documented predicate; the test fixture matches the simplification; the bug is invisible in tests but real in production." The CLAUDE.md S46 retro candidate is to extend R4 reviewer charter with an explicit "contract-vs-implementation diff" gate: read the R1/R2 wording, trace the implementation predicate verbatim, flag any narrowing.
+- **SW-console diagnostic UX was too technical for product-owner execution.** UAT scripts requiring `chrome.storage.local.get(...)` or `chrome.tabs.discard(...)` are documented in `docs/findings/sprint-45.md` as out-of-scope for UAT (S45 retro action item from B-166 close). Both cascade diagnostics (`_b163_debug`, `_s45_premark_trace`) shipped ad-hoc per-bug. A reusable `recordTrace(key, data)` helper that writes to `chrome.storage.local._diag_*` for SW-console-readable diagnostics surviving SW restart would replace per-investigation instrumentation.
+- **The inference-recovery architectural layer is structurally fragile.** Three URL-inference bugs in four days. B-167 captures the wider class; the lesson for S45's process is "weigh point-fix vs symptom-of-wider-class before committing to a fix-round." All four S45 cascade rounds were correct interventions in isolation; the wider pattern was only visible at the post-cascade reflection.
+
+### Action Items for Sprint 46
+
+- [ ] **[code-reviewer]** Add "contract-vs-implementation diff" gate to the R4 review checklist. For every implementation predicate, read the R1/R2 contract wording, then trace the predicate to its implementation; flag any narrowing. The three S45 occurrences (B-163 Phase 3 scope, M-1 dedup test, preMark position-only) are the canonical precedents. Land as a CLAUDE.md "Round 4: Review" subsection update.
+- [ ] **[scrum-master]** Triage B-167 at S46 kickoff. Durable `tj:itemClaims` architectural rework, P2 / XL / Spike-First. R0 spike before scoping; pick durability strategy from (a) durable partition / (b) `chrome.sessions` API / (c) URL-history-per-claim / (d) combination. Decision determines whether B-167 is an S46 anchor or deferred further.
+- [ ] **[test-engineer]** Build a standard diagnostic-writes-to-storage helper. `shared/diag.js#recordTrace(key, data)` writes to `chrome.storage.local._diag_*` keys for SW-console-readable diagnostics that survive SW restart. Replaces the ad-hoc `globalThis._s45_*` + `chrome.storage.local._b163_debug` patterns. Reusable across future bug investigations; consistent with the S45 retro action item from B-166 close (UAT scripts should use UI-observable signals; SW-console-diagnostic helpers should be a reusable engineering tool, not per-bug improvisation).
 
 ---
 

@@ -2,6 +2,32 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.40.0] — 2026-05-28 (Sprint 45 close — claim-desync correctness)
+
+Sprint 45 anchor. Saved-bookmark→tab claims survive system sleep / lid-close (B-164) and cold-start drift re-association (B-163); floating-tab `+` CTA promotes in-place (B-166). Sibling B-132 fix (preMark URL corroboration) lands as part of the B-163 cascade.
+
+### New features
+- **Sleep/wake claim resilience (B-164)** — `chrome.tabs.onReplaced` listener performs a 5-table remap when Chromium rotates a tab id on discard/restore. `chrome.idle.onStateChanged` triggers a defensive `reconcileClaims` rerun on `'active'` (with `_reconcileInFlight` dedup). Race-guard architecture (`_reconcileActive` flag + `_pendingReplacements` queue + drain-callback pattern) ensures `onReplaced` during wake reconcile is queued, not silently overwritten.
+- **Drift URL fallback on cold-start (B-163)** — `reconcileClaims` adds Phase 3 (drift-URL fallback) + Phase 4 (conditional drift drop). After R4 round-2 fix, the Phase 3 set is "all items still unbound after Phase 2" (covers extension-reload scenarios where session storage was wiped). Inherited-tab skip mirrors Phase 2 (B-125 parity). No TTL gate (product-owner decision).
+- **Floating `+` CTA in-place promote (B-166)** — promoting a floating tab via the `+` CTA preserves its position in the group's renderOrder rather than appending at the bottom. New optional `replaceFloatingId` field on MSG_PROMOTE_TAB; 3-partition atomic swap inside `createItem` (groups splice-replace + items append + floating-groups prune). Cross-surface parity: sidepanel + newtab both extended.
+
+### Internal
+- **New `"idle"` manifest permission** (B-164 §69.3.3) — C-6 minimization documented: smallest-scope Chrome permission that delivers `'active'`-state SW wake; alternatives like `chrome.runtime.onConnect` keep-alive ports are heavier and don't natively signal OS-wake.
+- **New `background/tabs/idle-reconciler.js`** module — registers `chrome.idle.onStateChanged` listener with `_reconcileInFlight` dedup, `_reconcileActive` race-guard flag, and `_pendingReplacements` queue + drain-callback.
+- **New `chrome.tabs.onReplaced` listener** in `background/tabs/tab-events.js` — performs 5-table remap (claimsMirror + inheritedTabs + reevalTimers + tj:floatingGroups[].liveTabId + explicit table-3 no-op for `_faviconStampedItemIds` which is itemId-keyed not tabId-keyed).
+- **B-132 fix: `preMarkInheritedFromFloatingGroups` URL corroboration** — position match now requires URL agreement when the record has a URL; prevents stale-position false positives that exposed the YT Music empirical UAT issue. Backward-compatible for records without URL.
+- **`reconcileClaims` Phase 3 broadened (B-163 R4 round-2)** — iterates all unbound items, not just `evictedItemIds`. Covers extension-reload scenario where session storage is wiped on reload.
+- **Test count**: 1930 (S44 baseline) → 2052 PASS in S45 close. Net +122 tests across B-163 (T1-T10), B-164 (T1-T12), B-166 (T1-T13), B-132 (T-132-I), and minor delta updates.
+
+### Migration note
+**New "idle" permission requires a one-time extension toggle OFF→ON in `edge://extensions`** after update to flush the SW module cache and pick up the new permission grant. (C-1a governance: permission additions, like schema bumps, require module-cache flush.)
+
+### Rollback
+v1.40.0 is purely additive to the SW (no schema change; no message-contract change; no UI change). Downgrade to v1.39.0 is safe — the `"idle"` permission gracefully degrades (no module-cache flush required for downgrade; the on-wake reconcile listener simply does not register).
+
+### Filed during S45 close
+- **B-167** (P2 / XL Spike-First) — durable `tj:itemClaims` architectural rework. Filed from S45 retrospective: three inference bugs caught in four days suggests the inference-recovery pattern is structurally fragile. R0 spike candidates: durable partition + `chrome.sessions` API for restart + URL-history-per-claim. For S46+ triage.
+
 ## [1.39.0] — 2026-05-04 (B-148 interleave floating tabs with saved bookmarks)
 
 Sprint 44 anchor. Floating tabs and saved bookmarks within a Tab Junkie group can now be interleaved into one user-defined sequence; the order is owned by the Group record, persists across tab close + extension restart, and applies to both sidepanel and newtab surfaces.

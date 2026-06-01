@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-05-21 · **Version:** 2.45.opened · **Total Items:** 154 · **Sprint 45 OPEN.** Anchor: B-164 (P1/M sleep-wake claim desync). Siblings: B-163 (P2/M drift URL fallback — joint R0 spike with B-164) + B-166 (P2/S floating `+` promote-in-place). Sprint 44 closed 2026-05-21 with v1.39.0 tagged on release/v2 at merge commit `4ddc58a` (PR #54): B-148 interleave anchor + 10 polish/hotfix rounds + 5 new follow-on items filed (B-162..B-166); tests 1930 → 2016 PASS; schema v6 → v7 lazy.
+**Updated:** 2026-05-28 · **Version:** 2.45.closed · **Total Items:** 155 · **Sprint 45 CLOSED.** Shipped: B-164 (P1/M sleep-wake claim-mirror remap — `chrome.tabs.onReplaced` 5-table remap + `chrome.idle.onStateChanged` wake reconcile + race-guard), B-163 (P2/M drift URL fallback Phase 3/4 + sibling B-132 URL-corroboration fix), B-166 (P2/S→Full floating `+` promote-in-place via `replaceFloatingId` hint + 3-partition atomic swap). One new backlog item filed: B-167 (P2/XL Spike-First — durable `tj:itemClaims` architectural rework, queued for S46+ triage). 31 commits, 33 files changed, +7297/-104; v1.40.0 staged. Sprint 44 closed 2026-05-21 with v1.39.0 tagged on release/v2 at merge commit `4ddc58a` (PR #54): B-148 interleave anchor + 10 polish/hotfix rounds + 5 new follow-on items filed (B-162..B-166); tests 1930 → 2016 PASS; schema v6 → v7 lazy.
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████████████████░  94% (144/154)  [S45 open · 3 in-progress · v1.39.0 shipped on release/v2]
+Overall Progress    ███████████████████░  95% (147/155)  [S45 closed · 0 in-progress · v1.40.0 staged on release/v2]
 ```
 
 ### Legend
@@ -122,13 +122,13 @@ Overall Progress    ███████████████████░
 
 ---
 
-## Sprint 45 — Claim-desync correctness (active)
+## Sprint 45 — Claim-desync correctness (closed)
 
-> 0/3 done · 3 in progress · Sprint 45 opened 2026-05-21 on branch `feature/sprint-45-claim-desync` (off `release/v2` at v1.39.0 / `6600010`)
+> 3/3 done · 0 in progress · Sprint 45 closed 2026-05-28 (v1.40.0 staged on `feature/sprint-45-claim-desync`; release/v2 tag pending product-owner approval) · 1 new backlog item filed (B-167)
 
-🔄 B-164 — Saved-bookmark→tab claims survive system sleep / lid-close · 🟠 · M [S45 anchor — Full pipeline · siblings joint R0 spike with B-163 · likely C-13 missing `chrome.tabs.onReplaced` / `onDiscarded` listener · distinct from B-149 (SW idle) and B-163 (browser restart)]
-🔄 B-163 — Drift URL fallback on cold-start re-association · 🟡 · M [S45 sibling — Full pipeline · joint R0 spike with B-164 · R0 options: (a) defer §53 paired-clear / (b) Phase-2 `driftedToUrl` fallback / (c) `lastClaimedUrl` rolling field]
-🔄 B-166 — Floating `+` CTA promotes in-place (not bottom of group) · 🟡 · S [S45 small fix — Fast Track auto-upgrade-to-Full because R0 options (a)/(c) modify MSG_PROMOTE_TAB payload or createItem signature · R0 options: (a) UI-side `replaceFloatingId` hint / (b) SW-side detection / (c) `createItem({insertAt})`]
+✅ B-164 — Saved-bookmark→tab claims survive system sleep / lid-close · 🟠 · M [S45 anchor — Full · `chrome.tabs.onReplaced` 5-table remap + `chrome.idle.onStateChanged` wake reconcile + `_reconcileActive` race-guard with `_pendingReplacements` drain queue + new `"idle"` permission · T1–T12 PASS · 2 MED closed / 5 LOWs deferred · chapter §69 R6 As-Built]
+✅ B-163 — Drift URL fallback on cold-start re-association · 🟡 · M [S45 sibling — Full · `reconcileClaims` Phase 3 (drift-URL fallback) + Phase 4 (conditional drift drop) + R4 round-2 unbound-items scope broadening + sibling B-132 preMark URL-corroboration fix (§65.15) · T1–T10 PASS · chapter §70 R6 As-Built]
+✅ B-166 — Floating `+` CTA promotes in-place (not bottom of group) · 🟡 · S [S45 small fix — auto-upgraded S → Full M · `MSG_PROMOTE_TAB.replaceFloatingId` hint + 3-partition atomic swap · sidepanel + newtab cross-surface · T1–T13 PASS (incl. T13 atomicity guard) · 4 MED closed · chapter §71 R6 As-Built]
 
 ---
 
@@ -288,27 +288,25 @@ Overall Progress    ███████████████████░
 |----------|-------|---|
 | 🔴 P0 Critical | 15 | 12% |
 | 🟠 P1 High | 35 | 28% |
-| 🟡 P2 Medium | 22 | 18% |
+| 🟡 P2 Medium | 23 | 19% |
 | ⚪ P3 Nice-to-have | 13 | 10% |
 
 ## Status Summary
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 144 | 94% |
-| 🔄 In Progress | 3 | 2% |
-| ⬜ To Do | 7 | 4% |
+| ✅ Done | 147 | 95% |
+| 🔄 In Progress | 0 | 0% |
+| ⬜ To Do | 8 | 5% |
 | 🧊 Icebox | 3 | 2% |
 
-(Done count: 144. Sprint 45 opened 2026-05-21 on branch `feature/sprint-45-claim-desync` off `release/v2` at v1.39.0. Three items moved from backlog → in-progress: B-164 (P1/M sleep-wake claim desync — anchor), B-163 (P2/M drift URL fallback — sibling), B-166 (P2/S floating `+` promote-in-place). Sprint 44 closed 2026-05-21 shipping B-148 interleave (Spike-First XL, schema v6→v7 lazy + `shared/render-order.js` resolver + 12 atomic multi-partition write sites + sidepanel/newtab render-path consumption + 10+ polish/hotfix rounds); v1.39.0 tagged on release/v2 at `4ddc58a` (PR #54). Five new follow-on items filed during S44 close — three (B-164/B-163/B-166) carried into S45, two (B-162, B-165) remain backlog.)
+(Done count: 147. Sprint 45 closed 2026-05-28 on branch `feature/sprint-45-claim-desync` off `release/v2` at v1.39.0; v1.40.0 staged for release/v2 tag. Three items shipped: B-164 (P1/M sleep-wake claim-mirror remap — anchor), B-163 (P2/M drift URL fallback Phase 3/4 + sibling B-132 URL-corroboration fix), B-166 (P2/S→Full floating `+` promote-in-place). One new backlog item filed during close-out: B-167 (P2/XL Spike-First — durable `tj:itemClaims` architectural rework). Sprint 44 closed 2026-05-21 shipping B-148 interleave (Spike-First XL, schema v6→v7 lazy + `shared/render-order.js` resolver + 12 atomic multi-partition write sites + sidepanel/newtab render-path consumption + 10+ polish/hotfix rounds); v1.39.0 tagged on release/v2 at `4ddc58a` (PR #54).)
 
-**In Progress breakdown (3 items, Sprint 45)**:
-- 🟠 **P1** (1): **B-164** sleep/wake claim desync (M, S45 anchor)
-- 🟡 **P2** (2): **B-163** drift URL fallback (M, S45 sibling — joint R0 with B-164) · **B-166** floating + promote in-place (S, S45 small fix)
+**In Progress breakdown**: _None — Sprint 45 closed; Sprint 46 not yet opened._
 
-**To-Do breakdown (7 items)**:
+**To-Do breakdown (8 items)**:
 - 🟠 **P1** (1): **B-150 Q2** lost-sync continuation (B-149 hypothesis mechanisms a/b/d still open; awaits real-world repro signal)
-- 🟡 **P2** (3): B-076 MIGRATION_STEPS hook (S) · **B-138** post-B-137 cleanup (XS, DEFERRED) · **B-165** drop scroll preservation (M)
+- 🟡 **P2** (4): B-076 MIGRATION_STEPS hook (S) · **B-138** post-B-137 cleanup (XS, DEFERRED) · **B-165** drop scroll preservation (M) · **B-167** durable `tj:itemClaims` architectural rework (XL Spike-First, filed S45)
 - ⚪ **P3** (3): **B-135** cross-window Open Tabs drag · B-086 sidepanel UI/UX umbrella (M) · **B-155** Edge multi-drag count-badge ghost (TBD, R0 candidate) · **B-162** Ctrl+Shift+T reopen position (M)
 
 **To-Do breakdown (8 items)**:

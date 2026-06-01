@@ -2,7 +2,7 @@
 
 **Sprint:** 40
 **Tier:** Full (M)
-**Status:** R2 complete (2026-04-29) — READY FOR R3 · R6 will add "As Built" delta
+**Status:** R6 CLOSED — Sprint 40 (v1.34.0); §65.14 R6 As-Built · §65.15 S45 As-Built addendum 2026-05-28 (v1.40.0)
 **Owner:** [solution-architect]
 **Depends on:** §10.5 (LiveTabIndex & TabClaims architecture — `claimsMirror`,
 `reconcileClaims`, `reevaluateTab`); §10.8 (Floating-group re-association); §21
