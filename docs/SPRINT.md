@@ -62,7 +62,7 @@ Sprint 45 closed with three explicit action items for S46. Two of them ARE in-sc
 
 - **Tier**: Full Spike-First (XL)
 - **Priority**: P2
-- **Status**: R0 SPIKE PENDING — ready to launch
+- **Status**: **R0 LOCKED (2026-06-02)** — PICK combination (d): durable `tj:itemClaims` partition with `sessionTag` discriminator + retained Phase 1/2/3/4 inference as backstop. Schema bump v7 → v8 (C-1a paired). `chrome.sessions` API REJECTED (no public surface bridges old→new tabId across restore). ~610 LOC R3 estimate (fits S46). **One open product-owner question**: **Q1 (HIGH)** — URL-history per claim, include in v1 (storage cost risk) or defer? Full R0 output in `docs/findings/sprint-46.md`.
 - **Assigned To**: [solution-architect] Opus (R0 spike) → [product-manager] (R1) → [solution-architect] Opus (R2 chapter §72)
 - **Blockers**: none
 - **Feature Context**:
@@ -77,7 +77,7 @@ Sprint 45 closed with three explicit action items for S46. Two of them ARE in-sc
 
 - **Tier**: Full (S — close to Fast Track; may auto-upgrade if R0 surfaces a `commands` manifest-permission interaction)
 - **Priority**: P2
-- **Status**: R1 PENDING — both triggers (toolbar icon + keyboard shortcut) confirmed at filing by product-owner
+- **Status**: **R1 LOCKED (2026-06-02)** — 7 ACs: toolbar icon click → MSG_JUMP_TO_ACTIVE_WINDOW · keyboard `Alt+W` (collision-free verified) → SW command listener → sidepanel scroll · `[data-window-id]` query → smooth scrollIntoView · 600ms visual flash · empty-state toast · new MSG constant in `shared/messages.js`. Two R2-VERIFY items: `chrome.windows.getLastFocused` vs `getCurrent` from SW context; sidepanel toast helper API. Full block in `docs/findings/sprint-46.md`.
 - **Assigned To**: [product-manager] (R1) → [solution-architect] Sonnet (R2)
 - **Blockers**: none
 - **Feature Context**:
@@ -93,7 +93,7 @@ Sprint 45 closed with three explicit action items for S46. Two of them ARE in-sc
 
 - **Tier**: Fast Track (XS) — CLAUDE.md edit only
 - **Priority**: P3
-- **Status**: R1 PENDING — acceptance criteria stated in BACKLOG row; product-owner direction crisp
+- **Status**: **R1 LOCKED (2026-06-02)** — 5 ACs: subsection exists at `CLAUDE.md:30` or `:442` · core rule (name leads + ticket ID in parens) · greppable-surfaces exception listed · prose-only scope · all-agents applicability. Full block in `docs/findings/sprint-46.md`.
 - **Assigned To**: [product-manager] (R1) → [scrum-master] (R3 CLAUDE.md edit)
 - **Blockers**: none
 - **Feature Context**: in conversation/planning/agent-prompts/retros, lead with human-identifiable names (e.g., "Durable claim identity (B-167)"); machine-greppable surfaces (commits, code comments, BACKLOG.md ID column, chapter section markers) keep ticket IDs alone.
@@ -104,7 +104,7 @@ Sprint 45 closed with three explicit action items for S46. Two of them ARE in-sc
 
 - **Tier**: Fast Track (XS) — CLAUDE.md edit only
 - **Priority**: P3
-- **Status**: R1 PENDING — three S45 precedents documented in BACKLOG row
+- **Status**: **R1 LOCKED (2026-06-02)** — 4 ACs: subsection at `CLAUDE.md:403` "Round 4: Review" scope · 3-step procedure (locate contract / trace verbatim / flag narrowing as HIGH) · 3 S45 precedents cited (B-163 Phase 3 / M-1 dedup test / preMark position-only) · HIGH severity + escalation path. Full block in `docs/findings/sprint-46.md`.
 - **Assigned To**: [product-manager] (R1) → [scrum-master] (R3 CLAUDE.md edit)
 - **Blockers**: none
 - **Feature Context**: extend the "Round 4: Review" section in CLAUDE.md with a "Contract-vs-implementation diff gate" subsection. R4 [code-reviewer] must trace each implementation predicate against the R1/R2 contract wording verbatim and flag any narrowing as HIGH-severity.
@@ -115,7 +115,7 @@ Sprint 45 closed with three explicit action items for S46. Two of them ARE in-sc
 
 - **Tier**: Fast Track (XS) — new tiny module
 - **Priority**: P3
-- **Status**: R1 PENDING — API shape stated in BACKLOG row
+- **Status**: **R1 LOCKED (2026-06-02)** — 6 ACs: `shared/diag.js` module with 3 named exports (`recordTrace`/`readTraces`/`clearTraces`) · append semantics with timestamp · prefix-filtered read · namespace-scoped clear · CLAUDE.md "Diagnostic patterns" subsection forbidding ad-hoc `_diag_*` keys · `tests/b171-diag.test.js` covering 6 unit-test cases. Full block in `docs/findings/sprint-46.md`.
 - **Assigned To**: [product-manager] (R1) → [frontend-engineer] (R3 build)
 - **Blockers**: none
 - **Feature Context**: new `shared/diag.js` exporting `recordTrace(key, payload)` (writes to `chrome.storage.local._diag_<key>` with append semantics + timestamp), `readTraces(prefix?)` reader, `clearTraces(prefix?)` cleanup. Document in CLAUDE.md "Diagnostic patterns" subsection. Replaces ad-hoc per-bug instrumentation (S45's `_b163_debug` + `_s45_*_trace` patterns).

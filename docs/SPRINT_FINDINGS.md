@@ -25,3 +25,4 @@
 - [Sprint 42 — R4 Findings (Deduplicated)](findings/sprint-42.md)
 - [Sprint 43 — R4 Findings (Deduplicated)](findings/sprint-43.md) — _empty; lean-mode bug-fix loop, no formal R4 reviewers dispatched_
 - [Sprint 45 — Findings (R0 + R4)](findings/sprint-45.md) — _R0 joint spike for B-164 + B-163 landed 2026-05-21; R4 to be appended_
+- [Sprint 46 — Findings (R0 + R1)](findings/sprint-46.md) — _R0 spike for Durable claim identity (B-167) + R1 LOCKED for B-168 / B-169 / B-170 / B-171 landed 2026-06-02_
