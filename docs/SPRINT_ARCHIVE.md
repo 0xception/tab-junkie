@@ -2819,3 +2819,77 @@ Filed P3/TBD as follow-on. Current Edge regressed both the original B-025 UAT-8 
 - **Storage schema**: v6 → v7 (lazy migration; no eager rewrite step)
 - **Manifest permissions**: unchanged from v1.38.2
 - **Sprints + hotfixes without rollback**: 21 (S23 → S44)
+
+---
+
+## Sprint 45 — Claim-desync correctness (2026-05-21 → 2026-06-02)
+
+**Theme:** Post-B-148 follow-up correctness. Saved-bookmark→tab claim resilience across the three storage-wipe scenarios (system sleep / lid-close, cold-start, extension reload) plus the floating-tab `+` CTA promote-in-place UX fix.
+**Release:** v1.40.0 (tagged on `release/v2` at merge commit `3286227` · PR #55)
+**Branch:** `feature/sprint-45-claim-desync` (off `release/v2` at v1.39.0 / `6600010`)
+
+### Completed Items
+
+#### [B-164] Saved-bookmark→tab claims survive system sleep / lid-close — ✅ DONE
+- **Tier**: Full (M) · **Priority**: P1
+- **Closed**: 2026-05-28
+- **Pipeline**: R0 spike ✅ (probe-driven; empirical Chromium event sequence captured) · R1 LOCKED ✅ (8 ACs post-probe) · R2 ✅ (`docs/design/69-b-164-sleep-claim-remap.md`, ~1249 lines) · R3 ✅ (13 files) · R4 Review ✅ (0 CRIT/HIGH, 2 MED M-1+M-2, 5 LOW; M-1+M-2 fixed in fix-round `c30e18c`) · R5 ✅ (2050/2050 PASS) · R6 ✅ (§69 R6 As-Built, chapter grew 1249 → 1400 lines with §69.3.2.1 race-guard architecture subsection + §69.13 audit trail) · R7 N/A (no user-facing UI change beyond reliability)
+- **Key files**: `manifest.json` (+ `"idle"` permission), `background/service-worker.js` (register idle reconciler), `background/tabs/tab-events.js` (chrome.tabs.onReplaced listener + 5-table remap), `background/tabs/tab-claims.js` (`remapTabIdInClaims` + dedup flag), `background/tabs/floating-groups.js` (`remapFloatingGroupsLiveTabId` atomic write), `background/tabs/idle-reconciler.js` (NEW — `chrome.idle.onStateChanged` listener + `_reconcileInFlight` dedup + `_reconcileActive` race-guard flag + `_pendingReplacements` queue + drain-callback pattern), `tests/b164-sleep-claim-remap.test.js` (NEW, T1-T12), `tests/chrome-mock.js` (chrome.idle + chrome.tabs.onReplaced infra)
+- **R0 probe outcome**: `chrome.tabs.discard(803725065)` → `onReplaced FIRED { addedTabId: 803729449, removedTabId: 803725065 }` — empirical confirmation that modern Chromium rotates tabIds on discard AND `onReplaced` carries both ids. R0 design (a) `onReplaced` listener + (c) `chrome.idle` reconciler validated pre-R1 lock; eliminated R0 guesswork that would otherwise have lurked into R3.
+- **R4 fix-round**: M-1 dedup-counter test (T3 final-state-only → invocation-count proof via `__getSessionSetCount`); M-2 race-guard architecture (Option B — `_reconcileActive` flag + queue + drain-callback prevents pre-remap snapshot from silently overwriting B-164 remap during async-await gap inside `reconcileClaims`)
+
+#### [B-163] Drift URL fallback on cold-start re-association — ✅ DONE (incl. sibling B-132 fix)
+- **Tier**: Full (M) · **Priority**: P2
+- **Closed**: 2026-05-28
+- **Pipeline**: R0 spike ✅ (joint with B-164) · R1 LOCKED ✅ (7 ACs, AC7 NO TTL resolved by product-owner) · R2 ✅ (`docs/design/70-b-163-drift-fallback-reconcile.md`, ~992 lines) · R3 ✅ (4 files) · R4 Review ✅ (0 CRIT, 1 HIGH HIGH-1 graceful degradation, 5 LOWs; HIGH-1 fixed in fix-round `edd83c8`) · R4 round-2 ✅ (Phase 3 scope broadening — extension-reload regression caught at empirical UAT, fixed in `eb714fd`) · Sibling B-132 fix ✅ (preMark URL corroboration, fixed in `ea84211`) · R5 ✅ (2048/2048 PASS) · R6 ✅ (§70 R6 As-Built incl. §70.13.7 cascade narrative)
+- **Key files**: `background/tabs/tab-claims.js` (`reconcileClaims` Phase 3 drift-URL fallback + Phase 4 conditional drift drop + try/catch graceful degradation around `getDriftRecords`), `background/tabs/floating-groups.js` (sibling B-132 fix: `preMarkInheritedFromFloatingGroups` URL corroboration on position match), `tests/b163-drift-fallback-reconcile.test.js` (NEW, T1-T10), `tests/b132-cold-start-inheritance.test.js` (T-132-I URL-corroboration regression guard), `docs/design/65-b-132-cold-start-claim-jump-fix.md` (§65.15 S45 As-Built addendum)
+- **Cascade narrative**: the B-163 Phase 3 broadening was necessary but NOT SUFFICIENT to fix the YT Music empirical UAT scenario; the sibling B-132 preMark URL-corroboration fix had to land for the user-story symptom to close end-to-end. Documented as cross-cutting cascade in §70.13.7.
+- **R4 HIGH-1 fix**: `getDriftRecords()` wrapped in try/catch graceful degradation (B-132 precedent pattern at `background/tabs/index.js:58-62`). Storage-read failure no longer aborts `reconcileClaims`; Phase 1+2 results still commit; Phase 3 becomes no-op for all evicted items. T9 regression guard.
+- **R4 round-2 (post-UAT)**: Phase 3 iteration source broadened from `evictedItemIds` to all unbound items (matching R1 LOCKED contract wording verbatim). The original R3 narrowing was silently masked by test seed pattern (every T1-T9 seeded `tj:tabClaims` so `evictedItemIds` was always non-empty in tests; the extension-reload scenario with empty session storage was never seeded). T10 regression guard.
+
+#### [B-166] `+` CTA on floating tab promotes in-place — ✅ DONE
+- **Tier**: Full (M, auto-upgraded from Fast Track S per message-contract rule) · **Priority**: P2
+- **Closed**: 2026-05-28
+- **Pipeline**: R0 implicit (option (a) UI-side hint picked at R2) · R1 LOCKED ✅ (6 ACs) · R2 ✅ (`docs/design/71-b-166-promote-in-place.md`, ~725 lines) · R3 ✅ (6 files) · R4 Review ✅ (0 CRIT/HIGH, 4 MEDIUM all fixed in fix-round `d13c103`, 5 LOW) · R5 ✅ (2029/2029 PASS + UAT-1/3/4 PASS, UAT-2 indirectly validated, UAT-5..10 SKIPPED per product-owner — too technical) · R6 ✅ (§71 R6 As-Built with 11-row delta table + 4 behaviors-shipped-not-anticipated)
+- **Key files**: `background/messages/storage-handlers.js` (MSG_PROMOTE_TAB replaceFloatingId hint + C-7 validator), `background/storage/items.js` (`createItem` swap-or-append fork + conditional FLOATING_GROUPS prune in same writeTransaction), `sidepanel/sidepanel.js` (`_onFloatingSaveCtaClick` extracts `row.dataset.floatingTabId`), `newtab/newtab.js` (`_promoteFloatingTab` cross-surface extension — R3 escalated spec deviation), `tests/b166-promote-in-place.test.js` (NEW, T1-T13), `tests/b124-floating-visual.test.js` (T-124-D + T-124-F source-text pin tightening)
+- **R4 fix-round**: M-1 cross-group prune scoping (defensive); M-2 4-slot canonical test (§71.1 scenario); M-3 + M-4 source-text pin tightening (sidepanel + newtab)
+- **R5 bonus T13**: B-103 §51 atomicity guard in the new swap branch (preserves `createItem → claimTabForItem` contract under the new code path)
+
+### Follow-up filings (no S45 code)
+
+- **[B-167]** Durable `tj:itemClaims` architectural rework (P2 / XL / Spike-First). Filed 2026-05-28 from S45 architectural reflection: three URL-inference bugs in four days suggests the inference-recovery pattern is structurally fragile. R0 spike candidates: (a) durable `tj:itemClaims` partition (covers extension-reload happy path — tab IDs persist), (b) `chrome.sessions` API integration for browser-restart tab-ID mapping, (c) URL-history-per-claim, (d) combination. For S46+ triage.
+
+### Velocity
+
+- Planned: 3 items (B-164 P1/M anchor + B-163 P2/M sibling + B-166 P2/S→Full)
+- Completed: 3 items shipped + sibling B-132 fix (post-UAT cascade) + 1 new backlog filed (B-167)
+- Tests: 1930 (S44 baseline) → 2052 PASS (+122 net, zero regressions)
+- Carried over: 0
+- Cascade fix-rounds in-sprint: 4 (B-163 R4 HIGH-1 graceful degradation · B-163 R4 round-2 Phase-3 broadening · B-164 R4 M-1/M-2 race-guard · B-132 sibling preMark URL corroboration)
+- Diagnostics shipped + reverted: 2 instrumentation rounds via `chrome.storage.local._s45_*` traces
+
+### Retrospective
+
+**What Went Well:**
+- **Probe-driven R0 spike.** B-164's `chrome.tabs.onReplaced` empirical probe in real Edge captured the exact event sequence (`addedTabId: 803729449, removedTabId: 803725065` on `chrome.tabs.discard`) eliminating R0 guesswork that would otherwise have lurked into R3. The probe-script-then-design pattern should be precedent for any item investigating Chrome event-feedback gaps (C-13 class).
+- **Cascade-fix iteration converged within the sprint.** Three URL-inference bugs (R3 Phase 3 narrowing; R4 round-2 broadening; B-132 preMark position-only) each surfaced via different signal pathways — R4 reviewer convergence on the HIGH-1 graceful-degradation gap; empirical UAT on the Phase 3 scope; deeper UAT trace on the preMark false positive. All closed before merge.
+- **Filing B-167 as backlog instead of rushing architectural rework into S45.** Patches genuinely work; architectural concern recorded with full R0 spike candidates enumerated; S46 product-owner gets clean optionality without S45 scope creep.
+
+**What to Improve:**
+- **Spec-vs-implementation narrowing pattern surfaced THREE times in S45.** B-163 R3 narrowed Phase 3 from R1's "all unbound" to "evictedItemIds only"; M-1 dedup test verified final-state instead of invocation count; preMark used position-only match from R2's spec that documented both position AND URL paths. R4 reviewers caught some via convergence; empirical UAT caught the rest. Pattern: "the implementation simplifies a documented predicate; the test fixture matches the simplification; the bug is invisible in tests but real in production."
+- **SW-console diagnostic UX was too technical for product-owner execution.** Both cascade diagnostics (`_b163_debug`, `_s45_premark_trace`) shipped ad-hoc per-bug. A reusable `recordTrace(key, data)` helper that writes to `chrome.storage.local._diag_*` for SW-console-readable diagnostics surviving SW restart would replace per-investigation instrumentation.
+- **The inference-recovery architectural layer is structurally fragile.** Three URL-inference bugs in four days. B-167 captures the wider class; the lesson for S45's process is "weigh point-fix vs symptom-of-wider-class before committing to a fix-round."
+
+**Action Items for Sprint 46:**
+- [ ] **[code-reviewer]** Add "contract-vs-implementation diff" gate to the R4 review checklist. For every implementation predicate, read the R1/R2 contract wording, then trace the predicate to its implementation; flag any narrowing. The three S45 occurrences (B-163 Phase 3 scope, M-1 dedup test, preMark position-only) are the canonical precedents. Land as a CLAUDE.md "Round 4: Review" subsection update.
+- [ ] **[scrum-master]** Triage B-167 at S46 kickoff. Durable `tj:itemClaims` architectural rework, P2 / XL / Spike-First. R0 spike before scoping; pick durability strategy from (a) durable partition / (b) `chrome.sessions` API / (c) URL-history-per-claim / (d) combination.
+- [ ] **[test-engineer]** Build a standard diagnostic-writes-to-storage helper. `shared/diag.js#recordTrace(key, data)` writes to `chrome.storage.local._diag_*` keys for SW-console-readable diagnostics that survive SW restart. Replaces ad-hoc instrumentation; reusable across future bug investigations.
+
+### Final State
+
+- **Tests**: 2,052 / 2,052 passing · zero regressions · +122 net over pre-S45 baseline (1930)
+- **Release tag**: `v1.40.0` cut on `release/v2` at merge commit `3286227`; `gh release create` skipped per established pattern
+- **PR**: #55 merged to `release/v2`
+- **Storage schema**: unchanged from v1.39.0 (still v7)
+- **Manifest permissions**: `"idle"` added (C-6 minimization in §69.3.3)
+- **Sprints + hotfixes without rollback**: 22 (S23 → S45)
