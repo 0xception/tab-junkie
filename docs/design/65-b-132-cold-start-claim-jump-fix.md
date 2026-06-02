@@ -2,7 +2,7 @@
 
 **Sprint:** 40
 **Tier:** Full (M)
-**Status:** R2 complete (2026-04-29) — READY FOR R3 · R6 will add "As Built" delta
+**Status:** R6 CLOSED — Sprint 40 (v1.34.0); §65.14 R6 As-Built · §65.15 S45 As-Built addendum 2026-05-28 (v1.40.0)
 **Owner:** [solution-architect]
 **Depends on:** §10.5 (LiveTabIndex & TabClaims architecture — `claimsMirror`,
 `reconcileClaims`, `reevaluateTab`); §10.8 (Floating-group re-association); §21
@@ -1206,6 +1206,46 @@ Confirmed by direct re-read of the diff:
 - **[qa-reviewer] L-1 — `claimedTabIds` dead-but-defensive guard.** Optional one-line comment cross-referencing R2 §65.6 case (ii) hypothetical. Cosmetic only.
 - **[qa-reviewer] L-2 — helper observability.** Optional `console.debug` on non-zero match count for UAT diagnostic value. Weighed against CLAUDE.md "no `console.log` debug noise" rule; defer.
 - **R7 [technical-writer] — user-facing AC3 carve-out note.** If `docs/user-manual/` covers post-extension-reload floating-tab behavior, land a short note: "After reloading the extension, opener-chain inheritance is preserved for shallow chains (one hop). Deep multi-hop chains require re-spawning from the bookmarked parent."
+
+---
+
+## §65.15 R6 As-Built — S45 post-UAT URL-corroboration fix (2026-05-22)
+
+The R2 design (§65.4) specified `preMarkInheritedFromFloatingGroups` as matching floating-group records to live tabs by `(windowId, tabIndex)` position **first**, with URL fallback **second**. The implementation at `background/tabs/floating-groups.js:1165-1196` honored that order and shipped to v1.39.0.
+
+During S45 post-UAT testing for B-163 (drift-URL fallback on cold-start re-association), the product-owner reported that the YouTube Music + playlist-drift extension-reload scenario STILL failed to re-bind the bookmark even after the B-163 R4 round-2 Phase-3 scope broadening landed. Runtime trace via temporary `_s45_premark_trace` + `_s45_reconcile_trace` instrumentation showed:
+
+- `inheritedTabs.has(ytmTabId) === true` at `reconcileClaims` entry
+- Phase 3 found the YT Music item in `stillUnbound`, found the matching drift URL, located the right tab in `urlToTabs` — but the inherited-skip while-loop popped the tab (`inheritedHits: 1`, `finalClaimedTabId: null`)
+- No floating-group record's `liveTabId === ytmTabId` (user verified pre-trace)
+- No floating-group record's `r.url` matched the YT Music tab's URL (user verified pre-trace)
+
+**Root cause**: a stale floating-group record's stored `(windowId, tabIndex)` coincidentally matched the YT Music tab's current position. Tab indices shift as users open/close tabs over time; eventually some unrelated tab lands at a slot that an old floating record stored. preMark's position-only match called `markInherited(unrelatedTabId)` — the unrelated tab was then skipped by `inheritedTabs` guards in Phase 2 AND the B-163-broadened Phase 3.
+
+**Why R3/R4/R5 didn't catch it**: the test suite (T-132-A through T-132-H) used clean fixtures where every floating-group record's stored position was either the genuine record-tab pair OR explicitly mismatched. The "stale-position false positive" — where a position coincidentally matches an unrelated current tab — was not in the test matrix. The bug also required the pre-condition that a drifted-but-still-live bookmark scenario reach Phase 3 looking for re-binding — pre-B-163 there was no such code path, so the false positive was a silent no-op in production.
+
+**The fix (`background/tabs/floating-groups.js:1165-1198`, commit `ea84211`)**: position match now requires URL corroboration when the record carries a URL. If position matches but URLs clearly differ, the match is treated as a stale-position false positive and skipped; the URL-fallback branch still runs and may match the record to a live tab via URL alone. Records without `record.url` (legacy / unverifiable) fall through to position-only as before — backward-compatible.
+
+```js
+// AS-BUILT (S45 post-UAT fix)
+for (const [tabId, entry] of liveTabIndex) {
+  if (entry.windowId === record.windowId && entry.index === record.tabIndex) {
+    if (normalizedRecordUrl && safeNormalizeForMatch(entry.url) !== normalizedRecordUrl) {
+      break; // URL mismatch despite position match — different tab; skip.
+    }
+    matchedTabId = tabId;
+    break;
+  }
+}
+```
+
+Property: **only produces FEWER inheritance markings**, never more, and only when URL evidence clearly contradicts position. Cannot reintroduce the original B-132 claim-jump bug class (which required marking MORE tabs as inherited than necessary). Existing tests T-132-A through T-132-H continued to pass unmodified.
+
+**T-132-I regression guard** (`tests/b132-cold-start-inheritance.test.js`): floating-group record at position (1, 5) with OLD URL; live tab at same position with DIFFERENT URL. Asserts `isInherited(700) === false` after preMark + asserts B-163 Phase 3 then binds a drifted bookmark to tab 700 once the false-positive guard is gone (proves end-to-end the B-132 → B-163 cascade works).
+
+**Cross-reference**: the corresponding cascade narrative in B-163's chapter is at `docs/design/70-b-163-drift-fallback-reconcile.md` §70.13.6 + the new §70.13.7. The two fixes are dependently linked — neither alone would have closed the user-story symptom.
+
+**Retro candidate (S46)**: this was the third spec-vs-implementation simplification in S45 (after the B-163 R3 Phase 3 narrowing and the M-1 dedup test). The broader pattern is "aggressive matching heuristics need adversarial-case enumeration in R2's test-assertion list." Position-only match was the canonical simplification; the adversarial case (position coincidence with a different URL) was structurally absent from the test matrix until the empirical UAT surfaced it.
 
 ---
 

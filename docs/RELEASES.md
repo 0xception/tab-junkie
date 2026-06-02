@@ -4,6 +4,30 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.40.0 — Sprint 45: claim-desync correctness (2026-05-28)
+
+**Tagged on `release/v2`.**
+
+Sprint 45 anchor. Saved-bookmark→tab claims survive system sleep / lid-close (B-164) and cold-start drift re-association (B-163); floating-tab `+` CTA promotes in-place (B-166). Sibling B-132 fix (preMark URL corroboration) lands as part of the B-163 cascade.
+
+### New features
+- **Sleep/wake claim resilience (B-164)** — `chrome.tabs.onReplaced` 5-table remap covers Chromium tab-id rotation on discard/restore. `chrome.idle.onStateChanged` triggers a defensive `reconcileClaims` rerun on `'active'`. Race-guard: `_reconcileActive` flag + `_pendingReplacements` queue + drain-callback pattern.
+- **Drift URL fallback on cold-start (B-163)** — `reconcileClaims` Phase 3 (URL-match fallback) + Phase 4 (conditional drift drop). Phase 3 iterates ALL unbound items (R4 round-2 broadening covers extension-reload session-storage wipe). Inherited-tab skip parity with B-125.
+- **Floating `+` CTA in-place promote (B-166)** — promoted floating tab preserves its renderOrder position. New optional `replaceFloatingId` on MSG_PROMOTE_TAB; 3-partition atomic swap in `createItem`. Sidepanel + newtab parity.
+
+### Internal
+- **New `"idle"` manifest permission** (B-164 §69.3.3) — C-6 minimization documented; lowest-scope API delivering `'active'`-state SW wake.
+- **New `background/tabs/idle-reconciler.js`** module + new `chrome.tabs.onReplaced` listener in `background/tabs/tab-events.js`.
+- **B-132 sibling fix** — `preMarkInheritedFromFloatingGroups` now requires URL agreement when the record has a URL; eliminates stale-position false positives (YT Music UAT class).
+
+**SW cache flush**: After upgrade, toggle the extension OFF then ON once in `edge://extensions` to pick up the new `"idle"` permission grant.
+
+**Rollback**: Purely additive — no schema/message/UI change. Downgrade to v1.39.0 is safe; the `"idle"` listener simply does not register.
+
+Tests: 2052 PASS (+122 over the 1930 v1.39.0 / S44 baseline).
+
+---
+
 ## v1.39.0 — B-148 interleave floating tabs with saved bookmarks (2026-05-04)
 
 **Tagged on `release/v2`.**

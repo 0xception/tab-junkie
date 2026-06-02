@@ -1040,6 +1040,81 @@ export async function pruneFloatingGroupsByLiveTabId(tabId) {
 }
 
 /**
+ * B-164 §69.3.1 table-5 — atomic remap of `liveTabId` on
+ * `chrome.tabs.onReplaced`.
+ *
+ * Mirrors the `pruneFloatingGroupsByLiveTabId` shape (read-only pre-flight
+ * fast-path; conditional `writeTransaction` only when at least one record
+ * matches). Where the prune path DELETES the record, this remap path
+ * UPDATES the `liveTabId` field in place — the floating-group record's
+ * identity (`floatingTabId` ulid) survives the rotation; only the runtime
+ * hint pointing at the live tab is rewritten. No `renderOrder` strip is
+ * needed because the group's `floating:<floatingTabId>` ref is keyed on
+ * the unchanged identity field, not on `liveTabId`.
+ *
+ * Fire-and-forget pattern (B-132 graceful-degradation precedent at
+ * `background/tabs/index.js:58-62`): if the `writeTransaction` fails
+ * (transient storage error), the next cold-start `reassociateFloatingGroups`
+ * sweep at `floating-groups.js:200-234` will re-resolve via position match
+ * (tier b) or URL fallback (tier c). The in-memory `LiveTabIndex` is updated
+ * independently via `onUpdated`/`onCreated` on the new tabId, so the
+ * runtime resolver is not blocked on the storage write.
+ *
+ * @param {number} removedTabId — the dead handle (pre-discard id)
+ * @param {number} addedTabId — the new id Chromium rotated to
+ * @returns {Promise<number>} count of records updated (for testability)
+ */
+export async function remapFloatingGroupsLiveTabId(removedTabId, addedTabId) {
+  if (typeof removedTabId !== 'number' || !Number.isFinite(removedTabId)) return 0;
+  if (typeof addedTabId !== 'number' || !Number.isFinite(addedTabId)) return 0;
+  if (removedTabId === addedTabId) return 0;
+
+  /* Pre-flight read — the common path on `chrome.tabs.onReplaced` is "tab
+     held no floating-group record", so a read-only fast-path avoids
+     invoking writeTransaction when there is nothing to update. Mirrors
+     the `pruneFloatingGroupsByLiveTabId` pre-flight at :970-971. */
+  const records = await readPartition(PARTITION_FLOATING_GROUPS);
+  if (!Array.isArray(records) || records.length === 0) return 0;
+
+  let willUpdate = false;
+  for (const entry of records) {
+    if (!entry || typeof entry !== 'object') continue;
+    if (typeof entry.liveTabId === 'number'
+      && Number.isFinite(entry.liveTabId)
+      && entry.liveTabId === removedTabId) {
+      willUpdate = true;
+      break;
+    }
+  }
+  if (!willUpdate) return 0;
+
+  let updatedCount = 0;
+  /* S44 retro action #3 — blind-replace mutator anti-pattern guard.
+     The mutator MUST use the `current` snapshot inside the closure (NOT
+     a pre-computed array from the pre-flight read above) to avoid
+     overwriting concurrent writes that landed between read and write.
+     The pre-flight read is ONLY consulted for the fast-path decision; the
+     actual rewrite operates on `current` inside writeTransaction. */
+  await writeTransaction([{
+    partition: PARTITION_FLOATING_GROUPS,
+    mutator: (current) => {
+      const arr = Array.isArray(current) ? current : [];
+      return arr.map((entry) => {
+        if (!entry || typeof entry !== 'object') return entry;
+        if (typeof entry.liveTabId === 'number'
+          && Number.isFinite(entry.liveTabId)
+          && entry.liveTabId === removedTabId) {
+          updatedCount += 1;
+          return { ...entry, liveTabId: addedTabId };
+        }
+        return entry;
+      });
+    },
+  }]);
+  return updatedCount;
+}
+
+/**
  * B-132 §65.4: cold-start re-population of inheritedTabs from
  * tj:floatingGroups. For every record whose match resolves AND whose
  * matched tabId is NOT already claimed, call markInherited(matchedTabId)
@@ -1091,24 +1166,45 @@ export async function preMarkInheritedFromFloatingGroups() {
     if (!record || typeof record !== 'object') continue;
 
     let matchedTabId = null;
+    const normalizedRecordUrl = safeNormalizeForMatch(record.url);
 
-    // POSITION MATCH (mirrors floating-groups.js:124-130)
+    /* POSITION MATCH WITH URL CORROBORATION (B-132 fix, S45 post-UAT
+       2026-05-22). Was originally position-only matching (mirrored
+       floating-groups.js:124-130). Discovered to produce false-positive
+       inheritance markings: a stale floating-group record's
+       `(windowId, tabIndex)` could coincidentally match an unrelated tab
+       that landed at the same position as tab indices shifted over time.
+       The falsely-marked tab was then skipped by the `inheritedTabs`
+       guards in `reconcileClaims` Phase 2 AND Phase 3 — breaking the
+       B-163 user-story symptom relief in the YT Music + playlist-drift
+       scenario (user reload diagnostic captured tabId in inheritedTabs
+       despite no floating-group record actually pointing at it).
+
+       Fix: when position matches but the record carries a URL, require
+       URL corroboration. If URLs clearly mismatch, this is a stale-
+       position false positive (a different tab is now at this slot);
+       skip the position match. The URL-fallback branch below still runs
+       and may match the record to a live tab via URL alone.
+
+       Records without `record.url` (legacy / unverifiable) fall through
+       to position-only match as before — backward-compatible. */
     for (const [tabId, entry] of liveTabIndex) {
       if (entry.windowId === record.windowId && entry.index === record.tabIndex) {
+        if (normalizedRecordUrl && safeNormalizeForMatch(entry.url) !== normalizedRecordUrl) {
+          // URL mismatch despite position match — different tab, skip.
+          break;
+        }
         matchedTabId = tabId;
         break;
       }
     }
 
-    // URL FALLBACK (mirrors floating-groups.js:132-143)
-    if (matchedTabId === null) {
-      const normalizedStored = safeNormalizeForMatch(record.url);
-      if (normalizedStored) {
-        for (const [tabId, entry] of liveTabIndex) {
-          if (safeNormalizeForMatch(entry.url) === normalizedStored) {
-            matchedTabId = tabId;
-            break;
-          }
+    // URL FALLBACK (mirrors floating-groups.js:132-143) — unchanged.
+    if (matchedTabId === null && normalizedRecordUrl) {
+      for (const [tabId, entry] of liveTabIndex) {
+        if (safeNormalizeForMatch(entry.url) === normalizedRecordUrl) {
+          matchedTabId = tabId;
+          break;
         }
       }
     }

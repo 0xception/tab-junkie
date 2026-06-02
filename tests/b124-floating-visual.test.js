@@ -212,10 +212,12 @@ test('B-124 T-124-C: buildFloatingTabRow appends a `.floating-row-save-cta` butt
 });
 
 /* =========================================================================
-   T-124-D — Save CTA click dispatches MSG_PROMOTE_TAB with {tabId, groupId}.
+   T-124-D — Save CTA click dispatches MSG_PROMOTE_TAB with {tabId, groupId}
+   (and optionally B-166 `replaceFloatingId` when the row carries a
+   `dataset.floatingTabId`).
    ========================================================================= */
 
-test('B-124 T-124-D: Save-CTA click handler dispatches MSG_PROMOTE_TAB with `{ tabId, groupId }`', () => {
+test('B-124 T-124-D: Save-CTA click handler dispatches MSG_PROMOTE_TAB with `{ tabId, groupId }` (+ optional `replaceFloatingId` per B-166)', () => {
   const js = readFile('sidepanel/sidepanel.js');
 
   /* The click handler is `_onFloatingSaveCtaClick`. Verify its body
@@ -245,10 +247,36 @@ test('B-124 T-124-D: Save-CTA click handler dispatches MSG_PROMOTE_TAB with `{ t
     /\.closest\(['"]\.group-section\[data-group-id\]['"]\)/,
     'click handler must resolve enclosing .group-section for groupId',
   );
+  /* B-166 §71.5.2 — the payload now accepts an optional
+     `replaceFloatingId` field built from `row.dataset.floatingTabId`.
+     Match either the original `{ tabId, groupId }` literal OR an object
+     that begins `{ tabId, groupId` and is dispatched via sendMessage.
+     The build-the-payload branch in the post-B-166 handler constructs
+     `const payload = { tabId, groupId }` then dispatches
+     `sendMessage(MSG_PROMOTE_TAB, payload)`, so the regex accepts both
+     spellings. */
   assert.match(
     body,
-    /sendMessage\(MSG_PROMOTE_TAB,\s*\{\s*tabId,\s*groupId\s*\}\)/,
-    'click handler must dispatch MSG_PROMOTE_TAB with { tabId, groupId } payload',
+    /sendMessage\(MSG_PROMOTE_TAB,\s*(?:\{\s*tabId,\s*groupId(?:,\s*replaceFloatingId)?\s*\}|payload)\)/,
+    'click handler must dispatch MSG_PROMOTE_TAB with { tabId, groupId } (+ optional replaceFloatingId) payload',
+  );
+
+  /* S45 R4 code+qa M-3 — the previous regex was weakened by the `|payload`
+     alternative to accommodate the post-B-166 build-the-payload branch;
+     any handler variable named `payload` would pass without the handler
+     actually wiring the B-166 fields. Add two specificity pins so the
+     test still verifies the B-166 extraction + payload-construction
+     contract is present in the handler body (not just any variable
+     named `payload`). */
+  assert.match(
+    body,
+    /row\.dataset\.floatingTabId/,
+    'B-166 (M-3): click handler must read `row.dataset.floatingTabId` to source the replaceFloatingId hint',
+  );
+  assert.match(
+    body,
+    /tabId,\s*groupId/,
+    'B-166 (M-3): payload construction must include the `tabId, groupId` pair (defends against a future refactor that drops the build-up line)',
   );
 
   /* The error-translation block must use imported error constants
@@ -348,6 +376,25 @@ test('B-124 T-124-F (B-130): newtab _buildFloatingTabRow appends Save CTA + new 
     promoteMatch[1],
     /type:\s*MSG_PROMOTE_TAB/,
     '_promoteFloatingTab must send MSG_PROMOTE_TAB',
+  );
+
+  /* S45 R4 code+qa M-4 — the coarse `type: MSG_PROMOTE_TAB` regex above
+     does not verify the B-166 cross-surface parity: the newtab
+     dispatcher must extract `floatingTabId` from `_floatingMembers` (the
+     newtab equivalent of sidepanel's `row.dataset.floatingTabId`) AND
+     include it as `replaceFloatingId` on the payload so the SW handler's
+     in-place swap fires identically for newtab-initiated promotes. Pin
+     both the extraction and the payload-field name so a regression that
+     drops either half is caught at the source-text level. */
+  assert.match(
+    promoteMatch[1],
+    /m\.floatingTabId|floatingTabId/,
+    'B-166 (M-4): _promoteFloatingTab must read `floatingTabId` (extraction from _floatingMembers descriptors)',
+  );
+  assert.match(
+    promoteMatch[1],
+    /replaceFloatingId/,
+    'B-166 (M-4): _promoteFloatingTab payload must include `replaceFloatingId` so SW handler can splice-swap',
   );
 
   /* Newtab CSS — B-130 AC2: `.newtab-floating-bar` rule must be removed.

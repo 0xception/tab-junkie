@@ -173,6 +173,15 @@ test('B-149 T1: drifted-but-live claim SURVIVES reconcileClaims cold-start (B-09
    T2 — regression guard: a non-live drifted claim (tab GONE) IS still
    evicted. The B-110 PRIMARY leak fix continues to apply post-B-149 — the
    `tabEntry && item` predicate still rejects the missing-tab case.
+
+   B-163 §70 update (Sprint 45): the §53 paired-clear is now DEFERRED to
+   Phase 4 by B-163. For T2's scenario (missing tab, drift URL with no
+   live tab in the mock), Phase 3 has no candidate to bind → both URLs
+   miss → Phase 4 fires `clearDrift('item-A')`. The Phase-1 survival
+   contract (the B-149 inversion) is unchanged by B-163 — Phase 1's
+   `tabEntry && item` predicate is the only gate that determines whether
+   an item enters `evictedItemIds`; B-163 only changes what happens
+   AFTERWARDS for the evicted set. Assertion unchanged.
    ========================================================================= */
 test('B-149 T2 (regression guard): non-live drifted claim (tab missing) IS still evicted at cold-start', async () => {
   /* Seed the post-sleep state directly: claim persisted, drift record
@@ -196,7 +205,11 @@ test('B-149 T2 (regression guard): non-live drifted claim (tab missing) IS still
     'B-110 PRIMARY (still applies post-B-149): missing-tab eviction continues to drop the claim',
   );
 
-  /* B-110 paired clearDrift fires for the legitimately-evicted claim. */
+  /* B-163 Phase 4 fires for the legitimately-evicted-AND-unrecovered
+     claim (no live tab matches item.url, no live tab matches the drift
+     URL either — both URL candidates miss). The pre-B-163 mechanism was
+     the §53 paired-clear; the post-B-163 mechanism is Phase 4; the
+     outcome (drift record absent) is identical. */
   const drift = await getDriftRecords();
   assert.equal(
     'item-A' in drift,

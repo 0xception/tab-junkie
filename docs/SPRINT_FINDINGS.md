@@ -24,3 +24,4 @@
 - [Sprint 41 — R4 Findings (Deduplicated)](findings/sprint-41.md)
 - [Sprint 42 — R4 Findings (Deduplicated)](findings/sprint-42.md)
 - [Sprint 43 — R4 Findings (Deduplicated)](findings/sprint-43.md) — _empty; lean-mode bug-fix loop, no formal R4 reviewers dispatched_
+- [Sprint 45 — Findings (R0 + R4)](findings/sprint-45.md) — _R0 joint spike for B-164 + B-163 landed 2026-05-21; R4 to be appended_

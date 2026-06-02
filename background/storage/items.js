@@ -11,6 +11,7 @@ import {
 import {
   PARTITION_ITEMS,
   PARTITION_GROUPS,
+  PARTITION_FLOATING_GROUPS,
   MAX_TITLE,
   MAX_URL,
   readPartition,
@@ -168,7 +169,20 @@ function normaliseGroupSortOrders(groupId, items) {
 }
 
 /**
- * @param {{title: string, url: string, groupId: string|null}} input
+ * @param {{title: string, url: string, groupId: string|null,
+ *          replaceFloatingId?: string}} input
+ *   `replaceFloatingId` (B-166 §71.3) — OPTIONAL storage identity of a
+ *   floating-group record (`floatingTabId` ulid) whose slot in the target
+ *   Group's renderOrder should be SWAPPED in-place for the new
+ *   `item:<id>` slot, instead of appending. When the hint is set AND the
+ *   `floating:<id>` ref is present in the target group's renderOrder,
+ *   a 3-partition atomic transaction performs: (a) splice-replace the
+ *   ref in `Group.renderOrder`, (b) append the new item in
+ *   `PARTITION_ITEMS` (unchanged), (c) prune the matching record from
+ *   `PARTITION_FLOATING_GROUPS`. When the hint is absent OR the ref is
+ *   not found (stale UI snapshot, cross-group race, pre-S38 legacy
+ *   record), behavior falls back to the original append-at-end path —
+ *   no error, no duplicate, no orphan. See §71.3.2 / §71.6 AC1-AC6.
  * @returns {Promise<import('./partitions.js').Item>}
  */
 export async function createItem(input) {
@@ -186,11 +200,24 @@ export async function createItem(input) {
     createdAt: now,
     updatedAt: now,
   };
+  /* B-166 §71.3.2 — normalize the optional swap hint up-front. Treated as
+     "active" only when a non-empty string is supplied. Empty / undefined /
+     non-string values fall through to the original append branch (the
+     SW handler enforces the string-type allow-list at the dispatch
+     boundary; this guard is defense-in-depth for non-dispatcher callers
+     such as direct in-process calls from tests). */
+  const replaceFloatingId = (typeof input.replaceFloatingId === 'string' && input.replaceFloatingId.length > 0)
+    ? input.replaceFloatingId
+    : null;
   // C2: snapshot groups inside the tx (via a read-only mutator op) so the FK
   // check observes the same serialized state as the items write. Both ops
   // execute inside writeTransaction's single get → mutate → set cycle.
   let groupsSnapshot = [];
-  await writeTransaction([
+  /* B-166 §71.3.2 — the FLOATING_GROUPS prune mutator is only included
+     in the transaction when a swap hint was supplied. Construct the ops
+     array conditionally so the legacy path (no hint) remains a 2-
+     partition writeTransaction with identical latency to pre-B-166. */
+  const ops = [
     {
       partition: PARTITION_GROUPS,
       mutator: (groups) => {
@@ -198,13 +225,26 @@ export async function createItem(input) {
         /* B-148 §3.5 (S44, v6→v7) — append `item:<newId>` to target Group's
            renderOrder. Skips when groupId is null (Ungrouped items don't
            belong to any group). The append-at-end policy matches existing
-           Item.sortOrder normalisation: createItem appends to the bucket. */
+           Item.sortOrder normalisation: createItem appends to the bucket.
+           B-166 §71.3.2 swap-or-append fork: when `replaceFloatingId` is
+           set AND `'floating:<id>'` exists in this group's renderOrder,
+           splice-replace it 1-for-1 with `'item:<newId>'`. Otherwise fall
+           through to the legacy append. */
         if (item.groupId === null) return groups;
         const idx = groups.findIndex((g) => g.id === item.groupId);
         if (idx < 0) return groups; /* defensive — assertGroupExists in items mutator throws if missing */
         const g = groups[idx];
         const renderOrder = Array.isArray(g.renderOrder) ? [...g.renderOrder] : [];
-        renderOrder.push('item:' + item.id);
+        let didSwap = false;
+        if (replaceFloatingId !== null) {
+          const swapRef = 'floating:' + replaceFloatingId;
+          const swapIdx = renderOrder.indexOf(swapRef);
+          if (swapIdx >= 0) {
+            renderOrder[swapIdx] = 'item:' + item.id;
+            didSwap = true;
+          }
+        }
+        if (!didSwap) renderOrder.push('item:' + item.id);
         const next = [...groups];
         next[idx] = { ...g, renderOrder, updatedAt: Date.now() };
         return next;
@@ -226,7 +266,49 @@ export async function createItem(input) {
         return normalised;
       },
     },
-  ]);
+  ];
+  if (replaceFloatingId !== null) {
+    /* B-166 §71.3.2 — third-partition prune mutator. Strips the
+       floating-group record whose `floatingTabId === replaceFloatingId`
+       from PARTITION_FLOATING_GROUPS in the same atomic writeTransaction
+       as the renderOrder swap, closing the orphan-record window that
+       previously persisted until `chrome.tabs.onRemoved` or cold-start
+       reassociation. Content-conditional: returns the same reference when
+       no record matched (writeTransaction's assertShape pass still runs;
+       chrome.storage.local.set still fires for the GROUPS + ITEMS writes,
+       but the FLOATING_GROUPS partition is effectively a no-op write of
+       its unchanged contents — preserves §68.6 idempotency-fast-path
+       semantics for the in-mutator branch).
+
+       S45 R4 security M-1 — defensive cross-group prune scoping. The
+       prune originally matched on `floatingTabId` alone across the ENTIRE
+       partition, so a buggy dispatch that paired `{groupId: B,
+       replaceFloatingId: <ulid-of-record-in-A>}` would silently prune
+       Group A's record while the swap fork (which is correctly group-
+       scoped) no-op'd in Group B — a cross-group state corruption with
+       no caller-visible signal. Per §71.6.3 AC3, the Ungrouped fallback
+       path (`item.groupId === null`) STILL prunes unconditionally — that
+       is the documented AC3 invariant ("the floating record IS still
+       pruned … independent of `groupId`"). For all other paths, restrict
+       the match to records that ALSO live in the caller-specified group
+       (defense-in-depth: a correct caller paired with a matching record
+       still prunes; a malformed caller is a no-op). */
+    const pruneGroupId = item.groupId;
+    ops.push({
+      partition: PARTITION_FLOATING_GROUPS,
+      mutator: (records) => {
+        if (!Array.isArray(records) || records.length === 0) return records;
+        const next = records.filter((r) => {
+          if (r?.floatingTabId !== replaceFloatingId) return true; /* keep — different floating tab */
+          /* Match on floatingTabId. Now apply the M-1 group scope. */
+          if (pruneGroupId === null) return false; /* AC3 Ungrouped fallback — prune unconditionally per §71.6.3 */
+          return r?.groupId !== pruneGroupId; /* prune only if same group; keep (defensive) if different group */
+        });
+        return next.length === records.length ? records : next;
+      },
+    });
+  }
+  await writeTransaction(ops);
   return item;
 }
 

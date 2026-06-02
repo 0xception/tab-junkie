@@ -11,7 +11,7 @@
 
 import { getLiveTabIndex } from './live-tab-index.js';
 import { safeNormalizeForMatch } from '../../shared/url.js';
-import { clearDrift } from './drift.js';
+import { clearDrift, getDriftRecords } from './drift.js';
 
 const SESSION_KEY = 'tj:tabClaims';
 
@@ -107,13 +107,31 @@ async function writeClaims() {
 /**
  * Reconcile claims against the current LiveTabIndex and items list.
  *
- * 1. Load existing claims from storage.session.
- * 2. Validate each claim: discard if tabId is no longer in LiveTabIndex or
- *    if the tab's URL no longer matches the item's URL.
- * 3. For unclaimed items whose URL matches a tab in LiveTabIndex, assign
- *    claims in ascending sortOrder (first-unclaimed-wins). No two claims
- *    may share the same tabId (AC3).
- * 4. Write the reconciled claims back atomically and populate the mirror.
+ * Four-phase pipeline (B-163 extended the legacy two-phase pipeline with
+ * Phase 3 + Phase 4 to enable drift-URL fallback re-binding before drift
+ * records are dropped; see `docs/design/70-b-163-drift-fallback-reconcile.md`):
+ *
+ *   Phase 1 — Validate existing claims: keep iff the tab is still in
+ *             LiveTabIndex AND the saved item still exists. URL match is
+ *             intentionally NOT re-checked (B-149: the B-099 D-1 runtime
+ *             claim-preservation contract must hold at the cold-start
+ *             boundary too).
+ *   Phase 2 — Assign unclaimed items to unclaimed tabs by primary
+ *             `item.url`, first-unclaimed-wins in ascending sortOrder.
+ *             Inherited tabs (B-125 / B-132) are skipped.
+ *   Phase 3 — (B-163) Drift-URL fallback. For each item evicted in Phase 1
+ *             AND still unbound after Phase 2, consult its drift record
+ *             (if any) and try to bind by `driftedToUrl` against the same
+ *             `urlToTabs` map. Inherited-tab skip mirrors Phase 2. No TTL
+ *             gate (AC7 RESOLVED — NO TTL).
+ *   Phase 4 — (B-163) Conditional drift drop. Clear drift records ONLY for
+ *             items still unbound after Phase 3 (both URL candidates
+ *             failed → drift is truly orphaned; safe to drop per the §10.7
+ *             invariant). Replaces the unconditional §53 paired-clear that
+ *             used to fire for every Phase-1-evicted itemId.
+ *
+ * Writes the reconciled claims back atomically and populates the mirror
+ * between Phases 3 and 4.
  *
  * @param {Array<{id: string, url: string, sortOrder: number}>} items
  * @returns {Promise<void>}
@@ -127,11 +145,12 @@ export async function reconcileClaims(items) {
   const index = getLiveTabIndex();
   const reconciled = {};
   const claimedTabIds = new Set();
-  /* B-110 §53 (S36): track every claim that does NOT survive Phase 1
-     validation. After writeClaims succeeds, clearDrift runs for each so
-     orphan drift records cannot persist past a cold-start reconcile —
-     enforces the §10.7 invariant (drift records only exist for claimed
-     items). */
+  /* B-110 §53 (S36) / B-163 §70.3.2 (S45): track every claim that does
+     NOT survive Phase 1 validation. Drives BOTH Phase 3 (the drift-URL
+     fallback iterates `evictedItemIds` looking for unbound items) AND
+     Phase 4 (conditional drift drop on the post-Phase-3 unrecovered
+     subset). The §10.7 invariant ("drift records only exist for claimed
+     items") is asserted at the END of reconcile, not mid-pipeline. */
   const evictedItemIds = [];
 
   // Phase 1: validate existing claims
@@ -211,17 +230,116 @@ export async function reconcileClaims(items) {
     }
   }
 
+  /* Phase 3 (B-163 §70.3.1): drift-URL fallback. For ANY item still
+     unbound after Phase 2 — regardless of whether it had a prior claim in
+     session storage. Consult its drift record and attempt to bind via
+     `driftedToUrl` against the same `urlToTabs` map Phase 2 already built.
+
+     B-163 R4 round-2 fix (S45 post-UAT): the original R3 implementation
+     restricted this set to `evictedItemIds.filter(id => !(id in reconciled))`,
+     which silently broke the user-story symptom on **extension reload**:
+     `chrome.storage.session` is wiped on reload → `storedClaims = {}` →
+     Phase 1 has nothing to iterate → `evictedItemIds = []` → Phase 3
+     skipped entirely. Drifted items had no path to re-association after
+     reload (despite the durable `tj:drift` record). The fix matches the
+     R1 LOCKED contract wording verbatim: "for each item still unbound
+     after Phase-2". Phase 2 still wins primary-URL precedence (AC2);
+     Phase 4 stays scoped to `evictedItemIds` only (preserves §10.7
+     invariant for items that never had a session-storage claim — their
+     drift records are managed by the runtime detectDriftForTab cycle, not
+     by cold-start cleanup). T10 is the regression guard.
+
+     Skipped entirely when no items remain unbound (the typical full-
+     recovery case) so the `getDriftRecords()` storage read is gated. */
+  const stillUnbound = items
+    .filter((it) => !(it.id in reconciled))
+    .map((it) => it.id);
+  if (stillUnbound.length > 0) {
+    /* B-163 R4 HIGH-1 (S45): graceful degradation on drift-partition read
+       failure. `getDriftRecords()` calls `readPartition(PARTITION_DRIFT)`
+       (drift.js:102-104) which throws `StorageError(ERR_CORRUPT_DATA)` if
+       any drift record fails `assertShape` (shapes.js:258-281) OR if
+       `chrome.storage.local.get` rejects. Without this guard the rejection
+       propagates out of reconcileClaims BEFORE `writeClaims()` + `claimsReady
+       = true` (:284-286), leaving every saved item appearing offline until
+       browser restart — silent DoS. Mirror the B-132 graceful-degradation
+       pattern at `background/tabs/index.js:58-62`: log a console.warn and
+       continue with `driftRecords = {}` so Phase 3 becomes a no-op for all
+       evicted items. Phase 4 still runs against `unrecovered = evictedItemIds
+       \ Phase-3-bound` (with Phase 3 a no-op, every evicted id flows into
+       Phase 4); the `Promise.allSettled` swallows individual `clearDrift`
+       failures. This preserves the pre-B-163 cold-start availability
+       contract: Phase 1+2 results are always committed regardless of
+       drift-partition health. */
+    let driftRecords = {};
+    try {
+      driftRecords = await getDriftRecords();
+    } catch (err) {
+      console.warn(
+        '[tab-junkie] reconcileClaims: drift partition read failed, skipping Phase 3 (graceful degradation per B-132 precedent)',
+        err?.code || err?.message || err,
+      );
+      // driftRecords stays {} — Phase 3 becomes no-op for all evicted items
+    }
+    /* Iterate in sortOrder so the AC3 hijack-collision (two items drifted
+       to the same URL, one live tab) resolves deterministically — same
+       precedence as Phase 2's first-unclaimed-wins loop. */
+    const unboundSet = new Set(stillUnbound);
+    const driftSorted = items
+      .filter((it) => unboundSet.has(it.id))
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    for (const item of driftSorted) {
+      const record = driftRecords[item.id];
+      if (!record) continue;
+      /* AC7 RESOLVED — NO TTL: record.detectedAt is intentionally NOT
+         consulted here. Stale drift records remain eligible for fallback
+         re-binding; the AC2 primary-URL-wins + AC3 one-tab-per-record cap
+         + the four existing clearDrift surfaces (delete/update/navigate-
+         away/onRemoved) are the hijack mitigation chain documented in
+         §70.6.7. Do not add a `Date.now() - record.detectedAt > TTL_MS`
+         gate here without first re-opening the AC7 product-owner decision. */
+      const normalized = safeNormalizeForMatch(record.driftedToUrl);
+      if (!normalized) continue;
+      const available = urlToTabs.get(normalized);
+      if (!available || available.length === 0) continue;
+      /* AC5: inherited-tab skip — mirrors the Phase-2 while-loop at
+         :198-206 exactly. Inherited candidates are popped without binding;
+         the loop continues with the next candidate. If every candidate is
+         inherited, the item stays unbound and Phase 4 will clear its drift. */
+      let claimedTabId = null;
+      while (available.length > 0) {
+        const candidate = available[0];
+        if (inheritedTabs.has(candidate)) {
+          available.shift();
+          continue;
+        }
+        claimedTabId = available.shift();
+        break;
+      }
+      if (claimedTabId !== null) {
+        reconciled[item.id] = claimedTabId;
+        claimedTabIds.add(claimedTabId);
+      }
+    }
+  }
+
   claimsMirror = reconciled;
   await writeClaims();
   claimsReady = true;
 
-  /* B-110 §53 (S36): clear drift records paired with evicted claims.
-     `clearDrift` is a no-op when no record exists (drift.js:90-94 short-
-     circuits when itemId is absent). Best-effort: any individual failure
-     does not block reconcile completion; the next cold-start cycle will
-     retry. Run after writeClaims so claimsMirror is consistent first. */
-  if (evictedItemIds.length > 0) {
-    await Promise.allSettled(evictedItemIds.map((itemId) => clearDrift(itemId)));
+  /* Phase 4 (B-163 §70.3.2): conditional drift drop. Replaces the
+     pre-B-163 unconditional §53 paired-clear at this site. Only items
+     that were BOTH (a) evicted in Phase 1 AND (b) not recovered by
+     Phase 3 enter the unrecovered set — both URL candidates failed, the
+     drift record is truly orphaned, and dropping it preserves the §10.7
+     invariant ("drift records only exist for claimed items").
+     `clearDrift` is a no-op when no record exists (drift.js:90-94
+     short-circuits). Best-effort via Promise.allSettled — same semantic
+     B-110 §53 established; any individual failure does not block
+     reconcile completion; the next cold-start cycle will retry. */
+  const unrecovered = evictedItemIds.filter((id) => !(id in reconciled));
+  if (unrecovered.length > 0) {
+    await Promise.allSettled(unrecovered.map((itemId) => clearDrift(itemId)));
   }
 }
 
@@ -376,4 +494,68 @@ export function getItemIdForTab(tabId) {
 export async function claimTabForItem(itemId, tabId) {
   claimsMirror[itemId] = tabId;
   await writeClaims();
+}
+
+/**
+ * B-164 §69.3.1 — synchronous tabId remap on `chrome.tabs.onReplaced`.
+ *
+ * Chrome rotates `tabId` whenever it discards/restores a tab (and during
+ * prerendering). The probe Test A (`docs/findings/sprint-45.md`) confirmed
+ * `chrome.tabs.onReplaced(addedTabId, removedTabId)` fires synchronously at
+ * the moment of discard; the old id is a permanent dead handle. Without
+ * remap, `claimsMirror[itemId] === removedTabId` violates the
+ * claim-mirror-authoritativeness invariant (§69.4) until cold-start.
+ *
+ * This helper performs the table-1 + table-2 swap:
+ *   (1) `claimsMirror` — rewrite the (single) entry whose value equals
+ *       `removedTabId` to `addedTabId`. The mirror is itemId-keyed; itemId
+ *       is stable across the rotation (C-4 itemId-stability).
+ *   (2) `inheritedTabs` Set — if `has(removedTabId)`, `add(addedTabId)`
+ *       then `delete(removedTabId)`. Single synchronous tick; no transient
+ *       window where both / neither ids are present.
+ *
+ * If neither table contained `removedTabId`, the helper is a no-op AND
+ * skips the `writeClaims()` storage round-trip (see `dirty` flag).
+ *
+ * NOTE — tables 3, 4, 5 are remapped at the call site in
+ * `tab-events.js` (table 3 is itemId-keyed → no remap needed per the R2
+ * AC3 clarification; table 4 is local module state; table 5 is the
+ * persisted `tj:floatingGroups[].liveTabId` field). Keeping this helper
+ * scoped to the two `tab-claims.js`-private structures preserves
+ * module encapsulation.
+ *
+ * @param {number} removedTabId — the dead handle (pre-discard id)
+ * @param {number} addedTabId — the new id Chromium rotated to
+ * @returns {Promise<void>}
+ */
+export async function remapTabIdInClaims(removedTabId, addedTabId) {
+  if (typeof removedTabId !== 'number' || !Number.isFinite(removedTabId)) return;
+  if (typeof addedTabId !== 'number' || !Number.isFinite(addedTabId)) return;
+  if (removedTabId === addedTabId) return;
+
+  let dirty = false;
+
+  // Table 1 — claimsMirror: rewrite the entry pointing at removedTabId.
+  // O(N over claimed items; typically <50). Only one entry can match
+  // because claimsMirror values are unique by construction (a tabId is
+  // claimed by at most one item; Phase 2's `claimedTabIds` Set + Phase 3's
+  // `available.shift()` pop enforce this).
+  for (const [itemId, claimedTabId] of Object.entries(claimsMirror)) {
+    if (claimedTabId === removedTabId) {
+      claimsMirror[itemId] = addedTabId;
+      dirty = true;
+    }
+  }
+
+  // Table 2 — inheritedTabs Set: swap membership atomically.
+  if (inheritedTabs.has(removedTabId)) {
+    inheritedTabs.add(addedTabId);
+    inheritedTabs.delete(removedTabId);
+    // Set membership is in-memory only; no `dirty` bump (inheritedTabs is
+    // ephemeral per `tab-claims.js:24` — it does not back to storage.session).
+  }
+
+  if (dirty) {
+    await writeClaims();
+  }
 }

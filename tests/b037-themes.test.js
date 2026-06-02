@@ -564,14 +564,14 @@ test('B-037 AC2 + D-6: settings.js registers the theme select with optgroups and
    10. Manifest unchanged (AC12).
    ========================================================================= */
 
-test('B-037 AC12 (B-159 §B update): manifest.json permissions = baseline + favicon', () => {
-  /* Pin baseline updated by B-159 §B (favicon permission added for Chrome
-     _favicon API URL helper). B-037 itself still adds no permissions; the
-     pin asserts the current manifest baseline. */
+test('B-037 AC12 (B-164 §69.3.3 update): manifest.json permissions = baseline + favicon + idle', () => {
+  /* Pin baseline updated by B-164 §69.3.3 (idle permission added for
+     chrome.idle.onStateChanged on-wake claim repair). B-037 itself still
+     adds no permissions; the pin asserts the current manifest baseline. */
   const manifest = JSON.parse(readFile('manifest.json'));
   assert.deepEqual(
     manifest.permissions,
-    ['tabs', 'tabGroups', 'storage', 'sidePanel', 'search', 'favicon'],
+    ['tabs', 'tabGroups', 'storage', 'sidePanel', 'search', 'favicon', 'idle'],
     'B-037 must NOT add any manifest permission beyond the current baseline',
   );
 });

@@ -22,7 +22,7 @@
 
 import { runMigrations } from './storage/migration.js';
 import { registerStorageHandlers } from './messages/storage-handlers.js';
-import { registerTabEventListeners, initializeLiveState } from './tabs/index.js';
+import { registerTabEventListeners, initializeLiveState, registerIdleReconciler } from './tabs/index.js';
 import { MSG_OPEN_STANDALONE } from '../shared/messages.js';
 import { openOrFocusSettingsTab } from '../shared/settings-tab.js';
 
@@ -42,6 +42,12 @@ export const readyPromise = runMigrations().catch((err) => {
 // before the first await. registerTabEventListeners is synchronous — it
 // only calls chrome.tabs.onX.addListener / chrome.windows.onRemoved.addListener.
 registerTabEventListeners(readyPromise);
+
+// B-164 §69.3.2 — chrome.idle.onStateChanged listener for on-wake defensive
+// reconcile. Synchronously registered at module scope per MV3; gated on
+// readyPromise inside the listener body so reconcileClaims doesn't run
+// before the migration pipeline + initializeLiveState complete.
+registerIdleReconciler(readyPromise);
 
 registerStorageHandlers(readyPromise);
 

@@ -15,6 +15,8 @@
 export { registerTabEventListeners } from './tab-events.js';
 export { buildLiveStates } from './tab-claims.js';
 export { getDriftRecords } from './drift.js';
+/* B-164 §69.3.2 — on-wake defensive reconcile via chrome.idle. */
+export { registerIdleReconciler } from './idle-reconciler.js';
 import { buildLiveTabIndex, getLiveTabIndex } from './live-tab-index.js';
 import { reconcileClaims, getClaimsMirror } from './tab-claims.js';
 import { reassociateFloatingGroups, preMarkInheritedFromFloatingGroups, bootstrapAndSweepRenderOrder } from './floating-groups.js';

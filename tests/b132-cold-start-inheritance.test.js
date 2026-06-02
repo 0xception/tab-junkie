@@ -436,3 +436,103 @@ test('B-137 §66.7 (T-132-H + AC5): reassociateFloatingGroups lazy-rewrites live
   assert.equal(raw[0].liveTabId, 920,
     'B-137 §66.7: legacy v3 record gains liveTabId after cold-start re-bind');
 });
+
+/* =========================================================================
+   T-132-I (S45 post-UAT fix-round, 2026-05-22) — STALE-POSITION FALSE
+   POSITIVE.
+
+   Discovered via product-owner empirical UAT chasing the YT Music
+   playlist-drift extension-reload regression for B-163.
+
+   Scenario: a floating-group record's stored `(windowId, tabIndex)`
+   coincidentally matches an unrelated live tab that happens to occupy
+   the same slot now (tab indices shift as users open/close tabs).
+   Pre-fix: `preMarkInheritedFromFloatingGroups` matched on position
+   alone and called `markInherited(unrelated-tabId)` — the unrelated
+   tab was then skipped by `inheritedTabs` guards in both Phase 2 AND
+   the B-163-broadened Phase 3, breaking the user-story symptom relief.
+
+   Fix: require URL corroboration on position match when the record has a
+   URL. If URLs clearly mismatch despite position match, this is a
+   stale-position false positive (different tab); skip the position match
+   and let the URL-fallback branch try a real match. Records without URL
+   (legacy / unverifiable) fall through to position-only as before.
+
+   The bug surfaced first because B-163 R4 round-2 broadened Phase 3 to
+   iterate ALL unbound items (not just evicted ones), so MORE items now
+   reach the inherited-skip guard and notice false-positive markings.
+   ========================================================================= */
+test('B-132 T-132-I (S45 fix-round): stale-position false-positive — record URL mismatch prevents preMark', async () => {
+  /* Floating-group record at position (1, 5) referencing an OLD URL. */
+  seedPartitions({
+    floatingGroups: [
+      {
+        floatingTabId: 'ft-stale',
+        groupId: 'g-stale',
+        parentItemId: 'p-stale',
+        windowId: 1,
+        tabIndex: 5,
+        url: 'https://old-floating.example/',
+        savedAt: 1000,
+      },
+    ],
+  });
+
+  /* Live state: an UNRELATED tab now lives at the same (windowId=1,
+     index=5) position. URL is completely different — it's the YT Music
+     scenario in miniature. */
+  __setMockTabs([
+    { id: 100, url: 'https://other.example/a', windowId: 1, active: true, audible: false, index: 0 },
+    { id: 700, url: 'https://music.youtube.com/playlist?list=xyz', windowId: 1, active: false, audible: false, index: 5 },
+  ]);
+  await buildLiveTabIndex();
+
+  /* Pre-condition: nothing marked yet. */
+  assert.equal(isInherited(700), false, 'pre: tab 700 must NOT be marked inherited before helper runs');
+
+  await preMarkInheritedFromFloatingGroups();
+
+  /* POST-FIX PASS: tab 700 is NOT marked. Position matched but URL clearly
+     differs from the record's `old-floating.example` URL → false-positive
+     skipped. Pre-fix this assertion would FAIL (the assertion would catch
+     `isInherited(700) === true`) because position alone matched. */
+  assert.equal(
+    isInherited(700),
+    false,
+    'B-132 fix: position match must require URL corroboration; stale-position false positive skipped',
+  );
+
+  /* Critical downstream check: with the false-inheritance gone, the B-163
+     Phase 3 drift-URL fallback can now bind a drifted bookmark to this
+     tab. Simulate by setting up a saved item whose drift record points
+     at the YT Music URL — the bookmark must bind to tab 700. */
+  seedPartitions({
+    floatingGroups: [
+      {
+        floatingTabId: 'ft-stale',
+        groupId: 'g-stale',
+        parentItemId: 'p-stale',
+        windowId: 1,
+        tabIndex: 5,
+        url: 'https://old-floating.example/',
+        savedAt: 1000,
+      },
+    ],
+    items: [{ id: 'item-ytm', groupId: 'g-music', url: 'https://music.youtube.com/', sortOrder: 0, title: 'YT Music', createdAt: 1, updatedAt: 1 }],
+    drift: {
+      'item-ytm': {
+        itemId: 'item-ytm',
+        driftedToUrl: 'https://music.youtube.com/playlist?list=xyz',
+        detectedAt: 2,
+      },
+    },
+  });
+
+  await reconcileClaims([{ id: 'item-ytm', url: 'https://music.youtube.com/', sortOrder: 0 }]);
+
+  assert.equal(
+    getClaimsMirror()['item-ytm'],
+    700,
+    'B-163 Phase 3 + B-132 URL-corroboration fix: bookmark MUST bind to tab 700 via drift-URL fallback (the false-positive inherited guard is gone)',
+  );
+});
