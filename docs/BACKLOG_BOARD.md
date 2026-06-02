@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-05-28 · **Version:** 2.45.closed · **Total Items:** 155 · **Sprint 45 CLOSED.** Shipped: B-164 (P1/M sleep-wake claim-mirror remap — `chrome.tabs.onReplaced` 5-table remap + `chrome.idle.onStateChanged` wake reconcile + race-guard), B-163 (P2/M drift URL fallback Phase 3/4 + sibling B-132 URL-corroboration fix), B-166 (P2/S→Full floating `+` promote-in-place via `replaceFloatingId` hint + 3-partition atomic swap). One new backlog item filed: B-167 (P2/XL Spike-First — durable `tj:itemClaims` architectural rework, queued for S46+ triage). 31 commits, 33 files changed, +7297/-104; v1.40.0 staged. Sprint 44 closed 2026-05-21 with v1.39.0 tagged on release/v2 at merge commit `4ddc58a` (PR #54): B-148 interleave anchor + 10 polish/hotfix rounds + 5 new follow-on items filed (B-162..B-166); tests 1930 → 2016 PASS; schema v6 → v7 lazy.
+**Updated:** 2026-06-02 · **Version:** 2.46.opened · **Total Items:** 159 · **Sprint 46 OPEN.** Anchor: Durable claim identity (B-167, P2/XL Spike-First — replaces session-storage-based bookmark↔tab inference with a persistent partition + Chrome sessions API for restart). Piggyback small feature: Jump to active window (B-168, P2/S — toolbar icon + keyboard shortcut to scroll sidepanel to currently-focused window's tab section). Plus three XS Fast Track housekeeping items: Ways-of-working human-name discipline (B-169) + R4 contract-vs-implementation diff gate (B-170) + Reusable diagnostic-trace helper (B-171). Sprint 45 closed 2026-06-02 with v1.40.0 tagged on release/v2 at merge commit `3286227` (PR #55): 3 items shipped (B-163/B-164/B-166) + sibling B-132 fix + B-167 filed as P2/XL backlog; tests 1930 → 2052 PASS; `"idle"` permission added.
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████████████████░  95% (147/155)  [S45 closed · 0 in-progress · v1.40.0 staged on release/v2]
+Overall Progress    ███████████████████░  92% (147/159)  [S46 open · 5 in-progress · branch feature/sprint-46-claim-identity]
 ```
 
 ### Legend
@@ -119,6 +119,18 @@ Overall Progress    ███████████████████░
 ✅ B-085 — Add C-10 "Off-screen rect feasibility" to R2 Correctness Checklist · 🟠 · XS [S25 — v1.19.0]
 ⬜ B-086 — Sidepanel UI/UX design pass (post-feature-freeze polish) · ⚪ · M [filed S25 post-UAT; scheduled post-feature-parity]
 ✅ B-087 — Add C-11 "Popup-lifecycle message ordering" to R2 Correctness Checklist · 🟠 · XS [S27 Wave 1 — S26 retro HIGH action closed]
+
+---
+
+## Sprint 46 — Durable claim identity + jump-to-active-window + housekeeping (active)
+
+> 0/5 done · 5 in progress · Sprint 46 opened 2026-06-02 on branch `feature/sprint-46-claim-identity` (off `release/v2` at v1.40.0 / `56a4a7c`)
+
+🔄 B-167 — Durable claim identity (anchor) · 🟡 · XL [S46 Spike-First — replaces session-storage `tj:tabClaims` with durable partition + `chrome.sessions` API + URL-history inference backstop]
+🔄 B-168 — Jump to active window · 🟡 · S [S46 small feature — both toolbar icon + keyboard shortcut triggers; scrolls sidepanel to active-window tab section]
+🔄 B-169 — Ways-of-working: human names in discussion · ⚪ · XS [S46 Fast Track — CLAUDE.md edit, lead with names not bare ticket IDs in prose]
+🔄 B-170 — R4 contract-vs-implementation diff gate · ⚪ · XS [S46 Fast Track — CLAUDE.md edit, three S45 precedents]
+🔄 B-171 — Reusable diagnostic-trace helper · ⚪ · XS [S46 Fast Track — `shared/diag.js#recordTrace` writes to `chrome.storage.local._diag_*`]
 
 ---
 
@@ -288,21 +300,23 @@ Overall Progress    ███████████████████░
 |----------|-------|---|
 | 🔴 P0 Critical | 15 | 12% |
 | 🟠 P1 High | 35 | 28% |
-| 🟡 P2 Medium | 23 | 19% |
-| ⚪ P3 Nice-to-have | 13 | 10% |
+| 🟡 P2 Medium | 25 | 16% |
+| ⚪ P3 Nice-to-have | 16 | 10% |
 
 ## Status Summary
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 147 | 95% |
-| 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 8 | 5% |
+| ✅ Done | 147 | 92% |
+| 🔄 In Progress | 5 | 3% |
+| ⬜ To Do | 4 | 3% |
 | 🧊 Icebox | 3 | 2% |
 
-(Done count: 147. Sprint 45 closed 2026-05-28 on branch `feature/sprint-45-claim-desync` off `release/v2` at v1.39.0; v1.40.0 staged for release/v2 tag. Three items shipped: B-164 (P1/M sleep-wake claim-mirror remap — anchor), B-163 (P2/M drift URL fallback Phase 3/4 + sibling B-132 URL-corroboration fix), B-166 (P2/S→Full floating `+` promote-in-place). One new backlog item filed during close-out: B-167 (P2/XL Spike-First — durable `tj:itemClaims` architectural rework). Sprint 44 closed 2026-05-21 shipping B-148 interleave (Spike-First XL, schema v6→v7 lazy + `shared/render-order.js` resolver + 12 atomic multi-partition write sites + sidepanel/newtab render-path consumption + 10+ polish/hotfix rounds); v1.39.0 tagged on release/v2 at `4ddc58a` (PR #54).)
+(Done count: 147 unchanged. Sprint 46 opened 2026-06-02 on branch `feature/sprint-46-claim-identity` off `release/v2` at v1.40.0 / `56a4a7c`. Five items moved from backlog → in-progress: Durable claim identity (B-167, P2/XL anchor — replaces session-storage `tj:tabClaims` with durable partition + Chrome sessions API), Jump to active window (B-168, P2/S small feature), and three XS Fast Track housekeeping items (B-169 ways-of-working human names in discussion, B-170 R4 contract-vs-implementation diff gate, B-171 reusable diagnostic-trace helper). Sprint 45 closed 2026-06-02 with v1.40.0 tagged on release/v2 at merge commit `3286227` (PR #55); shipped B-163/B-164/B-166 + sibling B-132 fix + B-167 filed as backlog.)
 
-**In Progress breakdown**: _None — Sprint 45 closed; Sprint 46 not yet opened._
+**In Progress breakdown (5 items, Sprint 46)**:
+- 🟡 **P2** (2): **B-167** Durable claim identity (XL anchor — Spike-First) · **B-168** Jump to active window (S — small feature)
+- ⚪ **P3** (3): **B-169** Ways-of-working human names in discussion (XS Fast Track CLAUDE.md edit) · **B-170** R4 contract-vs-implementation diff gate (XS Fast Track CLAUDE.md edit) · **B-171** Reusable diagnostic-trace helper (XS Fast Track new `shared/diag.js` module)
 
 **To-Do breakdown (8 items)**:
 - 🟠 **P1** (1): **B-150 Q2** lost-sync continuation (B-149 hypothesis mechanisms a/b/d still open; awaits real-world repro signal)
