@@ -62,7 +62,7 @@ Sprint 45 closed with three explicit action items for S46. Two of them ARE in-sc
 
 - **Tier**: Full Spike-First (XL)
 - **Priority**: P2
-- **Status**: **R1 LOCKED (2026-06-02)** — 11 ACs against the R0-LOCKED combination (d) design. Q1 URL-history RESOLVED: deferred to follow-up item Durable claim identity URL history (B-172). Q2/Q3/Q4/Q5 captured as R2-DECISION-PENDING in relevant ACs. Full block in `docs/findings/sprint-46.md` "R1 LOCKED — Durable claim identity (B-167)" section.
+- **Status**: **R2 COMPLETE (2026-06-02)** — chapter §73 authored at `docs/design/73-b-167-durable-claim-identity.md` (721 LOC). R2-time decisions resolved: Q2 sessionMatches threshold = 50% (bias toward "trust durable"; false-positives self-correct via Phase 1 tabEntry+item validation); Q3 MSG_DEMOTE_ITEM = best-effort sequential (preserves existing partial-atomicity contract; crash-between-steps self-heals); Q4 telemetry counter DEFERRED (use B-171 diag helper instead of polluting tj:meta); Q5 tj:tabClaims RETAIN as defense-in-depth (revisit S48 after empirical hit-rate signal; performance argument — session is memory-mapped, local is disk-backed). **R1 AC3 mechanical-incorrectness caught at R2**: original wording "pre-populate claimsMirror before reconcile" is wrong — reconcileClaims reads tj:tabClaims session storage in Phase 1, not claimsMirror in-memory. §73.4.3 corrected to write restored bindings to tj:tabClaims session storage instead; R3 must follow corrected sketch, not R1 AC3 literal. 5 pre-existing test pins enumerated for R3 to update.
 - **Assigned To**: [solution-architect] Opus (R0 spike) → [product-manager] (R1) → [solution-architect] Opus (R2 chapter §72)
 - **Blockers**: none
 - **Feature Context**:
@@ -77,7 +77,7 @@ Sprint 45 closed with three explicit action items for S46. Two of them ARE in-sc
 
 - **Tier**: Full (S — close to Fast Track; may auto-upgrade if R0 surfaces a `commands` manifest-permission interaction)
 - **Priority**: P2
-- **Status**: **R2 COMPLETE (2026-06-02)** — chapter §72 authored at `docs/design/72-b-168-jump-to-active-window.md` (~310 lines). All 4 R2-VERIFY items resolved: popup uses `chrome.windows.getCurrent` (precedent at `popup.js:933`); SW uses `chrome.windows.getLastFocused`; toast helper is `showToast` at `sidepanel.js:1804`; CSS `--active-bg` token confirmed across all 7 themes in `shared/themes.css`. Single implementation note for R3: extend the existing `chrome.commands.onCommand` listener at `service-worker.js:157-162` with an `else if` branch rather than registering a second listener.
+- **Status**: **R3 BUILD COMPLETE (2026-06-02)** — 9 files modified per §72 spec. Manifest `commands` entry + popup footer button + SW chrome.commands listener extension + sidepanel onMessage branch + showToast empty-state + CSS @keyframes flash with prefers-reduced-motion fallback + MSG_JUMP_TO_ACTIVE_WINDOW constant. Tests **2058 → 2069 PASS** (+11; T1-T7 + 4 supplemental). All 7 ACs match contract verbatim (self-check passed contract-vs-implementation diff gate). Ready for R4 review (code + security + qa parallel per Gate 1).
 - **Assigned To**: [product-manager] (R1) → [solution-architect] Sonnet (R2)
 - **Blockers**: none
 - **Feature Context**:
@@ -115,7 +115,7 @@ Sprint 45 closed with three explicit action items for S46. Two of them ARE in-sc
 
 - **Tier**: Fast Track (XS) — new tiny module
 - **Priority**: P3
-- **Status**: **R3 BUILD COMPLETE (2026-06-02)** — `shared/diag.js` (93 LOC) + `tests/b171-diag.test.js` (110 LOC, T1-T6 all pass) + CLAUDE.md `### Diagnostic patterns` subsection landed inside "Non-Negotiable Rules" between "Code Quality" and "Frontend Standards". Tests **2052 → 2058 PASS** (+6, zero regressions). Fast Track tier: R4 launching next per Gate 1.
+- **Status**: **R4 REVIEW DONE (2026-06-02)** — 0 CRIT / 0 HIGH / 1 MED / 5 LOW. **Convergent finding (caught by BOTH code-reviewer + security-reviewer independently)**: `recordTrace`/`readTraces`/`clearTraces` catch blocks swallow `console.warn` then return `undefined`, deviating from R1 AC2 contract wording "Returns the Promise from chrome.storage.local.set". This is the FIRST application of the brand-new B-170 contract-vs-implementation diff gate — and it caught the gap on first use. Two paths: (a) propagate rejection per literal contract; (b) amend contract at R6 As-Built (security-reviewer rationale: "diagnostic instrumentation must never break the caller"). Other LOWs: DIAG_KEY_PREFIX export widening (intentional), JSDoc "Filed B-171" line (remove), unbounded payload-size DoS risk (soft cap recommended), implicit key sanitization (allow-list guard recommended), no error-path test. Fast Track tier: R5 skipped per CLAUDE.md.
 - **Assigned To**: [product-manager] (R1) → [frontend-engineer] (R3 build)
 - **Blockers**: none
 - **Feature Context**: new `shared/diag.js` exporting `recordTrace(key, payload)` (writes to `chrome.storage.local._diag_<key>` with append semantics + timestamp), `readTraces(prefix?)` reader, `clearTraces(prefix?)` cleanup. Document in CLAUDE.md "Diagnostic patterns" subsection. Replaces ad-hoc per-bug instrumentation (S45's `_b163_debug` + `_s45_*_trace` patterns).

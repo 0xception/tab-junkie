@@ -24,6 +24,9 @@ import {
      `MSG_MOVE_FLOATING_TAB` carries ATTACH / DETACH / MOVE_FLOATING. */
   MSG_REORDER_FLOATING_MEMBERS,
   MSG_MOVE_FLOATING_TAB,
+  /* B-168 — receiver-side constant for the popup+SW jump-to-active-window
+     dispatch. Handled inside the onMessage broadcast listener at :7130. */
+  MSG_JUMP_TO_ACTIVE_WINDOW,
   /* B-093: MSG_EXPORT_COLLECTION + MSG_IMPORT_COLLECTION moved to
      settings/settings-import-export.js along with the import/export UI. */
 } from '../shared/messages.js';
@@ -7127,8 +7130,45 @@ function _cleanupTabDragDom() {
    Broadcast listener (B4 — sender validation)
    ========================================================================= */
 
+/* B-168 — jump-to-active-window payload validator. C-7 allow-list: permits
+   ONLY a finite positive number; everything else rejects. The validator
+   runs BEFORE any DOM access so a malformed payload exits silently. */
+function _isValidJumpPayload(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  if (typeof payload.windowId !== 'number') return false;
+  if (!Number.isFinite(payload.windowId)) return false;
+  if (payload.windowId <= 0) return false;
+  return true;
+}
+
+/* B-168 — scroll the sidepanel to the first row whose `data-window-id`
+   matches `windowId` and briefly flash it. If no row matches (filter
+   active, no live claims, no open tabs for this window), surface the
+   empty-state toast — see §72.3.4 C-9 enumeration. */
+function _jumpToActiveWindow(windowId) {
+  const target = itemListEl.querySelector(`[data-window-id="${windowId}"]`);
+  if (!target) {
+    showToast('No tabs from the current window are visible here.');
+    return;
+  }
+  target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  target.classList.add('item-row--jump-highlight');
+  setTimeout(() => {
+    target.classList.remove('item-row--jump-highlight');
+  }, 600);
+}
+
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (sender.id !== chrome.runtime.id) return;
+
+  /* B-168 — fire-and-forget jump dispatched by popup or SW. Handled
+     before the MSG_STATE_CHANGED gate because it is not a broadcast. */
+  if (msg && msg.type === MSG_JUMP_TO_ACTIVE_WINDOW) {
+    if (!_isValidJumpPayload(msg.payload)) return;
+    _jumpToActiveWindow(msg.payload.windowId);
+    return;
+  }
+
   if (msg.type !== MSG_STATE_CHANGED) return;
 
   const scope = msg.payload?.scope;

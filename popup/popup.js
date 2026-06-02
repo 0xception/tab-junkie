@@ -29,6 +29,9 @@ import {
   MSG_LIST_ITEMS,
   MSG_NAVIGATE_TO_ITEM,
   MSG_OPEN_STANDALONE,
+  /* B-168 — fire-and-forget dispatch from the "Jump to current window"
+     footer button. Receiver is sidepanel/sidepanel.js. */
+  MSG_JUMP_TO_ACTIVE_WINDOW,
   /* B-160 (S43): MSG_RECENCY_ADD no longer dispatched from popup.js — the
      SW MSG_NAVIGATE_TO_ITEM handler centralizes recency-write across
      surfaces. The constant is still exported from shared/messages.js for
@@ -102,6 +105,8 @@ let _mode = 'loading';
    button was deleted from popup.html. Settings is still reachable via
    sidepanel gear icon + Alt+, keyboard shortcut. */
 let rootEl, inputEl, inputWrapEl, listEl, statusEl, emptyEl, skeletonEl, scrollEl, sidepanelBtnEl, sidepanelErrorEl;
+/* B-168 — DOM ref for the "Jump to current window" footer button. */
+let jumpToWindowBtnEl;
 
 /* =========================================================================
    Entry point
@@ -169,6 +174,8 @@ function _bootQuickSearch() {
   scrollEl = document.getElementById('qs-results-scroll');
   sidepanelBtnEl = document.getElementById('popup-open-sidepanel-btn');
   sidepanelErrorEl = document.getElementById('qs-sidepanel-error');
+  /* B-168 — Jump to current window button. */
+  jumpToWindowBtnEl = document.getElementById('popup-jump-to-window-btn');
 
   /* AC3 — programmatic focus plus native autofocus-style fallback. */
   if (inputEl) inputEl.focus();
@@ -181,6 +188,12 @@ function _bootQuickSearch() {
   /* B-082 AC2: Open side panel on button click. */
   if (sidepanelBtnEl) {
     sidepanelBtnEl.addEventListener('click', _onOpenSidepanelClick);
+  }
+
+  /* B-168 — Jump to current window button. C-11: fire MSG_JUMP_TO_ACTIVE_WINDOW
+     BEFORE window.close(); no awaits between sendMessage and close. */
+  if (jumpToWindowBtnEl) {
+    jumpToWindowBtnEl.addEventListener('click', _onJumpToWindowClick);
   }
 
   /* B-161 — "Open Settings" button + click handler removed; the
@@ -944,6 +957,40 @@ async function _onOpenSidepanelClick() {
   } finally {
     _sidepanelOpening = false;
   }
+}
+
+/* =========================================================================
+   B-168: Jump to current window button
+
+   Resolves the popup's host window via chrome.windows.getCurrent (popup
+   context — same pattern as _onOpenSidepanelClick at :933) then fires
+   MSG_JUMP_TO_ACTIVE_WINDOW to the sidepanel BEFORE calling window.close().
+   The popup tears down on close; awaiting after the navigate is a C-11
+   teardown race. Native runtime delivery survives popup teardown.
+   ========================================================================= */
+
+async function _onJumpToWindowClick() {
+  let windowId;
+  try {
+    const currentWindow = await chrome.windows.getCurrent({ populate: false });
+    windowId = currentWindow && currentWindow.id;
+  } catch {
+    /* Window resolution failed — close the popup silently. The sidepanel
+       cannot be jumped to without a windowId; nothing useful to surface. */
+    window.close();
+    return;
+  }
+  if (typeof windowId !== 'number') {
+    window.close();
+    return;
+  }
+  /* C-11 guardrail: fire-and-forget BEFORE window.close(); no await here
+     and no await between sendMessage and window.close(). */
+  chrome.runtime.sendMessage({
+    type: MSG_JUMP_TO_ACTIVE_WINDOW,
+    payload: { windowId },
+  }).catch(() => { /* swallow — popup teardown is expected */ });
+  window.close();
 }
 
 /* =========================================================================

@@ -296,6 +296,25 @@ export const MSG_OPEN_STANDALONE = 'MSG_OPEN_STANDALONE';
  */
 export const MSG_SYNC_TO_CHROME = 'tj/syncToChrome';
 
+// ---- Jump to active window (B-168) ----
+/**
+ * Sent by popup (toolbar button) or SW (Alt+W keyboard shortcut) to scroll
+ * the sidepanel to the first row belonging to the specified browser window.
+ *
+ * Sender:   popup/popup.js  (via chrome.runtime.sendMessage fire-and-forget)
+ *           background/service-worker.js  (via chrome.runtime.sendMessage)
+ * Receiver: sidepanel/sidepanel.js  (chrome.runtime.onMessage)
+ *
+ * Payload: { windowId: number }  — Chrome window ID of the target window.
+ * Validation (C-7 allow-list): windowId must be a finite number > 0.
+ * Side-effects: receiver calls `scrollIntoView` + adds a 600 ms flash class
+ * on the first `[data-window-id="<windowId>"]` row; empty-state surfaces a
+ * `showToast` message — never a JS error.
+ *
+ * @type {'tj/jumpToActiveWindow'}
+ */
+export const MSG_JUMP_TO_ACTIVE_WINDOW = 'tj/jumpToActiveWindow';
+
 // ---- State broadcast ----
 export const MSG_STATE_CHANGED = 'tj/stateChanged';
 

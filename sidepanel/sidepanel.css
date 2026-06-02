@@ -1903,3 +1903,34 @@ mark {
   font-size: 12px;
   font-weight: 600;
 }
+
+/* =========================================================================
+   B-168 — Jump-to-active-window visual feedback (§72.3.3)
+
+   The popup button + Alt+W keyboard shortcut both converge on
+   _jumpToActiveWindow which adds `.item-row--jump-highlight` immediately
+   after scrollIntoView, then removes it via setTimeout(600). The keyframe
+   uses `--active-bg` so the flash colour adapts automatically across all
+   seven themes declared in shared/themes.css (verified at :91 light, :146
+   dark, :210 GitHub light, :261 Solarized light, :311 Atom One Light,
+   :362 Solarized dark, :426 dark variant).
+   ========================================================================= */
+
+@keyframes item-row-jump-pulse {
+  0%   { background-color: var(--active-bg); }
+  70%  { background-color: var(--active-bg); }
+  100% { background-color: transparent; }
+}
+
+.item-row--jump-highlight {
+  animation: item-row-jump-pulse 600ms ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .item-row--jump-highlight {
+    /* Keep the colour change instantaneous; no fade. The class is removed
+       after 600 ms by setTimeout regardless. */
+    animation: none;
+    background-color: var(--active-bg);
+  }
+}

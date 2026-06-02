@@ -49,6 +49,12 @@
         "default": "Alt+Comma"
       },
       "description": "Open Tab Junkie Settings"
+    },
+    "jump-to-active-window": {
+      "suggested_key": {
+        "default": "Alt+W"
+      },
+      "description": "Jump sidepanel to active window's tabs"
     }
   },
   "content_security_policy": {

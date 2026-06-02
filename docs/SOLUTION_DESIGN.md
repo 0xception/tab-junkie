@@ -91,3 +91,4 @@
 - [§70 — B-163 — Drift URL Fallback on Cold-Start Re-Association (R6 As-Built)](design/70-b-163-drift-fallback-reconcile.md)
 - [§71 — B-166 — `+` CTA on Floating Tab Promotes In-Place (R6 As-Built)](design/71-b-166-promote-in-place.md)
 - [§72 — B-168 — Jump to Active Window (R2 Design)](design/72-b-168-jump-to-active-window.md)
+- [§73 — B-167 — Durable Claim Identity (R2 Design)](design/73-b-167-durable-claim-identity.md)

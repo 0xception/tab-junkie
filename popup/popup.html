@@ -41,6 +41,10 @@
            trigger the same action (see popup.js Tab handler). -->
       <div id="qs-footer">
         <button id="popup-open-sidepanel-btn" type="button" aria-label="Open side panel">Open side panel</button>
+        <!-- B-168 — Jump to current window: fire-and-forget MSG_JUMP_TO_ACTIVE_WINDOW
+             before window.close() (C-11 discipline). Visible to all users by default;
+             not gated on any state. -->
+        <button id="popup-jump-to-window-btn" type="button" aria-label="Jump to current window's tabs in the sidepanel">Jump to current window</button>
         <div id="qs-sidepanel-error" class="qs-visually-hidden" role="alert" aria-live="assertive" aria-atomic="true"></div>
       </div>
     </div>
