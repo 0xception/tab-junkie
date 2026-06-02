@@ -64,6 +64,53 @@
 
 ---
 
+## R1 LOCKED — Durable claim identity (B-167) — post-R0
+
+**Tier: Full Spike-First (XL). Approach: R2-LOCKED combination (d) — durable `tj:itemClaims` partition + `sessionTag` discriminator + Phase 1/2/3/4 inference as backstop. URL-history per claim DEFERRED per Q1 product-owner decision (filed as B-172 follow-up).**
+
+**Scope**: Introduce a new durable `tj:itemClaims` partition in `chrome.storage.local` that records a per-item claim (`tabId`, `claimedAt`, `sessionTag`) persisted across extension reload and browser restart. On cold start, a `sessionMatches` predicate determines whether the stored `sessionTag` matches the current browser session; if yes, the durable tabId is trusted directly (S-1 extension-reload happy path); if no, the Phase 1/2/3/4 inference pipeline runs as the backstop (S-2 browser restart, S-3 sleep, S-4 crash). Every existing `tj:tabClaims` write site gains a parallel PATCH to `tj:itemClaims` via `writeTransaction`. Schema bumps from v7 to v8 (governance + lazy data migration, C-1a/C-1b option 2). `chrome.sessions` API rejected — no public surface bridges old→new tabId across restore.
+
+**DoR-7**: N/A — additive writes to a new partition; existing `tj:tabClaims` (session) writes preserved unchanged.
+**Selector audit**: N/A — no DOM.
+**Source-citation completeness**: all claims cite `file:line`; two R2-VERIFY items (`crypto.randomUUID()` call site; `sessionMatches` heuristic threshold per Q2).
+
+### AC1 — Schema v7 → v8 + new `tj:itemClaims` partition shape
+Paired changes: `migration.js:100` `KNOWN_VERSION` 7→8 + new v7→v8 no-op step (C-1b option 2 lazy) + `shapes.js:35` new `PARTITION_ITEM_CLAIMS = 'itemClaims'` constant + `shapes.js:91` `defaultShape('itemClaims')` returns `{schemaVersion: 1, sessionTag: '', entries: {}}` + `shapes.js:135` `defaultShape(PARTITION_META).schemaVersion` literal 7→8 (C-1a paired-bump, `tests/migration-fresh-install.test.js` pins this) + `shapes.js` new `isItemClaims(v)` validator (allow-list per C-7: `entries[k]` requires `tabId: finite-int`, `claimedAt: finite-int`, `sessionTag: string`; extra fields tolerated). **PASS**: `defaultShape` returns correct shape; `assertShape` accepts well-formed + throws ERR_CORRUPT_DATA on malformed; existing migration test passes with updated literal.
+
+### AC2 — Write-site mirror (5 sites, each PATCHes `tj:itemClaims`)
+W-1 `reconcileClaims` end-of-Phase-4 full-replace (`tab-claims.js:327`) — replaces entire `entries` + stamps current `sessionTag`. W-2 `releaseClaimByTab` (`tab-claims.js:356`) — deletes `entries[itemId]`. W-3 `reevaluateTab` new-claim branch (`tab-claims.js:417`) — upserts `entries[itemId]`. W-4 `claimTabForItem` (`tab-claims.js:494-496`) — upserts. W-5 `remapTabIdInClaims` (`tab-claims.js:531`) — updates `entries[itemId].tabId` preserving `claimedAt`+`sessionTag`. All 5 via `writeTransaction`. **Q3 R2-DECISION-PENDING**: `MSG_DEMOTE_ITEM` durable-clear sync (within `storage-handlers.js:485` transaction) vs best-effort sequential. **PASS**: each write-site fires correct `tj:itemClaims` state; `tj:tabClaims` still updated (Q5-pending defense-in-depth retention).
+
+### AC3 — Cold-start read with `sessionMatches` discrimination
+`initializeLiveState` (`background/tabs/index.js:37`) reads `tj:itemClaims` before `reconcileClaims`. New pure function `sessionMatches(durablePartition, liveTabIndex, threshold?)` computes ratio of stamped entries (same-sessionTag) whose tabId resolves in liveTabIndex. **Q2 R2-DECISION-PENDING**: threshold `≥50%` (aggressive) vs `≥80%` (safer). `sessionMatches === true` → pre-populate `claimsMirror[itemId] = entry.tabId` before reconcile; Phase 2/3 short-circuit. `false` → stale-hint mode; full Phase 1/2/3/4 runs; entries overwritten by W-1. **PASS**: two scenarios — (a) seed with current sessionTag + 3/4 tabIds resolve → pre-populated claims survive; (b) seed with old sessionTag + 0 tabIds resolve → inference runs, old entries overwritten.
+
+### AC4 — Durable direct match: extension-reload (S-1) happy path
+Given saved item with `entries[itemId] = {tabId: 42, claimedAt: T, sessionTag: current}` where tabId 42 in LiveTabIndex: `sessionMatches` true → `claimsMirror[itemId] = 42` pre-populated → Phase 1 validates (B-149 contract: URL NOT re-checked) → Phase 2/3 skip itemId. **Zero URL inference operations for this item.** **PASS**: `getItemIdForTab(42)` returns itemId; no `getDriftRecords()` call for this item.
+
+### AC5 — Phase 1/2/3/4 backstop preservation (no regression)
+Existing 4-phase pipeline (`tab-claims.js:139`) preserved intact. Durable pre-population is additive — pre-populated items treated as already-claimed entering Phase 1. No phase removed/reordered. Phase 3 drift-URL fallback (B-163), Phase 4 conditional drift-drop (B-163), B-149 URL-mismatch claim-preservation contract — all unchanged. **PASS**: full existing suites `tests/b149-*`, `tests/b163-*`, `tests/b164-*` pass without modification post-R3.
+
+### AC6 — Graceful degradation on `tj:itemClaims` corrupt-data read
+Reading `tj:itemClaims` wrapped in try/catch (B-163 R4 HIGH-1 pattern at `background/tabs/index.js:60-64`). Catch path: `console.warn`; proceed with empty `durablePartition`; `sessionMatches` returns false; Phase 1/2/3/4 runs normally; corrupt partition overwritten by W-1. **PASS**: seed corrupt `entries: 'not-an-object'`; cold-start runs; `isClaimsReady()` true; no unhandled rejection.
+
+### AC7 — `chrome.tabs.onReplaced` 5-table remap extended (6th table: `tj:itemClaims`)
+W-5 (AC2) extends `remapTabIdInClaims` to also patch `entries[itemId].tabId`. Additive to B-164 §69.3.1 5-table remap. Fire-and-forget `.catch` (`tab-events.js:119-121`) covers durable-PATCH failure — non-fatal; in-memory mirror update is synchronous and authoritative for current session. **PASS**: `remapTabIdInClaims(old, new)` test verifies `tj:itemClaims.entries[itemId].tabId` updates old→new.
+
+### AC8 — Migration: lazy, no eager rewrite
+v7→v8 `MIGRATION_STEPS` entry is no-op (identity function; same pattern as v6→v7 at `migration.js:191-195`). No eager rewrite of any existing partition. `tj:itemClaims` additive — `initializePartitions()` seeds default shape on profiles lacking the key. Existing partitions untouched by migration. **PASS**: `tests/migration-fresh-install.test.js` passes with updated literal; migration-runner test seeded at v7 lands at v8 with other partition data unchanged.
+
+### AC9 — CHANGELOG SW-flush note (C-1a)
+`CHANGELOG.md` v1.X.0 entry must include: "After update, toggle the extension OFF then ON in `edge://extensions` to flush the SW module cache and apply the schema v8 migration." Sprint 30 B-092 `denseLayout` precedent. [technical-writer] owns at R7. **PASS**: `CHANGELOG.md` contains SW-flush note in the v1.X.0 entry that ships KNOWN_VERSION=8.
+
+### AC10 — Rollback constraint documented
+R6 chapter must document: rollback to pre-v8 build requires manual `tj:meta.schemaVersion` reset to 7 (DevTools `chrome.storage.local.set({'tj:meta': {..., schemaVersion: 7}})`) before installing prior build, OR clear `tj:itemClaims` key entirely. Without reset, prior build (`KNOWN_VERSION=7`) enters safe-mode (`migration.js:382`). **No immediate data-loss risk** — `tj:items` + `tj:groups` untouched; `tj:itemClaims` is derived cache (pre-B-167 inference reconstructs from `tj:tabClaims` session storage as before). **PASS**: rollback plan in R6 chapter with exact `chrome.storage.local.set` command.
+
+### AC11 — URL-history per claim: explicitly out of scope
+`entries[itemId]` shape is `{tabId, claimedAt, sessionTag}` ONLY. No `urlHistory` field. R0 candidate (c) deferred to follow-up item B-172 per Q1 product-owner decision. Schema v8 design must not preclude adding `urlHistory` as optional field in future v9 bump. `isItemClaimEntry` validator does not require urlHistory; entries with urlHistory pass validator without error (extra-fields tolerated per C-7 allow-list). **PASS**: validator accepts both shapes; B-172 lands as additive v9 bump if/when product-owner promotes it.
+
+**Out of scope**: `chrome.sessions` API integration (REJECTED — `docs/findings/sprint-46.md:23`); URL-history per claim (deferred to B-172); removal of `tj:tabClaims` session-storage path (Q5 R2-DECISION-PENDING); telemetry counter for durable-hit-rate (Q4 R2-DECISION-PENDING); any sidepanel/newtab/popup UI changes; changes to B-149 claim-preservation contract or B-163 Phase 3/4 drift logic beyond additive pre-population.
+
+---
+
 ## R1 LOCKED — Jump to active window (B-168)
 
 **Tier: Full (S — may auto-upgrade if manifest `commands` interaction surfaces a permission concern at R2). Approach: both triggers (toolbar icon + keyboard shortcut) per product-owner direction.**
