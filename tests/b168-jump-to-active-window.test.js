@@ -425,3 +425,237 @@ test('B-168 T6b (C-7): _isValidJumpPayload accepts finite positive integers only
   /* M-2 contract: floats rejected — Chrome windowIds are always integers. */
   assert.equal(_isValidJumpPayload({ windowId: 1.5 }), false, 'float rejected');
 });
+
+/* =========================================================================
+   T8 (R5 gap-filler — M-2 rapid-click guard)
+
+   Live popup.js:972-1004 uses the `_jumpingToWindow` boolean to swallow
+   re-entrant clicks. Re-creates the same gate inline; verifies that
+   three rapid clicks produce exactly one MSG_JUMP_TO_ACTIVE_WINDOW
+   dispatch + one window.close().
+   ========================================================================= */
+
+function makeRapidClickPopupHandler() {
+  let jumping = false;
+  let closes = 0;
+  async function handler(closeFn) {
+    if (jumping) return;
+    jumping = true;
+    let windowId;
+    try {
+      const w = await chrome.windows.getCurrent({ populate: false }); // eslint-disable-line no-undef
+      windowId = w && w.id;
+    } catch {
+      jumping = false;
+      closeFn(); closes += 1;
+      return;
+    }
+    if (typeof windowId !== 'number') {
+      jumping = false;
+      closeFn(); closes += 1;
+      return;
+    }
+    chrome.runtime.sendMessage({ // eslint-disable-line no-undef
+      type: MSG_JUMP_TO_ACTIVE_WINDOW,
+      payload: { windowId },
+    }).catch(() => {});
+    closeFn(); closes += 1;
+  }
+  return { handler, getCloseCount: () => closes };
+}
+
+test('B-168 T8 (M-2 rapid-click guard): three rapid clicks dispatch exactly one message', async () => {
+  installChromeMock();
+  __resetMock();
+  const origGetCurrent = globalThis.chrome.windows.getCurrent;
+  /* Slow getCurrent simulates the await window during which a second
+     click would arrive in production. */
+  globalThis.chrome.windows.getCurrent = async () => {
+    await new Promise((r) => setTimeout(r, 20));
+    return { id: 17 };
+  };
+
+  const { handler, getCloseCount } = makeRapidClickPopupHandler();
+  const closeFn = () => {};
+
+  try {
+    /* Fire three "clicks" with no awaits between — they share the same
+       microtask turn. The first click flips _jumpingToWindow before the
+       await yields; clicks 2 and 3 should early-return. */
+    const p1 = handler(closeFn);
+    const p2 = handler(closeFn);
+    const p3 = handler(closeFn);
+    await Promise.all([p1, p2, p3]);
+  } finally {
+    globalThis.chrome.windows.getCurrent = origGetCurrent;
+  }
+
+  const calls = __getSendMessageCalls();
+  assert.equal(calls.length, 1, 'exactly one sendMessage despite three rapid clicks');
+  assert.equal(getCloseCount(), 1, 'window.close called exactly once');
+  assert.deepEqual(calls[0][0], {
+    type: MSG_JUMP_TO_ACTIVE_WINDOW,
+    payload: { windowId: 17 },
+  }, 'the single dispatched message carries the resolved windowId');
+});
+
+/* =========================================================================
+   T9 (R5 gap-filler — M-1 empty-state toast durationMs contract)
+
+   Live sidepanel.js:7157 passes `{ durationMs: 3000 }` explicitly so the
+   AC5 3-second contract is pinned against any future showToast default
+   change. Asserts both the message text and the options object.
+   ========================================================================= */
+
+function makeJumpHarnessWithToastOpts({ rows, toastSpy }) {
+  const itemListEl = makeFakeItemList(rows);
+  function showToast(message, opts) {
+    toastSpy.calls.push({ message, opts });
+  }
+  function _jumpToActiveWindow(windowId) {
+    const target = itemListEl.querySelector(`[data-window-id="${windowId}"]`);
+    if (!target) {
+      showToast('No tabs from the current window are visible here.', { durationMs: 3000 });
+      return;
+    }
+    target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    target.classList.add('item-row--jump-highlight');
+    if (typeof target.focus === 'function') {
+      target.focus({ preventScroll: true });
+    }
+    setTimeout(() => { target.classList.remove('item-row--jump-highlight'); }, 600);
+  }
+  return { _jumpToActiveWindow };
+}
+
+test('B-168 T9 (M-1): empty-state toast passes durationMs:3000 explicitly', () => {
+  const rows = new Map();
+  const toastSpy = { calls: [] };
+  const harness = makeJumpHarnessWithToastOpts({ rows, toastSpy });
+
+  harness._jumpToActiveWindow(42);
+
+  assert.equal(toastSpy.calls.length, 1, 'one toast call');
+  assert.equal(
+    toastSpy.calls[0].message,
+    'No tabs from the current window are visible here.',
+    'message text matches §72.3.4 spec',
+  );
+  assert.deepEqual(
+    toastSpy.calls[0].opts,
+    { durationMs: 3000 },
+    'durationMs:3000 must be passed explicitly to pin the AC5 contract',
+  );
+});
+
+test('B-168 T9b (M-1): live sidepanel.js source pins durationMs:3000 on the empty-state toast', () => {
+  /* Source-truth assertion: the inline shim mirrors live code, but this
+     test goes further and asserts the live source carries the literal
+     durationMs option so the contract cannot regress to the default. */
+  const src = fs.readFileSync(
+    path.join(ROOT, 'sidepanel', 'sidepanel.js'),
+    'utf8',
+  );
+  /* Locate the empty-state showToast call. */
+  const re = /showToast\(\s*'No tabs from the current window are visible here\.'\s*,\s*\{\s*durationMs:\s*3000\s*\}\s*\)/;
+  assert.ok(
+    re.test(src),
+    'sidepanel.js empty-state showToast must pass { durationMs: 3000 }',
+  );
+});
+
+/* =========================================================================
+   T10 (R5 gap-filler — L-1 focus management on match path)
+
+   Live sidepanel.js:7165 calls target.focus({ preventScroll: true })
+   immediately after scrollIntoView so keyboard users land on the row.
+   ========================================================================= */
+
+function makeFakeRowWithFocus() {
+  const classes = new Set();
+  let scrollArgs = null;
+  let focusOpts = null;
+  let focusCount = 0;
+  return {
+    scrollIntoView(opts) { scrollArgs = opts; },
+    focus(opts) { focusCount += 1; focusOpts = opts; },
+    classList: {
+      add(c) { classes.add(c); },
+      remove(c) { classes.delete(c); },
+      has(c) { return classes.has(c); },
+    },
+    __getScrollArgs() { return scrollArgs; },
+    __getFocusOpts() { return focusOpts; },
+    __getFocusCount() { return focusCount; },
+  };
+}
+
+test('B-168 T10 (L-1): match-path calls target.focus({ preventScroll: true }) after scrollIntoView', () => {
+  const row = makeFakeRowWithFocus();
+  const rows = new Map([[55, row]]);
+  const toastSpy = { calls: [] };
+  const harness = makeJumpHarnessWithToastOpts({ rows, toastSpy });
+
+  harness._jumpToActiveWindow(55);
+
+  assert.equal(row.__getFocusCount(), 1, 'focus called exactly once on the matched row');
+  assert.deepEqual(
+    row.__getFocusOpts(),
+    { preventScroll: true },
+    'focus called with preventScroll:true to avoid re-scrolling after the smooth scrollIntoView',
+  );
+  assert.deepEqual(
+    row.__getScrollArgs(),
+    { block: 'start', behavior: 'smooth' },
+    'scrollIntoView still uses block:start + behavior:smooth',
+  );
+});
+
+test('B-168 T10b (L-1): live sidepanel.js source pins target.focus({ preventScroll: true })', () => {
+  const src = fs.readFileSync(
+    path.join(ROOT, 'sidepanel', 'sidepanel.js'),
+    'utf8',
+  );
+  const re = /target\.focus\(\s*\{\s*preventScroll:\s*true\s*\}\s*\)/;
+  assert.ok(
+    re.test(src),
+    'sidepanel.js match path must call target.focus({ preventScroll: true })',
+  );
+});
+
+/* =========================================================================
+   T11 (R5 gap-filler — prefers-reduced-motion CSS path)
+
+   §72.3.3 spec: when prefers-reduced-motion is reduce, the flash class
+   skips the keyframe animation and applies the colour change instantly.
+   The 600 ms setTimeout removal still runs regardless. CSS-only path —
+   asserted against sidepanel.css source.
+   ========================================================================= */
+
+test('B-168 T11 (a11y): sidepanel.css declares the keyframe + the prefers-reduced-motion override', () => {
+  const css = fs.readFileSync(
+    path.join(ROOT, 'sidepanel', 'sidepanel.css'),
+    'utf8',
+  );
+
+  /* The keyframe rule. */
+  assert.ok(
+    /@keyframes\s+item-row-jump-pulse\s*\{/.test(css),
+    'item-row-jump-pulse keyframe must be declared',
+  );
+
+  /* The default class uses the keyframe at 600ms. */
+  const defaultRe = /\.item-row--jump-highlight\s*\{[^}]*animation:\s*item-row-jump-pulse\s+600ms[^}]*\}/;
+  assert.ok(
+    defaultRe.test(css),
+    '.item-row--jump-highlight default rule must apply item-row-jump-pulse 600ms',
+  );
+
+  /* The reduced-motion override disables the animation and falls back
+     to an instant colour swap. */
+  const reducedRe = /@media\s*\(\s*prefers-reduced-motion:\s*reduce\s*\)\s*\{[^]*?\.item-row--jump-highlight\s*\{[^}]*animation:\s*none[^}]*\}/;
+  assert.ok(
+    reducedRe.test(css),
+    'prefers-reduced-motion: reduce must override .item-row--jump-highlight with animation:none',
+  );
+});
