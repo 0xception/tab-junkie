@@ -6,12 +6,15 @@ import {
   defaultShape, PARTITION_META, assertShape, PARTITION_GROUPS,
 } from '../background/storage/shapes.js';
 
-test('B-148 §3.1: KNOWN_VERSION === 7', () => {
-  assert.equal(KNOWN_VERSION, 7);
+/* B-148 v6→v7 floor + B-167 v7→v8 ceiling: this file now pins the
+   current KNOWN_VERSION literal as a paired-bump regression guard. The
+   v7 floor was B-148's contribution and the v8 ceiling is B-167's. */
+test('B-148 §3.1 (B-167 §73.3.1 bump): KNOWN_VERSION === 8', () => {
+  assert.equal(KNOWN_VERSION, 8);
 });
 
-test('B-148 §3.1: defaultShape(PARTITION_META).schemaVersion === 7', () => {
-  assert.equal(defaultShape(PARTITION_META).schemaVersion, 7);
+test('B-148 §3.1 (B-167 §73.3.1 bump): defaultShape(PARTITION_META).schemaVersion === 8', () => {
+  assert.equal(defaultShape(PARTITION_META).schemaVersion, 8);
 });
 
 function group(extra = {}) {

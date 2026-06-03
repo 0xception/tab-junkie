@@ -18,7 +18,7 @@ export { getDriftRecords } from './drift.js';
 /* B-164 §69.3.2 — on-wake defensive reconcile via chrome.idle. */
 export { registerIdleReconciler } from './idle-reconciler.js';
 import { buildLiveTabIndex, getLiveTabIndex } from './live-tab-index.js';
-import { reconcileClaims, getClaimsMirror } from './tab-claims.js';
+import { reconcileClaims, getClaimsMirror, prePopulateClaimsFromDurable } from './tab-claims.js';
 import { reassociateFloatingGroups, preMarkInheritedFromFloatingGroups, bootstrapAndSweepRenderOrder } from './floating-groups.js';
 import { listItems } from '../storage/items.js';
 /* B-014 */
@@ -61,6 +61,20 @@ export async function initializeLiveState(readyPromise) {
     await preMarkInheritedFromFloatingGroups();
   } catch (err) {
     console.warn('[tab-junkie] B-132 preMarkInheritedFromFloatingGroups failed; proceeding with empty inheritedTabs', err);
+  }
+  /* B-167 §73.4.3 — durable claim pre-population. Reads tj:itemClaims;
+     if sessionMatches against the current liveTabIndex (Q2 threshold
+     0.5), writes restored bindings to tj:tabClaims (session) BEFORE
+     reconcileClaims so Phase 1 sees them as input. Graceful degradation
+     per §73.8: missing partition / corrupt partition / storage rejection
+     all log warn and fall through to the existing 4-phase inference
+     pipeline (no regression). The helper also settles the module-level
+     sessionTag for the SW lifetime so W-1..W-5 PATCH stamps are
+     consistent. */
+  try {
+    await prePopulateClaimsFromDurable();
+  } catch (err) {
+    console.warn('[tab-junkie] B-167 prePopulateClaimsFromDurable failed; proceeding with inference-only reconcile', err);
   }
   await reconcileClaims(items);
   // B-001d AC10: re-associate floating groups after claims are established

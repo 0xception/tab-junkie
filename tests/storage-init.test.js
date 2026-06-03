@@ -12,10 +12,11 @@ test('AC1: initializePartitions seeds all partition keys on fresh mock', async (
     const v = __getRawStore(`tj:${p}`);
     assert.notStrictEqual(v, undefined, `tj:${p} should be defined`);
   }
-  /* B-022 §39.3 D-3 — `tj:recency` added in Sprint 26, raising the count
-     from 6 to 7. Any new partition must update this assertion + add its
-     own coverage (see b022-quick-search.test.js — R5). */
-  assert.equal(ALL_PARTITIONS.length, 7);
+  /* B-022 §39.3 D-3 — `tj:recency` added in Sprint 26 (6 → 7).
+     B-167 §73.3.1 — `tj:itemClaims` added in Sprint 46 (7 → 8). Any
+     new partition must update this assertion + add its own coverage
+     (see tests/b167-durable-claim-identity.test.js — R5). */
+  assert.equal(ALL_PARTITIONS.length, 8);
 });
 
 test('AC1: initializePartitions is idempotent', async () => {
