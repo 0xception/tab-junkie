@@ -969,7 +969,15 @@ async function _onOpenSidepanelClick() {
    teardown race. Native runtime delivery survives popup teardown.
    ========================================================================= */
 
+let _jumpingToWindow = false;
 async function _onJumpToWindowClick() {
+  /* M-2 rapid-click guard — mirrors the _sidepanelOpening pattern at
+     popup.js:931-936. Prevents duplicate MSG_JUMP_TO_ACTIVE_WINDOW
+     dispatches if the user clicks the button more than once before
+     window.close() tears the popup down. */
+  if (_jumpingToWindow) return;
+  _jumpingToWindow = true;
+
   let windowId;
   try {
     const currentWindow = await chrome.windows.getCurrent({ populate: false });
@@ -977,10 +985,12 @@ async function _onJumpToWindowClick() {
   } catch {
     /* Window resolution failed — close the popup silently. The sidepanel
        cannot be jumped to without a windowId; nothing useful to surface. */
+    _jumpingToWindow = false;
     window.close();
     return;
   }
   if (typeof windowId !== 'number') {
+    _jumpingToWindow = false;
     window.close();
     return;
   }

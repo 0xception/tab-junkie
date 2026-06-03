@@ -62,24 +62,37 @@ Sprint 45 closed with three explicit action items for S46. Two of them ARE in-sc
 
 - **Tier**: Full Spike-First (XL)
 - **Priority**: P2
-- **Status**: **R2 COMPLETE (2026-06-02)** — chapter §73 authored at `docs/design/73-b-167-durable-claim-identity.md` (721 LOC). R2-time decisions resolved: Q2 sessionMatches threshold = 50% (bias toward "trust durable"; false-positives self-correct via Phase 1 tabEntry+item validation); Q3 MSG_DEMOTE_ITEM = best-effort sequential (preserves existing partial-atomicity contract; crash-between-steps self-heals); Q4 telemetry counter DEFERRED (use B-171 diag helper instead of polluting tj:meta); Q5 tj:tabClaims RETAIN as defense-in-depth (revisit S48 after empirical hit-rate signal; performance argument — session is memory-mapped, local is disk-backed). **R1 AC3 mechanical-incorrectness caught at R2**: original wording "pre-populate claimsMirror before reconcile" is wrong — reconcileClaims reads tj:tabClaims session storage in Phase 1, not claimsMirror in-memory. §73.4.3 corrected to write restored bindings to tj:tabClaims session storage instead; R3 must follow corrected sketch, not R1 AC3 literal. 5 pre-existing test pins enumerated for R3 to update.
-- **Assigned To**: [solution-architect] Opus (R0 spike) → [product-manager] (R1) → [solution-architect] Opus (R2 chapter §72)
+- **Status**: **R3 BUILD COMPLETE (2026-06-03)** — durable identity layered above (`prePopulateClaimsFromDurable`) and below (W-1..W-5 mirror) the existing Phase 1/2/3/4 inference pipeline per §73. Schema v7→v8 paired bump (`KNOWN_VERSION` 7→8 + `defaultShape(PARTITION_META)` literal 7→8 + new `PARTITION_ITEM_CLAIMS` constant in `ALL_PARTITIONS`); v7→v8 no-op `MIGRATION_STEPS` entry; allow-list validator `isItemClaims` (C-7 forward-compat for B-172). `sessionMatches` predicate threshold 0.5 (Q2 PICK). `releaseClaimByTab` updated for W-2 best-effort sequential durable-delete (Q3 PICK). 5 enumerated pre-existing test pins updated PLUS 1 R2-VERIFY-caught extra pin in `tests/migration-steps.test.js:88` (R3 grep audit per §73.9.2 caught it; not a STOP-and-escalate — fix-scope completion). 16 new b167-* tests cover T1-T15 (T1 defaultShape, T2/T2b validator, T3 forward-compat, T4 paired-bump, T5 sessionMatches threshold, T6 corrupt-data graceful degradation, T7 S-1 happy path, T8 S-2 backstop + fresh tag, T9 W-2 dual-clear, T10 W-3 upsert, T11 W-4 upsert, T12 W-5 tabId remap preserves claimedAt+sessionTag, T13 B-149 regression, T14 B-163 regression, T15 MSG_DEMOTE_ITEM clears durable). **Tests 2069 → 2085 PASS, zero regressions.** Ready for R4 review (code + security + qa parallel per Gate 1).
+- **Assigned To**: [solution-architect] Opus (R0 spike) → [product-manager] (R1) → [solution-architect] Opus (R2 chapter §73) → [frontend-engineer] Opus (R3 build)
 - **Blockers**: none
 - **Feature Context**:
   - S45 surfaced three URL-inference bugs in four days (B-163 R3 Phase 3 scope narrowing; B-132 preMark position-only false-positive; M-1 dedup test verifying final-state). All fixed point-wise, but the underlying pattern is that `tj:tabClaims` lives in `chrome.storage.session` — wiped on every reload/restart/crash — forcing URL re-inference on every cold start.
   - Goal: replace session-storage-based inference with a durable claim identity that survives extension reload (tab IDs persist), browser restart (tab IDs change; needs `chrome.sessions` API or URL-history backstop), and crash (URL inference as last resort).
   - R0 picks the durability strategy from four enumerated candidates.
 - **Handoff Notes**: R0 spike must produce: (i) survey of every storage-wipe scenario the current inference layer handles correctly vs incorrectly, (ii) pick durability strategy (a/b/c/d), (iii) migration path from `tj:tabClaims` to the new partition (eager rewrite vs. lazy), (iv) rollback plan, (v) schema bump implications (C-1a/b).
-- **Files Changed**: (none yet)
+- **Files Changed**:
+  - `background/storage/shapes.js` — add PARTITION_ITEM_CLAIMS const + ITEM_CLAIMS_SCHEMA_VERSION + ALL_PARTITIONS append + defaultShape case + isItemClaims validator + assertShape case + defaultShape(PARTITION_META) literal 7→8.
+  - `background/storage/partitions.js` — re-export PARTITION_ITEM_CLAIMS + ITEM_CLAIMS_SCHEMA_VERSION.
+  - `background/storage/migration.js` — KNOWN_VERSION 7→8 + v7→v8 no-op MIGRATION_STEPS entry.
+  - `background/tabs/tab-claims.js` — module-level _sessionTag + ensureSessionTag + sessionMatches predicate (exported) + prePopulateClaimsFromDurable (exported) + durableMirrorFullReplace (W-1) + durableUpsertEntry (W-3, W-4) + durableDeleteEntry (W-2) + durableRemapEntry (W-5); W-1..W-5 wired into reconcileClaims / releaseClaimByTab / reevaluateTab / claimTabForItem / remapTabIdInClaims; __resetTabClaims clears _sessionTag; __getSessionTagForTest hatch added.
+  - `background/tabs/index.js` — invoke prePopulateClaimsFromDurable AFTER preMarkInheritedFromFloatingGroups and BEFORE reconcileClaims, wrapped in try/catch per §73.8 graceful degradation.
+  - `tests/migration-fresh-install.test.js:54-59` — pin updated 7→8.
+  - `tests/b148-schema-v7.test.js:9-15` — both pins updated 7→8; comment notes paired-bump origin.
+  - `tests/sync-schema-v5.test.js:7-13` — both pins updated 7→8.
+  - `tests/storage-init.test.js:18` — ALL_PARTITIONS.length 7→8.
+  - `tests/b040-auto-collapse-subgroups.test.js:667` — ALL_PARTITIONS.length 7→8.
+  - `tests/migration-steps.test.js:88` — KNOWN_VERSION literal 7→8 (R2-VERIFY-caught extra pin per §73.9.2 grep audit).
+  - `tests/b167-durable-claim-identity.test.js` (NEW) — T1–T15 (16 cases) covering all R1 ACs + S-1/S-2 scenarios + W-1..W-5 mirror + graceful degradation + B-149/B-163 regression guards.
 - **Parallel Opportunity**: anchor item; other items ride alongside during R3+ build phases.
 
 ### [B-168] Jump to active window
 
 - **Tier**: Full (S — close to Fast Track; may auto-upgrade if R0 surfaces a `commands` manifest-permission interaction)
 - **Priority**: P2
-- **Status**: **R3 BUILD COMPLETE (2026-06-02)** — 9 files modified per §72 spec. Manifest `commands` entry + popup footer button + SW chrome.commands listener extension + sidepanel onMessage branch + showToast empty-state + CSS @keyframes flash with prefers-reduced-motion fallback + MSG_JUMP_TO_ACTIVE_WINDOW constant. Tests **2058 → 2069 PASS** (+11; T1-T7 + 4 supplemental). All 7 ACs match contract verbatim (self-check passed contract-vs-implementation diff gate). Ready for R4 review (code + security + qa parallel per Gate 1).
-- **Assigned To**: [product-manager] (R1) → [solution-architect] Sonnet (R2)
+- **Status**: **R4 FIX-ROUND COMPLETE (2026-06-03)** — All 7 R4 findings landed (1 HIGH + 3 MED + 2 LOW + 1 diagnostic). H-1: SW guards WINDOW_ID_NONE (`win.id <= 0`) at `background/service-worker.js:172` + T2c regression guard added. M-1: `showToast(..., { durationMs: 3000 })` per AC5 contract at `sidepanel/sidepanel.js:7152`. M-2 code: `_isValidJumpPayload` now uses `Number.isInteger` (rejects floats) at `sidepanel/sidepanel.js:7140`; matching test fixture updated. M-2 qa: rapid-click guard `_jumpingToWindow` added at `popup/popup.js:972` mirroring the `_sidepanelOpening` pattern. M-3: discoverability tooltip `title="Jump to current window's tabs (Alt+W)"` added at `popup/popup.html:47`. L-1: keyboard-path `target.focus({ preventScroll: true })` after `scrollIntoView`. Plus diagnostic 80006: `tests/b167-durable-claim-identity.test.js` T5 rewritten as async/await. **Tests 2085 → 2086 PASS** (+1 for T2c regression guard); zero regressions. Cross-surface diff verified (popup + SW + sidepanel symmetric on the integer-positive windowId contract). Contract-vs-implementation diff gate self-check: clean on every fixed predicate. Ready for R5 [test-engineer].
+- **Assigned To**: [product-manager] (R1) → [solution-architect] Sonnet (R2) → [frontend-engineer] (R3 + R4 fix-round)
 - **Blockers**: none
+- **Files Changed (R4 fix-round)**: `background/service-worker.js`, `sidepanel/sidepanel.js`, `popup/popup.js`, `popup/popup.html`, `tests/b168-jump-to-active-window.test.js`, `tests/b167-durable-claim-identity.test.js` (collateral diagnostic 80006).
 - **Feature Context**:
   - User-observed pain: sidepanel renders tabs from all browser windows; finding the section for the currently-focused window requires manual scrolling.
   - Two triggers: a toolbar (popup) button + a keyboard shortcut (default TBD; avoid Alt+J/K/, collisions documented in `manifest.json:25-51`).

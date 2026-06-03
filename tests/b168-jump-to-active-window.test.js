@@ -199,7 +199,8 @@ function installB168CommandShim() {
     if (cmd === 'open-junkie-settings') return; // not our concern
     if (cmd === 'jump-to-active-window') {
       chrome.windows.getLastFocused({ populate: false }).then((win) => { // eslint-disable-line no-undef
-        if (!win || typeof win.id !== 'number') return;
+        /* H-1 mirror: guard WINDOW_ID_NONE (-1). */
+        if (!win || typeof win.id !== 'number' || win.id <= 0) return;
         chrome.runtime.sendMessage({ // eslint-disable-line no-undef
           type: MSG_JUMP_TO_ACTIVE_WINDOW,
           payload: { windowId: win.id },
@@ -270,6 +271,35 @@ test('B-168 T2b: SW onCommand ignores commands other than jump-to-active-window'
   assert.equal(__getSendMessageCalls().length, 0, 'no jump messages expected for unrelated commands');
 });
 
+test('B-168 T2c (H-1 regression guard): SW skips dispatch when getLastFocused returns WINDOW_ID_NONE (-1)', async () => {
+  installChromeMock();
+  __resetMock();
+
+  /* WINDOW_ID_NONE (-1) is returned by Chromium when no browser window is
+     currently focused (system tray, alt-tabbed away to another app). The SW
+     MUST guard this case and skip the sendMessage; the sidepanel validator
+     would reject ≤ 0 downstream, but the SW-side guard saves a fire-and-
+     forget round-trip and pins the contract. */
+  const origWindows = globalThis.chrome.windows;
+  globalThis.chrome.windows = {
+    ...origWindows,
+    getLastFocused: async () => ({ id: -1 }),
+  };
+
+  const shim = installB168CommandShim();
+  try {
+    shim.fire('jump-to-active-window');
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  } finally {
+    globalThis.chrome.windows = origWindows;
+  }
+
+  assert.equal(__getSendMessageCalls().length, 0,
+    'SW must not dispatch MSG_JUMP_TO_ACTIVE_WINDOW when getLastFocused returns -1');
+});
+
 /* =========================================================================
    T3 (AC3) + T4 (AC4) + T5 (AC5) — sidepanel onMessage + _jumpToActiveWindow
    ========================================================================= */
@@ -281,7 +311,8 @@ test('B-168 T2b: SW onCommand ignores commands other than jump-to-active-window'
 function _isValidJumpPayload(payload) {
   if (!payload || typeof payload !== 'object') return false;
   if (typeof payload.windowId !== 'number') return false;
-  if (!Number.isFinite(payload.windowId)) return false;
+  /* M-2 mirror: integer-only — also subsumes finite + non-NaN. */
+  if (!Number.isInteger(payload.windowId)) return false;
   if (payload.windowId <= 0) return false;
   return true;
 }
@@ -391,4 +422,6 @@ test('B-168 T6b (C-7): _isValidJumpPayload accepts finite positive integers only
   assert.equal(_isValidJumpPayload({ windowId: -1 }), false, 'negative rejected');
   assert.equal(_isValidJumpPayload({ windowId: NaN }), false, 'NaN rejected');
   assert.equal(_isValidJumpPayload({ windowId: Infinity }), false, 'Infinity rejected');
+  /* M-2 contract: floats rejected — Chrome windowIds are always integers. */
+  assert.equal(_isValidJumpPayload({ windowId: 1.5 }), false, 'float rejected');
 });

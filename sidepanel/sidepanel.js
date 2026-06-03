@@ -7136,7 +7136,10 @@ function _cleanupTabDragDom() {
 function _isValidJumpPayload(payload) {
   if (!payload || typeof payload !== 'object') return false;
   if (typeof payload.windowId !== 'number') return false;
-  if (!Number.isFinite(payload.windowId)) return false;
+  /* M-2: Chrome windowId is always a positive integer. Number.isInteger
+     subsumes the finite + non-NaN checks AND rejects floats (e.g., 1.5
+     forged from a hostile sender). */
+  if (!Number.isInteger(payload.windowId)) return false;
   if (payload.windowId <= 0) return false;
   return true;
 }
@@ -7148,11 +7151,20 @@ function _isValidJumpPayload(payload) {
 function _jumpToActiveWindow(windowId) {
   const target = itemListEl.querySelector(`[data-window-id="${windowId}"]`);
   if (!target) {
-    showToast('No tabs from the current window are visible here.');
+    /* M-1: AC5 contract is 3 s for the empty-state toast (not the 4 s
+       showToast default). Pass durationMs explicitly so the contract is
+       met regardless of future default changes. */
+    showToast('No tabs from the current window are visible here.', { durationMs: 3000 });
     return;
   }
   target.scrollIntoView({ block: 'start', behavior: 'smooth' });
   target.classList.add('item-row--jump-highlight');
+  /* L-1: keyboard-path focus management — once the row is in view, move
+     focus onto it without re-scrolling so subsequent Tab navigation lands
+     inside the target window's tabs instead of restarting at the page top. */
+  if (typeof target.focus === 'function') {
+    target.focus({ preventScroll: true });
+  }
   setTimeout(() => {
     target.classList.remove('item-row--jump-highlight');
   }, 600);
