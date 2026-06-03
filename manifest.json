@@ -51,10 +51,7 @@
       "description": "Open Tab Junkie Settings"
     },
     "jump-to-active-window": {
-      "suggested_key": {
-        "default": "Alt+W"
-      },
-      "description": "Jump sidepanel to active window's tabs"
+      "description": "Jump sidepanel to active window's tabs (assign a shortcut at edge://extensions/shortcuts)"
     }
   },
   "content_security_policy": {

@@ -58,10 +58,18 @@ test('B-168 T7 (AC7): MSG_JUMP_TO_ACTIVE_WINDOW exported with namespaced value',
 });
 
 /* =========================================================================
-   T6 (AC6) — manifest command + Alt+W binding
+   T6 (AC6) — manifest command registration (no default binding)
+
+   Original B-168 R3 shipped with `suggested_key.default = 'Alt+W'`, but Edge
+   / Chrome cap user-configurable command shortcuts at 4 with default
+   bindings — the extension already declares Alt+J / Alt+Shift+J / Alt+K /
+   Alt+Comma, putting Alt+W over the cap. The default binding was removed in
+   a UAT-time hotfix; the command stays registered so users can bind their
+   own shortcut at edge://extensions/shortcuts. Popup button + Alt+W-less
+   path remain functional.
    ========================================================================= */
 
-test('B-168 T6 (AC6): manifest.json registers jump-to-active-window with Alt+W default', () => {
+test('B-168 T6 (AC6): manifest.json registers jump-to-active-window command (no default binding)', () => {
   const raw = fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8');
   const manifest = JSON.parse(raw);
   assert.ok(
@@ -69,16 +77,28 @@ test('B-168 T6 (AC6): manifest.json registers jump-to-active-window with Alt+W d
     'manifest.commands must contain jump-to-active-window',
   );
   const entry = manifest.commands['jump-to-active-window'];
-  assert.ok(entry.suggested_key, 'jump-to-active-window must declare suggested_key');
   assert.strictEqual(
-    entry.suggested_key.default,
-    'Alt+W',
-    'suggested_key.default must be "Alt+W"',
+    entry.suggested_key,
+    undefined,
+    'suggested_key MUST be absent — Edge/Chrome 4-binding cap; users assign at edge://extensions/shortcuts',
   );
   assert.strictEqual(
     typeof entry.description,
     'string',
     'jump-to-active-window must declare a description',
+  );
+});
+
+test('B-168 T6b: total commands with suggested_key.default does not exceed Edge/Chrome 4-binding cap', () => {
+  const raw = fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8');
+  const manifest = JSON.parse(raw);
+  const withDefault = Object.values(manifest.commands || {}).filter(
+    (cmd) => cmd && cmd.suggested_key && cmd.suggested_key.default,
+  );
+  assert.ok(
+    withDefault.length <= 4,
+    `manifest.json registers ${withDefault.length} commands with suggested_key.default; ` +
+      'Edge/Chrome cap is 4. Bindings will silently fail to install above the cap.',
   );
 });
 
