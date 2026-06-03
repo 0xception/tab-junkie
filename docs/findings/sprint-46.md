@@ -229,3 +229,58 @@ New `tests/b171-diag.test.js` covers: `recordTrace` initializes array on first c
 ## R4 — Deduplicated review findings
 
 _To be populated after R4 review round runs._
+
+---
+
+## B-168 UAT plan — Jump to active window (R5)
+
+Authoritative spec: `docs/design/72-b-168-jump-to-active-window.md` §72.10.
+
+**Discipline (S45 retrospective rule)** — every step uses UI-observable signals only. No DevTools, no console reads, no `chrome.storage` dumps. If a check cannot be confirmed visually, the test case is FAIL.
+
+**Pre-flight setup (apply once before UAT-1)**:
+1. Load the unpacked extension from the repo root in `edge://extensions` (Developer Mode ON).
+2. Open **at least two** browser windows.
+3. In window A: open ~10 tabs across two `chrome.tabGroups` groups.
+4. In window B: open ~6 tabs (any sites).
+5. Open the Tab Junkie sidepanel in window A. Confirm rows are visible for both windows' tabs (each row should carry `data-window-id` matching its host window — visible by inspecting the rendered group separators per window).
+6. Scroll the sidepanel until the current window's first row is OFF-screen (scroll position elsewhere) so the jump produces a visible scroll.
+
+| # | Scenario | Steps | Expected (UI-observable) | Status |
+|---|----------|-------|--------------------------|--------|
+| UAT-1 | Toolbar icon path (AC1) | (a) Focus window A. (b) Click the Tab Junkie toolbar icon to open the popup. (c) Click "Jump to current window". | Popup closes. Sidepanel scrolls to and briefly flashes (~600 ms colour pulse) the first row whose `data-window-id` matches window A. | _pending_ |
+| UAT-2 | Keyboard shortcut path (AC2) | (a) Focus window A (click any non-input element so focus is in the browser chrome). (b) Press **Alt+W**. | Sidepanel scrolls to and flashes the first row for window A. Same visual as UAT-1. | _pending_ |
+| UAT-3 | No-match toast (AC5 / C-9) | (a) In the sidepanel search box, type a string that excludes every row for window A (e.g., a unique substring only present in window B titles). (b) Press Alt+W (or click the popup button). | A toast appears at the bottom of the sidepanel with text exactly: `No tabs from the current window are visible here.` Toast remains visible for ~3 seconds, then fades. No row scroll or flash occurs. | _pending_ |
+| UAT-4 | Rapid-click guard (M-2) | (a) Open the popup. (b) Rapidly click "Jump to current window" three times in quick succession (faster than the popup tear-down). | Exactly ONE scroll+flash occurs. No double-flash, no second-time toast. Popup closes after the first click; the subsequent clicks have no observable effect. | _pending_ |
+| UAT-5 | Alt-tab no-browser-focus (H-1) | (a) Alt-tab away from the browser to another application entirely (any non-browser app — terminal, finder, etc.). (b) Without re-focusing the browser, press **Alt+W**. | Nothing visible happens. No error toast, no spurious scroll/flash on next browser focus, no crash banner. The Edge command system delivers the shortcut, but the SW silently no-ops because `getLastFocused` returns WINDOW_ID_NONE (-1). | _pending_ |
+| UAT-6 | Keyboard focus after jump (L-1) | (a) Trigger UAT-2 (Alt+W jump). (b) Without clicking, press **Tab**. | Focus has landed on the scrolled-into-view row (visible focus ring on the matched row immediately after the flash). Pressing Tab moves focus forward into the next row's interactive controls inside the same window's group — NOT back to the top of the sidepanel. | _pending_ |
+| UAT-7 | prefers-reduced-motion (a11y) | (a) Enable reduced-motion in the OS: macOS → System Settings → Accessibility → Display → "Reduce motion" ON; Windows → Settings → Accessibility → Visual effects → "Animation effects" OFF. (b) Reload the sidepanel so the media query re-evaluates. (c) Trigger Alt+W. | Scroll behavior is instant (no smooth-scroll animation tween — row appears at the target position immediately). Flash highlight appears as an instant solid colour for ~600 ms then disappears instantly (no fade). | _pending_ |
+
+**Pass criteria**: all 7 cases recorded with `PASS`. Any `FAIL` on UAT-1, UAT-2, UAT-3, UAT-4, UAT-5 returns the item to R3. UAT-6 and UAT-7 `FAIL` results are tracked as polish backlog candidates if non-blocking on the core flow (per Sprint 45 a11y-deferral precedent).
+
+**Test-engineer note on R5 gap-fillers**: `tests/b168-jump-to-active-window.test.js` was expanded from 12 → 18 cases. The 6 added cases (T8/T9/T9b/T10/T10b/T11) cover the M-2 rapid-click guard, the M-1 explicit `durationMs:3000` toast contract, the L-1 `focus({ preventScroll: true })` call, and the prefers-reduced-motion CSS override. T9b/T10b also pin the live source via regex assertions so the inline-shim tests cannot drift from production without the source assertion catching it.
+
+---
+
+## B-167 UAT plan — Durable claim identity (R5)
+
+Maps to `docs/design/73-b-167-durable-claim-identity.md` §73.16 acceptance scenarios. **UI-observable signals only per S45 retro discipline** — the product-owner is not asked to read `chrome.storage.local`, dump JSON, or interpret SW-console output. Every PASS/FAIL signal is read off the sidepanel UI surface (claim indicator, drift indicator, the Open Tabs section's row count).
+
+### Pre-UAT setup (once)
+
+1. Load the unpacked extension in Edge from the repo root via `edge://extensions` → Developer Mode → "Load unpacked".
+2. Pin the toolbar icon and open the sidepanel.
+3. Confirm a group with at least one saved bookmark exists. If not, create a group named "UAT-S46" and add one bookmark pointing at `https://music.youtube.com/` (title "YT Music").
+
+### Test cases
+
+| # | Scenario | Steps | UI-observable expected result | Status |
+|---|----------|-------|------------------------------|--------|
+| UAT-1 | S-1 happy path — extension reload preserves binding (§73.16 UAT-1, AC3 + AC4) | (a) In the sidepanel, click the "YT Music" bookmark in UAT-S46 — a new tab opens at `https://music.youtube.com/`. (b) Confirm the row shows the live-claim indicator (live badge / coloured dot — whichever v1 surface uses) AND that the YT Music tab does NOT appear duplicated in the Open Tabs section. (c) In `edge://extensions`, toggle Tab Junkie OFF, wait 2 seconds, toggle ON. (d) Reopen the sidepanel. | The "YT Music" row still shows the live-claim indicator pointing at the same open tab. No drift indicator persists. The YT Music tab is NOT listed in Open Tabs as if unclaimed. **FAIL** if the row shows offline / the YT Music tab appears in Open Tabs as orphan / a drift indicator persists >2 seconds after sidepanel renders. | _pending_ |
+| UAT-2 | S-2 backstop — browser restart with restored tabs (§73.16 UAT-2, AC3 + AC5) | (a) Start from the UAT-1 end-state. (b) Close Edge completely (`File → Exit`) with "Continue where you left off" enabled in Edge settings. (c) Reopen Edge — the YT Music tab restores automatically. (d) Open the sidepanel. | The steady-state "YT Music" row shows the live-claim indicator. A drift indicator may flicker briefly during reconcile, but the steady end-state is live-claimed. YT Music is not listed in Open Tabs as orphaned. **FAIL** if the steady-state row shows offline OR a persistent drift indicator remains after the sidepanel has fully rendered (>2 seconds). | _pending_ |
+| UAT-3 | Corrupt-partition graceful degradation (§73.16 UAT-3, AC6) | (a) Open SW DevTools (edge://extensions → Tab Junkie "service worker" link → Console). (b) Paste and run: `chrome.storage.local.set({ 'tj:itemClaims': { schemaVersion: 1, sessionTag: 'x', entries: 'not-an-object' } })`. (c) Close SW DevTools. (d) Toggle Tab Junkie OFF then ON in `edge://extensions`. (e) Reopen the sidepanel. | The sidepanel renders normally — all groups visible, all saved bookmarks visible, no error toast, no red banner, no crash overlay. Previously-claimed bookmarks recover their claim within ~2 seconds via the Phase 2/3 inference backstop. **FAIL** if the sidepanel shows blank, throws an error overlay, displays a red error toast, or any saved group/bookmark is missing. | _pending_ |
+| UAT-4 | Rollback safety — schema v8 → v7 downgrade (§73.16 UAT-4, AC10) | (a) Note the current sprint's version (sidepanel footer or `edge://extensions` card). (b) Remove the current build from `edge://extensions`. (c) Load the prior shipped build (v1.40.0 or the build that immediately precedes this sprint's release) unpacked. (d) Open the sidepanel. | Extension loads without errors; sidepanel shows the same groups + bookmarks as before the rollback; no safe-mode banner; no data-loss banner; no crash. **FAIL** if the extension enters safe-mode (banner visible), the sidepanel renders blank, saved bookmarks are missing, or an error toast appears on load. **Recovery if FAIL**: follow §73.13 rollback procedure (manual `chrome.storage.local.set` reset of `tj:meta.schemaVersion` to 7) — this is documented operator follow-up, not a UAT regression. | _pending_ |
+
+**Pass criteria**: UAT-1, UAT-2, UAT-3 must record PASS. UAT-4 may record `SKIP` if the test environment cannot tolerate rollback (rolling back exits the test environment); the §73.13 rollback procedure is treated as documented-and-untested in that case. Any FAIL on UAT-1, UAT-2, UAT-3 returns B-167 to R3.
+
+**Test-engineer note on R5 gap-fillers**: `tests/b167-durable-claim-identity.test.js` was expanded from 17 → 22 cases. The 5 added cases (T17–T21) cover the public-API end-to-end cold-start contract (`isClaimsReady` + `getItemIdForTab` post-reconcile), Q3 MSG_DEMOTE_ITEM ordering invariants, zero-tab cold start, scale (50-entry durable partition), and the claim-then-immediate-release race case. Existing T1–T16 already covered all R5 charter items from §73.15 verbatim plus the R4 CONV-1 regression guard.

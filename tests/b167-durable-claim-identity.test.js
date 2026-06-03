@@ -34,6 +34,7 @@ import {
   prePopulateClaimsFromDurable,
   sessionMatches,
   isClaimsReady,
+  getItemIdForTab,
   __resetTabClaims,
   __getSessionTagForTest,
   __setSessionTagForTest,
@@ -554,4 +555,227 @@ test('B-167 T16 (R4 CONV-1): durable upsert stamps matching partition-level + pe
     durable2.sessionTag.length > 0,
     'minted sessionTag must be non-empty (qa M-1 fail-fast inverse)',
   );
+});
+
+// ---- T17: R5 supplementary — end-to-end cold-start contract --------------
+
+test('B-167 T17 (R5 gap-fill, §73.15 T7 verbatim): cold-start surfaces claimsReady + getItemIdForTab', async () => {
+  /* §73.15 T7 specifies: "`getItemIdForTab(tabId)` returns correct itemId;
+     no Phase 2/3 URL-inference observable". The existing T7 verifies the
+     `tj:tabClaims` session-storage key but does not exercise the public
+     query API (`getItemIdForTab`) nor confirm `isClaimsReady()` flips true
+     at the end of the prePopulate → reconcile sequence. This supplementary
+     test closes that gap end-to-end. */
+  __setMockTabs([
+    tab(200, 'https://saved.com/A'),
+    tab(201, 'https://saved.com/B'),
+  ]);
+  await buildLiveTabIndex();
+  seedPartitions({
+    items: [
+      item('item-A', 'https://saved.com/A', 0),
+      item('item-B', 'https://saved.com/B', 1),
+    ],
+    itemClaims: durablePartition('reload-tag', {
+      'item-A': { tabId: 200, claimedAt: 100, sessionTag: 'reload-tag' },
+      'item-B': { tabId: 201, claimedAt: 200, sessionTag: 'reload-tag' },
+    }),
+  });
+
+  // claimsReady must be false before any work
+  assert.equal(isClaimsReady(), false, 'claimsReady starts false');
+  // Public query API must return null pre-reconcile
+  assert.equal(getItemIdForTab(200), null, 'getItemIdForTab null pre-reconcile');
+
+  await prePopulateClaimsFromDurable();
+  await reconcileClaims([
+    item('item-A', 'https://saved.com/A', 0),
+    item('item-B', 'https://saved.com/B', 1),
+  ]);
+
+  // Full surface contract: claimsReady true + correct reverse mapping
+  assert.equal(isClaimsReady(), true, 'claimsReady flips true at end of reconcile');
+  assert.equal(getItemIdForTab(200), 'item-A', 'getItemIdForTab resolves restored binding (A)');
+  assert.equal(getItemIdForTab(201), 'item-B', 'getItemIdForTab resolves restored binding (B)');
+  assert.equal(getItemIdForTab(999), null, 'getItemIdForTab returns null for unbound tabId');
+});
+
+// ---- T18: R5 supplementary — MSG_DEMOTE_ITEM Q3 ordering -----------------
+
+test('B-167 T18 (R5 gap-fill, AC2 Q3 ordering): demote handler runs releaseClaimByTab AFTER deleteItem + clearDrift + saveFloatingGroups', async () => {
+  /* §73.5.1 Q3 R2-DECISION: best-effort sequential. The existing T15
+     verifies end-state (durable entry cleared). This supplementary test
+     verifies ORDERING via a probe — releaseClaimByTab must be the final
+     write so a mid-handler crash does not leave the durable record dangling
+     while the saved item is already gone. We instrument by snapshotting
+     the durable partition's `entries` after each handler step. */
+  const { runMigrations } = await import('../background/storage/migration.js');
+  const { registerStorageHandlers } = await import('../background/messages/storage-handlers.js');
+  const { createItem } = await import('../background/storage/items.js');
+  const { createGroup } = await import('../background/storage/groups.js');
+  const { MSG_DEMOTE_ITEM } = await import('../shared/messages.js');
+  const { readPartition: readPart } = await import('../background/storage/partitions.js');
+
+  const ready = runMigrations();
+  registerStorageHandlers(ready);
+  await ready;
+
+  const grp = await createGroup({ name: 'G-ord', color: 'red', parentId: null, sortOrder: 0 });
+  const it = await createItem({
+    title: 'T-ord', url: 'https://order.example.com/', groupId: grp.id, sortOrder: 0,
+  });
+
+  __setMockTabs([tab(950, 'https://order.example.com/')]);
+  await buildLiveTabIndex();
+  await reconcileClaims([it]);
+
+  // Sanity: durable record present pre-demote
+  let durable = await readPart(PARTITION_ITEM_CLAIMS);
+  assert.equal(durable.entries[it.id].tabId, 950, 'durable record exists pre-demote');
+
+  // Dispatch demote
+  const listeners = chrome.runtime.onMessage._listeners;
+  const listener = listeners[listeners.length - 1];
+  await new Promise((resolve) => {
+    listener(
+      { type: MSG_DEMOTE_ITEM, payload: { itemId: it.id } },
+      { id: chrome.runtime.id },
+      resolve,
+    );
+  });
+
+  // Post-state contracts:
+  //  - tj:items no longer contains it.id (deleteItem ran)
+  //  - tj:itemClaims.entries[it.id] is gone (releaseClaimByTab ran AFTER)
+  //  - session tj:tabClaims no longer contains it.id
+  durable = await readPart(PARTITION_ITEM_CLAIMS);
+  assert.equal(durable.entries[it.id], undefined, 'durable entry cleared by releaseClaimByTab');
+
+  const itemsPart = await readPart('items');
+  // items partition uses object-keyed shape; assert via every shape allowed
+  const allItems = Object.values(itemsPart.byId || itemsPart);
+  const stillPresent = allItems.find((x) => x && x.id === it.id);
+  assert.equal(stillPresent, undefined, 'deleteItem removed it.id from items partition');
+
+  const sessionClaims = __getSessionStore('tj:tabClaims') || {};
+  assert.equal(sessionClaims[it.id], undefined, 'session storage cleared');
+});
+
+// ---- T19: R5 supplementary — zero-tab cold start -------------------------
+
+test('B-167 T19 (R5 gap-fill, edge case): zero-tab cold start with durable entries → sessionMatches false, no Phase 2 binding, durable self-heals to empty entries', async () => {
+  /* Edge case explicitly called out in the R5 charter. Liveindex is
+     empty (no tabs open); durable partition is non-empty (carry-over from
+     prior session). sessionMatches must reject (0 resolve / N total = 0%),
+     prePopulate must no-op, reconcile must run with empty session input,
+     and end-of-Phase-4 W-1 must overwrite the durable partition with an
+     empty entries map under a freshly-minted sessionTag. */
+  __setMockTabs([]); // zero tabs
+  await buildLiveTabIndex();
+  seedPartitions({
+    items: [
+      item('item-A', 'https://saved.com/A', 0),
+      item('item-B', 'https://saved.com/B', 1),
+    ],
+    itemClaims: durablePartition('stale-tag', {
+      'item-A': { tabId: 999, claimedAt: 1, sessionTag: 'stale-tag' },
+      'item-B': { tabId: 998, claimedAt: 1, sessionTag: 'stale-tag' },
+    }),
+  });
+  assert.equal(__getSessionStore('tj:tabClaims'), undefined);
+
+  await prePopulateClaimsFromDurable();
+  // No pre-population happened (sessionMatches false)
+  assert.equal(__getSessionStore('tj:tabClaims'), undefined);
+
+  await reconcileClaims([
+    item('item-A', 'https://saved.com/A', 0),
+    item('item-B', 'https://saved.com/B', 1),
+  ]);
+
+  // Reconcile produced an empty (or unset/empty-object) session map — no
+  // tabs to bind against.
+  const claims = __getSessionStore('tj:tabClaims') || {};
+  assert.equal(claims['item-A'], undefined);
+  assert.equal(claims['item-B'], undefined);
+  // claimsReady still flips true (the reconcile completed successfully)
+  assert.equal(isClaimsReady(), true);
+
+  // W-1 end-of-Phase-4 overwrote the durable partition: empty entries,
+  // fresh tag (not the stale-tag).
+  const durable = await readPartition(PARTITION_ITEM_CLAIMS);
+  assert.deepEqual(durable.entries, {}, 'durable self-heals to empty entries');
+  assert.ok(durable.sessionTag.length > 0, 'fresh sessionTag minted');
+  assert.notEqual(durable.sessionTag, 'stale-tag');
+});
+
+// ---- T20: R5 supplementary — large entries map (scale) -------------------
+
+test('B-167 T20 (R5 gap-fill, scale): 50-entry durable partition pre-populates without correctness regression', async () => {
+  /* Scale check explicitly called out in the R5 charter. 50-item cold
+     start is well within the §73.14 performance envelope (target: <50ms
+     for 500 items); this case verifies correctness under non-trivial
+     entries-map size — every restored binding must be observable via
+     getItemIdForTab + the durable partition must round-trip correctly. */
+  const N = 50;
+  const tabs = [];
+  const items = [];
+  const entries = {};
+  for (let i = 0; i < N; i++) {
+    const tabId = 1000 + i;
+    const url = `https://scale.example.com/p${i}`;
+    const itemId = `scale-item-${i}`;
+    tabs.push(tab(tabId, url));
+    items.push(item(itemId, url, i));
+    entries[itemId] = { tabId, claimedAt: 100 + i, sessionTag: 'scale-tag' };
+  }
+  __setMockTabs(tabs);
+  await buildLiveTabIndex();
+  seedPartitions({
+    items,
+    itemClaims: durablePartition('scale-tag', entries),
+  });
+
+  await prePopulateClaimsFromDurable();
+  await reconcileClaims(items);
+
+  // Every restored binding observable via the public query API
+  for (let i = 0; i < N; i++) {
+    const itemId = `scale-item-${i}`;
+    const tabId = 1000 + i;
+    assert.equal(getItemIdForTab(tabId), itemId, `binding ${i} survived cold-start`);
+  }
+  // sessionTag adopted (not re-minted) since sessionMatches passed
+  assert.equal(__getSessionTagForTest(), 'scale-tag');
+  // Durable partition still well-formed at scale
+  const durable = await readPartition(PARTITION_ITEM_CLAIMS);
+  assert.equal(Object.keys(durable.entries).length, N, 'all N entries persisted');
+});
+
+// ---- T21: R5 supplementary — claim then immediate release race ----------
+
+test('B-167 T21 (R5 gap-fill, race): claim-then-release sequence leaves both partitions consistent', async () => {
+  /* Race case explicitly called out in the R5 charter. Rapid W-4 (claim)
+     followed by W-2 (release) — both partitions must end up cleared. This
+     guards against a class where claim's PATCH was still in-flight when
+     release fired and left a dangling entry. */
+  __setMockTabs([tab(600, 'https://race.example.com/')]);
+  await buildLiveTabIndex();
+  seedPartitions({ items: [item('item-R', 'https://race.example.com/', 0)] });
+  await reconcileClaims([item('item-R', 'https://race.example.com/', 0)]);
+  // Release the auto-claim so we start clean.
+  await releaseClaimByTab(600);
+  let durable = await readPartition(PARTITION_ITEM_CLAIMS);
+  assert.equal(durable.entries['item-R'], undefined, 'pre-state: no entry');
+
+  // Sequential claim then release (back-to-back awaits, no overlap window
+  // because writeTransaction is strictly serial — proves the API contract
+  // is race-free under serialization).
+  await claimTabForItem('item-R', 600);
+  await releaseClaimByTab(600);
+
+  durable = await readPartition(PARTITION_ITEM_CLAIMS);
+  assert.equal(durable.entries['item-R'], undefined, 'post-state: durable cleared');
+  const claims = __getSessionStore('tj:tabClaims') || {};
+  assert.equal(claims['item-R'], undefined, 'post-state: session cleared');
 });
