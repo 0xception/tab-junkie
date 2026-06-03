@@ -7157,6 +7157,19 @@ function _jumpToActiveWindow(windowId) {
     showToast('No tabs from the current window are visible here.', { durationMs: 3000 });
     return;
   }
+  /* B-168 hotfix — compensate for the sticky `.panel-header` (CSS :721,
+     `position: sticky; top: 0; z-index: 10`) which would otherwise overlay
+     the target row on a downward jump. Asymmetry observed in S46 UAT:
+     upward jumps appeared correct because the document can't scroll into
+     negative space (target stayed at its natural y below the header);
+     downward jumps placed the target precisely at viewport y=0, hidden
+     under the header. `.panel-header` height varies — B-014's
+     window-filter-row wraps onto a second line — so measure at jump time
+     rather than hardcoding 44px. `scrollMarginTop` is the standard CSS
+     hint for `scrollIntoView` to leave room at the top. */
+  const panelHeader = document.querySelector('.panel-header');
+  const headerOffset = panelHeader ? panelHeader.offsetHeight : 44;
+  target.style.scrollMarginTop = `${headerOffset + 4}px`;
   target.scrollIntoView({ block: 'start', behavior: 'smooth' });
   target.classList.add('item-row--jump-highlight');
   /* L-1: keyboard-path focus management — once the row is in view, move
@@ -7167,6 +7180,7 @@ function _jumpToActiveWindow(windowId) {
   }
   setTimeout(() => {
     target.classList.remove('item-row--jump-highlight');
+    target.style.scrollMarginTop = '';
   }, 600);
 }
 
