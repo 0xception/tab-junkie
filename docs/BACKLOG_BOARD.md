@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-06-27 · **Version:** 2.47.opened · **Total Items:** 167 · **Sprint 47 OPEN 2026-06-27** — EPIC: single-source-of-truth tab↔item identity consolidation (B-173 anchor, R0 ✅ `docs/design/74`; split into B-174..B-180, whole program in S47 per product-owner / P-1 override; branch `feature/sprint-47-identity-consolidation` off `release/v2` at v1.41.0 / `4355b2a`). **Sprint 46 CLOSED 2026-06-27 (v1.41.0 tagged on release/v2).** Anchor: Durable claim identity (B-167, P2/XL Spike-First — replaces session-storage-based bookmark↔tab inference with a persistent partition + Chrome sessions API for restart). Piggyback small feature: Jump to active window (B-168, P2/S — toolbar icon + keyboard shortcut to scroll sidepanel to currently-focused window's tab section). Plus three XS Fast Track housekeeping items: Ways-of-working human-name discipline (B-169) + R4 contract-vs-implementation diff gate (B-170) + Reusable diagnostic-trace helper (B-171). Sprint 45 closed 2026-06-02 with v1.40.0 tagged on release/v2 at merge commit `3286227` (PR #55): 3 items shipped (B-163/B-164/B-166) + sibling B-132 fix + B-167 filed as P2/XL backlog; tests 1930 → 2052 PASS; `"idle"` permission added.
+**Updated:** 2026-06-27 · **Version:** 2.47.opened · **Total Items:** 169 · **Sprint 47 OPEN 2026-06-27** — EPIC: single-source-of-truth tab↔item identity consolidation (B-173 anchor, R0 ✅ `docs/design/74`; split into B-174..B-180, whole program in S47 per product-owner / P-1 override; branch `feature/sprint-47-identity-consolidation` off `release/v2` at v1.41.0 / `4355b2a`). **Sprint 46 CLOSED 2026-06-27 (v1.41.0 tagged on release/v2).** Anchor: Durable claim identity (B-167, P2/XL Spike-First — replaces session-storage-based bookmark↔tab inference with a persistent partition + Chrome sessions API for restart). Piggyback small feature: Jump to active window (B-168, P2/S — toolbar icon + keyboard shortcut to scroll sidepanel to currently-focused window's tab section). Plus three XS Fast Track housekeeping items: Ways-of-working human-name discipline (B-169) + R4 contract-vs-implementation diff gate (B-170) + Reusable diagnostic-trace helper (B-171). Sprint 45 closed 2026-06-02 with v1.40.0 tagged on release/v2 at merge commit `3286227` (PR #55): 3 items shipped (B-163/B-164/B-166) + sibling B-132 fix + B-167 filed as P2/XL backlog; tests 1930 → 2052 PASS; `"idle"` permission added.
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  94% (157/167)  [S47 open · 5/8 epic subs done (A-tier complete) · 3 in-progress]
+Overall Progress    ██████████████████░░  93% (157/169)  [S47 open · 5/8 epic subs done · B-179 UAT PASS · 3 in-progress · +B-181/B-182 filed from UAT]
 ```
 
 ### Legend
@@ -322,9 +322,9 @@ Overall Progress    ██████████████████░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 157 | 94% |
+| ✅ Done | 157 | 93% |
 | 🔄 In Progress | 3 | 2% |
-| ⬜ To Do | 4 | 2% |
+| ⬜ To Do | 6 | 4% |
 | 🧊 Icebox | 3 | 2% |
 
 (Sprint 47 opened 2026-06-27 — EPIC B-173 single-source-of-truth tab↔item identity consolidation (P2/XL Spike-First) R0 ✅, split into 7 sub-items B-174..B-180 (all in-progress, whole program in S47 per product-owner / P-1 override); Total Items 159 → 167. Done count: 147 → 152 (+5). Sprint 46 closed 2026-06-27 (v1.41.0 tagged on release/v2) on branch `feature/sprint-46-claim-identity` (off `release/v2` at v1.40.0 / `56a4a7c`). Five items shipped: Durable claim identity (B-167, P2/XL anchor — replaces session-storage `tj:tabClaims` with durable partition + Chrome sessions API), Jump to active window (B-168, P2/S small feature), and three XS Fast Track housekeeping items (B-169 ways-of-working human names in discussion, B-170 R4 contract-vs-implementation diff gate, B-171 reusable diagnostic-trace helper). Sprint 45 closed 2026-06-02 with v1.40.0 tagged on release/v2 at merge commit `3286227` (PR #55); shipped B-163/B-164/B-166 + sibling B-132 fix + B-167 filed as backlog.)

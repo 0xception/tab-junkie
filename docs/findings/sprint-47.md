@@ -134,3 +134,14 @@ _None._
 Stale `tj:tabClaims`-as-active docstrings in `shapes.js`/`migration.js`/`tab-events.js` header + `durableMirrorFullReplace` "passive mirror" JSDoc → annotated "RETIRED by B-179 §75 / sole persisted write". b174 T1 tautological `__getSessionStore===undefined` → strengthened to `__getSessionSetCount===0`. b163 T10 comment corrected (models fresh-install/restart, not extension-reload, post-cutover). demote-item dead guard cleaned.
 
 **Outcome:** 0 CRIT. HIGH + both MED + LOWs all fixed in the fix-round. New `__triggerQuotaOnNextSet` mock primitive (for the failure-gate test). Suite 2117 → **2121 PASS**, zero regressions. **Automated side complete; real-browser UAT (9 probes, §75.8) is the remaining acceptance gate — product-owner-run in Edge.**
+
+### B-179 real-browser UAT result (product-owner, Edge, 2026-06-28)
+- **U-1 Extension reload — PASS.** Claim renders live on the same tab after OFF/ON; no duplicate. **→ waived S46 B-167 reload UAT CLOSED.**
+- **U-2 Browser restart — PASS.** Claim live on restored tab; still live after a second reload (durable re-stamp). **→ waived S46 B-167 restart UAT CLOSED.**
+- **U-3 discard / U-4 sleep — PASS.**
+- **U-6 floating + URL collision — PASS** (no claim-jump).
+- **U-5 — finding (NOT a regression):** an open tab broken out into its own new window doesn't appear in that window's filter list. Verified pre-existing (all UI + open-tabs/window/move code untouched by the epic). **→ filed B-181.**
+- **U-8 — finding (NOT a regression):** jump-to-active-window reaches saved/floating rows but not a plain open tab. Verified pre-existing (sidepanel untouched). Initial "open-tabs-outside-itemListEl" theory DISPROVEN (`renderAll` mounts the section into `itemListEl`); root cause TBD, likely shares B-181's cause (single-tab broken-out window not rendered). **→ filed B-182.** (Waived B-168 jump UAT does NOT fully close — surfaced this real B-168 gap.)
+- **U-7 (import) + U-9 (rollback) — deferred-skipped** by product-owner.
+
+**Verdict: B-179 core cutover UAT PASS.** The claim-storage cutover is real-browser-validated across all storage-wipe scenarios. The two findings are pre-existing, separately-filed, and do not block B-179. Residual: U-7 (import-clears-claims; unit-covered by b044) + U-9 (rollback; reasoned, no schema bump) optionally re-runnable before final merge.
