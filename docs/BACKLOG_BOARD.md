@@ -7,7 +7,7 @@
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  93% (156/167)  [S47 open · 4/8 epic subs done · 4 in-progress]
+Overall Progress    ██████████████████░░  94% (157/167)  [S47 open · 5/8 epic subs done (A-tier complete) · 3 in-progress]
 ```
 
 ### Legend
@@ -124,14 +124,14 @@ Overall Progress    ██████████████████░░
 
 ## Sprint 47 — Single-source-of-truth tab↔item identity consolidation (active)
 
-> 4/8 done · 4 in progress · Sprint 47 opened 2026-06-27 on branch `feature/sprint-47-identity-consolidation` (off `release/v2` at v1.41.0 / `4355b2a`). EPIC: B-173 (P2/XL Spike-First) R0 ✅ → 7 sub-items B-174..B-180; whole program in S47 per product-owner (P-1 override). Execution: B-174 test net → B-175 resolver → B1 design-confirm spike → B-176/177/178 (parallel) → B-179 cutover → B-180 migration.
+> 5/8 done · 3 in progress · Sprint 47 opened 2026-06-27 on branch `feature/sprint-47-identity-consolidation` (off `release/v2` at v1.41.0 / `4355b2a`). EPIC: B-173 (P2/XL Spike-First) R0 ✅ → 7 sub-items B-174..B-180; whole program in S47 per product-owner (P-1 override). Execution: B-174 test net → B-175 resolver → B1 design-confirm spike → B-176/177/178 (parallel) → B-179 cutover → B-180 migration.
 
 🔄 B-173 — Single-source-of-truth tab↔item identity consolidation (EPIC anchor) · 🟡 · XL [S47 — Spike-First · R0 ✅ `docs/design/74` · durable `tj:itemClaims` = sole authority; retire session store; demote `floatingGroups.liveTabId`; one recovery resolver; keep `LiveTabIndex` oracle]
 ✅ B-174 — Cold-start reconciliation E2E test (safety net, A0) · 🟡 · M [S47 — DONE 2026-06-27 · T1-T7 drive real initializeLiveState · suite 2099→2106 PASS, zero regressions]
 ✅ B-175 — Extract one shared tab↔item resolver (A1) · 🟡 · L [S47 — DONE 2026-06-27 · new tab-item-resolver.js, 5 sites consolidated · R4 contract-diff CLEAN · suite 2106→2116 PASS]
 ✅ B-176 — Split floating-groups.js → 5 modules + barrel (A2) · 🟡 · M [S47 — DONE 2026-06-27 · 1344 LOC → 5 cohesive modules, importers unchanged · R4 3× PASS · suite 2116]
 ✅ B-177 — Name onReplaced/onRemoved fan-out primitives (A3) · 🟡 · M [S47 — DONE 2026-06-27 · new tab-event-cascades.js, documented store inventories · R4 3× PASS, reorder proven non-observable · suite 2116]
-🔄 B-178 — Decompose reconcileClaims → named phases (A4) · 🟡 · M [S47 — no behavior change · queued after B-175]
+✅ B-178 — Decompose reconcileClaims → named phases (A4) · 🟡 · M [S47 — DONE 2026-06-27 · 181→42-line orchestrator + 4 phase helpers, single-winner intact · R4 3× PASS · R5 T11 cross-phase guard · suite 2117]
 🔄 B-179 — Collapse to one store; retire session; demote liveTabId (B1) · 🟡 · L [S47 — BEHAVIOR CHANGE · storage cutover · needs B-178 + B1 design-confirm spike]
 🔄 B-180 — Eager floatingGroups v4-only + schema v8→v9 (B2) · 🟡 · L [S47 — BEHAVIOR CHANGE + schema bump · queued after B-179]
 
@@ -322,8 +322,8 @@ Overall Progress    ██████████████████░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 156 | 93% |
-| 🔄 In Progress | 4 | 2% |
+| ✅ Done | 157 | 94% |
+| 🔄 In Progress | 3 | 2% |
 | ⬜ To Do | 4 | 2% |
 | 🧊 Icebox | 3 | 2% |
 

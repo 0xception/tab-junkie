@@ -54,8 +54,8 @@ B-174  E2E cold-start reconciliation test (SAFETY NET)        ← start here
 | B-175 | Extract one shared tab↔item resolver | L | No | ✅ **DONE** — R4 contract-diff clean; 2116 PASS |
 | B-176 | Split `floating-groups.js` → 5 modules + barrel | M | No | ✅ **DONE** — R4 3× PASS; 2116 |
 | B-177 | Name `onReplaced`/`onRemoved` fan-out primitives | M | No | ✅ **DONE** — R4 3× PASS; 2116 |
-| B-178 | Decompose `reconcileClaims` → named phases | M | No | queued (after B-175) |
-| B-179 | Collapse to one store; retire session; demote liveTabId | L | **Yes** | queued (after B-178 + B1 spike) |
+| B-178 | Decompose `reconcileClaims` → named phases | M | No | ✅ **DONE** — R4 3× PASS; R5 T11; 2117 |
+| B-179 | Collapse to one store; retire session; demote liveTabId | L | **Yes** | 🛑 **NEXT — product-owner checkpoint** (B1 design-confirm spike + record-model decision) |
 | B-180 | Eager `floatingGroups` v4-only + schema v8→v9 | L | **Yes** | queued (after B-179) |
 
 - **Open question deferred to build:** record model (Option A two-record-kinds vs Option B unified) — a B1 design-confirm spike decides before B-179 build (product-owner: "let the B1 spike decide").
@@ -63,6 +63,13 @@ B-174  E2E cold-start reconciliation test (SAFETY NET)        ← start here
 ---
 
 ## Completed This Sprint
+
+### [B-178] Decompose `reconcileClaims` into named phase helpers — ✅ DONE 2026-06-27
+- **Tier**: M (no behavior change) · sub-item A4 of the B-173 epic.
+- `reconcileClaims` (181-line monolith encoding B-149/B-163/B-167/B-132/B-125 fixes) → 42-line orchestrator + `_phase1ValidateClaims` / `_phase2AutoClaimByUrl` / `_phase3DriftFallback` / `_phase4ConditionalDriftDrop`. `urlToTabs` built once in the orchestrator and threaded by reference into Phase 2 + Phase 3 so the single-winner-per-tab invariant holds across the boundary.
+- **R4**: code + security + qa all PASS. Every phase predicate preserved verbatim; W-1 durable-write tag/timing unchanged (no CONV-1 reintroduction); graceful degradation intact; no new module state. 0 CRIT/HIGH/MED.
+- **R5**: added T11 — the cross-phase single-winner regression guard (Phase 2 exhausts a `urlToTabs` bucket Phase 3 drift would target → exactly one wins) — empirically verified to fail if the shared map is rebuilt. Plus L-1 docstring fix. Suite 2116 → **2117 PASS**.
+- **Files**: `background/tabs/tab-claims.js`, `tests/b163-drift-fallback-reconcile.test.js`.
 
 ### [B-177] Name the `onReplaced`/`onRemoved` event fan-out primitives — ✅ DONE 2026-06-27
 - **Tier**: M (no behavior change) · sub-item A3 of the B-173 epic.

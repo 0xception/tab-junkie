@@ -76,3 +76,34 @@ _None._
 **Structural-pin test edit (faithful):** `tests/b125-claim-jump-fix.test.js:168` "releaseClaimByTab = exactly 4 production call sites" updated to track the 2 relocated calls (tab-events.js 0 / tab-event-cascades.js 2 / storage-handlers.js 2 = 4). B-099 D-1 intent preserved (now stronger — covers the new module). Per CLAUDE.md Fix-scope test-assertion enumeration rule. All 3 reviewers validated.
 
 **Outcome:** 0 CRIT / 0 HIGH / 0 MED. 2 LOW fixed. Suite 2116 PASS, zero regressions.
+
+---
+
+## B-178 — Decompose `reconcileClaims` into named phase helpers (R4, 2026-06-27)
+
+Reviewers: code (Sonnet) · security (Opus) · qa (Sonnet). `reconcileClaims` 181-line monolith → 42-line orchestrator + `_phase1ValidateClaims`/`_phase2AutoClaimByUrl`/`_phase3DriftFallback`/`_phase4ConditionalDriftDrop`. The heart of the claim system — highest behavior-sensitivity.
+
+**[code-reviewer]: PASS** — every phase predicate PRESERVED verbatim; `urlToTabs` built once and shared-mutated across Phase 2/3 (single-winner intact); Phase-3 all-unbound, Phase-1 no-URL-recheck, Phase-4 conditional, graceful-degradation try/catch, `claimsReady`/W-1 timing all confirmed; no new module-level state. Contract-diff: clean. 0 findings.
+**[security-reviewer]: PASS — security-neutral** — claim-binding integrity preserved (no double-claim path); W-1 `ensureSessionTag` + `durableMirrorFullReplace` timing/tag unchanged (B-167 CONV-1 not reintroduced); graceful degradation contained; no PII logging.
+**[qa-reviewer]: PASS** — state-threading traced clean (reconciled/claimedTabIds/evictedItemIds flow by reference; Phase 2 mutations reach Phase 3/4); all edge cases (empty items, empty index, all-evicted, drift-read throw, already-reconciled) match the monolith; idempotent across cold-start + idle-wake re-run.
+
+### CRITICAL / HIGH
+_None._
+
+### MEDIUM (fixed in R5)
+| # | File | Finding | Resolution |
+|---|------|---------|-----------|
+| M-1 (qa) | `tests/b163-...test.js` | No test pinned the Phase-2-exhausts-a-bucket-that-Phase-3-would-target cross-boundary single-winner case (B-163 T3 only covered Phase 3 vs Phase 3). | ✅ R5 — T11 added (`b163-...test.js:645`), driven through the real `reconcileClaims` orchestrator. **Empirically verified it catches the regression**: temporarily rebuilding the Phase-3 map made only T11 fail; the load-bearing assertion is `claims['item-A'] === undefined`. |
+
+### LOW
+| # | File | Finding | Resolution |
+|---|------|---------|-----------|
+| L-1 (qa) | `tab-claims.js:663` | Phase 4 docstring said "not recovered by Phase 3" but `reconciled` includes Phase 2 rebinds too. | ✅ R5 — reworded to "not recovered by Phase 2 OR Phase 3" (filter logic untouched). |
+| L-2 (qa) | `tab-claims.js:562/654` | `claimedTabIds.add()` in Phase 2/3 is accumulated but not consumed post-build (single-winner enforced by the `urlToTabs` shift). Harmless, consistent with monolith. | No action (reader-expectation note only; changing it would exceed the no-behavior-change scope). |
+
+**Outcome:** 0 CRIT / 0 HIGH. MED + L-1 resolved in R5; L-2 noted. Suite 2116 → 2117 PASS, zero regressions.
+
+---
+
+## B-173 EPIC — safe-refactor tier (A0–A4) COMPLETE
+B-174 (test net) · B-175 (resolver) · B-176 (split floating-groups.js) · B-177 (event fan-out) · B-178 (reconcileClaims phases) — all DONE, all behavior-preserving, suite 2099 → **2117 PASS**, zero regressions throughout, contract-diff clean on every behavior-sensitive change. **Next: B-179 storage cutover (behavior change) — gated on the B1 design-confirm spike + product-owner record-model decision.**

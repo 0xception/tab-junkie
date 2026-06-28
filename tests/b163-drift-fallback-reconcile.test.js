@@ -604,3 +604,101 @@ test('B-163 T10 (R4 round-2): extension-reload — empty session storage + drift
     'B-163 R4 round-2: drift record retained after Phase-3-via-broadened-scope re-binding',
   );
 });
+
+/* =========================================================================
+   T11 (B-178 qa M-1 — cross-phase single-winner regression guard)
+
+   B-178 (A4) decomposed the former `reconcileClaims` monolith into named
+   phase helpers (`_phase1ValidateClaims` … `_phase4ConditionalDriftDrop`).
+   The highest-risk invariant of that decomposition is that the `urlToTabs`
+   candidate map is built ONCE by the orchestrator (tab-claims.js:736) and
+   shared-mutated across BOTH Phase 2 and Phase 3: `takeUnclaimedTabForUrl`
+   shifts the winning candidate off its bucket, so a tab consumed by Phase 2
+   is unavailable to Phase 3's drift fallback (the single-winner-per-tab
+   invariant — tab-claims.js:730-735 / :570-572).
+
+   T3 only exercises Phase-3-vs-Phase-3 collision (two drift records, one
+   tab). NO existing test pins the Phase-2-exhausts-a-bucket-that-Phase-3-
+   would-target boundary. A future refactor that rebuilt the map for Phase 3
+   (instead of threading the single mutated map) would silently let the
+   Phase-3 item ALSO claim the tab Phase 2 already took — a double-binding of
+   one live tab to two items, violating §10.5 uniqueness. This test is that
+   guard.
+
+   Scenario:
+     - ONE live tab (100) at the shared URL X.
+     - Item B: item.url = X, sortOrder 0 (lower) → Phase 2 claims tab 100 by
+       primary-URL match and pops it off urlToTabs[X].
+     - Item A: item.url has NO live tab, sortOrder 1 (higher), but a drift
+       record with driftedToUrl = X. A's prior session claim (dead tabId 999)
+       evicts in Phase 1 → A enters evictedItemIds (so Phase 4 is eligible to
+       drop its drift).
+     - Phase 3 consults the SAME urlToTabs map; bucket X is already empty →
+       A stays unbound. Phase 4 drops A's now-orphaned drift.
+
+   The load-bearing assertion is (2): A is NOT bound. Under a rebuilt-map
+   regression, Phase 3 would re-see tab 100 in bucket X and bind A to it; the
+   `claims['item-A'] === undefined` + tab-100-appears-exactly-once assertions
+   fail. Asserting only "B is bound" would NOT catch the regression — B binds
+   correctly in both the correct and the broken implementation.
+   ========================================================================= */
+test('B-163 T11 (B-178 qa M-1): Phase 2 consuming a bucket starves Phase 3 — single-winner across the phase boundary', async () => {
+  /* ONE live tab at the shared URL X. */
+  __setMockTabs([tab(100, 'https://shared.example/X')]);
+  await buildLiveTabIndex();
+
+  /* Item A had a prior session claim at the now-dead tabId 999 → Phase 1
+     evicts it into evictedItemIds (the Phase-4 drop precondition). Item B
+     has no stored claim → Phase 2 auto-claims it. */
+  __setSessionStore('tj:tabClaims', { 'item-A': 999 });
+  seedPartitions({
+    items: [
+      item('item-B', 'https://shared.example/X', 0),
+      item('item-A', 'https://saved-a.example/orig', 1),
+    ],
+    /* A's drift points at the SAME URL X that Phase 2 will hand to B. */
+    drift: { 'item-A': { itemId: 'item-A', driftedToUrl: 'https://shared.example/X', detectedAt: 1 } },
+  });
+
+  await reconcileClaims([
+    item('item-B', 'https://shared.example/X', 0),
+    item('item-A', 'https://saved-a.example/orig', 1),
+  ]);
+
+  const claims = __getSessionStore('tj:tabClaims');
+
+  /* (1) Phase 2 wins the tab via primary-URL match (lower sortOrder). */
+  assert.equal(
+    claims['item-B'],
+    100,
+    'B-178 qa M-1: Phase 2 must claim the live tab for item-B via primary item.url match',
+  );
+
+  /* (2) THE GUARD — Phase 3 found urlToTabs[X] already drained by Phase 2,
+     so item-A must stay UNBOUND. A rebuilt-map regression would let A also
+     claim tab 100 here; this assertion is the only thing that catches it. */
+  assert.equal(
+    claims['item-A'],
+    undefined,
+    'B-178 qa M-1: item-A must NOT bind — Phase 2 already consumed the shared urlToTabs[X] bucket (single-winner across the phase boundary; a rebuilt map would wrongly let A re-claim tab 100)',
+  );
+
+  /* §10.5 uniqueness corollary: tab 100 may appear in the mirror exactly
+     once. A double-binding (B via Phase 2 + A via a rebuilt Phase-3 map)
+     would make this 2. */
+  const tab100Bindings = Object.values(claims).filter((v) => v === 100);
+  assert.equal(
+    tab100Bindings.length,
+    1,
+    'B-178 qa M-1: tab 100 must appear in the mirror exactly once — no double-binding across the Phase 2 / Phase 3 boundary',
+  );
+
+  /* (3) Phase 4 drops A's drift: A was evicted in Phase 1 and recovered by
+     neither Phase 2 nor Phase 3 → truly orphaned → cleared (§10.7). */
+  const drift = await getDriftRecords();
+  assert.equal(
+    'item-A' in drift,
+    false,
+    'B-178 qa M-1: Phase 4 must clear item-A`s drift — evicted and unrecovered by both Phase 2 and Phase 3',
+  );
+});
