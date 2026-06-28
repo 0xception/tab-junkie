@@ -50,7 +50,7 @@ B-174  E2E cold-start reconciliation test (SAFETY NET)        ← start here
 
 | Sub-item | Name | Tier | Behavior change? | Status |
 |----------|------|------|------------------|--------|
-| **B-174** | Cold-start reconciliation E2E test (safety net) | M | No | **R3 IN PROGRESS** ([test-engineer]) |
+| **B-174** | Cold-start reconciliation E2E test (safety net) | M | No | ✅ **DONE** — `tests/b174-…e2e.test.js` T1-T7, 2106 PASS |
 | B-175 | Extract one shared tab↔item resolver | L | No | queued (after B-174) |
 | B-176 | Split `floating-groups.js` → ~4 modules | M | No | queued (after B-175) |
 | B-177 | Name `onReplaced`/`onRemoved` fan-out primitives | M | No | queued (after B-175) |
@@ -64,4 +64,10 @@ B-174  E2E cold-start reconciliation test (SAFETY NET)        ← start here
 
 ## Completed This Sprint
 
-_None yet — B-174 (safety-net test) in progress._
+### [B-174] Cold-start reconciliation E2E test (safety net) — ✅ DONE 2026-06-27
+- **Tier**: M (no behavior change) · sub-item A0 of the B-173 epic.
+- First test in the suite to drive the real `initializeLiveState` cold-start pipeline end-to-end (behavioral pin of preMark → prePopulate → reconcile → reassociate → bootstrap), not a source-text pin.
+- 7 cases (T1 extension-reload happy path / T2 browser-restart backstop / T3 no-durable Phase-2 / T4 drift fallback + conditional drop / T5 preMark inherited / T6 floating 3-tier / T7 zero-state self-heal). Folds in waived B-167 reload/restart UAT (§74.11 P-1/P-2).
+- Suite 2099 → **2106 PASS**, zero regressions, no product code or chrome-mock changes.
+- **Pins for B-175**: `getItemIdForTab`, `buildLiveStates`, `buildFloatingMembers` (async), `getDriftRecords`, durable `readPartition(PARTITION_ITEM_CLAIMS)`. Honest mock-boundary note: session-wipe-vs-SW-restart, tabId-rotation timing, focus-shift teardown remain real-browser-UAT-only.
+- **Files**: `tests/b174-cold-start-reconciliation-e2e.test.js` (NEW).

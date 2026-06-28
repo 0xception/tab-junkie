@@ -7,7 +7,7 @@
 ## Progress Dashboard
 
 ```
-Overall Progress    ██████████████████░░  91% (152/167)  [S47 open · 8 in-progress · B-173 epic + B-174..B-180]
+Overall Progress    ██████████████████░░  92% (153/167)  [S47 open · 1/8 epic subs done · 7 in-progress]
 ```
 
 ### Legend
@@ -124,10 +124,10 @@ Overall Progress    ██████████████████░░
 
 ## Sprint 47 — Single-source-of-truth tab↔item identity consolidation (active)
 
-> 0/8 done · 8 in progress · Sprint 47 opened 2026-06-27 on branch `feature/sprint-47-identity-consolidation` (off `release/v2` at v1.41.0 / `4355b2a`). EPIC: B-173 (P2/XL Spike-First) R0 ✅ → 7 sub-items B-174..B-180; whole program in S47 per product-owner (P-1 override). Execution: B-174 test net → B-175 resolver → B1 design-confirm spike → B-176/177/178 (parallel) → B-179 cutover → B-180 migration.
+> 1/8 done · 7 in progress · Sprint 47 opened 2026-06-27 on branch `feature/sprint-47-identity-consolidation` (off `release/v2` at v1.41.0 / `4355b2a`). EPIC: B-173 (P2/XL Spike-First) R0 ✅ → 7 sub-items B-174..B-180; whole program in S47 per product-owner (P-1 override). Execution: B-174 test net → B-175 resolver → B1 design-confirm spike → B-176/177/178 (parallel) → B-179 cutover → B-180 migration.
 
 🔄 B-173 — Single-source-of-truth tab↔item identity consolidation (EPIC anchor) · 🟡 · XL [S47 — Spike-First · R0 ✅ `docs/design/74` · durable `tj:itemClaims` = sole authority; retire session store; demote `floatingGroups.liveTabId`; one recovery resolver; keep `LiveTabIndex` oracle]
-🔄 B-174 — Cold-start reconciliation E2E test (safety net, A0) · 🟡 · M [S47 — no behavior change · R3 in progress]
+✅ B-174 — Cold-start reconciliation E2E test (safety net, A0) · 🟡 · M [S47 — DONE 2026-06-27 · T1-T7 drive real initializeLiveState · suite 2099→2106 PASS, zero regressions]
 🔄 B-175 — Extract one shared tab↔item resolver (A1) · 🟡 · L [S47 — no behavior change · queued after B-174]
 🔄 B-176 — Split floating-groups.js → ~4 modules (A2) · 🟡 · M [S47 — no behavior change · queued after B-175]
 🔄 B-177 — Name onReplaced/onRemoved fan-out primitives (A3) · 🟡 · M [S47 — no behavior change · queued after B-175]
@@ -322,8 +322,8 @@ Overall Progress    ██████████████████░░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 152 | 91% |
-| 🔄 In Progress | 8 | 5% |
+| ✅ Done | 153 | 92% |
+| 🔄 In Progress | 7 | 4% |
 | ⬜ To Do | 4 | 2% |
 | 🧊 Icebox | 3 | 2% |
 
