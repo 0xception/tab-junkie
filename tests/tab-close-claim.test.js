@@ -1,9 +1,9 @@
 import './_setup.js';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { __resetMock, __setMockTabs, __getSessionStore, __getRawStore, seedPartitions } from './chrome-mock.js';
+import { __resetMock, __setMockTabs, __getRawStore, seedPartitions } from './chrome-mock.js';
 import { buildLiveTabIndex, __resetLiveTabIndex } from '../background/tabs/live-tab-index.js';
-import { reconcileClaims, buildLiveStates, releaseClaimByTab, __resetTabClaims } from '../background/tabs/tab-claims.js';
+import { reconcileClaims, buildLiveStates, releaseClaimByTab, __resetTabClaims, getClaimsMirror } from '../background/tabs/tab-claims.js';
 import { removeTabEntry } from '../background/tabs/live-tab-index.js';
 import { detectDriftForTab, getDriftRecords, clearDrift } from '../background/tabs/drift.js';
 
@@ -28,7 +28,7 @@ test('AC5: tab close removes claim, buildLiveStates returns live:false, item rem
   await reconcileClaims(items);
 
   // Verify claim exists
-  let claims = __getSessionStore('tj:tabClaims');
+  let claims = getClaimsMirror();
   assert.equal(claims['item-1'], 42, 'item-1 should be claimed by tab 42');
   let states = buildLiveStates(items);
   assert.equal(states['item-1'].live, true);
@@ -38,7 +38,7 @@ test('AC5: tab close removes claim, buildLiveStates returns live:false, item rem
   await releaseClaimByTab(42);
 
   // Verify claim removed
-  claims = __getSessionStore('tj:tabClaims');
+  claims = getClaimsMirror();
   assert.equal(claims['item-1'], undefined, 'Claim should be removed after tab close');
 
   // buildLiveStates should show live:false

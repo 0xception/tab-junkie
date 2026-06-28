@@ -12,7 +12,6 @@ import {
   __resetMock,
   __setMockTabs,
   __getRawStore,
-  __getSessionStore,
 } from './chrome-mock.js';
 import { buildLiveTabIndex, __resetLiveTabIndex, updateTabEntry } from '../background/tabs/live-tab-index.js';
 import {
@@ -184,10 +183,10 @@ test('AC7: release ordering — floating group saved BEFORE claim released', asy
   await demoteItem(item.id);
 
   const floating = __getRawStore('tj:floatingGroups');
-  const sessionClaims = __getSessionStore('tj:tabClaims');
+  const sessionClaims = getClaimsMirror();
 
   assert.ok(Array.isArray(floating) && floating.length === 1, 'floating group must be saved');
-  assert.ok(!sessionClaims || sessionClaims[item.id] === undefined, 'claim must be released');
+  assert.equal(sessionClaims[item.id], undefined, 'claim must be released');
 });
 
 test('AC8: demoteItem does not save floating group when item has no groupId', async () => {

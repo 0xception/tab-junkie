@@ -102,11 +102,10 @@ const KNOWN_LEGACY_KEYS = ['junkie_bookmarks', 'junkie_groups', 'junkie_pinned_t
  * (chrome.storage.local) holding a durable per-item tabId binding across
  * extension reload + browser restart. Legacy v7 profiles lack the key;
  * `initializePartitions()` seeds the default empty shape on first SW cold
- * start. Existing `tj:tabClaims` (session storage) writes are preserved
- * unchanged — durable identity is layered ABOVE the existing pipeline as a
- * pre-populator and BELOW it as a passive mirror of every write. The
- * governance bump is required by C-1a even when data migration is lazy
- * (C-1b option 2). */
+ * start. The legacy `tj:tabClaims` (session storage) pipeline that durable
+ * identity originally layered above (pre-populator) and below (passive mirror)
+ * was RETIRED by B-179 §75 — claims are now durable-only. The governance bump
+ * is required by C-1a even when data migration is lazy (C-1b option 2). */
 export const KNOWN_VERSION = 8;
 
 /**
@@ -208,11 +207,11 @@ const MIGRATION_STEPS = [
      `tj:itemClaims` (chrome.storage.local) holding a durable per-item
      tabId binding across extension reload + browser restart. Legacy v7
      profiles lack the key; `initializePartitions()` seeds the default
-     empty shape on first SW cold start. Existing `tj:tabClaims`
-     (session storage) writes are preserved and mirrored to the durable
-     partition by the W-1..W-5 PATCH sites in `tab-claims.js`. The
-     governance bump is required by C-1a even when data migration is
-     lazy (C-1b option 2). */
+     empty shape on first SW cold start. The legacy `tj:tabClaims`
+     (session storage) writes that durable once mirrored via the
+     W-1..W-5 PATCH sites in `tab-claims.js` were RETIRED by B-179 §75 —
+     claims are now durable-only. The governance bump is required by C-1a
+     even when data migration is lazy (C-1b option 2). */
   {
     fromVersion: 7,
     toVersion: 8,

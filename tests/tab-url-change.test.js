@@ -1,9 +1,9 @@
 import './_setup.js';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { __resetMock, __setMockTabs, __getSessionStore } from './chrome-mock.js';
+import { __resetMock, __setMockTabs } from './chrome-mock.js';
 import { buildLiveTabIndex, updateTabEntry, __resetLiveTabIndex } from '../background/tabs/live-tab-index.js';
-import { reconcileClaims, reevaluateTab, buildLiveStates, __resetTabClaims } from '../background/tabs/tab-claims.js';
+import { reconcileClaims, reevaluateTab, buildLiveStates, __resetTabClaims, getClaimsMirror } from '../background/tabs/tab-claims.js';
 
 beforeEach(() => {
   __resetMock();
@@ -35,7 +35,7 @@ test('B-099 D-1: tab URL change preserves the original claim (no release on mism
   await reconcileClaims(items);
 
   // itemA should be claimed
-  let claims = __getSessionStore('tj:tabClaims');
+  let claims = getClaimsMirror();
   assert.equal(claims['itemA'], 50);
   assert.equal(claims['itemB'], undefined);
 
@@ -45,7 +45,7 @@ test('B-099 D-1: tab URL change preserves the original claim (no release on mism
   updateTabEntry(50, { url: 'https://itemB.com' });
   await reevaluateTab(50, 'https://itemB.com', items);
 
-  claims = __getSessionStore('tj:tabClaims');
+  claims = getClaimsMirror();
   assert.equal(claims['itemA'], 50, 'itemA claim should be preserved across URL change (D-1)');
   assert.equal(claims['itemB'], undefined, 'itemB must not auto-claim a tab another item already holds (D-3)');
 
@@ -65,7 +65,7 @@ test('B-099 D-1: tab navigation to an unrelated URL preserves the existing claim
   ];
 
   await reconcileClaims(items);
-  let claims = __getSessionStore('tj:tabClaims');
+  let claims = getClaimsMirror();
   assert.equal(claims['saved-item'], 60);
 
   // Navigate to a URL that matches no saved item — the bookmark↔tab
@@ -73,7 +73,7 @@ test('B-099 D-1: tab navigation to an unrelated URL preserves the existing claim
   updateTabEntry(60, { url: 'https://unrelated.com' });
   await reevaluateTab(60, 'https://unrelated.com', items);
 
-  claims = __getSessionStore('tj:tabClaims');
+  claims = getClaimsMirror();
   assert.equal(claims['saved-item'], 60, 'Claim should be preserved on URL mismatch (D-1)');
   assert.equal(Object.keys(claims).length, 1, 'Exactly one claim should remain (the original)');
 });

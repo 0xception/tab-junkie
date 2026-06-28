@@ -1,9 +1,9 @@
 import './_setup.js';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { __resetMock, __setMockTabs, __setSessionStore, __getSessionStore } from './chrome-mock.js';
+import { __resetMock, __setMockTabs } from './chrome-mock.js';
 import { buildLiveTabIndex, __resetLiveTabIndex } from '../background/tabs/live-tab-index.js';
-import { reconcileClaims, buildLiveStates, isClaimsReady, __resetTabClaims } from '../background/tabs/tab-claims.js';
+import { reconcileClaims, buildLiveStates, isClaimsReady, __resetTabClaims, getClaimsMirror, __setClaimsMirror } from '../background/tabs/tab-claims.js';
 
 beforeEach(() => {
   __resetMock();
@@ -24,7 +24,7 @@ test('AC2 (post-B-149): reconcileClaims drops claims for missing tabs but PRESER
   // also classed "invalid" and evicted; B-149 fixes the cold-start path
   // to enforce the B-099 D-1 contract (claim survives URL drift). The
   // test now pins the corrected behavior.
-  __setSessionStore('tj:tabClaims', {
+  __setClaimsMirror({
     'item-valid': 100,    // valid: tab 100 exists and URL matches
     'item-stale-tab': 999, // invalid: tab 999 does not exist
     'item-url-mismatch': 200, // post-B-149: SURVIVES (tab 200 is live)
@@ -38,7 +38,7 @@ test('AC2 (post-B-149): reconcileClaims drops claims for missing tabs but PRESER
 
   await reconcileClaims(items);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims['item-valid'], 100, 'Valid claim should be retained');
   assert.equal(claims['item-stale-tab'], undefined, 'Stale tab claim should be dropped (legitimate eviction — tab missing)');
   assert.equal(
@@ -62,7 +62,7 @@ test('AC2: unclaimed items are re-claimed in sortOrder (first-unclaimed-wins)', 
 
   await reconcileClaims(items);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims['item-a'], 10, 'item-a (lower sortOrder) should claim tab 10');
   assert.equal(claims['item-b'], 20, 'item-b should claim tab 20');
 });

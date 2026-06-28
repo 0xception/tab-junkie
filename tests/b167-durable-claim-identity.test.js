@@ -2,7 +2,7 @@
  * B-167 — Durable claim identity tests (Sprint 46).
  *
  * Covers the new `tj:itemClaims` partition and its 5 write-site mirror
- * (W-1..W-5), the cold-start `prePopulateClaimsFromDurable` read path,
+ * (W-1..W-5), the cold-start `hydrateClaimsMirrorFromDurable` read path,
  * the `sessionMatches` threshold predicate (Q2 R2-DECISION = 0.5), and
  * graceful degradation against corrupt-data reads.
  *
@@ -17,8 +17,6 @@ import assert from 'node:assert/strict';
 import {
   __resetMock,
   __setMockTabs,
-  __setSessionStore,
-  __getSessionStore,
   seedPartitions,
 } from './chrome-mock.js';
 import {
@@ -31,10 +29,11 @@ import {
   claimTabForItem,
   remapTabIdInClaims,
   reevaluateTab,
-  prePopulateClaimsFromDurable,
+  hydrateClaimsMirrorFromDurable,
   sessionMatches,
   isClaimsReady,
   getItemIdForTab,
+  getClaimsMirror,
   __resetTabClaims,
   __getSessionTagForTest,
   __setSessionTagForTest,
@@ -203,11 +202,11 @@ test('B-167 T6 (AC6): corrupt tj:itemClaims partition does not crash cold start'
     itemClaims: { schemaVersion: 1, sessionTag: 'x', entries: 'not-an-object' },
   });
   // prePopulate must not throw; reconcileClaims must run normally
-  await prePopulateClaimsFromDurable();
+  await hydrateClaimsMirrorFromDurable();
   await reconcileClaims([item('item-X', 'https://saved.com/A', 0)]);
   assert.equal(isClaimsReady(), true);
   // Phase 2 URL-match should have bound item-X to tab 200 via inference
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims['item-X'], 200);
   /* R4 qa M-2: assert tj:itemClaims self-healed — W-1 full-replace at end
      of reconcileClaims overwrote the corrupt input. The durable partition
@@ -222,7 +221,7 @@ test('B-167 T6 (AC6): corrupt tj:itemClaims partition does not crash cold start'
 
 // ---- T7: S-1 happy path (extension reload) -------------------------------
 
-test('B-167 T7 (AC3+AC4): S-1 extension reload — durable partition pre-populates session storage', async () => {
+test('B-167 T7 (AC3+AC4): S-1 extension reload — durable partition seeds the in-memory mirror', async () => {
   __setMockTabs([
     tab(200, 'https://saved.com/A'),
     tab(201, 'https://saved.com/B'),
@@ -240,21 +239,21 @@ test('B-167 T7 (AC3+AC4): S-1 extension reload — durable partition pre-populat
       'item-B': { tabId: 201, claimedAt: 200, sessionTag: 'reload-tag' },
     }),
   });
-  // chrome.storage.session is wiped (extension reload).
-  // Confirm precondition.
-  assert.equal(__getSessionStore('tj:tabClaims'), undefined);
+  // The in-memory mirror is empty on cold start (extension reload wiped the
+  // legacy session store; the durable partition survives). Confirm precondition.
+  assert.deepEqual(getClaimsMirror(), {});
 
-  await prePopulateClaimsFromDurable();
+  await hydrateClaimsMirrorFromDurable();
 
-  // Session storage now seeded with restored bindings
-  const restored = __getSessionStore('tj:tabClaims');
+  // The in-memory mirror is now seeded DIRECTLY from durable (no session write).
+  const restored = getClaimsMirror();
   assert.deepEqual(restored, { 'item-A': 200, 'item-B': 201 });
 
   await reconcileClaims([
     item('item-A', 'https://saved.com/A', 0),
     item('item-B', 'https://saved.com/B', 1),
   ]);
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims['item-A'], 200);
   assert.equal(claims['item-B'], 201);
   // Adopted sessionTag matches the durable record's tag
@@ -275,16 +274,16 @@ test('B-167 T8 (AC3+AC5): S-2 backstop — stale sessionTag forces inference, mi
       'item-B': { tabId: 998, claimedAt: 1, sessionTag: 'stale-tag' },
     }),
   });
-  // session storage empty (post-restart)
-  assert.equal(__getSessionStore('tj:tabClaims'), undefined);
+  // mirror empty (post-restart)
+  assert.deepEqual(getClaimsMirror(), {});
 
-  await prePopulateClaimsFromDurable();
-  // Pre-population was a no-op; session storage stays empty
-  assert.equal(__getSessionStore('tj:tabClaims'), undefined);
+  await hydrateClaimsMirrorFromDurable();
+  // Hydration was a no-op (sessionMatches false, no legacy session); mirror stays empty
+  assert.deepEqual(getClaimsMirror(), {});
 
   await reconcileClaims([item('item-A', 'https://saved.com/A', 0)]);
   // Phase 2 URL-match bound item-A → tab 500 via inference
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims['item-A'], 500);
 
   // Fresh sessionTag was minted (NOT the stale-tag)
@@ -304,7 +303,7 @@ test('B-167 T8 (AC3+AC5): S-2 backstop — stale sessionTag forces inference, mi
 
 // ---- T9: W-2 releaseClaimByTab clears both partitions sequentially -------
 
-test('B-167 T9 (AC2 Q3): releaseClaimByTab deletes from session AND durable partition', async () => {
+test('B-167 T9 (AC2 Q3): releaseClaimByTab deletes from the mirror AND durable partition', async () => {
   __setMockTabs([tab(200, 'https://saved.com/A')]);
   await buildLiveTabIndex();
   seedPartitions({
@@ -312,17 +311,17 @@ test('B-167 T9 (AC2 Q3): releaseClaimByTab deletes from session AND durable part
   });
   // Establish a fresh-session reconcile so durable partition is stamped.
   await reconcileClaims([item('item-A', 'https://saved.com/A', 0)]);
-  // Sanity: durable + session both carry item-A
+  // Sanity: durable + mirror both carry item-A
   let durable = await readPartition(PARTITION_ITEM_CLAIMS);
   assert.equal(durable.entries['item-A'].tabId, 200);
-  assert.equal(__getSessionStore('tj:tabClaims')['item-A'], 200);
+  assert.equal(getClaimsMirror()['item-A'], 200);
 
   // Now release the claim by tabId (the demote / tab-close path).
   const releasedId = await releaseClaimByTab(200);
   assert.equal(releasedId, 'item-A');
 
-  // Both partitions cleared.
-  assert.equal(__getSessionStore('tj:tabClaims')['item-A'], undefined);
+  // Both the mirror and durable cleared.
+  assert.equal(getClaimsMirror()['item-A'], undefined);
   durable = await readPartition(PARTITION_ITEM_CLAIMS);
   assert.equal(durable.entries['item-A'], undefined);
 });
@@ -405,11 +404,11 @@ test('B-167 T13 (AC5 B-149 regression): durable pre-population preserves claim d
     }),
   });
 
-  await prePopulateClaimsFromDurable();
+  await hydrateClaimsMirrorFromDurable();
   await reconcileClaims([item('item-X', 'https://saved.com/A', 0)]);
 
   // Phase 1 keeps the claim — URL is NOT re-checked (B-149 contract).
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims['item-X'], 200, 'B-149: drifted URL must NOT evict the claim at cold-start');
 });
 
@@ -425,14 +424,14 @@ test('B-167 T14 (AC5 B-163 regression): durable pre-population does not preempt 
     drift: { 'item-X': { itemId: 'item-X', driftedToUrl: 'https://saved.com/B', detectedAt: 1 } },
     // No itemClaims partition seeded — defaultShape will be returned.
   });
-  // No session storage (extension reload).
-  assert.equal(__getSessionStore('tj:tabClaims'), undefined);
+  // No durable claim + empty mirror (extension reload, fresh-session item).
+  assert.deepEqual(getClaimsMirror(), {});
 
-  await prePopulateClaimsFromDurable();
+  await hydrateClaimsMirrorFromDurable();
   await reconcileClaims([item('item-X', 'https://saved.com/A', 0)]);
 
   // Phase 3 drift-URL fallback re-bound item-X → tab 800.
-  assert.equal(__getSessionStore('tj:tabClaims')['item-X'], 800);
+  assert.equal(getClaimsMirror()['item-X'], 800);
 });
 
 // ---- T15: MSG_DEMOTE_ITEM clears durable entry --------------------------
@@ -562,9 +561,9 @@ test('B-167 T16 (R4 CONV-1): durable upsert stamps matching partition-level + pe
 test('B-167 T17 (R5 gap-fill, §73.15 T7 verbatim): cold-start surfaces claimsReady + getItemIdForTab', async () => {
   /* §73.15 T7 specifies: "`getItemIdForTab(tabId)` returns correct itemId;
      no Phase 2/3 URL-inference observable". The existing T7 verifies the
-     `tj:tabClaims` session-storage key but does not exercise the public
-     query API (`getItemIdForTab`) nor confirm `isClaimsReady()` flips true
-     at the end of the prePopulate → reconcile sequence. This supplementary
+     in-memory mirror but does not exercise the public query API
+     (`getItemIdForTab`) nor confirm `isClaimsReady()` flips true at the end
+     of the hydrate → reconcile sequence. This supplementary
      test closes that gap end-to-end. */
   __setMockTabs([
     tab(200, 'https://saved.com/A'),
@@ -587,7 +586,7 @@ test('B-167 T17 (R5 gap-fill, §73.15 T7 verbatim): cold-start surfaces claimsRe
   // Public query API must return null pre-reconcile
   assert.equal(getItemIdForTab(200), null, 'getItemIdForTab null pre-reconcile');
 
-  await prePopulateClaimsFromDurable();
+  await hydrateClaimsMirrorFromDurable();
   await reconcileClaims([
     item('item-A', 'https://saved.com/A', 0),
     item('item-B', 'https://saved.com/B', 1),
@@ -647,7 +646,7 @@ test('B-167 T18 (R5 gap-fill, AC2 Q3 ordering): demote handler runs releaseClaim
   // Post-state contracts:
   //  - tj:items no longer contains it.id (deleteItem ran)
   //  - tj:itemClaims.entries[it.id] is gone (releaseClaimByTab ran AFTER)
-  //  - session tj:tabClaims no longer contains it.id
+  //  - the in-memory mirror no longer contains it.id
   durable = await readPart(PARTITION_ITEM_CLAIMS);
   assert.equal(durable.entries[it.id], undefined, 'durable entry cleared by releaseClaimByTab');
 
@@ -657,8 +656,8 @@ test('B-167 T18 (R5 gap-fill, AC2 Q3 ordering): demote handler runs releaseClaim
   const stillPresent = allItems.find((x) => x && x.id === it.id);
   assert.equal(stillPresent, undefined, 'deleteItem removed it.id from items partition');
 
-  const sessionClaims = __getSessionStore('tj:tabClaims') || {};
-  assert.equal(sessionClaims[it.id], undefined, 'session storage cleared');
+  const mirrorClaims = getClaimsMirror();
+  assert.equal(mirrorClaims[it.id], undefined, 'in-memory mirror cleared');
 });
 
 // ---- T19: R5 supplementary — zero-tab cold start -------------------------
@@ -667,7 +666,7 @@ test('B-167 T19 (R5 gap-fill, edge case): zero-tab cold start with durable entri
   /* Edge case explicitly called out in the R5 charter. Liveindex is
      empty (no tabs open); durable partition is non-empty (carry-over from
      prior session). sessionMatches must reject (0 resolve / N total = 0%),
-     prePopulate must no-op, reconcile must run with empty session input,
+     hydrate must no-op, reconcile must run with an empty mirror input,
      and end-of-Phase-4 W-1 must overwrite the durable partition with an
      empty entries map under a freshly-minted sessionTag. */
   __setMockTabs([]); // zero tabs
@@ -682,20 +681,20 @@ test('B-167 T19 (R5 gap-fill, edge case): zero-tab cold start with durable entri
       'item-B': { tabId: 998, claimedAt: 1, sessionTag: 'stale-tag' },
     }),
   });
-  assert.equal(__getSessionStore('tj:tabClaims'), undefined);
+  assert.deepEqual(getClaimsMirror(), {});
 
-  await prePopulateClaimsFromDurable();
+  await hydrateClaimsMirrorFromDurable();
   // No pre-population happened (sessionMatches false)
-  assert.equal(__getSessionStore('tj:tabClaims'), undefined);
+  assert.deepEqual(getClaimsMirror(), {});
 
   await reconcileClaims([
     item('item-A', 'https://saved.com/A', 0),
     item('item-B', 'https://saved.com/B', 1),
   ]);
 
-  // Reconcile produced an empty (or unset/empty-object) session map — no
+  // Reconcile produced an empty (or unset/empty-object) mirror — no
   // tabs to bind against.
-  const claims = __getSessionStore('tj:tabClaims') || {};
+  const claims = getClaimsMirror();
   assert.equal(claims['item-A'], undefined);
   assert.equal(claims['item-B'], undefined);
   // claimsReady still flips true (the reconcile completed successfully)
@@ -736,7 +735,7 @@ test('B-167 T20 (R5 gap-fill, scale): 50-entry durable partition pre-populates w
     itemClaims: durablePartition('scale-tag', entries),
   });
 
-  await prePopulateClaimsFromDurable();
+  await hydrateClaimsMirrorFromDurable();
   await reconcileClaims(items);
 
   // Every restored binding observable via the public query API
@@ -776,6 +775,6 @@ test('B-167 T21 (R5 gap-fill, race): claim-then-release sequence leaves both par
 
   durable = await readPartition(PARTITION_ITEM_CLAIMS);
   assert.equal(durable.entries['item-R'], undefined, 'post-state: durable cleared');
-  const claims = __getSessionStore('tj:tabClaims') || {};
-  assert.equal(claims['item-R'], undefined, 'post-state: session cleared');
+  const claims = getClaimsMirror();
+  assert.equal(claims['item-R'], undefined, 'post-state: mirror cleared');
 });

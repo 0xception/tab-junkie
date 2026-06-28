@@ -106,4 +106,31 @@ _None._
 ---
 
 ## B-173 EPIC — safe-refactor tier (A0–A4) COMPLETE
-B-174 (test net) · B-175 (resolver) · B-176 (split floating-groups.js) · B-177 (event fan-out) · B-178 (reconcileClaims phases) — all DONE, all behavior-preserving, suite 2099 → **2117 PASS**, zero regressions throughout, contract-diff clean on every behavior-sensitive change. **Next: B-179 storage cutover (behavior change) — gated on the B1 design-confirm spike + product-owner record-model decision.**
+B-174 (test net) · B-175 (resolver) · B-176 (split floating-groups.js) · B-177 (event fan-out) · B-178 (reconcileClaims phases) — all DONE, all behavior-preserving, suite 2099 → **2117 PASS**, zero regressions throughout, contract-diff clean on every behavior-sensitive change.
+
+---
+
+## B-179 — Collapse to ONE store; retire session `tj:tabClaims`; demote `floatingGroups.liveTabId` (R4 + fix-round, 2026-06-28)
+
+BEHAVIOR-CHANGING, irreversible cutover. Option A (B1 design-confirm spike `docs/design/75`, product-owner sign-off). Reviewers: code (Sonnet) · security (Opus) · qa (Sonnet).
+
+**Headline verifications (all 3 reviewers):** Phase-1 input did **NOT** narrow (`{...claimsMirror}` is the full prior-claims set; hydrate runs before reconcile in `initializeLiveState`); all 5 durable writes (W-1..W-5) intact as the sole persist; rollback genuinely safe (`KNOWN_VERSION` stays 8, durable is a superset → plain `git revert`); the ~110 re-pointed test assertions are **equal-strength or stronger** (b164 T3 still proves the B-164 M-1 invocation-count contract via `__getLocalSetCount('tj:itemClaims')===1`, not final-state). Contract-diff: clean.
+
+### CRITICAL
+_None._
+
+### HIGH (fixed in fix-round)
+| # | File | Finding | Resolution |
+|---|------|---------|-----------|
+| H-1 (qa; = code M-1) | `tab-claims.js:318` `foldLegacySessionClaims` | The one-cold-start session→durable compat shim — the only mechanism protecting mid-upgrade users — had ZERO automated test (design §75.9.3 #2 specified one; b174 wrongly classified the shim *mechanics* as UAT-only). | ✅ Fix-round — `tests/b179-store-cutover.test.js` (4 tests): happy-path fold→stamp→remove, one-cold-start idempotency, the FIX-1 failure gate, empty steady-state. |
+
+### MEDIUM (fixed in fix-round)
+| # | File | Finding | Resolution |
+|---|------|---------|-----------|
+| M-1 (security; data integrity) | `tab-claims.js` shim + `durableMirrorFullReplace` | Session-key removal was UNCONDITIONAL — if the durable write failed (quota) or stamped an empty `sessionTag`, claims stranded in neither store (undercuts the §75 "no data loss" headline). | ✅ Fix-round FIX-1 — `durableMirrorFullReplace` now returns a success boolean (false on empty-tag guard or write-throw); the shim removes the session key ONLY on confirmed `true`, else RETAINS it for next-cold-start retry. Write-before-remove ordering preserved. Pinned by `b179` T3 (forced quota rejection → session key retained). |
+| M-2 (qa) | `idle-reconciler.js:120`, `service-worker.js:48` | `readyPromise` docstrings falsely claimed it gates until `initializeLiveState` completes (it gates migrations only; `initializeLiveState` is concurrent fire-and-forget). Pre-existing race (not a B-179 regression; self-heals via Phase-2 re-infer), but B-179 §75.6 leaned on the false guarantee. | ✅ Fix-round FIX-3 — docstrings corrected (gates migrations; hydrate-before-reconcile guaranteed *within* initializeLiveState; idle-wake gap self-heals). Logic unchanged (pre-existing race left for a future item). |
+
+### LOW (fixed)
+Stale `tj:tabClaims`-as-active docstrings in `shapes.js`/`migration.js`/`tab-events.js` header + `durableMirrorFullReplace` "passive mirror" JSDoc → annotated "RETIRED by B-179 §75 / sole persisted write". b174 T1 tautological `__getSessionStore===undefined` → strengthened to `__getSessionSetCount===0`. b163 T10 comment corrected (models fresh-install/restart, not extension-reload, post-cutover). demote-item dead guard cleaned.
+
+**Outcome:** 0 CRIT. HIGH + both MED + LOWs all fixed in the fix-round. New `__triggerQuotaOnNextSet` mock primitive (for the failure-gate test). Suite 2117 → **2121 PASS**, zero regressions. **Automated side complete; real-browser UAT (9 probes, §75.8) is the remaining acceptance gate — product-owner-run in Edge.**

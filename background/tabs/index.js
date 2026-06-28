@@ -18,7 +18,7 @@ export { getDriftRecords } from './drift.js';
 /* B-164 §69.3.2 — on-wake defensive reconcile via chrome.idle. */
 export { registerIdleReconciler } from './idle-reconciler.js';
 import { buildLiveTabIndex, getLiveTabIndex } from './live-tab-index.js';
-import { reconcileClaims, getClaimsMirror, prePopulateClaimsFromDurable } from './tab-claims.js';
+import { reconcileClaims, getClaimsMirror, hydrateClaimsMirrorFromDurable } from './tab-claims.js';
 import { reassociateFloatingGroups, preMarkInheritedFromFloatingGroups, bootstrapAndSweepRenderOrder } from './floating-groups.js';
 import { listItems } from '../storage/items.js';
 /* B-014 */
@@ -62,19 +62,20 @@ export async function initializeLiveState(readyPromise) {
   } catch (err) {
     console.warn('[tab-junkie] B-132 preMarkInheritedFromFloatingGroups failed; proceeding with empty inheritedTabs', err);
   }
-  /* B-167 §73.4.3 — durable claim pre-population. Reads tj:itemClaims;
-     if sessionMatches against the current liveTabIndex (Q2 threshold
-     0.5), writes restored bindings to tj:tabClaims (session) BEFORE
-     reconcileClaims so Phase 1 sees them as input. Graceful degradation
-     per §73.8: missing partition / corrupt partition / storage rejection
-     all log warn and fall through to the existing 4-phase inference
-     pipeline (no regression). The helper also settles the module-level
-     sessionTag for the SW lifetime so W-1..W-5 PATCH stamps are
-     consistent. */
+  /* B-179 §75.4.2 — durable claim hydration. Reads tj:itemClaims and seeds
+     the in-memory claimsMirror DIRECTLY (no session write) BEFORE
+     reconcileClaims, whose Phase-1 input is a snapshot of that mirror. If
+     durable is untrusted but a legacy tj:tabClaims (session) value survives,
+     the one-cold-start compat shim folds it into the mirror, W-1-stamps
+     durable, and removes the session key for good (§75.4.3). Graceful
+     degradation per §73.8: missing / corrupt partition / storage rejection
+     all log warn and fall through to the 4-phase inference pipeline (no
+     regression). Also settles the module-level sessionTag for the SW lifetime
+     so W-1..W-5 PATCH stamps are consistent. */
   try {
-    await prePopulateClaimsFromDurable();
+    await hydrateClaimsMirrorFromDurable();
   } catch (err) {
-    console.warn('[tab-junkie] B-167 prePopulateClaimsFromDurable failed; proceeding with inference-only reconcile', err);
+    console.warn('[tab-junkie] B-179 hydrateClaimsMirrorFromDurable failed; proceeding with inference-only reconcile', err);
   }
   await reconcileClaims(items);
   // B-001d AC10: re-associate floating groups after claims are established

@@ -21,7 +21,6 @@ import {
   __setMockTabs,
   __setMockWindows,
   __getRawStore,
-  __getSessionStore,
   seedPartitions,
 } from './chrome-mock.js';
 import {
@@ -535,7 +534,7 @@ test('T-121-D: MSG_PROMOTE_TAB on a floating-tab promotes + claims; member drops
   const newItemId = promoteResp.data.id;
 
   /* Claim is established for the new saved item. */
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims[newItemId], 200);
 
   /* AC5/AC8(ii) lazy skip path: T_child is now claimed by newItemId, so

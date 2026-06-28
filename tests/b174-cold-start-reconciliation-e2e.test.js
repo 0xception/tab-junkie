@@ -7,7 +7,7 @@
  *
  * Unlike every prior reconcile test (b163 / b164 / b167 / b132 — each of which
  * drives a SINGLE cold-start function in isolation: reconcileClaims,
- * prePopulateClaimsFromDurable, preMarkInheritedFromFloatingGroups, …), this
+ * hydrateClaimsMirrorFromDurable, preMarkInheritedFromFloatingGroups, …), this
  * file drives the FULL `initializeLiveState(readyPromise)` cold-start pipeline
  * end-to-end (background/tabs/index.js) and asserts the resulting END STATE via
  * the PUBLIC read surface:
@@ -23,7 +23,7 @@
  * hook is added.
  *
  * Because this test DRIVES the real `initializeLiveState`, the cold-start call
- * ORDER (preMark → prePopulate → reconcile → reassociate → bootstrap) is pinned
+ * ORDER (preMark → hydrate → reconcile → reassociate → bootstrap) is pinned
  * BEHAVIOURALLY (e.g. T5 only passes if preMark runs before reconcile Phase 2;
  * T4 only passes if reconcile precedes Phase 4) — a strictly stronger guarantee
  * than the b132 §65.12 source-text pin (which was a fallback "no test exercises
@@ -33,20 +33,20 @@
  * The R0 spike (docs/design/74-b-173-r0-spike.md §74.11) flags that chrome-mock
  * CANNOT reproduce the following — they are REAL-BROWSER UAT-only signal classes
  * and are deliberately NOT modelled here:
- *   • session-wipe-on-reload vs SW-restart-within-session (P-1 vs P-3): the mock
- *     has one in-memory `sessionStore` cleared by `__resetMock`; the browser
- *     distinguishes "extension reload wipes chrome.storage.session" from "SW
- *     restart leaves it intact". We MODEL each scenario by setting the session
- *     store to the appropriate state per test (empty = reload, seeded =
- *     SW-restart-in-session) — but the mock cannot itself enforce the wipe
- *     semantics, so the reload/restart DISTINCTION is a UAT-only probe.
+ *   • session-wipe-on-reload vs SW-restart-within-session (P-1 vs P-3): post-B-179
+ *     claims are durable, so we MODEL each cold-start scenario via the durable
+ *     tj:itemClaims partition + the in-memory mirror (empty mirror + trusted
+ *     durable = reload; stale mirror = SW-restart-in-session) rather than the
+ *     retired session store — but the mock cannot enforce the real reload-wipe
+ *     vs SW-restart-survives semantics, so the reload/restart DISTINCTION (and
+ *     the one-cold-start session→durable compat shim) is a UAT-only probe.
  *   • real tabId-rotation timing on browser restart / discard (P-2 / P-3): we
  *     model the END STATE (durable tabIds dead, fresh tabIds at same URLs) but
  *     not the live rotation event stream.
  *   • focus-shift popup teardown (P-7) and in-flight onReplaced-during-wake
  *     races (P-6): not identity-cold-start; out of scope for this safety net.
- * What the mock CAN exercise — the full prePopulate→reconcile→reassociate→
- * floating-resolve state machine over seeded session/durable/floating/drift
+ * What the mock CAN exercise — the full hydrate→reconcile→reassociate→
+ * floating-resolve state machine over the seeded mirror/durable/floating/drift
  * stores — is covered by T1–T7 below, each mapped to a §74.11 probe.
  *
  * Folds in the WAIVED Sprint-46 UAT: T1 ⇒ B-167 reload UAT (P-1); T2 ⇒ B-167
@@ -64,8 +64,8 @@ import assert from 'node:assert/strict';
 import {
   __resetMock,
   __setMockTabs,
-  __setSessionStore,
   __getSessionStore,
+  __getSessionSetCount,
   __getRawStore,
   seedPartitions,
 } from './chrome-mock.js';
@@ -76,6 +76,7 @@ import {
   isClaimsReady,
   isInherited,
   __resetTabClaims,
+  __setClaimsMirror,
   __getSessionTagForTest,
 } from '../background/tabs/tab-claims.js';
 import { buildFloatingMembers } from '../background/tabs/floating-members.js';
@@ -167,6 +168,13 @@ test('B-174 T1 (§74.11 P-1): extension-reload — durable re-binds every item t
   assert.equal(__getSessionStore('tj:tabClaims'), undefined, 'pre: session wiped on reload');
 
   await coldStart();
+
+  /* B-179: the cutover NEVER writes the session store on the steady-state
+     reload path (hydrate seeds the mirror directly from durable). Asserting
+     ZERO session SETs (not merely key-absent) proves no write occurred — a
+     key-absent check would also pass if a write happened and was later
+     removed. */
+  assert.equal(__getSessionSetCount('tj:tabClaims'), 0, 'post: cutover never writes the retired session store');
 
   // Public reverse-lookup: both items re-bound to their ORIGINAL durable tabs.
   assert.equal(getItemIdForTab(200), 'item-A', 'P-1: item-A re-bound to original tab 200');
@@ -285,9 +293,10 @@ test('B-174 T3 (§74.11 no-durable): fresh cold start — Phase 2 URL-claim bind
 /* =========================================================================
    T4 — Drift fallback + conditional drift-drop. (§74.11 P-4 / B-163 + §70)
 
-   SW-restart-within-session: session SURVIVES with two stale claims pointing at
-   dead tabIds → Phase 1 evicts both into evictedItemIds. Neither item.url has a
-   live tab → Phase 2 misses both.
+   SW-restart-within-session: the in-memory mirror HOLDS two stale claims
+   pointing at dead tabIds (post-B-179 the mirror is reconcile's Phase-1 input)
+   → Phase 1 evicts both into evictedItemIds. Neither item.url has a live tab →
+   Phase 2 misses both.
      • item-X: drift.driftedToUrl matches live tab 700 → Phase 3 RE-BINDS;
        drift RETAINED (§70 AC4-A — record corresponds to a now-claimed item).
      • item-Y: drift.driftedToUrl has NO live tab → stays unbound; being evicted,
@@ -295,8 +304,11 @@ test('B-174 T3 (§74.11 no-durable): fresh cold start — Phase 2 URL-claim bind
    ========================================================================= */
 test('B-174 T4 (§74.11 P-4 / B-163 + §70): drift-URL fallback re-binds the evicted item; Phase 4 conditionally drops only the orphaned drift', async () => {
   __setMockTabs([tab(700, 'https://drifted-x.example/', 1, 0)]);
-  // SW-restart-in-session: session persisted with stale (dead-tab) claims.
-  __setSessionStore('tj:tabClaims', { 'item-X': 999, 'item-Y': 998 });
+  /* SW-restart-in-session: the in-memory mirror holds stale (dead-tab) claims
+     that no onRemoved cleared (post-B-179 the mirror is reconcile's Phase-1
+     input; on a real cold start hydrate re-seeds it from durable). Phase 1
+     evicts both; Phase 3 drift-URL fallback recovers item-X. */
+  __setClaimsMirror({ 'item-X': 999, 'item-Y': 998 });
   seedPartitions({
     items: [
       item('item-X', 'https://saved-x.example/', 0),

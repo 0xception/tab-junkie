@@ -132,7 +132,7 @@ Overall Progress    ██████████████████░░
 ✅ B-176 — Split floating-groups.js → 5 modules + barrel (A2) · 🟡 · M [S47 — DONE 2026-06-27 · 1344 LOC → 5 cohesive modules, importers unchanged · R4 3× PASS · suite 2116]
 ✅ B-177 — Name onReplaced/onRemoved fan-out primitives (A3) · 🟡 · M [S47 — DONE 2026-06-27 · new tab-event-cascades.js, documented store inventories · R4 3× PASS, reorder proven non-observable · suite 2116]
 ✅ B-178 — Decompose reconcileClaims → named phases (A4) · 🟡 · M [S47 — DONE 2026-06-27 · 181→42-line orchestrator + 4 phase helpers, single-winner intact · R4 3× PASS · R5 T11 cross-phase guard · suite 2117]
-🔄 B-179 — Collapse to one store; retire session; demote liveTabId (B1) · 🟡 · L [S47 — BEHAVIOR CHANGE · storage cutover · needs B-178 + B1 design-confirm spike]
+🔄 B-179 — Collapse to one store; retire session; demote liveTabId (B1) · 🟡 · L [S47 — BEHAVIOR CHANGE · Option A · R3+R4+fix-round+automated R5 DONE (2121 PASS); ⏳ real-browser UAT pending (9 probes §75.8)]
 🔄 B-180 — Eager floatingGroups v4-only + schema v8→v9 (B2) · 🟡 · L [S47 — BEHAVIOR CHANGE + schema bump · queued after B-179]
 
 ---

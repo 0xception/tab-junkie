@@ -40,10 +40,12 @@ export const PARTITION_FLOATING_GROUPS = 'floatingGroups';
 export const PARTITION_RECENCY = 'recency';
 /* B-167 §73.3.1 — durable item→tab claim partition. Persistent in
    chrome.storage.local across extension reload + browser restart.
-   Layered ABOVE the existing tj:tabClaims (session storage) pipeline
-   as a cold-start pre-populator and BELOW it as a passive mirror of
-   every claim write. Allow-list validator (C-7) tolerates extra
-   per-entry fields for forward-compatibility with B-172 URL-history. */
+   Originally layered ABOVE the tj:tabClaims (session storage) pipeline as a
+   cold-start pre-populator and BELOW it as a passive mirror of every claim
+   write — that session pipeline was RETIRED by B-179 §75, so this partition is
+   now the SOLE persisted claim store (durable-only). Allow-list validator (C-7)
+   tolerates extra per-entry fields for forward-compatibility with B-172
+   URL-history. */
 export const PARTITION_ITEM_CLAIMS = 'itemClaims';
 
 /* B-022 §39.3 D-3 — cap on `tj:recency.entries`. New entries past the cap
@@ -151,9 +153,10 @@ export function defaultShape(partition) {
          bindings across extension reload + browser restart. Data
          migration is lazy (C-1b option 2): the v7→v8 step is a no-op
          governance bump; `initializePartitions` seeds the empty shape on
-         first SW cold start; existing `tj:tabClaims` (session) writes
-         are mirrored to the durable partition by the W-1..W-5 PATCH
-         sites in `tab-claims.js`. C-1a paired bump: this literal moves
+         first SW cold start; the legacy `tj:tabClaims` (session) writes
+         that were once mirrored to the durable partition by the W-1..W-5
+         PATCH sites in `tab-claims.js` were RETIRED by B-179 §75 — claims
+         are now durable-only. C-1a paired bump: this literal moves
          to 8 in lock-step with KNOWN_VERSION. */
       return { schemaVersion: 8, createdAt: Date.now() };
     case PARTITION_DRIFT:

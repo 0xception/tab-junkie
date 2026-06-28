@@ -1,9 +1,9 @@
 import './_setup.js';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { __resetMock, __setMockTabs, __getSessionStore } from './chrome-mock.js';
+import { __resetMock, __setMockTabs } from './chrome-mock.js';
 import { buildLiveTabIndex, __resetLiveTabIndex } from '../background/tabs/live-tab-index.js';
-import { reconcileClaims, buildLiveStates, __resetTabClaims } from '../background/tabs/tab-claims.js';
+import { reconcileClaims, buildLiveStates, __resetTabClaims, getClaimsMirror } from '../background/tabs/tab-claims.js';
 
 beforeEach(() => {
   __resetMock();
@@ -28,7 +28,7 @@ test('AC8: session wiped (browser restart) — reconcileClaims rebuilds from scr
 
   await reconcileClaims(items);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims['foo'], 10, 'foo should be claimed by tab 10');
   assert.equal(claims['bar'], 20, 'bar should be claimed by tab 20');
 
@@ -53,7 +53,7 @@ test('AC8: no stale claims from previous session are carried forward', async () 
 
   await reconcileClaims(items);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims['old-item'], undefined, 'old-item URL has no matching tab');
   assert.equal(claims['new-item'], 5, 'new-item should be claimed from scratch');
 });

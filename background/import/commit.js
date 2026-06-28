@@ -4,10 +4,12 @@
  * Consumes a normalized import snapshot (produced by either html-parser.js or
  * — when B-045 lands — json-validator.js) and applies the single atomic
  * writeTransaction that replaces `tj:items`, `tj:groups`, and optionally
- * `tj:prefs`. Transient partitions (`tj:drift`, `tj:floatingGroups`) and the
- * session-scoped TabClaims store are reset *outside* the writeTransaction per
- * §33.7's partial-atomicity rationale: the items/groups swap is the contract;
- * the transients are self-healing cleanup.
+ * `tj:prefs`. Transient partitions (`tj:drift`, `tj:floatingGroups`, and the
+ * durable `tj:itemClaims` claim store) are reset *outside* the primary
+ * writeTransaction per §33.7's partial-atomicity rationale: the items/groups
+ * swap is the contract; the transients are self-healing cleanup. B-179 §75.4.4
+ * re-pointed the claim reset from the retired `tj:tabClaims` (session) key to
+ * the durable partition — `tj:itemClaims` is now the SOLE persisted claim store.
  *
  * D-3 atomicity guarantee: a single `writeTransaction` replaces every user-
  * data partition in one chrome.storage.local.set. The R4 security-reviewer
@@ -20,6 +22,8 @@ import {
   PARTITION_PREFS,
   PARTITION_DRIFT,
   PARTITION_FLOATING_GROUPS,
+  PARTITION_ITEM_CLAIMS,
+  ITEM_CLAIMS_SCHEMA_VERSION,
   DEFAULT_PREFERENCES,
 } from '../storage/shapes.js';
 import { writeTransaction } from '../storage/write-transaction.js';
@@ -118,16 +122,23 @@ export async function commitImport({ items, groups, preferences }) {
     await writeTransaction([
       { partition: PARTITION_DRIFT, mutator: () => ({}) },
       { partition: PARTITION_FLOATING_GROUPS, mutator: () => [] },
+      /* B-179 §75.4.4 — reset the durable claim store. Post-cutover
+         `tj:itemClaims` is the SOLE persisted claim store (the session
+         `tj:tabClaims` reset this replaced is retired). Without this, import
+         silently leaves stale claims pointing at pre-import tabs (ghost-live
+         rows). Entries are cleared to `{}`; the partition-level sessionTag +
+         schemaVersion are preserved so the SW lifetime's tag is not lost. */
+      {
+        partition: PARTITION_ITEM_CLAIMS,
+        mutator: (cur) => ({
+          schemaVersion: ITEM_CLAIMS_SCHEMA_VERSION,
+          sessionTag: (cur && typeof cur.sessionTag === 'string') ? cur.sessionTag : '',
+          entries: {},
+        }),
+      },
     ]);
   } catch (err) {
     console.warn('[import] transient partition reset failed:', err && err.message ? err.message : String(err));
-  }
-  try {
-    if (chrome.storage.session && typeof chrome.storage.session.remove === 'function') {
-      await chrome.storage.session.remove('tj:tabClaims');
-    }
-  } catch (err) {
-    console.warn('[import] session tabClaims reset failed:', err && err.message ? err.message : String(err));
   }
 
   return {

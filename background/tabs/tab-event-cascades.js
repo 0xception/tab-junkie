@@ -103,17 +103,17 @@ export function clearReevalTimer(tabId) {
  *   |   |                              | reconcileClaims is the safety net)|              |
  *   | 2 | claimsMirror (in-memory)     | remapTabIdInClaims                | SYNC swap    |
  *   | 3 | inheritedTabs (Set)          | remapTabIdInClaims (same call)    | SYNC swap    |
- *   | 4 | tj:tabClaims (storage.session)| remapTabIdInClaims (writeClaims) | ASYNC f-a-f  |
- *   | 5 | tj:itemClaims (durable local)| remapTabIdInClaims (W-5 remap)    | ASYNC f-a-f  |
- *   | 6 | floatingGroups[].liveTabId   | remapFloatingGroupsLiveTabId      | ASYNC f-a-f  |
- *   | 7 | _faviconStampedItemIds (Set) | NONE — itemId-keyed, not tabId-   | NO-OP        |
+ *   | 4 | tj:itemClaims (durable local)| remapTabIdInClaims (W-5 remap)    | ASYNC f-a-f  |
+ *   | 5 | floatingGroups[].liveTabId   | remapFloatingGroupsLiveTabId      | ASYNC f-a-f  |
+ *   | 6 | _faviconStampedItemIds (Set) | NONE — itemId-keyed, not tabId-   | NO-OP        |
  *   |   |   [lives in tab-events.js]   | keyed; itemId is stable across    |              |
  *   |   |                              | tabId rotation, so no remap needed|              |
  *
- * Stores 2–5 are all driven by the single `remapTabIdInClaims` call (its
- * in-memory swaps are synchronous; its session + durable persistence is
- * awaited internally but fire-and-forget at this boundary via `.catch`, per
- * the B-132 precedent). A final `tab/replaced` LIVE_STATE broadcast (gated on
+ * B-179 §75.5 retired the session store (old row 4), so claim persistence is
+ * durable-only. Stores 2–4 are all driven by the single `remapTabIdInClaims`
+ * call (its in-memory swaps are synchronous; its durable persistence is awaited
+ * internally but fire-and-forget at this boundary via `.catch`, per the B-132
+ * precedent). A final `tab/replaced` LIVE_STATE broadcast (gated on
  * `requireClaimsReady`) lets the sidepanel re-render shifted tabId references.
  *
  * @param {number} addedTabId
@@ -127,21 +127,21 @@ export function applyTabReplacement(addedTabId, removedTabId) {
      the timer. */
   clearReevalTimer(removedTabId);
 
-  /* Stores 2+3+4+5 — claimsMirror + inheritedTabs + session + durable, all via
-     remapTabIdInClaims. In-memory swap is synchronous; storage persistence is
-     fire-and-forget at this boundary (B-132 precedent, R4 L-4 correction). */
+  /* Stores 2+3+4 — claimsMirror + inheritedTabs + durable tj:itemClaims, all
+     via remapTabIdInClaims. In-memory swap is synchronous; durable persistence
+     is fire-and-forget at this boundary (B-132 precedent, R4 L-4 correction). */
   remapTabIdInClaims(removedTabId, addedTabId).catch((err) => {
     console.warn('[tab-junkie] B-164 remapTabIdInClaims failed', err);
   });
 
-  /* Store 6 — tj:floatingGroups[].liveTabId (atomic writeTransaction;
+  /* Store 5 — tj:floatingGroups[].liveTabId (atomic writeTransaction;
      fire-and-forget). Pre-flight read inside the helper short-circuits when
      no record's liveTabId matches removedTabId — the common path. */
   remapFloatingGroupsLiveTabId(removedTabId, addedTabId).catch((err) => {
     console.warn('[tab-junkie] B-164 remapFloatingGroupsLiveTabId failed', err);
   });
 
-  /* Store 7 — _faviconStampedItemIds: intentionally untouched (NO-OP). The set
+  /* Store 6 — _faviconStampedItemIds: intentionally untouched (NO-OP). The set
      is keyed by itemId (stamped via getItemIdForTab in tab-events.js), and
      itemId is stable across tabId rotation, so there is nothing to remap. */
 
@@ -189,7 +189,7 @@ function detachTabFromEphemeralStores(tabId) {
  *   | 2 | inheritedTabs (Set)          | pruneInherited (kernel)           | SYNC         |
  *   | 3 | reevalTimers (Map)           | clearReevalTimer (kernel)         | SYNC         |
  *   | 4 | LiveTabIndex                 | removeTabEntry                    | SYNC         |
- *   | 5 | claimsMirror + session +     | releaseClaimByTab                 | SYNC delete, |
+ *   | 5 | claimsMirror +               | releaseClaimByTab                 | SYNC delete, |
  *   |   |   durable tj:itemClaims      |                                   | ASYNC persist|
  *   | 6 | tj:drift                     | clearDrift, only if a claim was   | ASYNC        |
  *   |   |                              |   released                        |              |

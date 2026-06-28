@@ -1,9 +1,9 @@
 import './_setup.js';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { __resetMock, __setMockTabs, __getSessionStore } from './chrome-mock.js';
+import { __resetMock, __setMockTabs } from './chrome-mock.js';
 import { buildLiveTabIndex, __resetLiveTabIndex } from '../background/tabs/live-tab-index.js';
-import { reconcileClaims, buildLiveStates, __resetTabClaims } from '../background/tabs/tab-claims.js';
+import { reconcileClaims, buildLiveStates, __resetTabClaims, getClaimsMirror } from '../background/tabs/tab-claims.js';
 
 beforeEach(() => {
   __resetMock();
@@ -27,7 +27,7 @@ test('AC3: 3 items same URL, 2 tabs — exactly 2 claims with distinct tabIds, 3
 
   await reconcileClaims(items);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   const claimedTabIds = Object.values(claims);
 
   // Exactly 2 items should have claims
@@ -63,7 +63,7 @@ test('AC3: no two TabClaims entries share the same tabId', async () => {
 
   await reconcileClaims(items);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   const tabIds = Object.values(claims);
   const uniqueTabIds = new Set(tabIds);
   assert.equal(tabIds.length, uniqueTabIds.size, 'No duplicate tabIds in claims');

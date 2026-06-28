@@ -5,10 +5,13 @@
  * tabs are updated, activated, removed, or when windows are closed.
  *
  * CRITICAL (AC4): LiveTabIndex mutations are in-memory only. TabClaims
- * mutations go through `chrome.storage.session` only. The sole exception is
- * drift detection (B-001d): `detectDriftForTab` writes to `tj:drift` via
- * `writeTransaction` — this is a durable state change, not ephemeral
- * live-state, and is explicitly allowed per R2 design.
+ * mutations update the in-memory `claimsMirror` (the synchronous read-hot
+ * surface) and persist to the durable `tj:itemClaims` partition
+ * (chrome.storage.local) via `writeTransaction` — B-179 §75 retired the legacy
+ * `chrome.storage.session` claim store, so the durable partition is now the
+ * SOLE persisted claim store. Drift detection (B-001d) likewise writes
+ * `tj:drift` via `writeTransaction` — a durable state change, not ephemeral
+ * live-state, and explicitly allowed per R2 design.
  */
 
 import {
@@ -366,12 +369,13 @@ export function registerTabEventListeners(readyPromise) {
 
     /* R4 M-2: wake-reconcile race guard. If a wake-reconcile is between
        its first await (Phase 3 storage read) and its final commit
-       (writeClaims at tab-claims.js:310), an inline remap here would
-       persist to chrome.storage.session, then reconcileClaims would
-       overwrite it with its pre-await snapshot — silently erasing the
-       B-164 remap. Instead, enqueue and let the drain in idle-reconciler
-       apply the remap after reconcileClaims commits. The drain runs
-       BEFORE the flag clears, so events arriving mid-drain stay queued. */
+       (`claimsMirror = reconciled` in reconcileClaims), an inline remap here
+       would swap the live mirror, then reconcileClaims would overwrite the
+       mirror with its pre-await snapshot — silently erasing the B-164 remap
+       (and the durable W-5 it would have driven). Instead, enqueue and let the
+       drain in idle-reconciler apply the remap after reconcileClaims commits.
+       The drain runs BEFORE the flag clears, so events arriving mid-drain stay
+       queued. */
     if (isReconcileActive()) {
       enqueuePendingReplacement(addedTabId, removedTabId);
       return;

@@ -1,9 +1,9 @@
 import './_setup.js';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { __resetMock, __setMockTabs, __getSessionStore } from './chrome-mock.js';
+import { __resetMock, __setMockTabs } from './chrome-mock.js';
 import { buildLiveTabIndex, removeTabsByWindow, __resetLiveTabIndex } from '../background/tabs/live-tab-index.js';
-import { reconcileClaims, buildLiveStates, releaseClaimByTab, __resetTabClaims } from '../background/tabs/tab-claims.js';
+import { reconcileClaims, buildLiveStates, releaseClaimByTab, __resetTabClaims, getClaimsMirror } from '../background/tabs/tab-claims.js';
 import { detectDriftForTab, getDriftRecords, clearDrift } from '../background/tabs/drift.js';
 
 beforeEach(() => {
@@ -28,7 +28,7 @@ test('AC7: window close removes all claims for tabs in that window', async () =>
 
   await reconcileClaims(items);
 
-  let claims = __getSessionStore('tj:tabClaims');
+  let claims = getClaimsMirror();
   assert.equal(Object.keys(claims).length, 3, 'All 3 items should be claimed');
 
   // Simulate window 5 closing: remove tabs by window, then release claims
@@ -38,7 +38,7 @@ test('AC7: window close removes all claims for tabs in that window', async () =>
     await releaseClaimByTab(tabId);
   }
 
-  claims = __getSessionStore('tj:tabClaims');
+  claims = getClaimsMirror();
   assert.equal(claims['a'], undefined, 'Claim for item a should be removed');
   assert.equal(claims['b'], undefined, 'Claim for item b should be removed');
   assert.equal(claims['c'], 3, 'Claim for item c (window 9) should remain');

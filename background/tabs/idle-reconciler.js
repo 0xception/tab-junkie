@@ -51,13 +51,13 @@ let _reconcileInFlight = false;
  * async work begins. It does NOT cover the async-gap race between an
  * in-flight `reconcileClaims` and an interleaved `chrome.tabs.onReplaced`.
  *
- * The race (qa R4 M-2): `reconcileClaims` captures `storedClaims` at
- * `tab-claims.js:141`, then awaits Phase-3 storage reads. During those
- * awaits, `onReplaced` can fire (because `isClaimsReady()` is true),
- * remapping `claimsMirror` + persisting via `writeClaims`. When
- * `reconcileClaims` resumes at `tab-claims.js:309-310`, it overwrites
- * `claimsMirror` with the pre-remap snapshot and persists — silently erasing
- * the B-164 remap.
+ * The race (qa R4 M-2): `reconcileClaims` captures `storedClaims` as a
+ * snapshot of `claimsMirror` at entry, then awaits Phase-3 storage reads.
+ * During those awaits, `onReplaced` can fire (because `isClaimsReady()` is
+ * true), remapping the live `claimsMirror` + persisting via the durable W-5.
+ * When `reconcileClaims` resumes and assigns `claimsMirror = reconciled`, it
+ * overwrites the mirror with the pre-remap snapshot — silently erasing the
+ * B-164 remap.
  *
  * Fix (Option B): block `onReplaced` from persisting during the wake-
  * reconcile work. Pending replacements are queued in `_pendingReplacements`
@@ -117,9 +117,14 @@ export function setReplacementDrainCallback(fn) {
  * Register the chrome.idle on-wake reconcile listener. Must be called
  * synchronously at module scope (MV3 event-registration requirement).
  *
- * @param {Promise<void>} readyPromise — gates the reconcile invocation
- *   until the migration pipeline + initializeLiveState have completed.
- *   Mirrors the pattern used by registerTabEventListeners.
+ * @param {Promise<void>} readyPromise — gates the reconcile invocation until
+ *   the migration pipeline completes (it resolves when `runMigrations`
+ *   resolves; `initializeLiveState` runs CONCURRENTLY as fire-and-forget and is
+ *   NOT awaited by this gate). The hydrate-before-reconcile ordering is
+ *   guaranteed WITHIN `initializeLiveState`'s cold-start sequence; an idle-wake
+ *   that lands in the migrations-done-but-hydrate-pending gap self-heals —
+ *   Phase 2 re-infers from the live index, and the next cold-start reconcile
+ *   corrects. Mirrors the pattern used by registerTabEventListeners.
  * @returns {void}
  */
 export function registerIdleReconciler(readyPromise) {

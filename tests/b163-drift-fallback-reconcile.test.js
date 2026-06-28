@@ -29,7 +29,7 @@
  *        identical outcome — proving no date-comparison gate exists).
  *
  * The SW idle-shutdown + tab-teardown sequence is reproduced by seeding
- * the post-sleep storage state directly (`__setSessionStore('tj:tabClaims', …)`
+ * the post-sleep storage state directly (`__setClaimsMirror(…)`
  * + `seedPartitions({drift: …})`) and calling `reconcileClaims` — same
  * pattern used by `tests/b149-drifted-claim-survives-cold-start.test.js`
  * and `tests/b110-drift-non-live-fix.test.js`. End-to-end UAT lives at
@@ -43,8 +43,6 @@ import assert from 'node:assert/strict';
 import {
   __resetMock,
   __setMockTabs,
-  __setSessionStore,
-  __getSessionStore,
   seedPartitions,
 } from './chrome-mock.js';
 import {
@@ -56,6 +54,8 @@ import {
   markInherited,
   isClaimsReady,
   __resetTabClaims,
+  getClaimsMirror,
+  __setClaimsMirror,
 } from '../background/tabs/tab-claims.js';
 import { getDriftRecords } from '../background/tabs/drift.js';
 
@@ -99,7 +99,7 @@ test('B-163 T1 (AC1): cold-start drift re-association via driftedToUrl re-binds 
   /* Seed the post-sleep persisted state: claim still points at the dead
      tabId 999; drift record holds the drifted URL the user navigated to
      before sleep. */
-  __setSessionStore('tj:tabClaims', { 'item-X': 999 });
+  __setClaimsMirror({ 'item-X': 999 });
   seedPartitions({
     items: [item('item-X', 'https://saved.com/A', 0)],
     drift: { 'item-X': { itemId: 'item-X', driftedToUrl: 'https://saved.com/B', detectedAt: 1 } },
@@ -107,7 +107,7 @@ test('B-163 T1 (AC1): cold-start drift re-association via driftedToUrl re-binds 
 
   await reconcileClaims([item('item-X', 'https://saved.com/A', 0)]);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(
     claims['item-X'],
     200,
@@ -139,7 +139,7 @@ test('B-163 T2 (AC2): primary item.url wins over driftedToUrl when both have a l
   await buildLiveTabIndex();
 
   /* Old claim is dead so Phase 1 evicts X into `evictedItemIds`. */
-  __setSessionStore('tj:tabClaims', { 'item-X': 999 });
+  __setClaimsMirror({ 'item-X': 999 });
   seedPartitions({
     items: [item('item-X', 'https://primary.com/A', 0)],
     drift: { 'item-X': { itemId: 'item-X', driftedToUrl: 'https://primary.com/B', detectedAt: 1 } },
@@ -147,7 +147,7 @@ test('B-163 T2 (AC2): primary item.url wins over driftedToUrl when both have a l
 
   await reconcileClaims([item('item-X', 'https://primary.com/A', 0)]);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(
     claims['item-X'],
     300,
@@ -174,7 +174,7 @@ test('B-163 T3 (AC3): one-tab-per-drift-record cap — sortOrder-lower item wins
   await buildLiveTabIndex();
 
   /* Both claims are dead — both X and Y enter evictedItemIds. */
-  __setSessionStore('tj:tabClaims', { 'item-X': 998, 'item-Y': 999 });
+  __setClaimsMirror({ 'item-X': 998, 'item-Y': 999 });
   seedPartitions({
     items: [
       item('item-X', 'https://saved-x.com', 0),
@@ -191,7 +191,7 @@ test('B-163 T3 (AC3): one-tab-per-drift-record cap — sortOrder-lower item wins
     item('item-Y', 'https://saved-y.com', 1),
   ]);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(
     claims['item-X'],
     400,
@@ -228,7 +228,7 @@ test('B-163 T4 (AC4 Scenario A): Phase 3 binds → Phase 4 deferral keeps drift 
   __setMockTabs([tab(500, 'https://drifted.example/page')]);
   await buildLiveTabIndex();
 
-  __setSessionStore('tj:tabClaims', { 'item-A': 499 });
+  __setClaimsMirror({ 'item-A': 499 });
   seedPartitions({
     items: [item('item-A', 'https://saved.example/page', 0)],
     drift: { 'item-A': { itemId: 'item-A', driftedToUrl: 'https://drifted.example/page', detectedAt: 1 } },
@@ -236,7 +236,7 @@ test('B-163 T4 (AC4 Scenario A): Phase 3 binds → Phase 4 deferral keeps drift 
 
   await reconcileClaims([item('item-A', 'https://saved.example/page', 0)]);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims['item-A'], 500, 'pre: Phase 3 bound item-A to tab 500');
 
   /* The post-B-163 Phase 4 only clears drift for items in `unrecovered =
@@ -264,7 +264,7 @@ test('B-163 T5 (AC4 Scenario B): both URLs miss → Phase 4 clears the truly-orp
   __setMockTabs([]);
   await buildLiveTabIndex();
 
-  __setSessionStore('tj:tabClaims', { 'item-A': 999 });
+  __setClaimsMirror({ 'item-A': 999 });
   seedPartitions({
     items: [item('item-A', 'https://saved.com', 0)],
     drift: { 'item-A': { itemId: 'item-A', driftedToUrl: 'https://drifted.com', detectedAt: 1 } },
@@ -272,7 +272,7 @@ test('B-163 T5 (AC4 Scenario B): both URLs miss → Phase 4 clears the truly-orp
 
   await reconcileClaims([item('item-A', 'https://saved.com', 0)]);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(
     claims['item-A'],
     undefined,
@@ -303,7 +303,7 @@ test('B-163 T6 (AC5): inherited-tab skip in Phase 3 — inherited candidate is p
      does at the cold-start path before reconcileClaims runs. */
   markInherited(600);
 
-  __setSessionStore('tj:tabClaims', { 'item-X': 999 });
+  __setClaimsMirror({ 'item-X': 999 });
   seedPartitions({
     items: [item('item-X', 'https://saved.example/page', 0)],
     drift: { 'item-X': { itemId: 'item-X', driftedToUrl: 'https://drifted.example/inherited', detectedAt: 1 } },
@@ -311,7 +311,7 @@ test('B-163 T6 (AC5): inherited-tab skip in Phase 3 — inherited candidate is p
 
   await reconcileClaims([item('item-X', 'https://saved.example/page', 0)]);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(
     claims['item-X'],
     undefined,
@@ -346,7 +346,7 @@ test('B-163 T7 (AC6 regression guard): B-149 Phase-1 survival of drifted-but-liv
   __setMockTabs([tab(700, 'https://drifted.example/Z')]);
   await buildLiveTabIndex();
 
-  __setSessionStore('tj:tabClaims', { 'item-A': 700 });
+  __setClaimsMirror({ 'item-A': 700 });
   seedPartitions({
     items: [item('item-A', 'https://saved.example/Z', 0)],
     drift: { 'item-A': { itemId: 'item-A', driftedToUrl: 'https://drifted.example/Z', detectedAt: 1 } },
@@ -354,7 +354,7 @@ test('B-163 T7 (AC6 regression guard): B-149 Phase-1 survival of drifted-but-liv
 
   await reconcileClaims([item('item-A', 'https://saved.example/Z', 0)]);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(
     claims['item-A'],
     700,
@@ -389,14 +389,14 @@ test('B-163 T8 (AC7 NO-TTL): drift record age does NOT gate Phase-3 eligibility 
     __resetTabClaims();
     __setMockTabs([tab(800, 'https://drifted.example/ttl')]);
     await buildLiveTabIndex();
-    __setSessionStore('tj:tabClaims', { 'item-T': 999 });
+    __setClaimsMirror({ 'item-T': 999 });
     seedPartitions({
       items: [item('item-T', 'https://saved.example/ttl', 0)],
       drift: { 'item-T': { itemId: 'item-T', driftedToUrl: 'https://drifted.example/ttl', detectedAt } },
     });
     await reconcileClaims([item('item-T', 'https://saved.example/ttl', 0)]);
     return {
-      claims: __getSessionStore('tj:tabClaims'),
+      claims: getClaimsMirror(),
       drift: await getDriftRecords(),
     };
   }
@@ -463,7 +463,7 @@ test('B-163 T9 (R4 HIGH-1): drift partition read failure → graceful degradatio
   /* Phase 1: both stored claims (X+Y) point at dead tabIds so both enter
      evictedItemIds. Phase 2: Y rebinds via item.url to tab 900; X stays
      unbound → enters the Phase 3 stillUnbound set. */
-  __setSessionStore('tj:tabClaims', { 'item-X': 997, 'item-Y': 998 });
+  __setClaimsMirror({ 'item-X': 997, 'item-Y': 998 });
 
   /* Seed CORRUPT drift data: `driftedToUrl: 42` is non-string, which
      causes assertShape (shapes.js:264) to throw inside readPartition →
@@ -505,7 +505,7 @@ test('B-163 T9 (R4 HIGH-1): drift partition read failure → graceful degradatio
      Y was bound by Phase 2; X stayed unbound (Phase 3 was a no-op because
      driftRecords = {} after the catch). Pre-fix the entire claims write
      would be lost because reconcileClaims rejected before line 285. */
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(
     claims['item-Y'],
     900,
@@ -561,9 +561,12 @@ test('B-163 T10 (R4 round-2): extension-reload — empty session storage + drift
   __setMockTabs([tab(700, 'https://music.youtube.com/watch?v=xyz')]);
   await buildLiveTabIndex();
 
-  /* CRITICAL: session storage is EMPTY — simulates extension reload via
-     chrome://extensions toggle OFF/ON (which wipes chrome.storage.session
-     per Chrome docs). Do NOT call __setSessionStore('tj:tabClaims', ...).
+  /* CRITICAL: the in-memory claims mirror is EMPTY and no durable
+     tj:itemClaims is seeded — post-B-179 §75 this models a COLD START WITH NO
+     PRIOR DURABLE CLAIMS (fresh install, or a browser restart with an empty
+     mirror), NOT an extension reload (a post-cutover reload re-seeds the mirror
+     from the durable partition, so it would NOT exercise the empty-mirror path).
+     Do NOT call __setClaimsMirror(...).
      Phase 1 has zero stored claims to validate; evictedItemIds = []; pre-fix
      Phase 3 skipped entirely. */
 
@@ -587,7 +590,7 @@ test('B-163 T10 (R4 round-2): extension-reload — empty session storage + drift
      empty; bound it to the drifted-URL tab. The user-visible effect: the
      bookmark remains live/claimed and the tab does NOT appear as an orphan
      in the Open Tabs section. */
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(
     claims['item-ytm'],
     700,
@@ -650,7 +653,7 @@ test('B-163 T11 (B-178 qa M-1): Phase 2 consuming a bucket starves Phase 3 — s
   /* Item A had a prior session claim at the now-dead tabId 999 → Phase 1
      evicts it into evictedItemIds (the Phase-4 drop precondition). Item B
      has no stored claim → Phase 2 auto-claims it. */
-  __setSessionStore('tj:tabClaims', { 'item-A': 999 });
+  __setClaimsMirror({ 'item-A': 999 });
   seedPartitions({
     items: [
       item('item-B', 'https://shared.example/X', 0),
@@ -665,7 +668,7 @@ test('B-163 T11 (B-178 qa M-1): Phase 2 consuming a bucket starves Phase 3 — s
     item('item-A', 'https://saved-a.example/orig', 1),
   ]);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
 
   /* (1) Phase 2 wins the tab via primary-URL match (lower sortOrder). */
   assert.equal(

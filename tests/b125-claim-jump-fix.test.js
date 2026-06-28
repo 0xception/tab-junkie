@@ -41,7 +41,6 @@ import { dirname, resolve } from 'node:path';
 import {
   __resetMock,
   __setMockTabs,
-  __getSessionStore,
 } from './chrome-mock.js';
 import {
   buildLiveTabIndex,
@@ -54,6 +53,7 @@ import {
   isInherited,
   pruneInherited,
   __resetTabClaims,
+  getClaimsMirror,
 } from '../background/tabs/tab-claims.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -82,7 +82,7 @@ test('B-125 T1: inherited tab does NOT auto-claim a URL-matching saved bookmark'
   await reconcileClaims(items);
 
   // Sanity: item-A is claimed by tab 100; item-B is unclaimed.
-  let claims = __getSessionStore('tj:tabClaims');
+  let claims = getClaimsMirror();
   assert.equal(claims['item-A'], 100, 'item-A must be claimed by tab 100 after reconcile');
   assert.equal(claims['item-B'], undefined, 'item-B must be unclaimed before the test action');
 
@@ -93,7 +93,7 @@ test('B-125 T1: inherited tab does NOT auto-claim a URL-matching saved bookmark'
 
   // Assert (B-125 fix): item-B must remain unclaimed — the inherited tab
   // does not steal the matching bookmark. item-A's claim is also untouched.
-  claims = __getSessionStore('tj:tabClaims');
+  claims = getClaimsMirror();
   assert.equal(claims['item-A'], 100, 'B-099 D-1: original claim must survive');
   assert.equal(claims['item-B'], undefined, 'B-125 fix: inherited tab must NOT auto-claim item-B');
 });
@@ -116,7 +116,7 @@ test('B-125 T2 (regression guard): a non-inherited tab DOES auto-claim a URL-mat
 
   // Sanity: claimsMirror is empty (no live tab matched any item URL at
   // reconcile time) and tab 102 is NOT marked inherited.
-  let claims = __getSessionStore('tj:tabClaims');
+  let claims = getClaimsMirror();
   assert.equal(claims['item-B'], undefined, 'item-B starts unclaimed');
   assert.equal(isInherited(102), false, 'tab 102 must NOT be marked inherited');
 
@@ -124,7 +124,7 @@ test('B-125 T2 (regression guard): a non-inherited tab DOES auto-claim a URL-mat
   await reevaluateTab(102, 'https://b.example', items);
 
   // Assert: pre-B-125 auto-claim path is intact for non-inherited tabs.
-  claims = __getSessionStore('tj:tabClaims');
+  claims = getClaimsMirror();
   assert.equal(claims['item-B'], 102, 'auto-claim must still fire for non-inherited tabs (regression guard)');
 });
 
@@ -158,7 +158,7 @@ test('B-125 T3: pruneInherited drops the marker; subsequent reevaluateTab is aut
   __resetTabClaims();
   await reevaluateTab(101, 'https://b.example', items);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims['item-B'], 101, 'after pruneInherited, auto-claim is eligible again');
 });
 
@@ -227,7 +227,7 @@ test('B-125 T5 (user repro): xcelenergy claim survives, Workday tab does NOT ste
   await reconcileClaims(items);
 
   // Sanity: "The Source" is claimed by tab 200; "Home - Workday" is unclaimed.
-  let claims = __getSessionStore('tj:tabClaims');
+  let claims = getClaimsMirror();
   assert.equal(claims['the-source'], 200, 'the-source must be claimed by tab 200');
   assert.equal(claims['home-workday'], undefined, 'home-workday must start unclaimed');
 
@@ -249,7 +249,7 @@ test('B-125 T5 (user repro): xcelenergy claim survives, Workday tab does NOT ste
 
   // Assert: B-099 D-1 — original SharePoint claim survives. B-125 fix —
   // the spawned Workday tab did NOT auto-claim "home-workday".
-  claims = __getSessionStore('tj:tabClaims');
+  claims = getClaimsMirror();
   assert.equal(claims['the-source'], 200, 'B-099 D-1: original xcelenergy claim survives');
   assert.equal(claims['home-workday'], undefined, 'B-125 fix: inherited Workday tab must NOT steal home-workday claim');
 });
