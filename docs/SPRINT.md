@@ -51,7 +51,7 @@ B-174  E2E cold-start reconciliation test (SAFETY NET)        ← start here
 | Sub-item | Name | Tier | Behavior change? | Status |
 |----------|------|------|------------------|--------|
 | **B-174** | Cold-start reconciliation E2E test (safety net) | M | No | ✅ **DONE** — `tests/b174-…e2e.test.js` T1-T7, 2106 PASS |
-| B-175 | Extract one shared tab↔item resolver | L | No | queued (after B-174) |
+| B-175 | Extract one shared tab↔item resolver | L | No | ✅ **DONE** — R4 contract-diff clean; 2116 PASS |
 | B-176 | Split `floating-groups.js` → ~4 modules | M | No | queued (after B-175) |
 | B-177 | Name `onReplaced`/`onRemoved` fan-out primitives | M | No | queued (after B-175) |
 | B-178 | Decompose `reconcileClaims` → named phases | M | No | queued (after B-175) |
@@ -63,6 +63,14 @@ B-174  E2E cold-start reconciliation test (SAFETY NET)        ← start here
 ---
 
 ## Completed This Sprint
+
+### [B-175] Extract one shared tab↔item resolver — ✅ DONE 2026-06-27
+- **Tier**: L (no behavior change) · sub-item A1 of the B-173 epic.
+- New `background/tabs/tab-item-resolver.js` (`resolveRecordToTab` + `buildUnclaimedUrlIndex` + `takeUnclaimedTabForUrl`); the URL-match + 3-tier floating join consolidated from 5 duplicated sites (`reconcileClaims` Phase 2/3, `reevaluateTab` left as inverse, `buildFloatingMembers`, `reassociateFloatingGroups`, `preMarkInheritedFromFloatingGroups`) into one parameterized module. Per-site differences (URL-corroborated position, claimed-exclusion, lazy-rewrite/prune, single-winner mutation) preserved as flags.
+- **R4**: code + security + qa all PASS. Contract-vs-implementation diff (B-170 gate): **CLEAN** — no narrowing, independently verified. Security-neutral. 2 MED + LOWs were test-gap/doc items, all resolved in R5.
+- **R5**: `tests/b175-tab-item-resolver.test.js` (T1–T8c, 10 cases) for the flag combinations; 2 doc clarifications applied. Suite 2106 → **2116 PASS**, zero regressions.
+- **Scoping note**: 2 inverse-direction sites (`reevaluateTab`, `_resolveRecordIndexByTabId`) intentionally NOT routed through the resolver (tab→item, not record→tab) — flagged, not narrowed; revisit at B-180.
+- **Files**: `background/tabs/tab-item-resolver.js` (NEW), `background/tabs/tab-claims.js`, `background/tabs/floating-members.js`, `background/tabs/floating-groups.js`, `tests/b175-tab-item-resolver.test.js` (NEW).
 
 ### [B-174] Cold-start reconciliation E2E test (safety net) — ✅ DONE 2026-06-27
 - **Tier**: M (no behavior change) · sub-item A0 of the B-173 epic.

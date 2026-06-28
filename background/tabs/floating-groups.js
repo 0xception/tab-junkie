@@ -25,12 +25,12 @@
  * by reconcileClaims (URL match against a saved item's own URL).
  */
 
-import { safeNormalizeForMatch } from '../../shared/url.js';
 import { writeTransaction } from '../storage/write-transaction.js';
 import { readPartition, PARTITION_FLOATING_GROUPS, PARTITION_GROUPS, PARTITION_ITEMS, MAX_URL } from '../storage/partitions.js';
 import { ulid } from '../storage/ids.js';
 import { getLiveTabIndex } from './live-tab-index.js';
 import { markInherited, getClaimsMirror } from './tab-claims.js';
+import { resolveRecordToTab } from './tab-item-resolver.js';
 
 /**
  * Resolve the parent itemId for a floating-group record, supporting both
@@ -200,38 +200,12 @@ export async function reassociateFloatingGroups(liveTabIndex, existingClaims) {
   for (const record of records) {
     if (!record || typeof record !== 'object') continue;
 
-    let matchedTabId = null;
-
-    /* B-137 §66.7.4 tier (a) — direct liveTabId fast path. Used to skip
-       the position loop when the v4 record's liveTabId is still valid in
-       this session. */
-    if (typeof record.liveTabId === 'number' && Number.isFinite(record.liveTabId)
-      && liveTabIndex.has(record.liveTabId)) {
-      matchedTabId = record.liveTabId;
-    }
-
-    // POSITION MATCH (legacy fallback)
-    if (matchedTabId === null) {
-      for (const [tabId, entry] of liveTabIndex) {
-        if (entry.windowId === record.windowId && entry.index === record.tabIndex) {
-          matchedTabId = tabId;
-          break;
-        }
-      }
-    }
-
-    // URL FALLBACK (legacy fallback)
-    if (matchedTabId === null) {
-      const normalizedStored = safeNormalizeForMatch(record.url);
-      if (normalizedStored) {
-        for (const [tabId, entry] of liveTabIndex) {
-          if (safeNormalizeForMatch(entry.url) === normalizedStored) {
-            matchedTabId = tabId;
-            break;
-          }
-        }
-      }
-    }
+    /* B-137 §66.7.4 — 3-tier join (a: direct liveTabId · b: position ·
+       c: URL) via the shared resolver (B-175 §74). NO `excludeClaimedTabIds`
+       here: reassociate needs the RAW matched tabId — even when claimed — to
+       decide prune (claimed) vs. lazy-rewrite (unclaimed + stale liveTabId)
+       below. No URL-corroboration on the position tier (legacy parity). */
+    const matchedTabId = resolveRecordToTab(record, liveTabIndex);
 
     if (matchedTabId !== null && claimedTabIds.has(matchedTabId)) {
       // Tab has been promoted to a saved item — record is stale, prune it.
@@ -1165,53 +1139,36 @@ export async function preMarkInheritedFromFloatingGroups() {
   for (const record of records) {
     if (!record || typeof record !== 'object') continue;
 
-    let matchedTabId = null;
-    const normalizedRecordUrl = safeNormalizeForMatch(record.url);
+    /* preMark resolves via the shared resolver (B-175 §74) with two
+       site-specific flags:
+         • useDirectTier: false — preMark predates the B-137 v4 `liveTabId`
+           join key and marks by position/URL ONLY (it never consulted a
+           direct tabId tier).
+         • corroborateUrlOnPosition: true — the B-132 fix (S45 post-UAT
+           2026-05-22). A stale record's `(windowId, tabIndex)` could
+           coincidentally match an unrelated tab that drifted into the slot;
+           the falsely-marked tab was then skipped by the inheritedTabs guards
+           in reconcile Phase 2 + Phase 3, breaking the B-163 relief. Requiring
+           URL corroboration on the position hit rejects that false positive;
+           the URL-fallback tier may still match by URL alone. Records without
+           `url` fall through to position-only matching (backward-compatible).
+       `excludeClaimedTabIds` makes a record resolving to an already-claimed
+       tab report as no-match, so only matched + unclaimed candidates are
+       marked — the already-claimed case is the reassociateFloatingGroups
+       prune-target (§60.4.3 step 3).
 
-    /* POSITION MATCH WITH URL CORROBORATION (B-132 fix, S45 post-UAT
-       2026-05-22). Was originally position-only matching (mirrored
-       floating-groups.js:124-130). Discovered to produce false-positive
-       inheritance markings: a stale floating-group record's
-       `(windowId, tabIndex)` could coincidentally match an unrelated tab
-       that landed at the same position as tab indices shifted over time.
-       The falsely-marked tab was then skipped by the `inheritedTabs`
-       guards in `reconcileClaims` Phase 2 AND Phase 3 — breaking the
-       B-163 user-story symptom relief in the YT Music + playlist-drift
-       scenario (user reload diagnostic captured tabId in inheritedTabs
-       despite no floating-group record actually pointing at it).
-
-       Fix: when position matches but the record carries a URL, require
-       URL corroboration. If URLs clearly mismatch, this is a stale-
-       position false positive (a different tab is now at this slot);
-       skip the position match. The URL-fallback branch below still runs
-       and may match the record to a live tab via URL alone.
-
-       Records without `record.url` (legacy / unverifiable) fall through
-       to position-only match as before — backward-compatible. */
-    for (const [tabId, entry] of liveTabIndex) {
-      if (entry.windowId === record.windowId && entry.index === record.tabIndex) {
-        if (normalizedRecordUrl && safeNormalizeForMatch(entry.url) !== normalizedRecordUrl) {
-          // URL mismatch despite position match — different tab, skip.
-          break;
-        }
-        matchedTabId = tabId;
-        break;
-      }
-    }
-
-    // URL FALLBACK (mirrors floating-groups.js:132-143) — unchanged.
-    if (matchedTabId === null && normalizedRecordUrl) {
-      for (const [tabId, entry] of liveTabIndex) {
-        if (safeNormalizeForMatch(entry.url) === normalizedRecordUrl) {
-          matchedTabId = tabId;
-          break;
-        }
-      }
-    }
-
-    // Mark only matched + unclaimed candidates. The already-claimed branch
-    // is the reassociateFloatingGroups prune-target (§60.4.3 step 3).
-    if (matchedTabId !== null && !claimedTabIds.has(matchedTabId)) {
+       NOTE (B-175 M-2): at cold start, preMark runs BEFORE reconcileClaims, so
+       `claimsMirror` (and thus `claimedTabIds`) is ALWAYS empty here — the flag
+       is an intentional no-op at this call site, carried only for semantic
+       symmetry with the pre-B-175 inline code (which threaded the same
+       claimed-tab guard). It earns its keep if preMark is ever invoked after a
+       claims-bearing phase; keeping it documents the resolver contract. */
+    const matchedTabId = resolveRecordToTab(record, liveTabIndex, {
+      useDirectTier: false,
+      corroborateUrlOnPosition: true,
+      excludeClaimedTabIds: claimedTabIds,
+    });
+    if (matchedTabId !== null) {
       markInherited(matchedTabId);
     }
   }

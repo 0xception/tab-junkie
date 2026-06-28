@@ -11,6 +11,7 @@
 
 import { getLiveTabIndex } from './live-tab-index.js';
 import { safeNormalizeForMatch } from '../../shared/url.js';
+import { buildUnclaimedUrlIndex, takeUnclaimedTabForUrl } from './tab-item-resolver.js';
 import { clearDrift, getDriftRecords } from './drift.js';
 import { readPartition } from '../storage/partitions.js';
 import { writeTransaction } from '../storage/write-transaction.js';
@@ -553,19 +554,12 @@ export async function reconcileClaims(items) {
   }
 
   // Phase 2: claim unclaimed items in sortOrder
-  // Build a reverse lookup: normalized URL -> [tabIds not yet claimed]
-  const urlToTabs = new Map();
-  for (const [tabId, entry] of index) {
-    if (claimedTabIds.has(tabId)) continue;
-    const normalized = safeNormalizeForMatch(entry.url);
-    if (!normalized) continue;
-    let list = urlToTabs.get(normalized);
-    if (!list) {
-      list = [];
-      urlToTabs.set(normalized, list);
-    }
-    list.push(tabId);
-  }
+  /* B-175 §74 (A1): the reverse lookup (normalized URL → [unclaimed tabIds])
+     and the inherited-skip / single-winner pop are the shared resolver
+     surface. `urlToTabs` is built once here and ALSO consumed (and further
+     mutated) by Phase 3 below, so a tab taken in Phase 2 is unavailable to
+     Phase 3 — the single-winner-per-tab invariant. */
+  const urlToTabs = buildUnclaimedUrlIndex(index, claimedTabIds);
 
   // Sort items by sortOrder ascending for first-unclaimed-wins
   const sorted = items
@@ -575,31 +569,15 @@ export async function reconcileClaims(items) {
   for (const item of sorted) {
     const normalized = safeNormalizeForMatch(item.url);
     if (!normalized) continue;
-    const available = urlToTabs.get(normalized);
-    if (available && available.length > 0) {
-      /* B-132 §65.5: skip opener-chain-inherited candidates. The
-         inheritedTabs Set is populated at cold-start by
-         preMarkInheritedFromFloatingGroups in floating-groups.js, and at
-         runtime by appendFloatingGroup in tab-events.js per §59.3. The
-         skip mirrors the B-125 reevaluateTab gate at line 250 above —
-         both prevent auto-claim of a tab that is "spoken for" by a parent
-         floating group. Pop the inherited candidate so the next-best
-         candidate can be claimed; if every candidate is filtered, the
-         saved item remains unclaimed. */
-      let claimedTabId = null;
-      while (available.length > 0) {
-        const candidate = available[0];
-        if (inheritedTabs.has(candidate)) {
-          available.shift();
-          continue;
-        }
-        claimedTabId = available.shift();
-        break;
-      }
-      if (claimedTabId !== null) {
-        reconciled[item.id] = claimedTabId;
-        claimedTabIds.add(claimedTabId);
-      }
+    /* B-132 §65.5: takeUnclaimedTabForUrl skips opener-chain-inherited
+       candidates (the inheritedTabs Set, populated at cold-start by
+       preMarkInheritedFromFloatingGroups and at runtime by appendFloatingGroup
+       per §59.3) before binding — mirroring the B-125 reevaluateTab gate so a
+       tab "spoken for" by a parent floating group is never auto-claimed. */
+    const claimedTabId = takeUnclaimedTabForUrl(urlToTabs, normalized, inheritedTabs);
+    if (claimedTabId !== null) {
+      reconciled[item.id] = claimedTabId;
+      claimedTabIds.add(claimedTabId);
     }
   }
 
@@ -673,22 +651,12 @@ export async function reconcileClaims(items) {
          gate here without first re-opening the AC7 product-owner decision. */
       const normalized = safeNormalizeForMatch(record.driftedToUrl);
       if (!normalized) continue;
-      const available = urlToTabs.get(normalized);
-      if (!available || available.length === 0) continue;
-      /* AC5: inherited-tab skip — mirrors the Phase-2 while-loop at
-         :198-206 exactly. Inherited candidates are popped without binding;
-         the loop continues with the next candidate. If every candidate is
-         inherited, the item stays unbound and Phase 4 will clear its drift. */
-      let claimedTabId = null;
-      while (available.length > 0) {
-        const candidate = available[0];
-        if (inheritedTabs.has(candidate)) {
-          available.shift();
-          continue;
-        }
-        claimedTabId = available.shift();
-        break;
-      }
+      /* AC5: inherited-tab skip — takeUnclaimedTabForUrl applies the SAME
+         inherited-skip + single-winner pop as Phase 2 against the SAME
+         (already partially consumed) urlToTabs map. If every candidate is
+         inherited (or the bucket is empty), the item stays unbound and
+         Phase 4 will clear its drift. */
+      const claimedTabId = takeUnclaimedTabForUrl(urlToTabs, normalized, inheritedTabs);
       if (claimedTabId !== null) {
         reconciled[item.id] = claimedTabId;
         claimedTabIds.add(claimedTabId);

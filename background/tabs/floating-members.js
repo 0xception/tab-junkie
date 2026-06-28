@@ -16,11 +16,11 @@
  * against the 50 ms search-latency budget (B-052 AC3).
  */
 
-import { safeNormalizeForMatch } from '../../shared/url.js';
 import { readPartition, PARTITION_FLOATING_GROUPS } from '../storage/partitions.js';
 import { getLiveTabIndex } from './live-tab-index.js';
 import { getClaimsMirror } from './tab-claims.js';
 import { getParentItemId } from './floating-groups.js';
+import { resolveRecordToTab } from './tab-item-resolver.js';
 
 /**
  * @typedef {Object} FloatingMember
@@ -93,50 +93,18 @@ export async function buildFloatingMembers(items) {
     if (!parent) continue; // parent deleted — skip (AC8(ii))
     if (typeof parent.groupId !== 'string' || parent.groupId.length === 0) continue;
 
-    /* B-137 §66.6 — 3-tier join order:
-       (a) DIRECT TABID MATCH — record.liveTabId is finite AND liveIndex.has it
-       (b) POSITION MATCH     — (windowId, tabIndex) geometry (legacy fallback)
-       (c) URL FALLBACK       — normalized URL match (legacy fallback)
-       Tiers (b) + (c) preserve verbatim behavior for legacy v3 records. */
-    let matchedTabId = null;
-
-    // TIER (a) — DIRECT TABID MATCH (B-137)
-    if (typeof record.liveTabId === 'number' && Number.isFinite(record.liveTabId)
-      && liveIndex.has(record.liveTabId)) {
-      /* §66.9.2 Option B (R2 LOCK + R3-VERIFY 1) — no URL-guard. The
-         lifecycle guarantees (chrome.tabs.onRemoved drops stale ids from
-         liveIndex) + cold-start lazy rewrite (§66.7) + the H-2 dedup gate
-         below already make stale-liveTabId misjoins effectively impossible
-         for realistic timing windows. */
-      matchedTabId = record.liveTabId;
-    }
-
-    // TIER (b) — POSITION MATCH (legacy fallback)
-    if (matchedTabId === null) {
-      for (const [tabId, entry] of liveIndex) {
-        if (entry.windowId === record.windowId && entry.index === record.tabIndex) {
-          matchedTabId = tabId;
-          break;
-        }
-      }
-    }
-    // TIER (c) — URL FALLBACK (legacy fallback)
-    if (matchedTabId === null) {
-      const normalizedStored = safeNormalizeForMatch(record.url);
-      if (normalizedStored) {
-        for (const [tabId, entry] of liveIndex) {
-          if (safeNormalizeForMatch(entry.url) === normalizedStored) {
-            matchedTabId = tabId;
-            break;
-          }
-        }
-      }
-    }
+    /* B-137 §66.6 — 3-tier join (a: direct liveTabId · b: position · c: URL),
+       now via the shared resolver (B-175 §74). No URL-corroboration on the
+       position tier (legacy verbatim parity; §66.9.2 Option B — the lifecycle
+       guarantees + cold-start lazy rewrite + the H-2 dedup gate already make
+       stale-liveTabId misjoins effectively impossible). `excludeClaimedTabIds`
+       makes a record resolving to an already-claimed tab report as no-match:
+       that record is stale (it will be pruned next cold start) so it is not a
+       floating member. */
+    const matchedTabId = resolveRecordToTab(record, liveIndex, {
+      excludeClaimedTabIds: claimedTabIds,
+    });
     if (matchedTabId === null) continue;
-
-    // Skip if the matched tab is already claimed by a saved item — the
-    // floating-group record is stale (will be pruned next cold start).
-    if (claimedTabIds.has(matchedTabId)) continue;
 
     /* H-2 dedup gate — drop the second-or-later record that resolved to a
        tabId we already emitted this build. */
