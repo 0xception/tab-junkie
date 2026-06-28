@@ -2893,3 +2893,73 @@ Filed P3/TBD as follow-on. Current Edge regressed both the original B-025 UAT-8 
 - **Storage schema**: unchanged from v1.39.0 (still v7)
 - **Manifest permissions**: `"idle"` added (C-6 minimization in §69.3.3)
 - **Sprints + hotfixes without rollback**: 22 (S23 → S45)
+
+---
+
+## Sprint 46 — Durable claim identity (2026-06-02 → 2026-06-27)
+
+**Theme:** Architectural follow-up to S45's three URL-inference cascade bugs — replace session-only bookmark↔tab inference with a durable claim store — plus a small UX feature and three S45-retrospective housekeeping items.
+**Release:** v1.41.0 (tagged on `release/v2`; `gh release create` skipped per established pattern)
+**Branch:** `feature/sprint-46-claim-identity` (off `release/v2` at v1.40.0 / `56a4a7c`)
+
+### Completed Items
+
+#### [B-167] Durable claim identity — ✅ DONE (UAT WAIVED)
+- **Tier**: Full Spike-First (XL) · **Priority**: P2
+- **Closed**: 2026-06-27
+- **Pipeline**: R0 spike ✅ (four durability strategies surveyed; (a) durable `tj:itemClaims` partition picked; (c) URL-history-per-claim deferred to B-172) · R1 LOCKED ✅ · R2 ✅ (`docs/design/73-b-167-durable-claim-identity.md` §73) · R3 ✅ · R4 Review ✅ (0 CRIT / 0 HIGH; CONV-1 convergent MED caught independently by code + security + qa → unified-tag invariant fix-round; L-2/L-3 cleanups) · R5 ✅ (2098 PASS; b167 suite T1–T21, +5 gap-fillers) · R6 As-Built ✅ (§73) · **UAT WAIVED by product-owner decision 2026-06-27** (not executed — see retro risk note)
+- **Key files**: `background/storage/shapes.js` (`PARTITION_ITEM_CLAIMS` + `ITEM_CLAIMS_SCHEMA_VERSION` + `isItemClaims` allow-list validator + `defaultShape(PARTITION_META)` 7→8), `background/storage/partitions.js`, `background/storage/migration.js` (`KNOWN_VERSION` 7→8 + v7→v8 no-op `MIGRATION_STEPS` entry), `background/tabs/tab-claims.js` (`_sessionTag` + `ensureSessionTag` + `sessionMatches` 0.5 threshold + `prePopulateClaimsFromDurable` + `durableMirrorFullReplace`/`durableUpsertEntry`/`durableDeleteEntry`/`durableRemapEntry` = W-1..W-5), `background/tabs/index.js` (durable pre-populate wired between preMark and reconcile, try/catch graceful degradation), `tests/b167-durable-claim-identity.test.js` (NEW, T1–T21) + 6 schema-pin test updates
+- **Architectural note**: the durable layer was added **above** (`prePopulateClaimsFromDurable`) and **below** (W-1..W-5 mirror) the existing Phase 1–4 URL-inference pipeline — it backstops inference, it does not replace it. Net effect: bookmark↔tab identity now spans `tj:tabClaims` (session) + `tj:itemClaims` (durable) + `tj:floatingGroups.liveTabId`. This multi-homing is the direct motivation for the S47 anchor (B-173 single-source-of-truth consolidation).
+
+#### [B-168] Jump to active window — ✅ DONE (UAT WAIVED)
+- **Tier**: Full (S) · **Priority**: P2
+- **Closed**: 2026-06-27
+- **Pipeline**: R0 ✅ (toolbar-surface + binding decision) · R1 LOCKED ✅ · R2 ✅ (`docs/design/72-b-168-jump-to-active-window.md` §72) · R3 ✅ · R4 Review ✅ (H-1 SW `WINDOW_ID_NONE` guard + M-1/M-2/M-3 + L-1 fix-round) · R5 ✅ (b168 suite T1–T11, +6 gap-fillers) · 2 hotfixes (sticky `.panel-header` occlusion of jump target; drop Alt+W default binding — Edge/Chrome 4-shortcut cap) · **UAT WAIVED by product-owner decision 2026-06-27**
+- **Key files**: `background/service-worker.js`, `sidepanel/sidepanel.js`, `popup/popup.js`, `popup/popup.html`, `tests/b168-jump-to-active-window.test.js` (NEW, T1–T11)
+- **UX**: popup toolbar button scrolls sidepanel to the focused window's Open Tabs section; highlight flash on arrival; "no tabs from the active window" toast on no-match; honors `prefers-reduced-motion`. No default keyboard shortcut ships.
+
+#### [B-169] Ways-of-working: human names in discussion — ✅ DONE
+- **Tier**: Fast Track (XS) · **Priority**: P3 · **Closed**: 2026-06-02
+- **Pipeline**: R1 ✅ → R3 (CLAUDE.md edit) ✅ · R4/R5 N/A (doc-only). Added the `## Discussion & Planning Discipline — MANDATORY` section (human-identifiable names + ticket ID in prose; greppable-surfaces exception).
+
+#### [B-170] R4 contract-vs-implementation diff gate — ✅ DONE
+- **Tier**: Fast Track (XS) · **Priority**: P3 · **Closed**: 2026-06-02
+- **Pipeline**: R1 ✅ → R3 (CLAUDE.md edit) ✅ · R4/R5 N/A (doc-only). Added the `#### Contract-vs-implementation diff gate` subsection to Round 4 (locate contract → trace verbatim → flag narrowing as HIGH), citing the three S45 precedents. **First applied during S46 itself and immediately caught the B-171 swallow-vs-contract gap.**
+
+#### [B-171] Reusable diagnostic-trace helper — ✅ DONE
+- **Tier**: Fast Track (XS) · **Priority**: P3 · **Closed**: 2026-06-27
+- **Pipeline**: R1 ✅ → R3 (`shared/diag.js` + CLAUDE.md "Diagnostic patterns") ✅ → R4 Review ✅ (0 CRIT / 0 HIGH / 1 MED / 5 LOW) · R5 N/A (Fast Track). MED (CONV-1 contract wording — caught on the first use of the new B-170 gate) resolved as **path (b): best-effort, never-throws contract** (diagnostic instrumentation must never break the caller); 5 LOWs deferred to P3 backlog.
+- **Key files**: `shared/diag.js` (NEW — `recordTrace`/`readTraces`/`clearTraces` in the `_diag_*` namespace), `CLAUDE.md` (Diagnostic patterns subsection). Replaces S45's ad-hoc `_b163_debug` / `_s45_*_trace` per-investigation keys.
+
+### Velocity
+
+- Planned: 5 items (B-167 P2/XL Spike-First anchor + B-168 P2/S + B-169/B-170/B-171 P3/XS)
+- Completed: 5 / 5
+- Tests: 2052 (S45 baseline) → 2099 PASS (+47 net, zero regressions)
+- Carried over: 0 (B-167 + B-168 UAT waived at close, not carried)
+
+### Retrospective
+
+**What Went Well:**
+- **The S45 retro action items all closed inside S46 — and one paid off the same sprint it shipped.** The B-170 contract-vs-implementation diff gate was applied for the FIRST time during S46's R4 and immediately caught a real divergence in B-171 (the diag helper swallowed errors where its contract said "returns the Promise"). A process fix catching a bug in the same sprint it lands is the strongest possible validation.
+- **The XL Spike-First pipeline held under a genuine architectural change.** B-167 carried a storage-schema shape change (v7→v8) through the full R0→R6 sequence with the C-1a paired bump done correctly (KNOWN_VERSION + defaultShape + new partition), and the CONV-1 convergent finding (caught independently by all three R4 reviewers) was resolved with a single unified-tag invariant rather than three point-patches.
+- **Strategy selection at R0 prevented scope creep.** B-167 R0 enumerated four durability strategies and deferred URL-history-per-claim to B-172 with a storage-quota analysis, keeping the v1 build additive and low-risk.
+
+**What to Improve:**
+- **An additive durability layer without a retirement plan raised net complexity instead of lowering it.** B-167 set out to reduce the fragility of URL-inference recovery, but it did so by adding `tj:itemClaims` *alongside* the session `tj:tabClaims` and the existing Phase 1–4 inference pipeline — so the number of places bookmark↔tab identity lives went UP (session store + durable store + `floatingGroups.liveTabId` + URL/position matching). A same-day architectural review found this is the root of the "hard-to-describe" tracking bugs. **Lesson: a new durability/cache layer must ship with an explicit consolidation-or-retirement plan for the layer it backstops, or it compounds the problem it was meant to solve.** This is exactly the S47 B-173 anchor.
+- **UAT was waived at close for both code items (B-167 + B-168) — a carried risk.** Durable-identity reliability (survives reload / restart / sleep) and the jump-to-window scroll are precisely the behaviors `chrome-mock` cannot fully reproduce (SW module-cache stale-state, real tab-ID rotation across browser restart). Waiving UAT ships those happy-paths unverified against a real browser. Recorded as explicit debt for S47.
+- **Point-fix accretion is now visible in the code.** `floating-groups.js` is 1,344 lines doing 8 jobs and `reconcileClaims` is a 4-phase pipeline encoding ~5 ticket histories (B-149/B-163/B-167/B-132/B-125). The S47 review flagged both as debuggability hotspots — a signal that the team should weigh "consolidation pass" against "next point-fix" going forward.
+
+**Action Items for Sprint 47:**
+- [ ] **[scrum-master]** Open B-173 — single-source-of-truth tab↔item identity consolidation — as the S47 XL Spike-First anchor (direct output of the 2026-06-27 architectural review). Collapse `tj:tabClaims` + `tj:itemClaims` + `floatingGroups.liveTabId` into one authoritative store; sequence the low-risk refactors (shared resolver, split `floating-groups.js`, named fan-out, decomposed `reconcileClaims`) as safe early steps.
+- [ ] **[solution-architect]** B-173 R0 must deliver a consolidation target AND a retirement plan for the redundant identity stores — not another additive layer (the S46 lesson). Fold the waived B-167/B-168 reload/restart/scroll verification into the spike's empirical real-browser probe plan.
+- [ ] **[test-engineer]** Track the waived B-167 + B-168 UAT as explicit S47 debt; execute (or fold into B-173's probe plan) before the consolidation merges.
+
+### Final State
+
+- **Tests**: 2,099 / 2,099 passing · zero regressions · +47 net over S45 baseline (2052)
+- **Release tag**: `v1.41.0` cut on `release/v2`; `gh release create` skipped per established pattern
+- **Storage schema**: v7 → v8 (new `tj:itemClaims` partition; additive — seeded empty, nothing rewritten)
+- **Manifest permissions**: unchanged from v1.40.0
+- **UAT**: WAIVED for B-167 + B-168 by product-owner decision (2026-06-27) — recorded as S47 debt
+- **Sprints + hotfixes without rollback**: 23 (S23 → S46)

@@ -12,8 +12,29 @@
 import { getLiveTabIndex } from './live-tab-index.js';
 import { safeNormalizeForMatch } from '../../shared/url.js';
 import { clearDrift, getDriftRecords } from './drift.js';
+import { readPartition } from '../storage/partitions.js';
+import { writeTransaction } from '../storage/write-transaction.js';
+import {
+  PARTITION_ITEM_CLAIMS,
+  ITEM_CLAIMS_SCHEMA_VERSION,
+} from '../storage/shapes.js';
 
 const SESSION_KEY = 'tj:tabClaims';
+
+/* B-167 §73.4.2 — sessionMatches threshold (Q2 R2-DECISION = 0.5). When
+   ≥50% of the durable-partition entries stamped with the partition's own
+   sessionTag still resolve in the current liveTabIndex, we treat the
+   browser session as continuing (extension-reload happy path) and trust
+   the durable tabIds. Below threshold, we fall through to the existing
+   Phase 1/2/3/4 inference pipeline as the backstop. */
+const B167_SESSION_MATCH_THRESHOLD = 0.5;
+
+/* B-167 §73.5 — module-level sessionTag held across the SW lifetime.
+   Settled once per cold start by `ensureSessionTag` (called from
+   `prePopulateClaimsFromDurable`). Stamped onto every W-1..W-5 PATCH so
+   per-entry sessionTag is consistent with the partition-level sessionTag
+   for the writes that landed during this SW lifetime. */
+let _sessionTag = '';
 
 /** @type {Record<string, number>} in-memory mirror for synchronous reads */
 let claimsMirror = {};
@@ -85,6 +106,31 @@ export function __resetTabClaims() {
   // matches claimsMirror. Every existing test that calls __resetTabClaims
   // automatically picks this up — no per-test-file change required.
   inheritedTabs.clear();
+  /* B-167 §73.5 — reset the module-level sessionTag so the next
+     `prePopulateClaimsFromDurable` (or first write) re-derives it from
+     the durable partition. Keeps test isolation: a stale tag from a
+     prior test cannot leak into the next. */
+  _sessionTag = '';
+}
+
+/**
+ * Test hatch: read the current module-level sessionTag. Used by the
+ * b167-* test suite to assert sessionTag derivation behavior.
+ * @returns {string}
+ */
+export function __getSessionTagForTest() {
+  return _sessionTag;
+}
+
+/**
+ * Test hatch: force the module-level sessionTag to a specific value.
+ * Used by the b167-* test suite (R4 CONV-1 regression-guard T16) to
+ * reproduce the "module tag empty, partition tag present" divergence
+ * window without exercising a real cold-start.
+ * @param {string} tag
+ */
+export function __setSessionTagForTest(tag) {
+  _sessionTag = typeof tag === 'string' ? tag : '';
 }
 
 /**
@@ -102,6 +148,333 @@ async function readClaims() {
  */
 async function writeClaims() {
   await chrome.storage.session.set({ [SESSION_KEY]: claimsMirror });
+}
+
+// ---- B-167 durable claim identity ----------------------------------------
+
+/**
+ * B-167 §73.4.1 — pure predicate that decides whether the durable
+ * partition's recorded sessionTag most-likely belongs to the CURRENT
+ * browser session, based on how many of its stamped tabIds resolve in the
+ * live tab index. The threshold defaults to B167_SESSION_MATCH_THRESHOLD
+ * (0.5 per Q2 R2-DECISION). Exported for test introspection.
+ *
+ * @param {{schemaVersion: number, sessionTag: string, entries: Record<string, {tabId: number, claimedAt: number, sessionTag: string}>}|null|undefined} durable
+ * @param {Map<number, {url: string, active: boolean, audible: boolean, favIconUrl?: string|null, windowId: number, index: number}>} liveTabIndex
+ * @param {number} [threshold=B167_SESSION_MATCH_THRESHOLD]
+ * @returns {boolean}
+ */
+export function sessionMatches(durable, liveTabIndex, threshold = B167_SESSION_MATCH_THRESHOLD) {
+  if (!durable || !durable.entries) return false;
+  if (typeof durable.sessionTag !== 'string' || durable.sessionTag.length === 0) return false;
+  const entries = Object.values(durable.entries);
+  if (entries.length === 0) return false;
+  const sameSessionEntries = entries.filter((e) => e && e.sessionTag === durable.sessionTag);
+  if (sameSessionEntries.length === 0) return false;
+  const resolved = sameSessionEntries.filter((e) => liveTabIndex.has(e.tabId)).length;
+  return (resolved / sameSessionEntries.length) >= threshold;
+}
+
+/**
+ * B-167 §73.5 — settle the module-level `_sessionTag` exactly once per SW
+ * cold start. If the durable partition's recorded sessionTag matches the
+ * current session (sessionMatches → true), we adopt it; otherwise we mint
+ * a fresh UUID via `crypto.randomUUID()` and stamp it onto the partition
+ * (entries left untouched as stale hints — `sessionMatches` will reject
+ * them on subsequent cold starts until they self-evict via W-2 deletes
+ * or W-1 full-replace at end-of-Phase-4).
+ *
+ * Best-effort: a partition read failure logs warn and mints a fresh UUID;
+ * a writeTransaction failure logs warn and proceeds with the in-memory
+ * tag (durable persists are no-ops for this SW lifetime, self-healing on
+ * the next cold start).
+ *
+ * @returns {Promise<string>}
+ */
+async function ensureSessionTag() {
+  if (_sessionTag) return _sessionTag;
+  let durable = null;
+  try {
+    durable = await readPartition(PARTITION_ITEM_CLAIMS);
+  } catch (err) {
+    console.warn(
+      '[tab-junkie] B-167 ensureSessionTag: durable partition read failed, minting fresh tag',
+      err?.code || err?.message || err,
+    );
+  }
+  if (durable && sessionMatches(durable, getLiveTabIndex())) {
+    _sessionTag = durable.sessionTag;
+    return _sessionTag;
+  }
+  // Fresh session tag. crypto.randomUUID() is SW-context-available in
+  // Chromium 92+ / Edge 92+ (C-8 verified at R2 §73.3.2).
+  _sessionTag = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+    ? crypto.randomUUID()
+    : `b167-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    await writeTransaction([{
+      partition: PARTITION_ITEM_CLAIMS,
+      mutator: (cur) => ({
+        schemaVersion: ITEM_CLAIMS_SCHEMA_VERSION,
+        sessionTag: _sessionTag,
+        entries: (cur && cur.entries) ? cur.entries : {},
+      }),
+    }]);
+  } catch (err) {
+    console.warn(
+      '[tab-junkie] B-167 ensureSessionTag: stamping fresh sessionTag failed; durable persists become no-ops this SW lifetime',
+      err?.code || err?.message || err,
+    );
+  }
+  return _sessionTag;
+}
+
+/**
+ * B-167 §73.4.3 — cold-start pre-population of `tj:tabClaims` (session
+ * storage) from `tj:itemClaims` (durable local storage). Runs INSIDE
+ * `initializeLiveState` AFTER `preMarkInheritedFromFloatingGroups` and
+ * BEFORE `reconcileClaims`. When the durable partition's sessionTag
+ * passes `sessionMatches`, we write each surviving (tabId-resolves)
+ * entry to session storage so `reconcileClaims`'s `readClaims()` sees
+ * them as Phase 1 input. Phase 1 validates each via `tabEntry && item`;
+ * survivors stay claimed; failures flow through Phase 3 drift-URL
+ * fallback exactly as the inference path would have.
+ *
+ * Graceful degradation (§73.8): three failure modes — missing partition,
+ * corrupt partition, storage rejection — all log warn and return without
+ * writing. The 4-phase inference pipeline then runs against the existing
+ * session-storage state as the backstop. Mirrors the B-132 / B-163 R4
+ * HIGH-1 precedent.
+ *
+ * Critical override from R1 AC3 literal: R1 AC3 said "pre-populate
+ * claimsMirror[itemId] = entry.tabId before reconcile". That is
+ * mechanically incorrect — `reconcileClaims` reads from `tj:tabClaims`
+ * SESSION storage in Phase 1, not from in-memory `claimsMirror`. R2
+ * §73.4.3 corrected the design: we write to session storage so Phase 1's
+ * input is the union of durable-restored entries + any in-session writes
+ * that survived the SW lifetime.
+ *
+ * @returns {Promise<void>}
+ */
+export async function prePopulateClaimsFromDurable() {
+  // ensureSessionTag must run first so the partition has a stable
+  // sessionTag for the rest of the SW lifetime. It may also write a
+  // fresh tag onto the partition; that does not affect the read below
+  // because we only trust entries whose own sessionTag matches the
+  // durable.sessionTag at this read time.
+  let durable;
+  try {
+    durable = await readPartition(PARTITION_ITEM_CLAIMS);
+  } catch (err) {
+    console.warn(
+      '[tab-junkie] B-167 prePopulateClaimsFromDurable: durable partition read failed, falling back to inference',
+      err?.code || err?.message || err,
+    );
+    // Still settle a sessionTag for the SW lifetime so W-1..W-5 writes
+    // have a non-empty tag to stamp; ensureSessionTag will mint a fresh
+    // UUID since the partition read failed.
+    try { await ensureSessionTag(); } catch { /* best-effort */ }
+    return;
+  }
+  const liveTabIndex = getLiveTabIndex();
+  if (!sessionMatches(durable, liveTabIndex)) {
+    // Mint or adopt a sessionTag without trusting the stale entries.
+    try { await ensureSessionTag(); } catch { /* best-effort */ }
+    return;
+  }
+  // Session matches — adopt the durable sessionTag for this SW lifetime.
+  _sessionTag = durable.sessionTag;
+  const restored = {};
+  for (const [itemId, entry] of Object.entries(durable.entries)) {
+    if (!entry || typeof entry !== 'object') continue;
+    // skip cross-session bleed: only entries stamped with THIS partition's tag
+    if (entry.sessionTag !== durable.sessionTag) continue;
+    // skip stale tabIds — entry's tabId no longer resolves in liveTabIndex
+    if (!liveTabIndex.has(entry.tabId)) continue;
+    restored[itemId] = entry.tabId;
+  }
+  if (Object.keys(restored).length === 0) return;
+  /* Write to chrome.storage.session so reconcileClaims's readClaims()
+     sees the restored bindings as its Phase 1 input. The in-memory
+     claimsMirror stays empty until reconcileClaims completes — it is
+     NOT a parallel source of truth. */
+  try {
+    await chrome.storage.session.set({ [SESSION_KEY]: restored });
+  } catch (err) {
+    console.warn(
+      '[tab-junkie] B-167 prePopulateClaimsFromDurable: session.set failed; reconcile falls back to inference',
+      err?.code || err?.message || err,
+    );
+  }
+}
+
+/**
+ * B-167 §73.5 W-1 — replace the durable partition's `entries` map with
+ * the post-reconcile `claimsMirror`. Stamps the current `_sessionTag` on
+ * every entry. Preserves existing `claimedAt` when an entry survives;
+ * stamps `Date.now()` on newly-bound entries. Called from
+ * `reconcileClaims` end-of-Phase-4 as a passive mirror of the
+ * authoritative session-storage write.
+ *
+ * Best-effort: a writeTransaction failure logs warn and does not block
+ * reconcile completion (self-healing on next cold start). Mirrors the
+ * W-2..W-5 sites.
+ *
+ * @returns {Promise<void>}
+ */
+async function durableMirrorFullReplace() {
+  try {
+    await writeTransaction([{
+      partition: PARTITION_ITEM_CLAIMS,
+      mutator: (cur) => {
+        const tag = _sessionTag || (cur && cur.sessionTag) || '';
+        const prevEntries = (cur && cur.entries) ? cur.entries : {};
+        const now = Date.now();
+        const entries = {};
+        for (const [itemId, tabId] of Object.entries(claimsMirror)) {
+          const prev = prevEntries[itemId];
+          entries[itemId] = {
+            tabId,
+            claimedAt: (prev && typeof prev.claimedAt === 'number') ? prev.claimedAt : now,
+            sessionTag: tag,
+          };
+        }
+        return {
+          schemaVersion: ITEM_CLAIMS_SCHEMA_VERSION,
+          sessionTag: tag,
+          entries,
+        };
+      },
+    }]);
+  } catch (err) {
+    console.warn(
+      '[tab-junkie] B-167 W-1 durable mirror full-replace failed (self-heals on next cold start)',
+      err?.code || err?.message || err,
+    );
+  }
+}
+
+/**
+ * B-167 §73.5 W-2/W-3/W-4 — durable PATCH helpers. Upsert and delete
+ * forms; both route through `writeTransaction` for atomic
+ * single-partition writes. Per-entry sessionTag mirrors the
+ * partition-level `_sessionTag`.
+ */
+async function durableUpsertEntry(itemId, tabId) {
+  if (!_sessionTag) {
+    // Best-effort: ensure a sessionTag exists before stamping. If
+    // settlement fails we still attempt the write below; mutator picks
+    // up whatever tag the partition already carries.
+    try { await ensureSessionTag(); } catch { /* best-effort */ }
+  }
+  /* R4 CONV-1 qa M-1: under triple-failure path (no module tag, no partition
+     tag), abort rather than write a silent empty-tag durable record that
+     would never be trusted on next cold start (sessionMatches rejects
+     `sessionTag === ''`). Fail fast; self-heal on the next ensureSessionTag
+     retry. durableDeleteEntry / durableRemapEntry are exempt from this
+     guard — deletes/remaps don't introduce new entries, so a missing tag
+     cannot pollute the partition. */
+  if (!_sessionTag) return;
+  try {
+    await writeTransaction([{
+      partition: PARTITION_ITEM_CLAIMS,
+      mutator: (cur) => {
+        /* R4 CONV-1: resolve `tag` ONCE at the top, then use the SAME
+           value for both the partition-level `sessionTag` field AND the
+           per-entry `sessionTag` stamp. Previous asymmetry (per-entry
+           used `_sessionTag`, partition-level preferred `cur.sessionTag`)
+           created a divergence window during `ensureSessionTag` write-
+           failure. Unified pattern mirrors durableMirrorFullReplace. */
+        const tag = _sessionTag || (cur && cur.sessionTag) || '';
+        const prevEntries = (cur && cur.entries) ? cur.entries : {};
+        const prev = prevEntries[itemId];
+        const entry = {
+          tabId,
+          claimedAt: (prev && typeof prev.claimedAt === 'number') ? prev.claimedAt : Date.now(),
+          sessionTag: tag,
+        };
+        return {
+          schemaVersion: ITEM_CLAIMS_SCHEMA_VERSION,
+          sessionTag: tag,
+          entries: { ...prevEntries, [itemId]: entry },
+        };
+      },
+    }]);
+  } catch (err) {
+    console.warn(
+      '[tab-junkie] B-167 durable upsert failed (self-heals on next cold start)',
+      err?.code || err?.message || err,
+    );
+  }
+}
+
+async function durableDeleteEntry(itemId) {
+  try {
+    await writeTransaction([{
+      partition: PARTITION_ITEM_CLAIMS,
+      mutator: (cur) => {
+        /* R4 CONV-1: unified `tag` resolution — same value for
+           partition-level field across the no-op + delete branches. */
+        const tag = _sessionTag || (cur && cur.sessionTag) || '';
+        const prevEntries = (cur && cur.entries) ? cur.entries : {};
+        if (!(itemId in prevEntries)) return cur || {
+          schemaVersion: ITEM_CLAIMS_SCHEMA_VERSION,
+          sessionTag: tag,
+          entries: {},
+        };
+        const { [itemId]: _drop, ...rest } = prevEntries;
+        return {
+          schemaVersion: ITEM_CLAIMS_SCHEMA_VERSION,
+          sessionTag: tag,
+          entries: rest,
+        };
+      },
+    }]);
+  } catch (err) {
+    console.warn(
+      '[tab-junkie] B-167 durable delete failed (self-heals on next cold start)',
+      err?.code || err?.message || err,
+    );
+  }
+}
+
+/**
+ * B-167 §73.5 W-5 — field-patch helper for `remapTabIdInClaims`. Updates
+ * `entries[itemId].tabId` while PRESERVING `claimedAt` + per-entry
+ * `sessionTag`. No-op if the durable entry is missing.
+ */
+async function durableRemapEntry(itemId, newTabId) {
+  try {
+    await writeTransaction([{
+      partition: PARTITION_ITEM_CLAIMS,
+      mutator: (cur) => {
+        /* R4 CONV-1: unified `tag` resolution — preserves existing
+           per-entry sessionTag on the remapped record (only `tabId`
+           changes); partition-level uses the same `tag`. */
+        const tag = _sessionTag || (cur && cur.sessionTag) || '';
+        const prevEntries = (cur && cur.entries) ? cur.entries : {};
+        const existing = prevEntries[itemId];
+        if (!existing) return cur || {
+          schemaVersion: ITEM_CLAIMS_SCHEMA_VERSION,
+          sessionTag: tag,
+          entries: {},
+        };
+        return {
+          schemaVersion: ITEM_CLAIMS_SCHEMA_VERSION,
+          sessionTag: tag,
+          entries: {
+            ...prevEntries,
+            [itemId]: { ...existing, tabId: newTabId },
+          },
+        };
+      },
+    }]);
+  } catch (err) {
+    console.warn(
+      '[tab-junkie] B-167 W-5 durable remap failed (self-heals on next cold start)',
+      err?.code || err?.message || err,
+    );
+  }
 }
 
 /**
@@ -327,6 +700,14 @@ export async function reconcileClaims(items) {
   await writeClaims();
   claimsReady = true;
 
+  /* B-167 W-1 §73.5 — durable mirror full-replace. Stamps every claim
+     in the reconciled set with the current sessionTag and persists the
+     map to `tj:itemClaims` so the next cold start can short-circuit
+     URL inference via the durable direct-match path. Best-effort:
+     failures log warn and do not block reconcile completion. */
+  await ensureSessionTag().catch(() => { /* best-effort */ });
+  await durableMirrorFullReplace();
+
   /* Phase 4 (B-163 §70.3.2): conditional drift drop. Replaces the
      pre-B-163 unconditional §53 paired-clear at this site. Only items
      that were BOTH (a) evicted in Phase 1 AND (b) not recovered by
@@ -354,6 +735,13 @@ export async function releaseClaimByTab(tabId) {
     if (claimedTabId === tabId) {
       delete claimsMirror[itemId];
       await writeClaims();
+      /* B-167 W-2 §73.5 — best-effort sequential durable delete.
+         Q3 R2-DECISION: preserves the existing partial-atomicity
+         contract at storage-handlers.js:454-457. A crash between
+         writeClaims and this write self-heals on the next cold start
+         via reconcileClaims's `tabEntry && item` Phase 1 check
+         (deleted items evict, then W-1 full-replace overwrites). */
+      await durableDeleteEntry(itemId);
       return itemId;
     }
   }
@@ -415,6 +803,16 @@ export async function reevaluateTab(tabId, newUrl, items) {
 
   if (dirty) {
     await writeClaims();
+    /* B-167 W-3 §73.5 — durable upsert for the new-claim branch in
+       reevaluateTab. Stamps the current sessionTag and persists the
+       new (itemId → tabId) binding so the next cold start can trust
+       it. Best-effort; failure self-heals on next cold start. */
+    const newlyClaimedItemId = Object.entries(claimsMirror).find(
+      ([, tid]) => tid === tabId,
+    )?.[0];
+    if (newlyClaimedItemId) {
+      await durableUpsertEntry(newlyClaimedItemId, tabId);
+    }
   }
 }
 
@@ -494,6 +892,11 @@ export function getItemIdForTab(tabId) {
 export async function claimTabForItem(itemId, tabId) {
   claimsMirror[itemId] = tabId;
   await writeClaims();
+  /* B-167 W-4 §73.5 — durable upsert from floating-group promote /
+     re-association path. Stamps the current sessionTag and persists the
+     binding so the next cold start can trust it. Best-effort; failure
+     self-heals on the next cold-start reconcile. */
+  await durableUpsertEntry(itemId, tabId);
 }
 
 /**
@@ -534,6 +937,12 @@ export async function remapTabIdInClaims(removedTabId, addedTabId) {
   if (removedTabId === addedTabId) return;
 
   let dirty = false;
+  /* B-167 W-5 §73.5 — capture the itemId that owned the removedTabId so
+     we can patch the durable partition's entry in lock-step with the
+     in-memory mirror swap. claimsMirror values are unique by
+     construction (a tabId is claimed by at most one item), so at most
+     one itemId is captured. */
+  let remappedItemId = null;
 
   // Table 1 — claimsMirror: rewrite the entry pointing at removedTabId.
   // O(N over claimed items; typically <50). Only one entry can match
@@ -544,6 +953,7 @@ export async function remapTabIdInClaims(removedTabId, addedTabId) {
     if (claimedTabId === removedTabId) {
       claimsMirror[itemId] = addedTabId;
       dirty = true;
+      remappedItemId = itemId;
     }
   }
 
@@ -557,5 +967,12 @@ export async function remapTabIdInClaims(removedTabId, addedTabId) {
 
   if (dirty) {
     await writeClaims();
+    /* B-167 W-5 §73.5 — 6th table extending the B-164 §69.3.1 5-table
+       remap: `tj:itemClaims.entries[itemId].tabId`. Preserves claimedAt
+       + sessionTag; only the tabId field changes. Best-effort; failure
+       self-heals on the next cold-start reconcile. */
+    if (remappedItemId !== null) {
+      await durableRemapEntry(remappedItemId, addedTabId);
+    }
   }
 }

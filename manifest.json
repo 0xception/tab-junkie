@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Tab Junkie",
   "description": "Unified bookmark and tab manager",
-  "version": "1.40.0",
+  "version": "1.41.0",
   "permissions": ["tabs", "tabGroups", "storage", "sidePanel", "search", "favicon", "idle"],
   "background": {
     "service_worker": "background/service-worker.js",
@@ -49,6 +49,9 @@
         "default": "Alt+Comma"
       },
       "description": "Open Tab Junkie Settings"
+    },
+    "jump-to-active-window": {
+      "description": "Jump sidepanel to active window's tabs (assign a shortcut at edge://extensions/shortcuts)"
     }
   },
   "content_security_policy": {

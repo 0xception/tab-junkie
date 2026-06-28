@@ -2,6 +2,26 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.41.0] — 2026-06-27 (Sprint 46 close — durable claim identity)
+
+Sprint 46 anchor. The saved-bookmark→tab association now survives extension reloads, browser restarts, and tab sleep/discard cycles via a new durable `tj:itemClaims` store (B-167), instead of re-guessing the link from URL heuristics on every service-worker cold start. A new popup toolbar button jumps the sidepanel to the currently-focused window's tab section (B-168). Schema bumped v7 → v8 (additive). S45-retrospective housekeeping (B-169 / B-170 / B-171) rides alongside.
+
+### New features
+- **Jump to active window (B-168)** — a new toolbar button in the popup scrolls the sidepanel to the currently-focused browser window's Open Tabs section, with a brief highlight flash on arrival and a "no tabs from the active window" toast when there's nothing to jump to. Honors `prefers-reduced-motion`. No default keyboard shortcut ships — the planned Alt+W binding was dropped (Edge/Chrome cap on default-bound extension shortcuts); assign one via `edge://extensions` shortcuts if desired.
+
+### Internal
+- **Durable claim identity (B-167)** — the bookmark→tab claim is now persisted in a durable `tj:itemClaims` partition instead of being re-inferred from URL heuristics on every SW cold start. The association survives extension reloads, browser restarts, and tab sleep/discard cycles. Reliability-only — no new UI. Durable identity layers above (`prePopulateClaimsFromDurable`) and below (W-1..W-5 mirror) the existing Phase 1/2/3/4 inference pipeline; per-entry + partition-level `sessionTag` stamping (CONV-1 unified-tag invariant); allow-list `isItemClaims` validator (C-7 forward-compat).
+- **Schema v7 → v8 additive bump** (B-167 §73.3.1) — paired `KNOWN_VERSION` 7→8 + `defaultShape(PARTITION_META)` literal 7→8 + new `PARTITION_ITEM_CLAIMS` constant in `ALL_PARTITIONS`; v7→v8 no-op `MIGRATION_STEPS` entry. The new `tj:itemClaims` partition is seeded empty on first run; no existing record is rewritten.
+- **New `shared/diag.js` diagnostic-trace helper (B-171)** — reusable `recordTrace` / `readTraces` / `clearTraces` dev tooling in the `_diag_*` namespace; replaces per-investigation ad-hoc `chrome.storage.local` debug keys (S45's `_b163_debug` / `_s45_*_trace` class). Developer-only; no shipped behavior.
+- **CLAUDE.md process edits (B-169, B-170)** — S45-retro ways-of-working refinements: human-identifiable names in discussion prose (B-169) + the R4 contract-vs-implementation diff gate (B-170). Doc-only; no code or user-facing change.
+- **Test count**: 2052 (S45 close) → 2099 PASS in S46 close (+47). New `tests/b167-*` (T1-T21) and `tests/b168-*` (T1-T11) suites plus diag-helper coverage; zero regressions.
+
+### Migration note
+**Schema bump from v7 → v8 — extension toggle required.** After updating, toggle the extension OFF then ON once in `edge://extensions` to flush the SW module cache and pick up the new schema. The bump is **additive**: the `tj:itemClaims` partition starts empty and fills in as you open tabs; no existing bookmark, group, or drift data is migrated or rewritten.
+
+### Rollback
+Downgrade to v1.40.0 is **data-safe but not seamless** — `tj:items`, `tj:groups`, `tj:prefs`, `tj:drift`, `tj:floatingGroups`, and `tj:recency` are untouched by B-167, and `tj:itemClaims` is a derived cache the prior build reconstructs via URL inference exactly as before. However, because `tj:meta.schemaVersion` will read `8` (ahead of the v7 build's `KNOWN_VERSION = 7`), the older build enters read-only safe-mode on cold start. To roll back, after installing the prior build run ONE of the following in the SW console, then reload: `chrome.storage.local.remove(['tj:meta', 'tj:itemClaims'])` (recommended) OR `chrome.storage.local.set({ 'tj:meta': { schemaVersion: 7, createdAt: Date.now() } })`.
+
 ## [1.40.0] — 2026-05-28 (Sprint 45 close — claim-desync correctness)
 
 Sprint 45 anchor. Saved-bookmark→tab claims survive system sleep / lid-close (B-164) and cold-start drift re-association (B-163); floating-tab `+` CTA promotes in-place (B-166). Sibling B-132 fix (preMark URL corroboration) lands as part of the B-163 cascade.

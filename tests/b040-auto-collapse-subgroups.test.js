@@ -664,7 +664,10 @@ test('B-040 AC11 storage contract: no new partition — uses existing tj:prefs',
   const { PARTITION_PREFS, ALL_PARTITIONS } = await import('../background/storage/shapes.js');
   assert.equal(PARTITION_PREFS, 'prefs');
   assert.ok(ALL_PARTITIONS.includes(PARTITION_PREFS));
-  assert.equal(ALL_PARTITIONS.length, 7,
+  /* B-040 itself introduces zero partitions; the literal tracks the
+     project-wide ALL_PARTITIONS.length (7 after S26 tj:recency, 8 after
+     S46 B-167 tj:itemClaims). Update in lock-step with storage-init.test.js. */
+  assert.equal(ALL_PARTITIONS.length, 8,
     'No new partitions introduced — B-040 is a single-key pref flip.');
 });
 

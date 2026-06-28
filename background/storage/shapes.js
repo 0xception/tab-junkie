@@ -38,6 +38,13 @@ export const PARTITION_FLOATING_GROUPS = 'floatingGroups';
 /* B-022 §39.3 D-3 — quick-search popup recency store. Persistent across
    browser restart; cap 50 newest-first entries; additive v1 schema. */
 export const PARTITION_RECENCY = 'recency';
+/* B-167 §73.3.1 — durable item→tab claim partition. Persistent in
+   chrome.storage.local across extension reload + browser restart.
+   Layered ABOVE the existing tj:tabClaims (session storage) pipeline
+   as a cold-start pre-populator and BELOW it as a passive mirror of
+   every claim write. Allow-list validator (C-7) tolerates extra
+   per-entry fields for forward-compatibility with B-172 URL-history. */
+export const PARTITION_ITEM_CLAIMS = 'itemClaims';
 
 /* B-022 §39.3 D-3 — cap on `tj:recency.entries`. New entries past the cap
    trim the tail in a single splice at write time (handler-side). */
@@ -54,7 +61,14 @@ export const ALL_PARTITIONS = /** @type {const} */ ([
   PARTITION_DRIFT,
   PARTITION_FLOATING_GROUPS,
   PARTITION_RECENCY,
+  PARTITION_ITEM_CLAIMS,
 ]);
+
+/* B-167 §73.3.2 — partition-internal schema version. Independent of the
+   tj:meta global schemaVersion; v1 is the only shape today. A future bump
+   (e.g. B-172 url-history) advances this constant in addition to (not in
+   place of) the tj:meta KNOWN_VERSION bump. */
+export const ITEM_CLAIMS_SCHEMA_VERSION = 1;
 
 /** Namespaced storage key for a partition. */
 export function partitionKey(partition) {
@@ -98,8 +112,8 @@ export function defaultShape(partition) {
       return { ...DEFAULT_PREFERENCES };
     case PARTITION_META:
       /* Fresh installs seed at the current schemaVersion directly so no
-         migration step runs on first boot. `migration.js` KNOWN_VERSION = 7
-         (B-148 §3.1, S44). Hardcoded literal (not imported from migration.js)
+         migration step runs on first boot. `migration.js` KNOWN_VERSION = 8
+         (B-167 §73.3.1, S46). Hardcoded literal (not imported from migration.js)
          to keep the storage layer independent of the migration runner —
          bumping this when KNOWN_VERSION bumps is a deliberate, paired change
          (C-1a paired-bump invariant; tests/migration-fresh-install.test.js
@@ -132,7 +146,16 @@ export function defaultShape(partition) {
          FloatingGroup.sortOrder; new writes stamp the field via the
          per-write-site updates at Tasks 8a-e, 9a-d, 10). C-1a paired
          bump: this literal moves to 7 in lock-step with KNOWN_VERSION. */
-      return { schemaVersion: 7, createdAt: Date.now() };
+      /* v7→v8 (B-167 §73.3.1, S46) introduces the new additive partition
+         `tj:itemClaims` (chrome.storage.local) carrying durable item→tab
+         bindings across extension reload + browser restart. Data
+         migration is lazy (C-1b option 2): the v7→v8 step is a no-op
+         governance bump; `initializePartitions` seeds the empty shape on
+         first SW cold start; existing `tj:tabClaims` (session) writes
+         are mirrored to the durable partition by the W-1..W-5 PATCH
+         sites in `tab-claims.js`. C-1a paired bump: this literal moves
+         to 8 in lock-step with KNOWN_VERSION. */
+      return { schemaVersion: 8, createdAt: Date.now() };
     case PARTITION_DRIFT:
       return {};
     case PARTITION_FLOATING_GROUPS:
@@ -142,6 +165,14 @@ export function defaultShape(partition) {
          (not sourced from RECENCY_SCHEMA_VERSION) so a future bump of the
          constant cannot silently change the historical default. */
       return { schemaVersion: 1, entries: [] };
+    case PARTITION_ITEM_CLAIMS:
+      /* B-167 §73.3.2 — v1 empty shape. `sessionTag: ''` is the fresh-install
+         sentinel; `sessionMatches` returns false on an empty-entries
+         partition regardless of tag, so a fresh install never trusts a
+         non-existent durable record. Literal `1` not sourced from the
+         constant so a future bump of `ITEM_CLAIMS_SCHEMA_VERSION` cannot
+         silently change the historical default. */
+      return { schemaVersion: 1, sessionTag: '', entries: {} };
     default:
       throw new StorageError(ERR_CORRUPT_DATA, `Unknown partition: ${String(partition)}`);
   }
@@ -223,6 +254,28 @@ function isPreferences(v) {
      `getPreferences()` defaults-merge guarantees the runtime value is always
      populated. When present on disk it must be a boolean. */
   if ('denseLayout' in v && !isBool(v.denseLayout)) return false;
+  return true;
+}
+
+/* B-167 §73.3.4 — durable item-claims partition shape.
+   Allow-list direction (C-7): per-entry extra fields are TOLERATED for
+   forward-compatibility with B-172 url-history additions. Top-level extra
+   fields are likewise tolerated. The validator is FORWARD-PERMISSIVE and
+   BACKWARD-STRICT (mirrors isItem + isGroup conventions). */
+function isItemClaims(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  if (!isNumber(v.schemaVersion)) return false;
+  // empty string IS valid (fresh-install sentinel)
+  if (!isString(v.sessionTag)) return false;
+  if (!v.entries || typeof v.entries !== 'object' || Array.isArray(v.entries)) return false;
+  for (const [itemId, entry] of Object.entries(v.entries)) {
+    if (!isString(itemId) || itemId.length === 0) return false;
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+    if (!isNumber(entry.tabId)) return false;
+    if (!isNumber(entry.claimedAt)) return false;
+    if (!isString(entry.sessionTag)) return false;
+    // Extra fields tolerated per C-7 (forward-compat for B-172).
+  }
   return true;
 }
 
@@ -349,6 +402,14 @@ export function assertShape(partitionOrKey, value) {
           || !isNumber(entry.accessedAt)) {
           throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition}`);
         }
+      }
+      return;
+    case PARTITION_ITEM_CLAIMS:
+      /* B-167 §73.3.4 — durable item-claims partition. Delegates to the
+         allow-list validator which is forward-permissive (extra fields
+         tolerated, both top-level and per-entry). */
+      if (!isItemClaims(value)) {
+        throw new StorageError(ERR_CORRUPT_DATA, `Corrupt partition: ${partition}`);
       }
       return;
     default:

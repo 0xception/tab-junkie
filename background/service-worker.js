@@ -23,7 +23,7 @@
 import { runMigrations } from './storage/migration.js';
 import { registerStorageHandlers } from './messages/storage-handlers.js';
 import { registerTabEventListeners, initializeLiveState, registerIdleReconciler } from './tabs/index.js';
-import { MSG_OPEN_STANDALONE } from '../shared/messages.js';
+import { MSG_OPEN_STANDALONE, MSG_JUMP_TO_ACTIVE_WINDOW } from '../shared/messages.js';
 import { openOrFocusSettingsTab } from '../shared/settings-tab.js';
 
 /**
@@ -155,10 +155,34 @@ chrome.commands.onCommand.addListener((command) => {
 // path → C-11 vacuously satisfied (no storage mutation before any focus-shifting
 // call). Registered synchronously at module scope — no await before addListener.
 chrome.commands.onCommand.addListener((cmd) => {
-  if (cmd !== 'open-junkie-settings') return;
-  openOrFocusSettingsTab().catch((err) => {
-    console.warn('[B-097] settings shortcut failed:', err && err.message);
-  });
+  if (cmd === 'open-junkie-settings') {
+    openOrFocusSettingsTab().catch((err) => {
+      console.warn('[B-097] settings shortcut failed:', err && err.message);
+    });
+    return;
+  }
+  // B-168 — Alt+W "jump to active window" keyboard path. SW has no window
+  // context: `chrome.windows.getLastFocused` returns the most recently
+  // focused browser window regardless of caller context (popup uses
+  // getCurrent — see popup/popup.js:933). Fire-and-forget MSG_JUMP_TO_ACTIVE_WINDOW
+  // to the sidepanel; receiver handles validate + scroll + flash.
+  // C-11 vacuous: no storage writes on this path.
+  if (cmd === 'jump-to-active-window') {
+    chrome.windows.getLastFocused({ populate: false }).then((win) => {
+      /* H-1: guard WINDOW_ID_NONE (-1) — returned when no Chromium window is
+         currently focused (system tray, alt-tabbed away to another app, etc.).
+         The sidepanel validator rejects ≤ 0 anyway, but stopping at the SW
+         saves a fire-and-forget round-trip and a silent no-op. */
+      if (!win || typeof win.id !== 'number' || win.id <= 0) return;
+      chrome.runtime.sendMessage({
+        type: MSG_JUMP_TO_ACTIVE_WINDOW,
+        payload: { windowId: win.id },
+      }).catch(() => { /* sidepanel may be closed — silent degrade */ });
+    }).catch((err) => {
+      console.warn('[B-168] getLastFocused failed:', err && err.message);
+    });
+    return;
+  }
 });
 
 // B-038 — MSG_OPEN_STANDALONE fire-and-forget handler.

@@ -24,6 +24,9 @@ import {
      `MSG_MOVE_FLOATING_TAB` carries ATTACH / DETACH / MOVE_FLOATING. */
   MSG_REORDER_FLOATING_MEMBERS,
   MSG_MOVE_FLOATING_TAB,
+  /* B-168 — receiver-side constant for the popup+SW jump-to-active-window
+     dispatch. Handled inside the onMessage broadcast listener at :7130. */
+  MSG_JUMP_TO_ACTIVE_WINDOW,
   /* B-093: MSG_EXPORT_COLLECTION + MSG_IMPORT_COLLECTION moved to
      settings/settings-import-export.js along with the import/export UI. */
 } from '../shared/messages.js';
@@ -7127,8 +7130,71 @@ function _cleanupTabDragDom() {
    Broadcast listener (B4 — sender validation)
    ========================================================================= */
 
+/* B-168 — jump-to-active-window payload validator. C-7 allow-list: permits
+   ONLY a finite positive number; everything else rejects. The validator
+   runs BEFORE any DOM access so a malformed payload exits silently. */
+function _isValidJumpPayload(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  if (typeof payload.windowId !== 'number') return false;
+  /* M-2: Chrome windowId is always a positive integer. Number.isInteger
+     subsumes the finite + non-NaN checks AND rejects floats (e.g., 1.5
+     forged from a hostile sender). */
+  if (!Number.isInteger(payload.windowId)) return false;
+  if (payload.windowId <= 0) return false;
+  return true;
+}
+
+/* B-168 — scroll the sidepanel to the first row whose `data-window-id`
+   matches `windowId` and briefly flash it. If no row matches (filter
+   active, no live claims, no open tabs for this window), surface the
+   empty-state toast — see §72.3.4 C-9 enumeration. */
+function _jumpToActiveWindow(windowId) {
+  const target = itemListEl.querySelector(`[data-window-id="${windowId}"]`);
+  if (!target) {
+    /* M-1: AC5 contract is 3 s for the empty-state toast (not the 4 s
+       showToast default). Pass durationMs explicitly so the contract is
+       met regardless of future default changes. */
+    showToast('No tabs from the current window are visible here.', { durationMs: 3000 });
+    return;
+  }
+  /* B-168 hotfix — compensate for the sticky `.panel-header` (CSS :721,
+     `position: sticky; top: 0; z-index: 10`) which would otherwise overlay
+     the target row on a downward jump. Asymmetry observed in S46 UAT:
+     upward jumps appeared correct because the document can't scroll into
+     negative space (target stayed at its natural y below the header);
+     downward jumps placed the target precisely at viewport y=0, hidden
+     under the header. `.panel-header` height varies — B-014's
+     window-filter-row wraps onto a second line — so measure at jump time
+     rather than hardcoding 44px. `scrollMarginTop` is the standard CSS
+     hint for `scrollIntoView` to leave room at the top. */
+  const panelHeader = document.querySelector('.panel-header');
+  const headerOffset = panelHeader ? panelHeader.offsetHeight : 44;
+  target.style.scrollMarginTop = `${headerOffset + 4}px`;
+  target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  target.classList.add('item-row--jump-highlight');
+  /* L-1: keyboard-path focus management — once the row is in view, move
+     focus onto it without re-scrolling so subsequent Tab navigation lands
+     inside the target window's tabs instead of restarting at the page top. */
+  if (typeof target.focus === 'function') {
+    target.focus({ preventScroll: true });
+  }
+  setTimeout(() => {
+    target.classList.remove('item-row--jump-highlight');
+    target.style.scrollMarginTop = '';
+  }, 600);
+}
+
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (sender.id !== chrome.runtime.id) return;
+
+  /* B-168 — fire-and-forget jump dispatched by popup or SW. Handled
+     before the MSG_STATE_CHANGED gate because it is not a broadcast. */
+  if (msg && msg.type === MSG_JUMP_TO_ACTIVE_WINDOW) {
+    if (!_isValidJumpPayload(msg.payload)) return;
+    _jumpToActiveWindow(msg.payload.windowId);
+    return;
+  }
+
   if (msg.type !== MSG_STATE_CHANGED) return;
 
   const scope = msg.payload?.scope;

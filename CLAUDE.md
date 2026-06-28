@@ -46,6 +46,30 @@ Always confirm you are reading files from the correct project directory before r
 - When orchestrating, lead with `[scrum-master]`
 - Never write a response without an agent bracket at the beginning
 
+## Discussion & Planning Discipline — MANDATORY
+
+**In conversation, planning documents, agent prompts, retrospective narratives, and any prose discussing sprint work, lead with the human-identifiable name of the item and append the ticket ID in parentheses.** Bare ticket IDs alone force readers to context-switch to look up backlog rows; human names let them follow the discussion without that round trip.
+
+**Format**: `<Human-identifiable name> (B-XXX)` in prose.
+
+**Examples**:
+- ✅ `Durable claim identity (B-167) R0 spike landed.`
+- ❌ `B-167 R0 spike landed.`
+- ✅ `Contract-vs-implementation diff gate (B-170) is a Fast Track CLAUDE.md edit.`
+- ❌ `B-170 is a Fast Track CLAUDE.md edit.`
+
+**Greppable-surfaces exception** — the ticket ID alone is acceptable (and preferred for machine-greppability) in these contexts:
+- Commit message subject lines (e.g., `fix: B-163 R4 fix-round — ...`).
+- Inline code comments cross-referencing items (e.g., `// B-148 §3.5: ...`).
+- The `BACKLOG.md` table `ID` column itself.
+- Chapter section markers (e.g., `§70.13`, `§65.15`).
+- Test-file basenames (e.g., `tests/b163-drift-fallback-reconcile.test.js`).
+
+**Rules**:
+- Applies to EVERY agent in the 10-agent roster, not just orchestrators.
+- Applies to prose communication only; the rule is NOT retroactive — prior commit messages, chapter section markers, test filenames, and BACKLOG.md IDs stay as-is.
+- When you cite a deferred or carryover item, lead with its name too (e.g., "Drop scroll preservation (B-165)" not "B-165"). If you don't know the name, look it up in `docs/BACKLOG.md` before referring to it.
+
 ## 10-Agent Roster
 
 This project uses a pruned subset of the full SDLC agent framework. Dropped agents (backend-engineer, ai-ml-engineer, data-analyst, marketing-manager, content-creator, seo-reviewer, tester) do not apply to a local-only browser extension with no backend, no AI, no commercial launch, and no public web surface. The [test-engineer] absorbs UAT duties that would otherwise go to [tester].
@@ -407,6 +431,25 @@ Three blocking precedents:
 - All report findings with file/line references — none write code.
 - [frontend-engineer] fixes CRITICAL and HIGH findings before R5.
 
+#### Contract-vs-implementation diff gate ([code-reviewer] mandatory)
+
+For every implementation predicate under review, [code-reviewer] MUST execute this three-step check and report the result as a separate line in their findings:
+
+1. **Locate the R1 AC or R2 contract wording** for the predicate being implemented. Cite the file:line (e.g., `docs/findings/sprint-NN.md:XXX`).
+2. **Trace the actual implementation predicate verbatim** against the contract wording. Read the code; copy the predicate verbatim into the review notes.
+3. **Flag any narrowing** as a HIGH-severity finding. Narrowing = substituting a strict subset where the contract specifies the full set. Examples: `"all unbound items"` → `"evictedItemIds only"`; `"position OR URL"` → `"position only"`; `"verify invocation count"` → `"verify final state"`. Widening is NOT a finding (widening preserves the contract's PASS conditions; narrowing breaks them).
+
+If no narrowing is found, [code-reviewer] writes `"Contract-vs-implementation diff: clean"` in the findings report so the absence is explicit.
+
+**Three Sprint 45 blocking precedents** drive this gate:
+- **B-163 R3 Phase 3 narrowing** — implementation iterated `evictedItemIds.filter(...)` where the R1 LOCKED contract specified "all items still unbound after Phase-2". The narrowing was invisible in tests because every fixture seeded `tj:tabClaims`, leaving `evictedItemIds` always non-empty. Surfaced only via post-UAT empirical reproduction of the extension-reload scenario. R4 round-2 fix-round broadened the predicate verbatim per the contract.
+- **B-164 R4 M-1 dedup-test narrowing** — T3 asserted final-state correctness ("the mirror is right after both 'active' fires") where the R1 LOCKED AC2 contract required invocation-count proof ("`reconcileClaims` runs exactly once per 'active' transition; >1× = FAIL"). The narrowed test passed even when the dedup flag was bypassed. Surfaced via cross-reviewer overlap between code-reviewer and qa-reviewer.
+- **B-132 preMark position-only narrowing** — R2 §65.4 specified "position match (windowId + tabIndex) first, URL fallback second", which the implementation honored literally — but interpreted as position-OR-URL-fallback, treating position match as sufficient on its own. The narrowed implementation produced stale-position false positives that polluted `inheritedTabs` and broke the B-163 R4 round-2 fix in production. Surfaced via deeper UAT instrumentation.
+
+The pattern in all three: the implementation simplified a documented predicate; the test fixture matched the simplification; the bug was invisible in tests but real in production. The diff gate exists to catch this class before merge.
+
+**Out of scope** for this gate: retroactively re-running R4 for prior sprints; applying to [security-reviewer] or [qa-reviewer] (they have their own charters); flagging widening (only narrowing is a finding).
+
 ### Round 5: Testing
 - [test-engineer]: Write/update unit and integration tests. Exercise storage operations, tab matching, drift detection, message handlers.
 - Then UAT: Load the unpacked extension in Chrome, manually walk acceptance criteria — PASS/FAIL/WARN/SKIP per test case.
@@ -459,6 +502,21 @@ Agents MUST read relevant documents before producing output. Every agent's work 
 - No commented-out code blocks — git history is the archive.
 - Strict error handling around all `chrome.*` API calls — treat missing/denied permissions as first-class states.
 - Defensive checks for service-worker cold starts — never assume in-memory state persists.
+
+### Diagnostic patterns
+
+`shared/diag.js` is the canonical helper for SW-console-readable instrumentation. Use `recordTrace(key, payload)` / `readTraces(prefix?)` / `clearTraces(prefix?)` for any diagnostic write that must survive a service-worker restart. All entries live in the `_diag_*` namespace inside `chrome.storage.local`.
+
+- **Ad-hoc `chrome.storage.local` debug keys outside the `_diag_*` namespace are forbidden in committed code.** Per-investigation keys like S45's `_b163_debug`, `_s45_premark_trace`, and `_s45_reconcile_trace` (the motivating precedents for B-171) MUST NOT recur — route every new diagnostic write through `shared/diag.js`.
+- **All `_diag_*` keys must be cleared before a sprint item is marked done** — either by calling `clearTraces()` at the end of the investigation OR by verifying no committed code path writes a `_diag_*` key. Diagnostic traces are ephemeral and must not ship to users.
+- **Reading from the SW DevTools console:**
+  ```js
+  chrome.storage.local.get('_diag_<key>').then(r => console.log(JSON.stringify(r, null, 2)))
+  ```
+  Or enumerate every active trace:
+  ```js
+  chrome.storage.local.get(null).then(r => console.log(JSON.stringify(Object.fromEntries(Object.entries(r).filter(([k]) => k.startsWith('_diag_'))), null, 2)))
+  ```
 
 ### Frontend Standards
 - Skeleton loaders for content areas (not spinners).

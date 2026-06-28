@@ -30,7 +30,7 @@
  * @property {boolean} autoCollapseSubGroups
  *
  * @typedef {Object} TxOp
- * @property {'items'|'groups'|'prefs'|'meta'|'drift'|'floatingGroups'} partition
+ * @property {'items'|'groups'|'prefs'|'meta'|'drift'|'floatingGroups'|'recency'|'itemClaims'} partition
  * @property {(current: any) => any} mutator
  */
 
@@ -54,6 +54,8 @@ export {
   PARTITION_RECENCY,
   RECENCY_CAP,
   RECENCY_SCHEMA_VERSION,
+  PARTITION_ITEM_CLAIMS,
+  ITEM_CLAIMS_SCHEMA_VERSION,
   ALL_PARTITIONS,
   DEFAULT_PREFERENCES,
   partitionKey,
