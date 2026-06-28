@@ -171,10 +171,17 @@ test('B-125 T4 (AC4 invariant): releaseClaimByTab has exactly 4 production call 
   // not docstrings, not comments) keeps R3 honest: any future PR that adds
   // an unsanctioned 5th call site will break this test and force an explicit
   // §10.7 / B-099 D-1 review.
+  //
+  // B-177 (§74 A3) relocated the onRemoved / windows.onRemoved cascades out of
+  // tab-events.js into the named primitives in tab-event-cascades.js
+  // (`releaseTabCascade` + `releaseTabsCascade`). The two sanctioned call sites
+  // moved with them — tab-events.js now holds ZERO. The total is unchanged at 4.
   const tabEventsPath = resolve(__dirname, '../background/tabs/tab-events.js');
+  const tabEventCascadesPath = resolve(__dirname, '../background/tabs/tab-event-cascades.js');
   const storageHandlersPath = resolve(__dirname, '../background/messages/storage-handlers.js');
 
   const tabEventsSrc = readFileSync(tabEventsPath, 'utf8');
+  const tabEventCascadesSrc = readFileSync(tabEventCascadesPath, 'utf8');
   const storageHandlersSrc = readFileSync(storageHandlersPath, 'utf8');
 
   // Match `releaseClaimByTab(` — the function-call form. Excludes the
@@ -184,15 +191,18 @@ test('B-125 T4 (AC4 invariant): releaseClaimByTab has exactly 4 production call 
   const callPattern = /releaseClaimByTab\(/g;
 
   const tabEventsCalls = (tabEventsSrc.match(callPattern) || []).length;
+  const tabEventCascadesCalls = (tabEventCascadesSrc.match(callPattern) || []).length;
   const storageHandlersCalls = (storageHandlersSrc.match(callPattern) || []).length;
-  const totalCalls = tabEventsCalls + storageHandlersCalls;
+  const totalCalls = tabEventsCalls + tabEventCascadesCalls + storageHandlersCalls;
 
-  // Expected per §59.2.2:
-  //   tab-events.js:  2 calls (tabs.onRemoved + windows.onRemoved cascade)
-  //   storage-handlers.js: 2 calls (MSG_DEMOTE_ITEM + MSG_NAVIGATE_TO_ITEM)
+  // Expected per §59.2.2 (as relocated by B-177 §74 A3):
+  //   tab-events.js:         0 calls (cascades delegated to tab-event-cascades.js)
+  //   tab-event-cascades.js: 2 calls (releaseTabCascade + releaseTabsCascade)
+  //   storage-handlers.js:   2 calls (MSG_DEMOTE_ITEM + MSG_NAVIGATE_TO_ITEM)
   //   ────────────────────────
   //   Total: 4
-  assert.equal(tabEventsCalls, 2, 'tab-events.js must hold exactly 2 releaseClaimByTab call sites');
+  assert.equal(tabEventsCalls, 0, 'tab-events.js must hold ZERO releaseClaimByTab call sites (delegated to tab-event-cascades.js after B-177)');
+  assert.equal(tabEventCascadesCalls, 2, 'tab-event-cascades.js must hold exactly 2 releaseClaimByTab call sites (releaseTabCascade + releaseTabsCascade)');
   assert.equal(storageHandlersCalls, 2, 'storage-handlers.js must hold exactly 2 releaseClaimByTab call sites');
   assert.equal(totalCalls, 4, 'B-099 D-1 invariant: exactly 4 sanctioned releaseClaimByTab call sites');
 });

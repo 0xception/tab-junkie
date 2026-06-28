@@ -53,3 +53,26 @@ _None._
 | L-2 (qa) | `floating-groups-schema.js` / `-prune.js` | `getParentItemId` + `pruneResolvedFloatingGroups` have only transitive (not direct) unit coverage. | Pre-existing characteristic, not a regression; optional hardening. |
 
 **Outcome:** 0 CRIT / 0 HIGH / 0 MED. Suite 2116 PASS, zero regressions. Pure refactor — R5 = full-suite green (no new behavior to test).
+
+---
+
+## B-177 — Name the `onReplaced`/`onRemoved` event fan-out primitives (R4, 2026-06-27)
+
+Reviewers: code (Sonnet) · security (Opus) · qa (Sonnet). New `background/tabs/tab-event-cascades.js`; `tab-events.js` 658→565. Suite 2116 PASS throughout.
+
+**[code-reviewer]: PASS** — per-store order + sync/async preserved for both `applyTabReplacement` and `releaseTabCascade`; the bulk reorder (`Promise.allSettled` now before `unregisterWindow`) proven non-observable (single-threaded: async callbacks can't run until the sync stack + WINDOW_MAP broadcast complete); per-tab-vs-bulk asymmetry preserved (shared kernel = ephemeral detach only, NOT claim release). Contract-diff: clean.
+**[security-reviewer]: PASS — security-neutral** — claim release intact (session `tj:tabClaims` + durable `tj:itemClaims` both cleared; no dangling claim → no identity-confusion risk); onReplaced remap drops no store; no dynamic import/eval/PII logging.
+**[qa-reviewer]: PASS** — drain-callback arg order `(addedTabId, removedTabId)` matches idle-reconciler; `isClaimsReady()` gating parity (per-tab unconditional, bulk gated) preserved; shared kernel covers exactly the 3 duplicated ephemeral stores; edge cases (empty window, untracked replace, belt-and-braces double-prune) all no-op-correct.
+
+### CRITICAL / HIGH / MEDIUM
+_None._
+
+### LOW (both fixed in this round)
+| # | File | Finding | Resolution |
+|---|------|---------|-----------|
+| L-1 (code) | `tab-event-cascades.js:209` | Lint 80006 — `releaseTabCascade` returns a `.then` chain; convertible to `async`. | ✅ Converted to `async`/`await` (behavior-equivalent; sync calls still run before first await). Lint cleared. Suite 2116 PASS. |
+| L-2 (qa) | `tab-event-cascades.js` header | Module comment said "non-observable reordering" — technically `claimsMirror` differs at WINDOW_MAP-broadcast time though no failure scenario exists. | ✅ Reworded to "semantically equivalent reordering" + explicit single-threaded rationale. |
+
+**Structural-pin test edit (faithful):** `tests/b125-claim-jump-fix.test.js:168` "releaseClaimByTab = exactly 4 production call sites" updated to track the 2 relocated calls (tab-events.js 0 / tab-event-cascades.js 2 / storage-handlers.js 2 = 4). B-099 D-1 intent preserved (now stronger — covers the new module). Per CLAUDE.md Fix-scope test-assertion enumeration rule. All 3 reviewers validated.
+
+**Outcome:** 0 CRIT / 0 HIGH / 0 MED. 2 LOW fixed. Suite 2116 PASS, zero regressions.

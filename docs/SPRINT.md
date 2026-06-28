@@ -53,7 +53,7 @@ B-174  E2E cold-start reconciliation test (SAFETY NET)        ← start here
 | **B-174** | Cold-start reconciliation E2E test (safety net) | M | No | ✅ **DONE** — `tests/b174-…e2e.test.js` T1-T7, 2106 PASS |
 | B-175 | Extract one shared tab↔item resolver | L | No | ✅ **DONE** — R4 contract-diff clean; 2116 PASS |
 | B-176 | Split `floating-groups.js` → 5 modules + barrel | M | No | ✅ **DONE** — R4 3× PASS; 2116 |
-| B-177 | Name `onReplaced`/`onRemoved` fan-out primitives | M | No | queued (after B-175) |
+| B-177 | Name `onReplaced`/`onRemoved` fan-out primitives | M | No | ✅ **DONE** — R4 3× PASS; 2116 |
 | B-178 | Decompose `reconcileClaims` → named phases | M | No | queued (after B-175) |
 | B-179 | Collapse to one store; retire session; demote liveTabId | L | **Yes** | queued (after B-178 + B1 spike) |
 | B-180 | Eager `floatingGroups` v4-only + schema v8→v9 | L | **Yes** | queued (after B-179) |
@@ -63,6 +63,13 @@ B-174  E2E cold-start reconciliation test (SAFETY NET)        ← start here
 ---
 
 ## Completed This Sprint
+
+### [B-177] Name the `onReplaced`/`onRemoved` event fan-out primitives — ✅ DONE 2026-06-27
+- **Tier**: M (no behavior change) · sub-item A3 of the B-173 epic.
+- New `background/tabs/tab-event-cascades.js`: `applyTabReplacement` (onReplaced N-table remap) + `releaseTabCascade` / `releaseTabsCascade` (onRemoved per-tab + bulk window cascade), each carrying ONE documented store inventory (sync vs async-fire-and-forget per store). Per-tab and bulk paths share a `detachTabFromEphemeralStores` kernel. `tab-events.js` 658 → 565.
+- **R4**: code + security + qa all PASS. Order/async preserved per store; the bulk reorder proven non-observable (single-threaded); per-tab-vs-bulk asymmetry preserved (claim-release deliberately NOT shared); claim release clears both session + durable (no dangling claim). 0 CRIT/HIGH/MED; 2 LOWs fixed in-round (async lint 80006 + comment precision).
+- **Structural-pin test**: `tests/b125-claim-jump-fix.test.js` "4 `releaseClaimByTab` call sites" updated to track the 2 relocated calls (total still 4; intent preserved) — faithful per the Fix-scope rule, validated by all 3 reviewers.
+- **Files**: `background/tabs/tab-event-cascades.js` (NEW), `background/tabs/tab-events.js`, `tests/b125-claim-jump-fix.test.js`.
 
 ### [B-176] Split `floating-groups.js` into cohesive modules — ✅ DONE 2026-06-27
 - **Tier**: M (no behavior change) · sub-item A2 of the B-173 epic.
