@@ -32,3 +32,24 @@ _None._
 **[security-reviewer]: PASS — security-neutral.** Verified untrusted-URL normalization preserved (all comparisons route through `safeNormalizeForMatch`), single-winner-per-tab invariant intact (no claim-hijack widening), claimed-exclusion is post-resolution (no fall-through), no new console/PII logging, import surface shrank (`safeNormalizeForMatch` only, no dynamic import). 0 findings.
 
 **Outcome:** 0 CRIT / 0 HIGH. All MED/LOW resolved in R5. Suite 2106 → 2116 PASS, zero regressions.
+
+---
+
+## B-176 — Split `floating-groups.js` into cohesive modules (R4, 2026-06-27)
+
+Reviewers: code (Sonnet) · security (Opus) · qa (Sonnet). Pure file-split; barrel pattern preserves all importers. Suite 2116 PASS throughout.
+
+**[code-reviewer]: PASS** — 4 highest-risk function bodies byte-identical to HEAD; barrel re-exports all 12 public symbols; import graph acyclic; zero module-level state. Contract-diff: clean.
+**[security-reviewer]: PASS — security-neutral** — no dynamic imports (the lone `import()` is a JSDoc note, won't trip the B-150 guard), import surface unchanged, 9× `writeTransaction` + 13 partition targets parity, no PII logging.
+**[qa-reviewer]: PASS** — every cross-module call backed by an explicit import (full call-graph traced); private helpers co-located with callers; all 12 exports have transitive behavioral coverage.
+
+### CRITICAL / HIGH / MEDIUM
+_None._
+
+### LOW (deferred polish)
+| # | File | Finding | Disposition |
+|---|------|---------|-------------|
+| L-1 (code) | new modules ×7 sites | Stale `floating-groups.js:NNN` provenance comments now point cross-file (several line numbers were already wrong in HEAD). | Deferred polish — reviewer states a fix-round is not warranted for a structural refactor; clean up in a later pass (line-number cross-refs are inherently fragile; prefer removing/genericizing). |
+| L-2 (qa) | `floating-groups-schema.js` / `-prune.js` | `getParentItemId` + `pruneResolvedFloatingGroups` have only transitive (not direct) unit coverage. | Pre-existing characteristic, not a regression; optional hardening. |
+
+**Outcome:** 0 CRIT / 0 HIGH / 0 MED. Suite 2116 PASS, zero regressions. Pure refactor — R5 = full-suite green (no new behavior to test).

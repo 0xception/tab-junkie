@@ -52,7 +52,7 @@ B-174  E2E cold-start reconciliation test (SAFETY NET)        ← start here
 |----------|------|------|------------------|--------|
 | **B-174** | Cold-start reconciliation E2E test (safety net) | M | No | ✅ **DONE** — `tests/b174-…e2e.test.js` T1-T7, 2106 PASS |
 | B-175 | Extract one shared tab↔item resolver | L | No | ✅ **DONE** — R4 contract-diff clean; 2116 PASS |
-| B-176 | Split `floating-groups.js` → ~4 modules | M | No | queued (after B-175) |
+| B-176 | Split `floating-groups.js` → 5 modules + barrel | M | No | ✅ **DONE** — R4 3× PASS; 2116 |
 | B-177 | Name `onReplaced`/`onRemoved` fan-out primitives | M | No | queued (after B-175) |
 | B-178 | Decompose `reconcileClaims` → named phases | M | No | queued (after B-175) |
 | B-179 | Collapse to one store; retire session; demote liveTabId | L | **Yes** | queued (after B-178 + B1 spike) |
@@ -63,6 +63,13 @@ B-174  E2E cold-start reconciliation test (SAFETY NET)        ← start here
 ---
 
 ## Completed This Sprint
+
+### [B-176] Split `floating-groups.js` into cohesive modules — ✅ DONE 2026-06-27
+- **Tier**: M (no behavior change) · sub-item A2 of the B-173 epic.
+- `floating-groups.js` (1344 LOC, 8 responsibilities) → 5 cohesive modules: `-schema` (35) / `-mutations` (576) / `-prune` (337) / `-reconcile` (195) / `-render` (231); `floating-groups.js` is now a 55-line re-export barrel so all 20+ importers are unchanged. No module-level state; acyclic import graph.
+- **R4**: code + security + qa all PASS. 4 highest-risk function bodies byte-identical to HEAD; barrel re-exports all 12 symbols; every cross-module call backed by an explicit import. 0 CRIT/HIGH/MED. Deferred-polish LOW: 7 stale provenance comments.
+- **R5**: pure move — full suite 2116 PASS, zero regressions (no new behavior to test).
+- **Files**: `background/tabs/floating-groups.js` (now barrel), `floating-groups-schema.js` / `-mutations.js` / `-prune.js` / `-reconcile.js` / `-render.js` (NEW).
 
 ### [B-175] Extract one shared tab↔item resolver — ✅ DONE 2026-06-27
 - **Tier**: L (no behavior change) · sub-item A1 of the B-173 epic.
