@@ -4,6 +4,29 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.41.0 — Sprint 46: durable claim identity (2026-06-27)
+
+**Tagged on `release/v2`.**
+
+Sprint 46 anchor. The saved-bookmark→tab association now survives extension reloads, browser restarts, and tab sleep/discard cycles via a durable `tj:itemClaims` store (B-167), replacing per-cold-start URL re-inference. A new popup toolbar button jumps the sidepanel to the focused window's tab section (B-168). Schema bumped v7 → v8 (additive). S45-retro housekeeping (B-169 / B-170 / B-171) rides alongside.
+
+### New features
+- **Jump to active window (B-168)** — new popup toolbar button scrolls the sidepanel to the currently-focused window's Open Tabs section, with a highlight flash on arrival and a "no tabs from the active window" toast when there's nothing to jump to. Honors `prefers-reduced-motion`. No default shortcut ships (planned Alt+W dropped — Edge/Chrome default-bind cap); assign one via `edge://extensions` shortcuts.
+
+### Internal
+- **Durable claim identity (B-167)** — bookmark→tab claims persist in a durable `tj:itemClaims` partition instead of re-inferring from URL heuristics every SW cold start. Layers above (`prePopulateClaimsFromDurable`) + below (W-1..W-5 mirror) the existing Phase 1/2/3/4 pipeline. Per-entry + partition-level `sessionTag` (CONV-1 unified-tag invariant); allow-list `isItemClaims` validator. Reliability-only — no UI change.
+- **Schema v7 → v8 additive bump** — paired `KNOWN_VERSION` + `defaultShape(PARTITION_META)` 7→8, new `PARTITION_ITEM_CLAIMS` in `ALL_PARTITIONS`, no-op `MIGRATION_STEPS` entry. `tj:itemClaims` seeded empty on first run; nothing rewritten.
+- **New `shared/diag.js`** (B-171) — reusable `recordTrace` / `readTraces` / `clearTraces` dev tooling in the `_diag_*` namespace; replaces ad-hoc per-bug `chrome.storage.local` debug keys. Developer-only.
+- **CLAUDE.md process edits** (B-169 human-name discussion discipline + B-170 R4 contract-vs-implementation diff gate) — doc-only.
+
+**SW cache flush**: After upgrade, toggle the extension OFF then ON once in `edge://extensions` to flush the SW module cache and pick up the v8 schema. Additive bump — no existing data migrated.
+
+**Rollback**: Data-safe but not seamless. User data (`tj:items` / `tj:groups` / `tj:prefs` / `tj:drift` / `tj:floatingGroups` / `tj:recency`) is untouched; `tj:itemClaims` is a derived cache. Downgrade to v1.40.0 puts `tj:meta.schemaVersion = 8` ahead of the v7 build's `KNOWN_VERSION = 7`, so the older build cold-starts in read-only safe-mode. Recover by running `chrome.storage.local.remove(['tj:meta', 'tj:itemClaims'])` (recommended) or `chrome.storage.local.set({ 'tj:meta': { schemaVersion: 7, createdAt: Date.now() } })` in the SW console, then reload.
+
+Tests: 2099 PASS (+47 over the 2052 v1.40.0 / S45 baseline).
+
+---
+
 ## v1.40.0 — Sprint 45: claim-desync correctness (2026-05-28)
 
 **Tagged on `release/v2`.**

@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-06-02 · **Version:** 2.46.opened · **Total Items:** 159 · **Sprint 46 OPEN.** Anchor: Durable claim identity (B-167, P2/XL Spike-First — replaces session-storage-based bookmark↔tab inference with a persistent partition + Chrome sessions API for restart). Piggyback small feature: Jump to active window (B-168, P2/S — toolbar icon + keyboard shortcut to scroll sidepanel to currently-focused window's tab section). Plus three XS Fast Track housekeeping items: Ways-of-working human-name discipline (B-169) + R4 contract-vs-implementation diff gate (B-170) + Reusable diagnostic-trace helper (B-171). Sprint 45 closed 2026-06-02 with v1.40.0 tagged on release/v2 at merge commit `3286227` (PR #55): 3 items shipped (B-163/B-164/B-166) + sibling B-132 fix + B-167 filed as P2/XL backlog; tests 1930 → 2052 PASS; `"idle"` permission added.
+**Updated:** 2026-06-27 · **Version:** 2.46.closed · **Total Items:** 159 · **Sprint 46 CLOSED 2026-06-27 (v1.41.0 tagged on release/v2).** Anchor: Durable claim identity (B-167, P2/XL Spike-First — replaces session-storage-based bookmark↔tab inference with a persistent partition + Chrome sessions API for restart). Piggyback small feature: Jump to active window (B-168, P2/S — toolbar icon + keyboard shortcut to scroll sidepanel to currently-focused window's tab section). Plus three XS Fast Track housekeeping items: Ways-of-working human-name discipline (B-169) + R4 contract-vs-implementation diff gate (B-170) + Reusable diagnostic-trace helper (B-171). Sprint 45 closed 2026-06-02 with v1.40.0 tagged on release/v2 at merge commit `3286227` (PR #55): 3 items shipped (B-163/B-164/B-166) + sibling B-132 fix + B-167 filed as P2/XL backlog; tests 1930 → 2052 PASS; `"idle"` permission added.
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████████████████░  92% (147/159)  [S46 open · 5 in-progress · branch feature/sprint-46-claim-identity]
+Overall Progress    ████████████████████  96% (152/159)  [S46 closed · 0 in-progress · v1.41.0 tagged on release/v2]
 ```
 
 ### Legend
@@ -122,15 +122,15 @@ Overall Progress    ███████████████████░
 
 ---
 
-## Sprint 46 — Durable claim identity + jump-to-active-window + housekeeping (active)
+## Sprint 46 — Durable claim identity + jump-to-active-window + housekeeping (closed)
 
-> 0/5 done · 5 in progress · Sprint 46 opened 2026-06-02 on branch `feature/sprint-46-claim-identity` (off `release/v2` at v1.40.0 / `56a4a7c`)
+> 5/5 done · 0 in progress · Sprint 46 closed 2026-06-27 (v1.41.0 tagged on release/v2): B-167 durable claim identity anchor + B-168 jump-to-active-window + B-169/B-170/B-171 housekeeping; suite 2099 PASS
 
-🔄 B-167 — Durable claim identity (anchor) · 🟡 · XL [S46 Spike-First — replaces session-storage `tj:tabClaims` with durable partition + `chrome.sessions` API + URL-history inference backstop]
-🔄 B-168 — Jump to active window · 🟡 · S [S46 small feature — both toolbar icon + keyboard shortcut triggers; scrolls sidepanel to active-window tab section]
-🔄 B-169 — Ways-of-working: human names in discussion · ⚪ · XS [S46 Fast Track — CLAUDE.md edit, lead with names not bare ticket IDs in prose]
-🔄 B-170 — R4 contract-vs-implementation diff gate · ⚪ · XS [S46 Fast Track — CLAUDE.md edit, three S45 precedents]
-🔄 B-171 — Reusable diagnostic-trace helper · ⚪ · XS [S46 Fast Track — `shared/diag.js#recordTrace` writes to `chrome.storage.local._diag_*`]
+✅ B-167 — Durable claim identity (anchor) · 🟡 · XL [S46 Spike-First — replaces session-storage `tj:tabClaims` with durable partition + `chrome.sessions` API + URL-history inference backstop]
+✅ B-168 — Jump to active window · 🟡 · S [S46 small feature — both toolbar icon + keyboard shortcut triggers; scrolls sidepanel to active-window tab section]
+✅ B-169 — Ways-of-working: human names in discussion · ⚪ · XS [S46 Fast Track — CLAUDE.md edit, lead with names not bare ticket IDs in prose]
+✅ B-170 — R4 contract-vs-implementation diff gate · ⚪ · XS [S46 Fast Track — CLAUDE.md edit, three S45 precedents]
+✅ B-171 — Reusable diagnostic-trace helper · ⚪ · XS [S46 Fast Track — `shared/diag.js#recordTrace` writes to `chrome.storage.local._diag_*`]
 
 ---
 
@@ -307,14 +307,14 @@ Overall Progress    ███████████████████░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 147 | 92% |
-| 🔄 In Progress | 5 | 3% |
+| ✅ Done | 152 | 96% |
+| 🔄 In Progress | 0 | 0% |
 | ⬜ To Do | 4 | 3% |
 | 🧊 Icebox | 3 | 2% |
 
-(Done count: 147 unchanged. Sprint 46 opened 2026-06-02 on branch `feature/sprint-46-claim-identity` off `release/v2` at v1.40.0 / `56a4a7c`. Five items moved from backlog → in-progress: Durable claim identity (B-167, P2/XL anchor — replaces session-storage `tj:tabClaims` with durable partition + Chrome sessions API), Jump to active window (B-168, P2/S small feature), and three XS Fast Track housekeeping items (B-169 ways-of-working human names in discussion, B-170 R4 contract-vs-implementation diff gate, B-171 reusable diagnostic-trace helper). Sprint 45 closed 2026-06-02 with v1.40.0 tagged on release/v2 at merge commit `3286227` (PR #55); shipped B-163/B-164/B-166 + sibling B-132 fix + B-167 filed as backlog.)
+(Done count: 147 → 152 (+5). Sprint 46 closed 2026-06-27 (v1.41.0 tagged on release/v2) on branch `feature/sprint-46-claim-identity` (off `release/v2` at v1.40.0 / `56a4a7c`). Five items shipped: Durable claim identity (B-167, P2/XL anchor — replaces session-storage `tj:tabClaims` with durable partition + Chrome sessions API), Jump to active window (B-168, P2/S small feature), and three XS Fast Track housekeeping items (B-169 ways-of-working human names in discussion, B-170 R4 contract-vs-implementation diff gate, B-171 reusable diagnostic-trace helper). Sprint 45 closed 2026-06-02 with v1.40.0 tagged on release/v2 at merge commit `3286227` (PR #55); shipped B-163/B-164/B-166 + sibling B-132 fix + B-167 filed as backlog.)
 
-**In Progress breakdown (5 items, Sprint 46)**:
+**Sprint 46 completed (5 items)**:
 - 🟡 **P2** (2): **B-167** Durable claim identity (XL anchor — Spike-First) · **B-168** Jump to active window (S — small feature)
 - ⚪ **P3** (3): **B-169** Ways-of-working human names in discussion (XS Fast Track CLAUDE.md edit) · **B-170** R4 contract-vs-implementation diff gate (XS Fast Track CLAUDE.md edit) · **B-171** Reusable diagnostic-trace helper (XS Fast Track new `shared/diag.js` module)
 
