@@ -56,7 +56,7 @@ B-174  E2E cold-start reconciliation test (SAFETY NET)        ← start here
 | B-177 | Name `onReplaced`/`onRemoved` fan-out primitives | M | No | ✅ **DONE** — R4 3× PASS; 2116 |
 | B-178 | Decompose `reconcileClaims` → named phases | M | No | ✅ **DONE** — R4 3× PASS; R5 T11; 2117 |
 | B-179 | Collapse to one store; retire session; demote liveTabId | L | **Yes** | ✅ **UAT PASS (core cutover validated)** — U-1✅ U-2✅ U-3/4✅ U-6✅ (claims survive reload/restart/discard/sleep; waived B-167 UAT now CLOSED). U-5/U-8 = pre-existing non-regressions → filed B-181/B-182. U-7 (import) + U-9 (rollback) deferred-skipped by product-owner. |
-| B-180 | Eager `floatingGroups` v4-only + schema v8→v9 | L | **Yes** | queued (after B-179 UAT decision) |
+| B-180 | Eager `floatingGroups` v4-only + schema v8→v9 | L | **Yes** | 🟢 **R3+R4+fix-round + automated R5 DONE (2127 PASS); ⏳ migration UAT pending** (v8→v9 + SW-cache-flush smoke in Edge). Tiers/validator KEPT → deferred deletion B-183. |
 
 - **Open question deferred to build:** record model (Option A two-record-kinds vs Option B unified) — a B1 design-confirm spike decides before B-179 build (product-owner: "let the B1 spike decide").
 

@@ -140,9 +140,9 @@ test('B-167 T3 (AC11): isItemClaims tolerates extra fields (C-7 allow-list, B-17
 
 // ---- T4: KNOWN_VERSION + paired-bump invariant ---------------------------
 
-test('B-167 T4 (AC1+AC8): KNOWN_VERSION === 8; defaultShape(PARTITION_META).schemaVersion === 8', () => {
-  assert.equal(KNOWN_VERSION, 8);
-  assert.equal(defaultShape(PARTITION_META).schemaVersion, 8);
+test('B-167 T4 (AC1+AC8): KNOWN_VERSION === 9; defaultShape(PARTITION_META).schemaVersion === 9 (B-180 §74.10 v8→v9 bump)', () => {
+  assert.equal(KNOWN_VERSION, 9);
+  assert.equal(defaultShape(PARTITION_META).schemaVersion, 9);
 });
 
 // ---- T5: sessionMatches threshold boundary -------------------------------

@@ -2,6 +2,17 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [Unreleased] — Sprint 47 (identity consolidation — B-173 EPIC)
+
+### Internal
+- **Schema v8 → v9 eager floatingGroups normalization (B-180 §74.10)** — paired `KNOWN_VERSION` 8→9 + `defaultShape(PARTITION_META)` literal 8→9 + the FIRST non-no-op `MIGRATION_STEPS` entry: a one-time eager rewrite that normalizes every `tj:floatingGroups` record to the canonical v4 STABLE-field shape (`parentItemId` + `floatingTabId` + `sortOrder`). The normalization is **additive + idempotent + drops no record**; the ephemeral `liveTabId` is **NOT** fabricated — runtime (`reassociateFloatingGroups` / the B-175 resolver) recomputes it. The meta version bump and the floatingGroups rewrite commit atomically in a single multi-partition `writeTransaction`. The position/URL recovery tiers + the tolerant read-validator are deliberately RETAINED this sprint (orphan-risk mitigation, §74.12 Risk-3); their removal is deferred to B-183. Final sub-item (B2) of the B-173 single-source-of-truth identity-consolidation epic.
+
+### Migration note
+**Schema bump from v8 → v9 — extension toggle required.** After updating, toggle the extension OFF then ON once in `edge://extensions` to flush the SW module cache and apply schema v9. On the first cold start after the toggle, every `tj:floatingGroups` record is normalized **in place, once** (additive — no bookmark, group, drift, claim, or recency data is touched). The pass is idempotent: subsequent cold starts re-run nothing because the version is already 9.
+
+### Rollback
+Downgrade to v1.41.0 (schema v8) is **data-safe** — the v9-normalized `tj:floatingGroups` records are forward-readable by the v8 build because `parentItemId` / `floatingTabId` / `sortOrder` were already OPTIONAL tolerated fields on the v8 read-validator, and `liveTabId` was never fabricated. Because `tj:meta.schemaVersion` will read `9` (ahead of the v8 build's `KNOWN_VERSION = 8`), the older build enters read-only safe-mode on cold start. To roll back, after installing the prior build run the following in the SW console, then reload: `chrome.storage.local.set({ 'tj:meta': { schemaVersion: 8, createdAt: Date.now() } })`.
+
 ## [1.41.0] — 2026-06-27 (Sprint 46 close — durable claim identity)
 
 Sprint 46 anchor. The saved-bookmark→tab association now survives extension reloads, browser restarts, and tab sleep/discard cycles via a new durable `tj:itemClaims` store (B-167), instead of re-guessing the link from URL heuristics on every service-worker cold start. A new popup toolbar button jumps the sidepanel to the currently-focused window's tab section (B-168). Schema bumped v7 → v8 (additive). S45-retrospective housekeeping (B-169 / B-170 / B-171) rides alongside.

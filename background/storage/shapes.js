@@ -114,8 +114,8 @@ export function defaultShape(partition) {
       return { ...DEFAULT_PREFERENCES };
     case PARTITION_META:
       /* Fresh installs seed at the current schemaVersion directly so no
-         migration step runs on first boot. `migration.js` KNOWN_VERSION = 8
-         (B-167 §73.3.1, S46). Hardcoded literal (not imported from migration.js)
+         migration step runs on first boot. `migration.js` KNOWN_VERSION = 9
+         (B-180 §74.10, S47). Hardcoded literal (not imported from migration.js)
          to keep the storage layer independent of the migration runner —
          bumping this when KNOWN_VERSION bumps is a deliberate, paired change
          (C-1a paired-bump invariant; tests/migration-fresh-install.test.js
@@ -158,7 +158,17 @@ export function defaultShape(partition) {
          PATCH sites in `tab-claims.js` were RETIRED by B-179 §75 — claims
          are now durable-only. C-1a paired bump: this literal moves
          to 8 in lock-step with KNOWN_VERSION. */
-      return { schemaVersion: 8, createdAt: Date.now() };
+      /* v8→v9 (B-180 §74.10, S47, B-173 EPIC B2) is the FIRST EAGER data
+         migration: the v8→v9 `MIGRATION_STEPS` entry normalizes every
+         `tj:floatingGroups` record to the canonical v4 STABLE-field shape
+         (`parentItemId` + `floatingTabId` + `sortOrder`; the EPHEMERAL
+         `liveTabId` is NOT fabricated — runtime recomputes it). Data migration
+         is EAGER (C-1b option 1) but additive + idempotent + drops no record.
+         The tolerant floatingGroups read-validator below + the resolver's
+         position/URL recovery tiers are RETAINED this sprint (orphan-risk
+         mitigation); B-183 removes them. C-1a paired bump: this literal moves
+         to 9 in lock-step with KNOWN_VERSION. */
+      return { schemaVersion: 9, createdAt: Date.now() };
     case PARTITION_DRIFT:
       return {};
     case PARTITION_FLOATING_GROUPS:

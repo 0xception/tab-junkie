@@ -85,15 +85,16 @@ test('AC4: migration steps registry is properly cleaned up between tests', async
   assert.equal(status.schemaVersion, KNOWN_VERSION);
 });
 
-test('B-167 §73.3.1: KNOWN_VERSION is 8 (governance bump for tj:itemClaims)', () => {
+test('B-180 §74.10: KNOWN_VERSION is 9 (eager floatingGroups v4 normalization)', () => {
   /* C-1a check: KNOWN_VERSION MUST be incremented when a partition shape
      is added or changed. v6→v7 was B-148 (PARTITION_GROUPS.renderOrder);
-     v7→v8 is B-167 (new PARTITION_ITEM_CLAIMS for durable claim identity).
-     The constant being a literal `8` is asserted indirectly by the
+     v7→v8 was B-167 (new PARTITION_ITEM_CLAIMS for durable claim identity);
+     v8→v9 is B-180 (eager `tj:floatingGroups` normalization to canonical v4).
+     The constant being a literal `9` is asserted indirectly by the
      migration-chain integrity check (`MIGRATION_STEPS` has contiguous
-     steps for 1→2 through 7→8). */
-  assert.equal(KNOWN_VERSION, 8,
-    'KNOWN_VERSION must be 8 (B-167 §73.3.1 schema bump for tj:itemClaims)');
+     steps for 1→2 through 8→9). */
+  assert.equal(KNOWN_VERSION, 9,
+    'KNOWN_VERSION must be 9 (B-180 §74.10 eager floatingGroups normalization)');
 });
 
 test('B-134 §63.2.4: v2 → v3 lazy migration — stored v2 advances to KNOWN_VERSION with no data rewrite', async () => {
@@ -121,7 +122,7 @@ test('B-134 §63.2.4: v2 → v3 lazy migration — stored v2 advances to KNOWN_V
   });
 
   /* Seed pre-S40 v2 records (no sortOrder field, no liveTabId). The lazy
-     migration strategy advances `tj:meta.schemaVersion` to KNOWN_VERSION (5)
+     migration strategy advances `tj:meta.schemaVersion` to KNOWN_VERSION (9)
      without touching `tj:floatingGroups` data. The read-side validator
      tolerates the missing fields; `buildFloatingMembers` falls back to
      (windowId, tabIndex) ordering AND position-then-URL join for legacy

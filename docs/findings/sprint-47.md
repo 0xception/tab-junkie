@@ -145,3 +145,31 @@ Stale `tj:tabClaims`-as-active docstrings in `shapes.js`/`migration.js`/`tab-eve
 - **U-7 (import) + U-9 (rollback) — deferred-skipped** by product-owner.
 
 **Verdict: B-179 core cutover UAT PASS.** The claim-storage cutover is real-browser-validated across all storage-wipe scenarios. The two findings are pre-existing, separately-filed, and do not block B-179. Residual: U-7 (import-clears-claims; unit-covered by b044) + U-9 (rollback; reasoned, no schema bump) optionally re-runnable before final merge.
+
+---
+
+## B-180 — Eager `tj:floatingGroups` v4 normalization + schema v8→v9 (R4 + fix-round, 2026-06-28)
+
+BEHAVIOR-CHANGING (data migration + schema bump). Final epic sub-item. Conservative scope per the orphan-risk mitigation: eager normalize stable fields + schema bump; **fallback tiers + tolerant validator KEPT** (deletion deferred to B-183). Reviewers: code (Sonnet) · security (Opus) · qa (Sonnet).
+
+**Headline verifications (all 3):** the migration is additive-only (never overwrites a present stable field), idempotent (version-gated + absence-gated; byte-for-byte no-op on re-run), **drops no record** (1:1 map), **never fabricates the ephemeral `liveTabId`** (left for runtime reassociate), and commits the meta-bump + record-rewrite in ONE atomic `chrome.storage.local.set` (no corruption window — verified against the multi-partition runner refactor). Rollback forward-readable by the v8 build (additive shape, validator unchanged); `KNOWN_VERSION` downgrade safe-mode trap documented in CHANGELOG. Contract-diff: clean.
+
+### CRITICAL / HIGH
+_None._
+
+### MEDIUM (fixed in fix-round)
+| # | File | Finding | Resolution |
+|---|------|---------|-----------|
+| M-1 (code) | `migration.js` import | First `storage → tabs` layering import (`getParentItemId` from `floating-groups-schema.js`) — wrong dependency direction, risks a future cycle. | ✅ Fix-round — import removed; the 3-line `itemId`-fallback derivation inlined (behavior-identical). No `storage → tabs` import remains. |
+| M-1 (qa) / L-1 (code) | b180 test | No test exercised the real production MIGRATION_STEPS chain for a v<8 user (b180 always seeded v8). | ✅ Fix-round — added a full v1→v9 production-chain upgrade test (seeds v1 + legacy `itemId`-only records; asserts schemaVersion 9 + full normalization + no drop). |
+| M-2 (qa) | b180 test | No direct migration→runtime re-association test. | ✅ Fix-round — referenced as transitive coverage (`floating-position.test.js:85` already feeds the migration-output shape through `reassociateFloatingGroups`); a duplicate test would add zero signal. |
+
+### LOW
+Runner F6 deep-clone asymmetry (benign — transform is non-mutating spread); non-object/degenerate-record branches (fail-closed via `assertShape`, near-unreachable); stale `KNOWN_VERSION (5)` comment in migration-steps.test.js → fixed.
+
+**Outcome:** 0 CRIT / 0 HIGH. MEDIUMs + LOW fixed in fix-round. Migration-runner F3 single-partition limitation resolved (atomic multi-partition commit). Suite 2126 → **2127 PASS**, zero regressions. **Automated side complete; B-180 UAT = the v8→v9 migration + SW-cache-flush (toggle OFF/ON) verification in Edge (C-1a UAT item — chrome-mock can't reproduce the SW module-cache stale state).**
+
+---
+
+## B-173 EPIC — CODE COMPLETE (all 7 sub-items)
+B-174…B-180 all DONE (code + R4 + fix-rounds + R5). Suite **2099 → 2127 PASS** (+28), zero regressions across the entire epic, contract-diff clean on every behavior-sensitive change, 21 reviewer passes + 3 fix-rounds. Remaining gates before ship: B-180 UAT (schema-migration smoke in Edge) + the deferred B-179 U-7/U-9 (optional) → then Gate 4 / Gate 7 / release v1.42.0.
