@@ -24,12 +24,10 @@ import { detectDriftForTab } from './drift.js';
 import { listItems, getItem, updateItem } from '../storage/items.js';
 import { isSafeFaviconUrl } from '../../shared/favicon.js';
 import { broadcast, SCOPE } from '../broadcast.js';
-import { recordOpener, pruneOpenersByWindow, walkOpenerChain } from './opener-chain.js';
+import { recordOpener, pruneOpenersByWindow, walkOpenerChain, resolveFloatingOpener } from './opener-chain.js';
 import { appendFloatingGroup } from './floating-groups.js';
 import { readPartition } from '../storage/partitions.js';
 import { PARTITION_FLOATING_GROUPS } from '../storage/shapes.js';
-/* [DIAG] temporary opener-chain inheritance investigation — remove before fix ships. */
-import { recordTrace } from '../../shared/diag.js';
 /* B-177 (§74 A3) — onReplaced / onRemoved event fan-out primitives + the
    reevalTimers debounce-timer API (the map lives in the cascade module because
    every timer CLEAR is part of a removal/replacement cascade). */
@@ -217,52 +215,23 @@ export function registerTabEventListeners(readyPromise) {
           await readyPromise;
           const items = await listItems();
           const claimsMirror = getClaimsMirror();
-          const result = walkOpenerChain(tab.id, claimsMirror, items);
-          /* [DIAG] opener-chain inheritance investigation — records WHY each
-             new-tab-from-link did or didn't inherit, to disambiguate the
-             claims-not-ready race (Gate 1) from the ungrouped-opener
-             limitation (Gate 2) from "opener isn't a claimed bookmark".
-             Fire-and-forget; no behavior change. REMOVE before the fix ships. */
-          {
-            const _openerEntry = Object.entries(claimsMirror).find(
-              ([, t]) => t === tab.openerTabId,
-            );
-            const _openerItem = _openerEntry
-              ? items.find((i) => i.id === _openerEntry[0])
-              : null;
-            /* [DIAG] is the opener tab itself a FLOATING member of a group?
-               (the decisive distinction: floating opener → real bug, should
-               re-inherit; plain tab → no bookmark family). */
-            let _openerFloating = null;
-            try {
-              const _fr = await readPartition(PARTITION_FLOATING_GROUPS);
-              if (Array.isArray(_fr)) {
-                const _m = _fr.find(
-                  (r) => r && typeof r === 'object' && r.liveTabId === tab.openerTabId,
-                );
-                if (_m) {
-                  _openerFloating = {
-                    groupId: _m.groupId,
-                    parentItemId: _m.parentItemId ?? _m.itemId ?? null,
-                  };
-                }
-              }
-            } catch { /* swallow */ }
-            const _openerLive = getLiveTabIndex().get(tab.openerTabId);
-            recordTrace('opener_inherit', {
-              newTabId: tab.id,
-              openerTabId: tab.openerTabId,
-              claimsReady: isClaimsReady(),
-              claimsCount: Object.keys(claimsMirror).length,
-              openerClaimed: _openerEntry !== undefined,
-              openerItemId: _openerEntry ? _openerEntry[0] : null,
-              openerItemGroupId: _openerItem ? _openerItem.groupId : undefined,
-              openerIsFloating: _openerFloating !== null,
-              openerFloating: _openerFloating,
-              openerUrl: _openerLive ? _openerLive.url : undefined,
-              walkResult: result,
-              outcome: result ? 'inherited' : 'fell-through-to-open-tabs',
-            }).catch(() => {});
+          let result = walkOpenerChain(tab.id, claimsMirror, items);
+          /* B-184: read floating records ONCE — reused for the floating-opener
+             fallback (next) and the insertAfterRef anchor (below). */
+          let floatingRecords = null;
+          try {
+            floatingRecords = await readPartition(PARTITION_FLOATING_GROUPS);
+          } catch { /* swallow — fall back to no floating context */ }
+          /* B-184 Part 1 — floating-opener re-inheritance. When the opener is
+             itself a FLOATING tab (a child previously inherited under a
+             bookmark), it is NOT in claimsMirror (floating tabs aren't claimed,
+             B-125), so walkOpenerChain misses it and the new tab would fall
+             through to Open Tabs. Resolve the opener directly from the floating
+             records so chained opens stay in the family. Robust against the
+             ephemeral openerMap (wiped on MV3 SW restart) for the single-hop
+             case (the dominant real-world pattern per the 2026-06-29 diag). */
+          if (!result && Array.isArray(floatingRecords)) {
+            result = resolveFloatingOpener(tab.openerTabId, floatingRecords);
           }
           if (result) {
             // H-4/H-5: re-read live state after async gap; bail if tab was removed
@@ -282,23 +251,18 @@ export function registerTabEventListeners(readyPromise) {
                anchor+1, not at end. Falls back to append-at-end when no
                anchor resolves (e.g., legacy v6 group with no renderOrder). */
             let insertAfterRef = 'item:' + result.itemId;
-            try {
-              const floatingRecords = await readPartition(PARTITION_FLOATING_GROUPS);
-              if (Array.isArray(floatingRecords)) {
-                const openerFloating = floatingRecords.find(
-                  (r) => r
-                    && typeof r === 'object'
-                    && r.groupId === result.groupId
-                    && r.liveTabId === tab.openerTabId
-                    && typeof r.floatingTabId === 'string'
-                    && r.floatingTabId.length > 0,
-                );
-                if (openerFloating) {
-                  insertAfterRef = 'floating:' + openerFloating.floatingTabId;
-                }
+            if (Array.isArray(floatingRecords)) {
+              const openerFloating = floatingRecords.find(
+                (r) => r
+                  && typeof r === 'object'
+                  && r.groupId === result.groupId
+                  && r.liveTabId === tab.openerTabId
+                  && typeof r.floatingTabId === 'string'
+                  && r.floatingTabId.length > 0,
+              );
+              if (openerFloating) {
+                insertAfterRef = 'floating:' + openerFloating.floatingTabId;
               }
-            } catch {
-              /* swallow — fallback to item-anchor is correct on read failure */
             }
             await appendFloatingGroup({
               groupId: result.groupId,
