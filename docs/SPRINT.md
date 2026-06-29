@@ -1,102 +1,32 @@
-# Current Sprint — Sprint 47
+# Current Sprint — between sprints (Sprint 47 CLOSED 2026-06-29)
 
-**Theme:** Single-source-of-truth tab↔item identity consolidation (EPIC) — collapse the six stores that hold bookmark↔tab identity into one authoritative store. Direct follow-through on B-167 §73.11, which earmarked this exact consolidation as a "Sprint 48 revisit"; the 2026-06-27 architectural review pulled it forward.
-**Branch:** `feature/sprint-47-identity-consolidation` (off `release/v2` at v1.41.0 / `4355b2a`)
-**Opened:** 2026-06-27
-**Estimated effort:** 1 × XL epic (B-173) decomposed into 7 sub-items (B-174..B-180), two of them L-tier.
+**Sprint 47 is closed.** Full item detail, velocity, Gate 7 retrospective, and final state are in
+`docs/SPRINT_ARCHIVE.md` (## Sprint 47 — Single-source-of-truth tab↔item identity consolidation).
 
----
-
-## Sprint 47 Charter
-
-R0 spike complete (`docs/design/74-b-173-r0-spike.md`). Product-owner approved the **whole program as one EPIC in Sprint 47** with record model deferred to a B1 design-confirm spike.
-
-**⚠️ P-1 override (Scope Change Control):** CLAUDE.md P-1 caps one L/XL item active at a time; this sprint runs the full epic including two L-tier items (B-175 resolver, B-179 store cutover) and a schema migration (B-180). The product-owner explicitly authorized this on 2026-06-27. Risk acknowledged: the B-179 storage cutover is irreversible and verifiable only via real-browser UAT (session-wipe-on-reload vs SW-restart is not modeled by chrome-mock). Mitigations: (1) execute strictly in dependency order behind the B-174 test net; (2) gate B-179 on the B1 design-confirm spike; (3) keep `floatingGroups` recovery tiers until a sprint of clean signal before B-180 deletes them.
+**Release:** v1.42.0 tagged on `release/v2` (`gh release create` skipped per established pattern).
+**Tests:** 2127 / 2127 PASS · zero regressions (2099 → 2127, +28). **Schema:** v8 → v9.
 
 ---
 
-## Execution sequence (dependency order)
+## Completed This Sprint (Sprint 47) — B-173 EPIC
 
-```
-B-174  E2E cold-start reconciliation test (SAFETY NET)        ← start here
-  └─ B-175  Extract ONE shared tab↔item resolver
-       ├─ B1 design-confirm spike (record model: Option A vs B)
-       ├─ B-176  Split floating-groups.js → ~4 modules     ┐ parallelizable
-       ├─ B-177  Name onReplaced/onRemoved fan-out          │ after B-175
-       ├─ B-178  Decompose reconcileClaims → named phases   ┘
-       └─ B-179  Collapse to one store; retire session; demote liveTabId  (needs B-178 + B1 spike)
-            └─ B-180  Eager floatingGroups v4-only migration + schema v8→v9
-```
+| Item | Name | Tier | Status |
+|------|------|------|--------|
+| B-173 | Single-source-of-truth identity consolidation (EPIC anchor) | XL Spike-First | ✅ DONE |
+| B-174 | Cold-start reconciliation E2E test net (A0) | M | ✅ DONE |
+| B-175 | Extract one shared tab↔item resolver (A1) | L | ✅ DONE |
+| B-176 | Split `floating-groups.js` → 5 modules (A2) | M | ✅ DONE |
+| B-177 | Name `onReplaced`/`onRemoved` event fan-out (A3) | M | ✅ DONE |
+| B-178 | Decompose `reconcileClaims` → 4 phases (A4) | M | ✅ DONE |
+| B-179 | Store cutover — retire session `tj:tabClaims` (B1) | L | ✅ DONE · UAT PASS |
+| B-180 | Eager `floatingGroups` v4 + schema v8→v9 (B2) | L | ✅ DONE · UAT PASS |
 
----
+**Outcome:** six-store bookmark↔tab identity collapsed to one durable authority (`tj:itemClaims`) +
+one live oracle (`LiveTabIndex`) + two derived caches; 10 match sites → 1 resolver. Design:
+`docs/design/74` (R0 spike) · `/75` (cutover) · `/76` (As-Built).
 
-## Gate 6 — Sprint Readiness (verified 2026-06-27)
-
-- ✅ Epic B-173 R0 spike complete; 7 sub-items B-174..B-180 filed (`in-progress`, sprint 47).
-- ✅ Tier declared per sub-item (5 × M/L no-behavior-change refactors + B-179/B-180 behavior-changing).
-- ⚠️ P-1 override recorded above (product-owner authorized).
-- ✅ **Deps-resolved check** — B-174 dep B-167 ✅; all other sub-item deps are in-sprint (B-174→B-175→…).
-- ⚠️ **Carried debt:** waived B-167 + B-168 UAT folded into the B-173 real-browser probe plan (§74.11 P-1/P-2/P-7).
-
----
-
-## Active Items
-
-### [B-173] Single-source-of-truth tab↔item identity consolidation (EPIC anchor)
-
-- **Tier**: Spike-First (XL) · **Priority**: P2 · **Status**: R0 ✅ COMPLETE → executing sub-items
-- **Target (from §74)**: durable `tj:itemClaims` = sole authority; retire session `tj:tabClaims`; demote `floatingGroups.liveTabId` to derived cache; collapse 10 match sites into ONE recovery resolver; keep `LiveTabIndex` as the live oracle. Net code deleted, not added.
-- **Schema impact**: one bump total, v8→v9 eager, at B-180.
-
-| Sub-item | Name | Tier | Behavior change? | Status |
-|----------|------|------|------------------|--------|
-| **B-174** | Cold-start reconciliation E2E test (safety net) | M | No | ✅ **DONE** — `tests/b174-…e2e.test.js` T1-T7, 2106 PASS |
-| B-175 | Extract one shared tab↔item resolver | L | No | ✅ **DONE** — R4 contract-diff clean; 2116 PASS |
-| B-176 | Split `floating-groups.js` → 5 modules + barrel | M | No | ✅ **DONE** — R4 3× PASS; 2116 |
-| B-177 | Name `onReplaced`/`onRemoved` fan-out primitives | M | No | ✅ **DONE** — R4 3× PASS; 2116 |
-| B-178 | Decompose `reconcileClaims` → named phases | M | No | ✅ **DONE** — R4 3× PASS; R5 T11; 2117 |
-| B-179 | Collapse to one store; retire session; demote liveTabId | L | **Yes** | ✅ **UAT PASS (core cutover validated)** — U-1✅ U-2✅ U-3/4✅ U-6✅ (claims survive reload/restart/discard/sleep; waived B-167 UAT now CLOSED). U-5/U-8 = pre-existing non-regressions → filed B-181/B-182. U-7 (import) + U-9 (rollback) deferred-skipped by product-owner. |
-| B-180 | Eager `floatingGroups` v4-only + schema v8→v9 | L | **Yes** | 🟢 **R3+R4+fix-round + automated R5 DONE (2127 PASS); ⏳ migration UAT pending** (v8→v9 + SW-cache-flush smoke in Edge). Tiers/validator KEPT → deferred deletion B-183. |
-
-- **Open question deferred to build:** record model (Option A two-record-kinds vs Option B unified) — a B1 design-confirm spike decides before B-179 build (product-owner: "let the B1 spike decide").
-
----
-
-## Completed This Sprint
-
-### [B-178] Decompose `reconcileClaims` into named phase helpers — ✅ DONE 2026-06-27
-- **Tier**: M (no behavior change) · sub-item A4 of the B-173 epic.
-- `reconcileClaims` (181-line monolith encoding B-149/B-163/B-167/B-132/B-125 fixes) → 42-line orchestrator + `_phase1ValidateClaims` / `_phase2AutoClaimByUrl` / `_phase3DriftFallback` / `_phase4ConditionalDriftDrop`. `urlToTabs` built once in the orchestrator and threaded by reference into Phase 2 + Phase 3 so the single-winner-per-tab invariant holds across the boundary.
-- **R4**: code + security + qa all PASS. Every phase predicate preserved verbatim; W-1 durable-write tag/timing unchanged (no CONV-1 reintroduction); graceful degradation intact; no new module state. 0 CRIT/HIGH/MED.
-- **R5**: added T11 — the cross-phase single-winner regression guard (Phase 2 exhausts a `urlToTabs` bucket Phase 3 drift would target → exactly one wins) — empirically verified to fail if the shared map is rebuilt. Plus L-1 docstring fix. Suite 2116 → **2117 PASS**.
-- **Files**: `background/tabs/tab-claims.js`, `tests/b163-drift-fallback-reconcile.test.js`.
-
-### [B-177] Name the `onReplaced`/`onRemoved` event fan-out primitives — ✅ DONE 2026-06-27
-- **Tier**: M (no behavior change) · sub-item A3 of the B-173 epic.
-- New `background/tabs/tab-event-cascades.js`: `applyTabReplacement` (onReplaced N-table remap) + `releaseTabCascade` / `releaseTabsCascade` (onRemoved per-tab + bulk window cascade), each carrying ONE documented store inventory (sync vs async-fire-and-forget per store). Per-tab and bulk paths share a `detachTabFromEphemeralStores` kernel. `tab-events.js` 658 → 565.
-- **R4**: code + security + qa all PASS. Order/async preserved per store; the bulk reorder proven non-observable (single-threaded); per-tab-vs-bulk asymmetry preserved (claim-release deliberately NOT shared); claim release clears both session + durable (no dangling claim). 0 CRIT/HIGH/MED; 2 LOWs fixed in-round (async lint 80006 + comment precision).
-- **Structural-pin test**: `tests/b125-claim-jump-fix.test.js` "4 `releaseClaimByTab` call sites" updated to track the 2 relocated calls (total still 4; intent preserved) — faithful per the Fix-scope rule, validated by all 3 reviewers.
-- **Files**: `background/tabs/tab-event-cascades.js` (NEW), `background/tabs/tab-events.js`, `tests/b125-claim-jump-fix.test.js`.
-
-### [B-176] Split `floating-groups.js` into cohesive modules — ✅ DONE 2026-06-27
-- **Tier**: M (no behavior change) · sub-item A2 of the B-173 epic.
-- `floating-groups.js` (1344 LOC, 8 responsibilities) → 5 cohesive modules: `-schema` (35) / `-mutations` (576) / `-prune` (337) / `-reconcile` (195) / `-render` (231); `floating-groups.js` is now a 55-line re-export barrel so all 20+ importers are unchanged. No module-level state; acyclic import graph.
-- **R4**: code + security + qa all PASS. 4 highest-risk function bodies byte-identical to HEAD; barrel re-exports all 12 symbols; every cross-module call backed by an explicit import. 0 CRIT/HIGH/MED. Deferred-polish LOW: 7 stale provenance comments.
-- **R5**: pure move — full suite 2116 PASS, zero regressions (no new behavior to test).
-- **Files**: `background/tabs/floating-groups.js` (now barrel), `floating-groups-schema.js` / `-mutations.js` / `-prune.js` / `-reconcile.js` / `-render.js` (NEW).
-
-### [B-175] Extract one shared tab↔item resolver — ✅ DONE 2026-06-27
-- **Tier**: L (no behavior change) · sub-item A1 of the B-173 epic.
-- New `background/tabs/tab-item-resolver.js` (`resolveRecordToTab` + `buildUnclaimedUrlIndex` + `takeUnclaimedTabForUrl`); the URL-match + 3-tier floating join consolidated from 5 duplicated sites (`reconcileClaims` Phase 2/3, `reevaluateTab` left as inverse, `buildFloatingMembers`, `reassociateFloatingGroups`, `preMarkInheritedFromFloatingGroups`) into one parameterized module. Per-site differences (URL-corroborated position, claimed-exclusion, lazy-rewrite/prune, single-winner mutation) preserved as flags.
-- **R4**: code + security + qa all PASS. Contract-vs-implementation diff (B-170 gate): **CLEAN** — no narrowing, independently verified. Security-neutral. 2 MED + LOWs were test-gap/doc items, all resolved in R5.
-- **R5**: `tests/b175-tab-item-resolver.test.js` (T1–T8c, 10 cases) for the flag combinations; 2 doc clarifications applied. Suite 2106 → **2116 PASS**, zero regressions.
-- **Scoping note**: 2 inverse-direction sites (`reevaluateTab`, `_resolveRecordIndexByTabId`) intentionally NOT routed through the resolver (tab→item, not record→tab) — flagged, not narrowed; revisit at B-180.
-- **Files**: `background/tabs/tab-item-resolver.js` (NEW), `background/tabs/tab-claims.js`, `background/tabs/floating-members.js`, `background/tabs/floating-groups.js`, `tests/b175-tab-item-resolver.test.js` (NEW).
-
-### [B-174] Cold-start reconciliation E2E test (safety net) — ✅ DONE 2026-06-27
-- **Tier**: M (no behavior change) · sub-item A0 of the B-173 epic.
-- First test in the suite to drive the real `initializeLiveState` cold-start pipeline end-to-end (behavioral pin of preMark → prePopulate → reconcile → reassociate → bootstrap), not a source-text pin.
-- 7 cases (T1 extension-reload happy path / T2 browser-restart backstop / T3 no-durable Phase-2 / T4 drift fallback + conditional drop / T5 preMark inherited / T6 floating 3-tier / T7 zero-state self-heal). Folds in waived B-167 reload/restart UAT (§74.11 P-1/P-2).
-- Suite 2099 → **2106 PASS**, zero regressions, no product code or chrome-mock changes.
-- **Pins for B-175**: `getItemIdForTab`, `buildLiveStates`, `buildFloatingMembers` (async), `getDriftRecords`, durable `readPartition(PARTITION_ITEM_CLAIMS)`. Honest mock-boundary note: session-wipe-vs-SW-restart, tabId-rotation timing, focus-shift teardown remain real-browser-UAT-only.
-- **Files**: `tests/b174-cold-start-reconciliation-e2e.test.js` (NEW).
+**Carried to Sprint 48:**
+- **B-181** — open tab in its own window not in the window filter (pre-existing, P3).
+- **B-182** — jump-to-active-window doesn't reach open-tab rows (pre-existing B-168 gap, P2).
+- **B-183** — delete floating-groups fallback tiers + tighten validator (gate on clean signal post-v1.42.0).
+- Deferred UAT: B-179 U-7 (import) + U-9 (rollback).
