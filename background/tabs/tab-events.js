@@ -28,6 +28,8 @@ import { recordOpener, pruneOpenersByWindow, walkOpenerChain } from './opener-ch
 import { appendFloatingGroup } from './floating-groups.js';
 import { readPartition } from '../storage/partitions.js';
 import { PARTITION_FLOATING_GROUPS } from '../storage/shapes.js';
+/* [DIAG] temporary opener-chain inheritance investigation — remove before fix ships. */
+import { recordTrace } from '../../shared/diag.js';
 /* B-177 (§74 A3) — onReplaced / onRemoved event fan-out primitives + the
    reevalTimers debounce-timer API (the map lives in the cascade module because
    every timer CLEAR is part of a removal/replacement cascade). */
@@ -216,6 +218,30 @@ export function registerTabEventListeners(readyPromise) {
           const items = await listItems();
           const claimsMirror = getClaimsMirror();
           const result = walkOpenerChain(tab.id, claimsMirror, items);
+          /* [DIAG] opener-chain inheritance investigation — records WHY each
+             new-tab-from-link did or didn't inherit, to disambiguate the
+             claims-not-ready race (Gate 1) from the ungrouped-opener
+             limitation (Gate 2) from "opener isn't a claimed bookmark".
+             Fire-and-forget; no behavior change. REMOVE before the fix ships. */
+          {
+            const _openerEntry = Object.entries(claimsMirror).find(
+              ([, t]) => t === tab.openerTabId,
+            );
+            const _openerItem = _openerEntry
+              ? items.find((i) => i.id === _openerEntry[0])
+              : null;
+            recordTrace('opener_inherit', {
+              newTabId: tab.id,
+              openerTabId: tab.openerTabId,
+              claimsReady: isClaimsReady(),
+              claimsCount: Object.keys(claimsMirror).length,
+              openerClaimed: _openerEntry !== undefined,
+              openerItemId: _openerEntry ? _openerEntry[0] : null,
+              openerItemGroupId: _openerItem ? _openerItem.groupId : undefined,
+              walkResult: result,
+              outcome: result ? 'inherited' : 'fell-through-to-open-tabs',
+            }).catch(() => {});
+          }
           if (result) {
             // H-4/H-5: re-read live state after async gap; bail if tab was removed
             const liveEntry = getLiveTabIndex().get(tab.id);
