@@ -230,6 +230,25 @@ export function registerTabEventListeners(readyPromise) {
             const _openerItem = _openerEntry
               ? items.find((i) => i.id === _openerEntry[0])
               : null;
+            /* [DIAG] is the opener tab itself a FLOATING member of a group?
+               (the decisive distinction: floating opener → real bug, should
+               re-inherit; plain tab → no bookmark family). */
+            let _openerFloating = null;
+            try {
+              const _fr = await readPartition(PARTITION_FLOATING_GROUPS);
+              if (Array.isArray(_fr)) {
+                const _m = _fr.find(
+                  (r) => r && typeof r === 'object' && r.liveTabId === tab.openerTabId,
+                );
+                if (_m) {
+                  _openerFloating = {
+                    groupId: _m.groupId,
+                    parentItemId: _m.parentItemId ?? _m.itemId ?? null,
+                  };
+                }
+              }
+            } catch { /* swallow */ }
+            const _openerLive = getLiveTabIndex().get(tab.openerTabId);
             recordTrace('opener_inherit', {
               newTabId: tab.id,
               openerTabId: tab.openerTabId,
@@ -238,6 +257,9 @@ export function registerTabEventListeners(readyPromise) {
               openerClaimed: _openerEntry !== undefined,
               openerItemId: _openerEntry ? _openerEntry[0] : null,
               openerItemGroupId: _openerItem ? _openerItem.groupId : undefined,
+              openerIsFloating: _openerFloating !== null,
+              openerFloating: _openerFloating,
+              openerUrl: _openerLive ? _openerLive.url : undefined,
               walkResult: result,
               outcome: result ? 'inherited' : 'fell-through-to-open-tabs',
             }).catch(() => {});
