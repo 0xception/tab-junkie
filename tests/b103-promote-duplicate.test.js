@@ -42,7 +42,6 @@ import { dirname, join } from 'node:path';
 import {
   __resetMock,
   __setMockTabs,
-  __getSessionStore,
 } from './chrome-mock.js';
 import {
   buildLiveTabIndex,
@@ -54,6 +53,8 @@ import {
   getClaimsMirror,
   __resetTabClaims,
 } from '../background/tabs/tab-claims.js';
+import { readPartition } from '../background/storage/partitions.js';
+import { PARTITION_ITEM_CLAIMS } from '../background/storage/shapes.js';
 import { buildOpenTabs } from '../background/tabs/open-tabs.js';
 import { registerStorageHandlers } from '../background/messages/storage-handlers.js';
 import {
@@ -135,12 +136,13 @@ test('B-103 T1 (AC1 + AC2): promote dispatch yields claimed bookmark + buildOpen
   assert.ok(stored, 'new bookmark is persisted in tj:items');
   assert.equal(stored.groupId, group.id, 'AC1: stored bookmark is in the target group');
 
-  /* (b) Claim is recorded — both in-memory mirror AND session storage
-     (the SW-side handler awaits claimTabForItem before returning). */
+  /* (b) Claim is recorded — both in-memory mirror AND the durable
+     tj:itemClaims store (the SW-side handler awaits claimTabForItem before
+     returning; B-179 retired the session store). */
   const mirror = getClaimsMirror();
   assert.equal(mirror[newItem.id], 100, 'AC1: claimsMirror records {newItemId: tabId}');
-  const session = __getSessionStore('tj:tabClaims');
-  assert.equal(session[newItem.id], 100, 'AC1: claim persisted to tj:tabClaims session storage');
+  const durable = await readPartition(PARTITION_ITEM_CLAIMS);
+  assert.equal(durable.entries[newItem.id].tabId, 100, 'AC1: claim persisted to the durable tj:itemClaims store');
 
   /* (c) buildOpenTabs() now excludes tab 100 — the SW-side guarantee that
      the sidepanel's post-fix patchOpenTabsSection call removes the row

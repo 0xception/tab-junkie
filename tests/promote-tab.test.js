@@ -17,7 +17,6 @@ import assert from 'node:assert/strict';
 import {
   __resetMock,
   __setMockTabs,
-  __getSessionStore,
 } from './chrome-mock.js';
 import { buildLiveTabIndex, __resetLiveTabIndex } from '../background/tabs/live-tab-index.js';
 import { __resetTabClaims, getClaimsMirror } from '../background/tabs/tab-claims.js';
@@ -188,7 +187,7 @@ test('AC6: claim is written to session storage', async () => {
   __setMockTabs([{ id: 22, url: 'https://session-test.com', title: 'T', windowId: 1, active: false, audible: false }]);
   await buildLiveTabIndex();
   const item = await promoteTab({ tabId: 22 });
-  const sessionClaims = __getSessionStore('tj:tabClaims');
+  const sessionClaims = getClaimsMirror();
   assert.ok(sessionClaims, 'session storage should have claims');
   assert.equal(sessionClaims[item.id], 22);
 });

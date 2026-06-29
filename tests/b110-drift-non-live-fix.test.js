@@ -65,8 +65,6 @@ import { dirname, resolve } from 'node:path';
 import {
   __resetMock,
   __setMockTabs,
-  __setSessionStore,
-  __getSessionStore,
   seedPartitions,
 } from './chrome-mock.js';
 import {
@@ -76,6 +74,8 @@ import {
 import {
   reconcileClaims,
   __resetTabClaims,
+  getClaimsMirror,
+  __setClaimsMirror,
 } from '../background/tabs/tab-claims.js';
 import { getDriftRecords } from '../background/tabs/drift.js';
 import { buildItemRowAriaLabel } from '../shared/aria-label.js';
@@ -228,7 +228,7 @@ test('B-110 T4 (AC2 PRIMARY): reconcileClaims clears drift when claim evicted vi
   /* Seed the post-sleep state: claim persisted to session storage, drift
      record persisted to local storage, but the tab is GONE (closed during
      SW sleep — onRemoved never fired). */
-  __setSessionStore('tj:tabClaims', { 'item-A': 100 });
+  __setClaimsMirror({ 'item-A': 100 });
   seedPartitions({
     items: [{ id: 'item-A', url: 'https://saved.com', title: 'A', groupId: null, sortOrder: 0, createdAt: 1, updatedAt: 1 }],
     drift: { 'item-A': { itemId: 'item-A', driftedToUrl: 'https://drifted.com/', detectedAt: 1 } },
@@ -266,7 +266,7 @@ test('B-110 T4 (AC2 PRIMARY): reconcileClaims clears drift when claim evicted vi
 test('B-149 T5 (B-099 D-1 cold-start): reconcileClaims PRESERVES URL-mismatched claim across cold-start (invert of pre-B-149 T5)', async () => {
   resetAll();
 
-  __setSessionStore('tj:tabClaims', { 'item-A': 100 });
+  __setClaimsMirror({ 'item-A': 100 });
   seedPartitions({
     items: [{ id: 'item-A', url: 'https://saved.com', title: 'A', groupId: null, sortOrder: 0, createdAt: 1, updatedAt: 1 }],
     drift: { 'item-A': { itemId: 'item-A', driftedToUrl: 'https://drifted.com/', detectedAt: 1 } },
@@ -281,7 +281,7 @@ test('B-149 T5 (B-099 D-1 cold-start): reconcileClaims PRESERVES URL-mismatched 
 
   await reconcileClaims([{ id: 'item-A', url: 'https://saved.com', sortOrder: 0 }]);
 
-  const claimsAfter = __getSessionStore('tj:tabClaims');
+  const claimsAfter = getClaimsMirror();
   assert.equal(
     claimsAfter['item-A'],
     100,
@@ -316,7 +316,7 @@ test('B-149 T5 (B-099 D-1 cold-start): reconcileClaims PRESERVES URL-mismatched 
 test('B-110 T6 (AC2 regression guard): reconcileClaims preserves drift for surviving claims; clears drift only for legitimately-evicted (missing-tab) claims', async () => {
   resetAll();
 
-  __setSessionStore('tj:tabClaims', { 'item-A': 100, 'item-B': 200 });
+  __setClaimsMirror({ 'item-A': 100, 'item-B': 200 });
   seedPartitions({
     items: [
       { id: 'item-A', url: 'https://saved-a.com', title: 'A', groupId: null, sortOrder: 0, createdAt: 1, updatedAt: 1 },

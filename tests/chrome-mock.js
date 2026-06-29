@@ -24,6 +24,13 @@ const state = {
    *  counter would read 2 (one per reconcileClaims completion). */
   /** @type {Record<string, number>} */
   sessionSetCounts: {},
+  /** B-179 §75.9.1 (class C) — per-key counter of chrome.storage.local.set
+   *  calls. After the session→durable cutover, the b164 dedup proof counts
+   *  the durable W-1 (`tj:itemClaims`) write instead of the retired session
+   *  set: two rapid 'active' fires that collapse to a single reconcileClaims
+   *  invocation produce exactly one durable claim write. */
+  /** @type {Record<string, number>} */
+  localSetCounts: {},
   /** @type {Array<{id: number, url: string, windowId: number, active: boolean, audible: boolean}>} */
   mockTabs: [],
   /** @type {Array<{id: number}>} B-014 — window-ordinal test fixtures */
@@ -79,6 +86,7 @@ const storageLocal = {
     }
     for (const [k, v] of Object.entries(obj)) {
       state.store[k] = deepClone(v);
+      state.localSetCounts[k] = (state.localSetCounts[k] || 0) + 1;
     }
   },
   async remove(keys) {
@@ -527,6 +535,7 @@ export function __resetMock() {
   state.bytesInUseOverride = null;
   state.sessionStore = {};
   state.sessionSetCounts = {};
+  state.localSetCounts = {};
   state.mockTabs = [];
   state.mockWindows = [];
   state.moveRejectIds.clear();
@@ -641,6 +650,21 @@ export function __getSessionStore(key) {
  */
 export function __getSessionSetCount(key) {
   return state.sessionSetCounts[key] || 0;
+}
+
+/**
+ * B-179 §75.9.1 (class C) — number of times `chrome.storage.local.set` has
+ * touched the given key since the last `__resetMock`. Post-cutover the b164
+ * dedup proof counts the durable claim write (`tj:itemClaims`): with a
+ * pre-settled sessionTag each reconcileClaims invocation produces exactly one
+ * durable W-1 write, so two rapid 'active' fires collapsing to a single
+ * reconcile read 1 (and a broken dedup reads 2).
+ *
+ * @param {string} key
+ * @returns {number}
+ */
+export function __getLocalSetCount(key) {
+  return state.localSetCounts[key] || 0;
 }
 
 /** Return recorded sendMessage calls for spy assertions. */

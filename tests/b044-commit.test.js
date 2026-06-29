@@ -18,12 +18,12 @@ import {
   __setCallCount,
   seedPartitions,
   __getRawStore,
-  __getSessionStore,
-  __setSessionStore,
   __triggerQuotaOnNextSet,
 } from './chrome-mock.js';
 
 import { commitImport } from '../background/import/commit.js';
+import { readPartition } from '../background/storage/partitions.js';
+import { PARTITION_ITEM_CLAIMS } from '../background/storage/shapes.js';
 import { ulid } from '../background/storage/ids.js';
 
 beforeEach(() => {
@@ -148,11 +148,20 @@ test('B-044 §33.7: drift + floatingGroups partitions reset after commit', async
   assert.deepEqual(floating, [], 'floatingGroups fully cleared');
 });
 
-test('B-044 §33.7: session tabClaims wiped after commit', async () => {
-  __setSessionStore('tj:tabClaims', { i1: 999 });
+test('B-044 §33.7 / B-179 §75.4.4: durable item-claims reset after commit', async () => {
+  // B-179 retired the session store: import now resets the durable
+  // tj:itemClaims partition's entries to {} (was chrome.storage.session.remove).
+  seedPartitions({
+    itemClaims: {
+      schemaVersion: 1,
+      sessionTag: 'pre-import',
+      entries: { i1: { tabId: 999, claimedAt: 1, sessionTag: 'pre-import' } },
+    },
+  });
   await commitImport({ items: [], groups: [] });
-  const claims = __getSessionStore('tj:tabClaims');
-  assert.equal(claims, undefined, 'session tab-claims removed');
+  const durable = await readPartition(PARTITION_ITEM_CLAIMS);
+  assert.deepEqual(durable.entries, {}, 'durable claim entries reset on import');
+  assert.equal(durable.sessionTag, 'pre-import', 'partition-level sessionTag preserved across the reset');
 });
 
 /* =========================================================================

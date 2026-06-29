@@ -46,10 +46,11 @@
  *        does not slowly chip away at the surviving claim).
  *
  * SW idle-shutdown is reproduced by directly clearing the in-memory
- * claimsMirror via `__resetTabClaims` and re-running `reconcileClaims`.
- * `tj:tabClaims` is read back from `chrome.storage.session` via the existing
- * mock — this matches the production cold-start path where the SW respawns
- * and `reconcileClaims` re-reads from session storage.
+ * claimsMirror via `__resetTabClaims`, re-seeding it via `__setClaimsMirror`
+ * (post-B-179 the mirror is reconcile's Phase-1 input, and on a real cold
+ * start `hydrateClaimsMirrorFromDurable` re-seeds it from the durable
+ * `tj:itemClaims` partition the prior reconcile's W-1 persisted), then
+ * re-running `reconcileClaims` — which now reads the mirror snapshot.
  */
 
 import './_setup.js';
@@ -59,8 +60,6 @@ import assert from 'node:assert/strict';
 import {
   __resetMock,
   __setMockTabs,
-  __setSessionStore,
-  __getSessionStore,
   seedPartitions,
 } from './chrome-mock.js';
 import {
@@ -73,6 +72,8 @@ import {
   reevaluateTab,
   buildLiveStates,
   __resetTabClaims,
+  getClaimsMirror,
+  __setClaimsMirror,
 } from '../background/tabs/tab-claims.js';
 import {
   detectDriftForTab,
@@ -102,7 +103,7 @@ test('B-149 T1: drifted-but-live claim SURVIVES reconcileClaims cold-start (B-09
   await reconcileClaims(items);
 
   /* Sanity: claim established, no drift. */
-  assert.equal(__getSessionStore('tj:tabClaims')['item-A'], 100, 'pre-condition: item-A claimed by tab 100');
+  assert.equal(getClaimsMirror()['item-A'], 100, 'pre-condition: item-A claimed by tab 100');
   let drift = await getDriftRecords();
   assert.equal('item-A' in drift, false, 'pre-condition: no drift yet');
 
@@ -112,18 +113,19 @@ test('B-149 T1: drifted-but-live claim SURVIVES reconcileClaims cold-start (B-09
   await detectDriftForTab(100, 'https://drifted.example/foo', items);
 
   /* Sanity: B-099 D-1 holds at runtime — claim preserved, drift recorded. */
-  assert.equal(__getSessionStore('tj:tabClaims')['item-A'], 100, 'B-099 D-1 (runtime): claim preserved across URL drift');
+  assert.equal(getClaimsMirror()['item-A'], 100, 'B-099 D-1 (runtime): claim preserved across URL drift');
   drift = await getDriftRecords();
   assert.ok(drift['item-A'], 'drift record written by detectDriftForTab');
   assert.equal(drift['item-A'].driftedToUrl, 'https://drifted.example/foo');
 
   /* Simulate SW idle-shutdown: clear the in-memory claimsMirror so the
-     subsequent reconcileClaims call must re-read tj:tabClaims from session
-     storage. This mirrors what happens in production when MV3 terminates
-     the SW after ~30 s idle and a tab event respawns it; tj:tabClaims and
-     tj:drift are intact in storage but the in-memory module state is
-     fresh. The LiveTabIndex is also rebuilt from chrome.tabs.query — the
-     tab is still alive, still at the drifted URL. */
+     subsequent reconcileClaims call must re-read its Phase-1 input from the
+     (re-seeded) mirror. This mirrors what happens in production when MV3
+     terminates the SW after ~30 s idle and a tab event respawns it; the
+     durable tj:itemClaims and tj:drift partitions are intact in storage but
+     the in-memory module state is fresh. The LiveTabIndex is also rebuilt
+     from chrome.tabs.query — the tab is still alive, still at the drifted
+     URL. */
   __resetLiveTabIndex();
   __resetTabClaims();
   __setMockTabs([
@@ -131,16 +133,17 @@ test('B-149 T1: drifted-but-live claim SURVIVES reconcileClaims cold-start (B-09
   ]);
   await buildLiveTabIndex();
 
-  /* Re-seed tj:tabClaims and tj:drift to mirror the production cold-start
-     state. session storage survives SW idle restarts; local storage
-     (drift partition) survives across all in-session restarts. */
+  /* Re-seed the mirror + tj:drift to mirror the production cold-start state.
+     Post-B-179 the SW-restart recovery path is hydrateClaimsMirrorFromDurable,
+     which re-seeds claimsMirror from the durable tj:itemClaims partition the
+     previous reconcile's W-1 persisted; we stand in for that hydrate by
+     seeding the mirror directly. The drift partition (local) survives the
+     restart unchanged. */
   seedPartitions({
     drift: { 'item-A': { itemId: 'item-A', driftedToUrl: 'https://drifted.example/foo', detectedAt: 1 } },
   });
-  // session-store re-seed: __resetTabClaims clears the in-memory mirror but
-  // does NOT touch session storage; the previous reconcile's writeClaims
-  // already persisted { 'item-A': 100 } so we don't need to re-seed.
-  assert.equal(__getSessionStore('tj:tabClaims')['item-A'], 100, 'pre-condition: tj:tabClaims still holds item-A → 100 after SW restart');
+  __setClaimsMirror({ 'item-A': 100 });
+  assert.equal(getClaimsMirror()['item-A'], 100, 'pre-condition: durable-hydrated mirror still holds item-A → 100 after SW restart');
 
   /* Run cold-start reconcile. */
   await reconcileClaims(items);
@@ -148,7 +151,7 @@ test('B-149 T1: drifted-but-live claim SURVIVES reconcileClaims cold-start (B-09
   /* B-149 fix: claim SURVIVES Phase 1 (the URL-match clause has been
      dropped from the survival predicate). */
   assert.equal(
-    __getSessionStore('tj:tabClaims')['item-A'],
+    getClaimsMirror()['item-A'],
     100,
     'B-149: drifted-but-live claim must SURVIVE cold-start reconcile (the runtime B-099 D-1 contract is now enforced at the cold-start boundary too)',
   );
@@ -191,14 +194,15 @@ test('B-149 T2 (regression guard): non-live drifted claim (tab missing) IS still
     items: [{ id: 'item-A', url: 'https://saved.example/page', title: 'A', groupId: null, sortOrder: 0, createdAt: 1, updatedAt: 1 }],
     drift: { 'item-A': { itemId: 'item-A', driftedToUrl: 'https://drifted.example/foo', detectedAt: 1 } },
   });
-  /* Pre-existing claim in session — but no live tab matches tabId 100. */
-  __setSessionStore('tj:tabClaims', { 'item-A': 100 });
+  /* Pre-existing claim in the hydrated mirror — but no live tab matches
+     tabId 100 (the tab was closed during SW sleep). */
+  __setClaimsMirror({ 'item-A': 100 });
   __setMockTabs([]);
   await buildLiveTabIndex();
 
   await reconcileClaims([{ id: 'item-A', url: 'https://saved.example/page', sortOrder: 0 }]);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(
     claims['item-A'],
     undefined,
@@ -233,18 +237,20 @@ test('B-149 T3 (happy-path regression guard): URL-matching live claim survives P
   const items = [{ id: 'item-B', url: 'https://saved.example/q', sortOrder: 0 }];
   await reconcileClaims(items);
 
-  /* Cold-start: clear in-memory mirror, rebuild index, reconcile again.
-     Tab is still alive at the saved URL — claim must survive. */
+  /* Cold-start: clear in-memory mirror, re-seed it from durable (the
+     hydrate stand-in), rebuild index, reconcile again. Tab is still alive at
+     the saved URL — Phase 1 must keep the claim. */
   __resetLiveTabIndex();
   __resetTabClaims();
   __setMockTabs([
     { id: 200, url: 'https://saved.example/q', windowId: 1, active: false, audible: false, favIconUrl: '', index: 0 },
   ]);
   await buildLiveTabIndex();
+  __setClaimsMirror({ 'item-B': 200 });
   await reconcileClaims(items);
 
   assert.equal(
-    __getSessionStore('tj:tabClaims')['item-B'],
+    getClaimsMirror()['item-B'],
     200,
     'happy path: URL-matching live claim survives cold-start reconcile',
   );
@@ -271,21 +277,24 @@ test('B-149 T4 (durability): drifted claim survives 2 successive cold-start reco
   updateTabEntry(300, { url: 'https://drifted.example/r' });
   await reevaluateTab(300, 'https://drifted.example/r', items);
   await detectDriftForTab(300, 'https://drifted.example/r', items);
-  assert.equal(__getSessionStore('tj:tabClaims')['item-C'], 300, 'pre: claim preserved at runtime');
+  assert.equal(getClaimsMirror()['item-C'], 300, 'pre: claim preserved at runtime');
   let drift = await getDriftRecords();
   assert.ok(drift['item-C'], 'pre: drift recorded');
 
-  /* Cold-start cycle #1: SW idle-shutdown + respawn. */
+  /* Cold-start cycle #1: SW idle-shutdown + respawn. hydrate re-seeds the
+     mirror from durable (stand-in: __setClaimsMirror) so Phase 1 sees the
+     drifted-but-live claim. */
   __resetLiveTabIndex();
   __resetTabClaims();
   __setMockTabs([
     { id: 300, url: 'https://drifted.example/r', windowId: 1, active: false, audible: false, favIconUrl: '', index: 0 },
   ]);
   await buildLiveTabIndex();
+  __setClaimsMirror({ 'item-C': 300 });
   await reconcileClaims(items);
 
   assert.equal(
-    __getSessionStore('tj:tabClaims')['item-C'],
+    getClaimsMirror()['item-C'],
     300,
     'cycle #1: drifted claim survives first cold-start',
   );
@@ -293,17 +302,18 @@ test('B-149 T4 (durability): drifted claim survives 2 successive cold-start reco
   assert.ok(drift['item-C'], 'cycle #1: drift record retained');
 
   /* Cold-start cycle #2: another SW idle-shutdown + respawn (still no
-     navigation back to the saved URL). */
+     navigation back to the saved URL). hydrate re-seeds the mirror again. */
   __resetLiveTabIndex();
   __resetTabClaims();
   __setMockTabs([
     { id: 300, url: 'https://drifted.example/r', windowId: 1, active: false, audible: false, favIconUrl: '', index: 0 },
   ]);
   await buildLiveTabIndex();
+  __setClaimsMirror({ 'item-C': 300 });
   await reconcileClaims(items);
 
   assert.equal(
-    __getSessionStore('tj:tabClaims')['item-C'],
+    getClaimsMirror()['item-C'],
     300,
     'cycle #2: drifted claim survives a second cold-start (fix is durable, not a one-shot artifact)',
   );

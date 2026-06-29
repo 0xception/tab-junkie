@@ -45,7 +45,6 @@ import assert from 'node:assert/strict';
 import {
   __resetMock,
   __setMockTabs,
-  __getSessionStore,
   seedPartitions,
 } from './chrome-mock.js';
 import {
@@ -59,6 +58,7 @@ import {
   reevaluateTab,
   releaseClaimByTab,
   __resetTabClaims,
+  getClaimsMirror,
 } from '../background/tabs/tab-claims.js';
 import {
   detectDriftForTab,
@@ -116,7 +116,7 @@ test('B-099 T1: claimed tab navigates to mismatched URL → claim preserved + dr
   await reconcileClaims(items);
 
   // Sanity: claim established by reconcileClaims
-  let claims = __getSessionStore('tj:tabClaims');
+  let claims = getClaimsMirror();
   assert.equal(claims['item-1'], 10, 'item-1 should be claimed by tab 10');
 
   // Tab navigates to a different URL — the exact path tab-events.js fires:
@@ -126,7 +126,7 @@ test('B-099 T1: claimed tab navigates to mismatched URL → claim preserved + dr
   await detectDriftForTab(10, 'https://other.example/foo', items);
 
   // Claim is PRESERVED (D-1) — this is the central B-099 fix.
-  claims = __getSessionStore('tj:tabClaims');
+  claims = getClaimsMirror();
   assert.equal(claims['item-1'], 10, 'Claim must survive URL mismatch (D-1)');
 
   // Drift record was WRITTEN — previously suppressed by claim release race.
@@ -159,7 +159,7 @@ test('B-099 T2: drifted tab navigates back to saved URL → drift cleared, claim
   drift = await getDriftRecords();
   assert.equal(drift['item-2'], undefined, 'Drift should be cleared after navigating back');
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims['item-2'], 11, 'Claim should persist throughout drift + clear');
 });
 
@@ -179,7 +179,7 @@ test('B-099 T3: tab close on claimed+drifted tab → claim released + drift clea
   await detectDriftForTab(12, 'https://drifted.example/y', items);
   let drift = await getDriftRecords();
   assert.ok(drift['item-3'], 'Drift should exist before tab close');
-  let claims = __getSessionStore('tj:tabClaims');
+  let claims = getClaimsMirror();
   assert.equal(claims['item-3'], 12, 'Claim should exist before tab close');
 
   // Mirror the tab-events.js onRemoved handler: removeTabEntry, then
@@ -191,7 +191,7 @@ test('B-099 T3: tab close on claimed+drifted tab → claim released + drift clea
 
   drift = await getDriftRecords();
   assert.equal(drift['item-3'], undefined, 'Drift cleared after tab close');
-  claims = __getSessionStore('tj:tabClaims');
+  claims = getClaimsMirror();
   assert.equal(claims['item-3'], undefined, 'Claim released after tab close');
 });
 
@@ -298,7 +298,7 @@ test('B-099 T6: buildOpenTabs() excludes drifted-claimed tabs AND floating-membe
   await reevaluateTab(15, 'https://drifted.example/q', items);
   await detectDriftForTab(15, 'https://drifted.example/q', items);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims['item-6'], 15, 'Claim preserved under drift');
 
   /* B-121 §60.7: buildOpenTabs accepts a Set<number> of tabIds resolved as
@@ -334,7 +334,7 @@ test('B-099 T7: claimed tab navigates to another item URL → original keeps cla
   await reconcileClaims(items);
 
   // Sanity: itemA claims tab 17; itemB is unclaimed.
-  let claims = __getSessionStore('tj:tabClaims');
+  let claims = getClaimsMirror();
   assert.equal(claims['itemA'], 17);
   assert.equal(claims['itemB'], undefined);
 
@@ -343,7 +343,7 @@ test('B-099 T7: claimed tab navigates to another item URL → original keeps cla
   await reevaluateTab(17, 'https://itemB.example/q', items);
 
   // Original-wins (D-3): itemA still owns tab 17, itemB does NOT auto-claim.
-  claims = __getSessionStore('tj:tabClaims');
+  claims = getClaimsMirror();
   assert.equal(claims['itemA'], 17, 'itemA must keep its claim even though tab now matches itemB');
   assert.equal(claims['itemB'], undefined, 'itemB must not auto-claim a tab another item already holds');
 });
@@ -374,7 +374,7 @@ test('B-099 T8: MSG_DEMOTE_ITEM on a drifted item clears drift record + releases
   await detectDriftForTab(18, 'https://drifted.example/w', [item]);
   let drift = await getDriftRecords();
   assert.ok(drift['item-8'], 'Drift should exist before demote');
-  let claims = __getSessionStore('tj:tabClaims');
+  let claims = getClaimsMirror();
   assert.equal(claims['item-8'], 18, 'Claim should exist before demote');
 
   // Dispatch MSG_DEMOTE_ITEM — handler runs deleteItem → clearDrift →
@@ -385,7 +385,7 @@ test('B-099 T8: MSG_DEMOTE_ITEM on a drifted item clears drift record + releases
   // Both the drift record and the claim must be gone.
   drift = await getDriftRecords();
   assert.equal(drift['item-8'], undefined, 'Drift record cleared by demote handler');
-  claims = __getSessionStore('tj:tabClaims');
+  claims = getClaimsMirror();
   assert.equal(claims['item-8'], undefined, 'Claim released by demote handler');
 });
 
@@ -422,7 +422,7 @@ test('B-099 T9 (M-1): driftedToUrl updates in drift record when a claimed tab dr
   assert.equal(drift['item-9'].driftedToUrl, 'https://b.example/second',
     'Drift record driftedToUrl must update on second drift — tooltip source for _ensureIndicators M-1 fix');
   // Claim is still intact.
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims['item-9'], 19, 'Claim preserved across double-drift');
 });
 

@@ -92,3 +92,6 @@
 - [§71 — B-166 — `+` CTA on Floating Tab Promotes In-Place (R6 As-Built)](design/71-b-166-promote-in-place.md)
 - [§72 — B-168 — Jump to Active Window (R2 Design)](design/72-b-168-jump-to-active-window.md)
 - [§73 — B-167 — Durable Claim Identity (R2 Design)](design/73-b-167-durable-claim-identity.md)
+- [§74 — B-173 — Single-Source-of-Truth Tab↔Item Identity Consolidation (R0 Spike)](design/74-b-173-r0-spike.md)
+- [§75 — B-179 — Store Cutover Design (Collapse Identity to One Store) (B1 Design-Confirm)](design/75-b-179-store-cutover-design.md)
+- [§76 — B-173 EPIC — Single-Source-of-Truth Tab↔Item Identity Consolidation (R6 As-Built)](design/76-b-173-epic-as-built.md)

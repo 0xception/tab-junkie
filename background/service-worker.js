@@ -45,8 +45,13 @@ registerTabEventListeners(readyPromise);
 
 // B-164 §69.3.2 — chrome.idle.onStateChanged listener for on-wake defensive
 // reconcile. Synchronously registered at module scope per MV3; gated on
-// readyPromise inside the listener body so reconcileClaims doesn't run
-// before the migration pipeline + initializeLiveState complete.
+// readyPromise inside the listener body so reconcileClaims doesn't run before
+// the migration pipeline completes. (readyPromise resolves on migrations only;
+// the initializeLiveState call below runs CONCURRENTLY as fire-and-forget — it
+// is NOT part of the gate. Hydrate-before-reconcile is guaranteed WITHIN
+// initializeLiveState's cold-start order; an idle-wake in the
+// migrations-done-but-hydrate-pending gap self-heals — Phase 2 re-infers and
+// the next cold-start reconcile corrects.)
 registerIdleReconciler(readyPromise);
 
 registerStorageHandlers(readyPromise);

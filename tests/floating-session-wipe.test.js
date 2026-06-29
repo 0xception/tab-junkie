@@ -11,6 +11,8 @@ import { __resetMock, __setMockTabs, __getRawStore, seedPartitions } from './chr
 import { buildLiveTabIndex, __resetLiveTabIndex, getLiveTabIndex } from '../background/tabs/live-tab-index.js';
 import { __resetTabClaims, getClaimsMirror } from '../background/tabs/tab-claims.js';
 import { reassociateFloatingGroups } from '../background/tabs/floating-groups.js';
+import { readPartition } from '../background/storage/partitions.js';
+import { PARTITION_ITEM_CLAIMS } from '../background/storage/shapes.js';
 
 beforeEach(() => {
   __resetMock();
@@ -57,9 +59,17 @@ test('AC12: cold-start replay preserves matched-unclaimed records', async () => 
   assert.equal(raw.length, 1);
 });
 
-test('AC12: session wipe clears tab claims; floating-group records survive in local', async () => {
-  await chrome.storage.session.set({ 'tj:tabClaims': { 'item-1': 10 } });
+test('AC12 / B-179: durable tab claims SURVIVE a session wipe; floating-group records survive in local', async () => {
+  /* Post-B-179 claims live in the durable tj:itemClaims (chrome.storage.local)
+     partition, not chrome.storage.session. A session wipe therefore no longer
+     clears claims — the whole point of the cutover. Floating-group records
+     (also local) survive too. */
   seedPartitions({
+    itemClaims: {
+      schemaVersion: 1,
+      sessionTag: 'sess-x',
+      entries: { 'item-1': { tabId: 10, claimedAt: 1, sessionTag: 'sess-x' } },
+    },
     floatingGroups: [
       { floatingTabId: 'ft-persist', groupId: 'g-persist', parentItemId: 'p-persist', windowId: 1, tabIndex: 0, url: 'https://persist.com', savedAt: 1000 },
     ],
@@ -67,8 +77,8 @@ test('AC12: session wipe clears tab claims; floating-group records survive in lo
 
   await chrome.storage.session.clear();
 
-  const sessionResult = await chrome.storage.session.get('tj:tabClaims');
-  assert.equal(sessionResult['tj:tabClaims'], undefined);
+  const durable = await readPartition(PARTITION_ITEM_CLAIMS);
+  assert.equal(durable.entries['item-1'].tabId, 10, 'durable claim survives the session wipe');
 
   const raw = __getRawStore('tj:floatingGroups');
   assert.equal(raw.length, 1);

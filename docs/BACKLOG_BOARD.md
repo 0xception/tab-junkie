@@ -1,13 +1,13 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-06-27 · **Version:** 2.46.closed · **Total Items:** 159 · **Sprint 46 CLOSED 2026-06-27 (v1.41.0 tagged on release/v2).** Anchor: Durable claim identity (B-167, P2/XL Spike-First — replaces session-storage-based bookmark↔tab inference with a persistent partition + Chrome sessions API for restart). Piggyback small feature: Jump to active window (B-168, P2/S — toolbar icon + keyboard shortcut to scroll sidepanel to currently-focused window's tab section). Plus three XS Fast Track housekeeping items: Ways-of-working human-name discipline (B-169) + R4 contract-vs-implementation diff gate (B-170) + Reusable diagnostic-trace helper (B-171). Sprint 45 closed 2026-06-02 with v1.40.0 tagged on release/v2 at merge commit `3286227` (PR #55): 3 items shipped (B-163/B-164/B-166) + sibling B-132 fix + B-167 filed as P2/XL backlog; tests 1930 → 2052 PASS; `"idle"` permission added.
+**Updated:** 2026-06-27 · **Version:** 2.47.opened · **Total Items:** 170 · **Sprint 47 CLOSED 2026-06-29 (v1.42.0 tagged on release/v2).** EPIC: single-source-of-truth tab↔item identity consolidation (B-173 anchor + B-174..B-180, all done; UAT B-179 core + B-180 migration PASS). 3 follow-ups filed (B-181/B-182 pre-existing non-regressions found in UAT; B-183 deferred tier/validator deletion). **Sprint 46 CLOSED 2026-06-27 (v1.41.0 tagged on release/v2).** Anchor: Durable claim identity (B-167, P2/XL Spike-First — replaces session-storage-based bookmark↔tab inference with a persistent partition + Chrome sessions API for restart). Piggyback small feature: Jump to active window (B-168, P2/S — toolbar icon + keyboard shortcut to scroll sidepanel to currently-focused window's tab section). Plus three XS Fast Track housekeeping items: Ways-of-working human-name discipline (B-169) + R4 contract-vs-implementation diff gate (B-170) + Reusable diagnostic-trace helper (B-171). Sprint 45 closed 2026-06-02 with v1.40.0 tagged on release/v2 at merge commit `3286227` (PR #55): 3 items shipped (B-163/B-164/B-166) + sibling B-132 fix + B-167 filed as P2/XL backlog; tests 1930 → 2052 PASS; `"idle"` permission added.
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ████████████████████  96% (152/159)  [S46 closed · 0 in-progress · v1.41.0 tagged on release/v2]
+Overall Progress    ███████████████████░  94% (160/170)  [S47 CLOSED · B-173 epic done (8/8) · v1.42.0 on release/v2 · 0 in-progress]
 ```
 
 ### Legend
@@ -119,6 +119,21 @@ Overall Progress    ████████████████████
 ✅ B-085 — Add C-10 "Off-screen rect feasibility" to R2 Correctness Checklist · 🟠 · XS [S25 — v1.19.0]
 ⬜ B-086 — Sidepanel UI/UX design pass (post-feature-freeze polish) · ⚪ · M [filed S25 post-UAT; scheduled post-feature-parity]
 ✅ B-087 — Add C-11 "Popup-lifecycle message ordering" to R2 Correctness Checklist · 🟠 · XS [S27 Wave 1 — S26 retro HIGH action closed]
+
+---
+
+## Sprint 47 — Single-source-of-truth tab↔item identity consolidation (closed)
+
+> 8/8 done · 0 in progress · Sprint 47 closed 2026-06-29 (v1.42.0 tagged on release/v2): B-173 EPIC + 7 sub-items B-174..B-180 — six-store identity collapsed to one durable authority + one live oracle + two derived caches; 10 match sites → 1 resolver; floating-groups.js → 5 modules; reconcileClaims → 4 phases; schema v8→v9. Suite 2099→2127 PASS, zero regressions. B-179 core + B-180 migration UAT PASS. 3 follow-ups filed (B-181/B-182 pre-existing non-regressions; B-183 deferred tier/validator deletion).
+
+✅ B-173 — Single-source-of-truth tab↔item identity consolidation (EPIC anchor) · 🟡 · XL [S47 — DONE 2026-06-29 · R0+R6 `docs/design/74`+`/76` · durable `tj:itemClaims` sole authority; session retired; `liveTabId` derived; one resolver; `LiveTabIndex` oracle · suite 2099→2127]
+✅ B-174 — Cold-start reconciliation E2E test (safety net, A0) · 🟡 · M [S47 — DONE 2026-06-27 · T1-T7 drive real initializeLiveState · suite 2099→2106 PASS, zero regressions]
+✅ B-175 — Extract one shared tab↔item resolver (A1) · 🟡 · L [S47 — DONE 2026-06-27 · new tab-item-resolver.js, 5 sites consolidated · R4 contract-diff CLEAN · suite 2106→2116 PASS]
+✅ B-176 — Split floating-groups.js → 5 modules + barrel (A2) · 🟡 · M [S47 — DONE 2026-06-27 · 1344 LOC → 5 cohesive modules, importers unchanged · R4 3× PASS · suite 2116]
+✅ B-177 — Name onReplaced/onRemoved fan-out primitives (A3) · 🟡 · M [S47 — DONE 2026-06-27 · new tab-event-cascades.js, documented store inventories · R4 3× PASS, reorder proven non-observable · suite 2116]
+✅ B-178 — Decompose reconcileClaims → named phases (A4) · 🟡 · M [S47 — DONE 2026-06-27 · 181→42-line orchestrator + 4 phase helpers, single-winner intact · R4 3× PASS · R5 T11 cross-phase guard · suite 2117]
+✅ B-179 — Collapse to one store; retire session; demote liveTabId (B1) · 🟡 · L [S47 — DONE 2026-06-29 · Option A `docs/design/75` · durable sole store, session retired, compat shim + data-loss gate · UAT PASS (waived B-167 UAT closed)]
+✅ B-180 — Eager floatingGroups v4 normalization + schema v8→v9 (B2) · 🟡 · L [S47 — DONE 2026-06-29 · additive idempotent migration, atomic commit · migration UAT PASS · tiers/validator KEPT → B-183]
 
 ---
 
@@ -307,12 +322,12 @@ Overall Progress    ████████████████████
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 152 | 96% |
+| ✅ Done | 160 | 94% |
 | 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 4 | 3% |
+| ⬜ To Do | 7 | 4% |
 | 🧊 Icebox | 3 | 2% |
 
-(Done count: 147 → 152 (+5). Sprint 46 closed 2026-06-27 (v1.41.0 tagged on release/v2) on branch `feature/sprint-46-claim-identity` (off `release/v2` at v1.40.0 / `56a4a7c`). Five items shipped: Durable claim identity (B-167, P2/XL anchor — replaces session-storage `tj:tabClaims` with durable partition + Chrome sessions API), Jump to active window (B-168, P2/S small feature), and three XS Fast Track housekeeping items (B-169 ways-of-working human names in discussion, B-170 R4 contract-vs-implementation diff gate, B-171 reusable diagnostic-trace helper). Sprint 45 closed 2026-06-02 with v1.40.0 tagged on release/v2 at merge commit `3286227` (PR #55); shipped B-163/B-164/B-166 + sibling B-132 fix + B-167 filed as backlog.)
+(Sprint 47 opened 2026-06-27 — EPIC B-173 single-source-of-truth tab↔item identity consolidation (P2/XL Spike-First) R0 ✅, split into 7 sub-items B-174..B-180 (all in-progress, whole program in S47 per product-owner / P-1 override); Total Items 159 → 167. Done count: 147 → 152 (+5). Sprint 46 closed 2026-06-27 (v1.41.0 tagged on release/v2) on branch `feature/sprint-46-claim-identity` (off `release/v2` at v1.40.0 / `56a4a7c`). Five items shipped: Durable claim identity (B-167, P2/XL anchor — replaces session-storage `tj:tabClaims` with durable partition + Chrome sessions API), Jump to active window (B-168, P2/S small feature), and three XS Fast Track housekeeping items (B-169 ways-of-working human names in discussion, B-170 R4 contract-vs-implementation diff gate, B-171 reusable diagnostic-trace helper). Sprint 45 closed 2026-06-02 with v1.40.0 tagged on release/v2 at merge commit `3286227` (PR #55); shipped B-163/B-164/B-166 + sibling B-132 fix + B-167 filed as backlog.)
 
 **Sprint 46 completed (5 items)**:
 - 🟡 **P2** (2): **B-167** Durable claim identity (XL anchor — Spike-First) · **B-168** Jump to active window (S — small feature)

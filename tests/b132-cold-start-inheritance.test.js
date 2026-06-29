@@ -61,7 +61,6 @@ import {
   __resetMock,
   __setMockTabs,
   __getRawStore,
-  __getSessionStore,
   seedPartitions,
 } from './chrome-mock.js';
 import {
@@ -203,7 +202,7 @@ test('B-132 T-132-D (AC5): reconcileClaims Phase 2 skips candidates in inherited
 
   /* The gate fires: item-collide stays unclaimed even though tab 400's
      URL matches and tab 400 is otherwise eligible. */
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims['item-collide'], undefined,
     'B-132 §65.5 gate: inherited candidate is skipped; saved item remains unclaimed');
   assert.equal(getClaimsMirror()['item-collide'], undefined,
@@ -308,7 +307,7 @@ test('B-132 T-132-F (AC2 regression guard): post-cold-start middle-click still i
 
   /* B-125 contract holds: the runtime gate at tab-claims.js:250 stops the
      auto-claim. B-132 did NOT regress this path. */
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims['item-parent'], 600,
     'B-099 D-1: parent claim survives runtime reevaluateTab');
   assert.equal(claims['item-collide'], undefined,
@@ -374,17 +373,17 @@ test('B-132 T-132-H: preMarkInheritedFromFloatingGroups writes ZERO storage (pur
      stores before + after, plus the floatingGroups payload, and assert
      they're byte-equivalent (the helper does NOT mutate any partition). */
   const localBefore = JSON.stringify(__getRawStore('tj:floatingGroups'));
-  const sessionBefore = JSON.stringify(__getSessionStore('tj:tabClaims') || {});
+  const mirrorBefore = JSON.stringify(getClaimsMirror() || {});
 
   await preMarkInheritedFromFloatingGroups();
 
   const localAfter = JSON.stringify(__getRawStore('tj:floatingGroups'));
-  const sessionAfter = JSON.stringify(__getSessionStore('tj:tabClaims') || {});
+  const mirrorAfter = JSON.stringify(getClaimsMirror() || {});
 
   assert.equal(localAfter, localBefore,
     'helper must NOT write to tj:floatingGroups (pure read)');
-  assert.equal(sessionAfter, sessionBefore,
-    'helper must NOT write to tj:tabClaims (pure read; mark target is in-memory)');
+  assert.equal(mirrorAfter, mirrorBefore,
+    'helper must NOT mutate claimsMirror (pure read; mark target is the inheritedTabs Set)');
 
   /* The mark IS the side effect — confirmed via isInherited. */
   assert.equal(isInherited(700), true, 'helper marks the matched tabId');

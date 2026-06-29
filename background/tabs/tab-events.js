@@ -5,27 +5,39 @@
  * tabs are updated, activated, removed, or when windows are closed.
  *
  * CRITICAL (AC4): LiveTabIndex mutations are in-memory only. TabClaims
- * mutations go through `chrome.storage.session` only. The sole exception is
- * drift detection (B-001d): `detectDriftForTab` writes to `tj:drift` via
- * `writeTransaction` — this is a durable state change, not ephemeral
- * live-state, and is explicitly allowed per R2 design.
+ * mutations update the in-memory `claimsMirror` (the synchronous read-hot
+ * surface) and persist to the durable `tj:itemClaims` partition
+ * (chrome.storage.local) via `writeTransaction` — B-179 §75 retired the legacy
+ * `chrome.storage.session` claim store, so the durable partition is now the
+ * SOLE persisted claim store. Drift detection (B-001d) likewise writes
+ * `tj:drift` via `writeTransaction` — a durable state change, not ephemeral
+ * live-state, and explicitly allowed per R2 design.
  */
 
 import {
   updateTabEntry,
-  removeTabEntry,
   removeTabsByWindow,
   getLiveTabIndex,
 } from './live-tab-index.js';
-import { releaseClaimByTab, reevaluateTab, isClaimsReady, getClaimsMirror, markInherited, pruneInherited, getItemIdForTab, remapTabIdInClaims } from './tab-claims.js';
-import { detectDriftForTab, clearDrift } from './drift.js';
+import { reevaluateTab, isClaimsReady, getClaimsMirror, markInherited, getItemIdForTab } from './tab-claims.js';
+import { detectDriftForTab } from './drift.js';
 import { listItems, getItem, updateItem } from '../storage/items.js';
 import { isSafeFaviconUrl } from '../../shared/favicon.js';
 import { broadcast, SCOPE } from '../broadcast.js';
-import { recordOpener, pruneOpener, pruneOpenersByWindow, walkOpenerChain } from './opener-chain.js';
-import { appendFloatingGroup, pruneFloatingGroupsByLiveTabId, remapFloatingGroupsLiveTabId } from './floating-groups.js';
+import { recordOpener, pruneOpenersByWindow, walkOpenerChain } from './opener-chain.js';
+import { appendFloatingGroup } from './floating-groups.js';
 import { readPartition } from '../storage/partitions.js';
 import { PARTITION_FLOATING_GROUPS } from '../storage/shapes.js';
+/* B-177 (§74 A3) — onReplaced / onRemoved event fan-out primitives + the
+   reevalTimers debounce-timer API (the map lives in the cascade module because
+   every timer CLEAR is part of a removal/replacement cascade). */
+import {
+  applyTabReplacement,
+  releaseTabCascade,
+  releaseTabsCascade,
+  armReevalTimer,
+  clearReevalTimer,
+} from './tab-event-cascades.js';
 /* B-014 */
 import { registerWindow, unregisterWindow } from './window-ordinals.js';
 /* B-041 (S42 §67.6.6) — chrome-sync produces a storm of onMoved events
@@ -34,16 +46,13 @@ import { registerWindow, unregisterWindow } from './window-ordinals.js';
 import { isSyncInFlight } from '../sync/chrome-sync.js';
 /* B-164 R4 M-2 (S45) — wake-reconcile race guard. The onReplaced listener
    consults `isReconcileActive()` to decide between inline remap and queue;
-   `setReplacementDrainCallback` wires `_applyTabReplacement` so the drain
+   `setReplacementDrainCallback` wires `applyTabReplacement` so the drain
    inside idle-reconciler can apply queued events post-reconcile. */
 import {
   isReconcileActive,
   enqueuePendingReplacement,
   setReplacementDrainCallback,
 } from './idle-reconciler.js';
-
-/** @type {Map<number, ReturnType<typeof setTimeout>>} per-tab debounce timers (H2) */
-const reevalTimers = new Map();
 
 /* B-159 §A (S43 close, 2026-05-03) — once-per-session set of itemIds we've
    already stamped a favicon on. Prevents repeated writes when the same tab
@@ -82,55 +91,6 @@ function _maybePersistItemFavicon(tabId, favIconUrl) {
     if (item.favIconUrl && item.favIconUrl.length > 0) return;
     return updateItem(itemId, { favIconUrl });
   }).catch(() => { /* never let favicon persistence break the dispatch */ });
-}
-
-/**
- * B-164 §69.3.1 — shared remap body for `chrome.tabs.onReplaced`.
- *
- * Extracted to a module-level helper so the same code path serves both
- * (a) the live `onReplaced` listener (inline remap on every fire when no
- * wake-reconcile is in flight) and (b) the queued-drain path inside
- * `idle-reconciler.js` (post-reconcile FIFO replay of events that arrived
- * during the wake-reconcile async-gap window).
- *
- * The 5-table remap (R2 §69.3.1) lives entirely here; the listener wrapper
- * below is just the entry-guard + race-gate.
- *
- * @param {number} addedTabId
- * @param {number} removedTabId
- * @returns {void}
- */
-function _applyTabReplacement(addedTabId, removedTabId) {
-  /* Table 4 — reevalTimers (R2 PICK option (ii): clearTimeout + delete,
-     no re-arm). The pending setTimeout closure captured tabId =
-     removedTabId; re-keying the Map entry alone would still call
-     reevaluateTab against the dead id. Option (ii) discards the
-     captured state along with the timer; the on-wake reconcileClaims
-     (fix (c)) is the safety net for any lost reevaluation. */
-  if (reevalTimers.has(removedTabId)) {
-    clearTimeout(reevalTimers.get(removedTabId));
-    reevalTimers.delete(removedTabId);
-  }
-
-  /* Tables 1+2 — claimsMirror + inheritedTabs. In-memory mirror update is
-     synchronous; the storage.session persistence inside writeClaims is
-     awaited but fire-and-forget at this boundary via `.catch` per the
-     B-132 precedent (R4 L-4 comment correction). */
-  remapTabIdInClaims(removedTabId, addedTabId).catch((err) => {
-    console.warn('[tab-junkie] B-164 remapTabIdInClaims failed', err);
-  });
-
-  /* Table 5 — tj:floatingGroups[].liveTabId (atomic writeTransaction;
-     fire-and-forget). Pre-flight read inside the helper short-circuits
-     when no record's liveTabId matches removedTabId — common path. */
-  remapFloatingGroupsLiveTabId(removedTabId, addedTabId).catch((err) => {
-    console.warn('[tab-junkie] B-164 remapFloatingGroupsLiveTabId failed', err);
-  });
-
-  /* Broadcast so the sidepanel re-renders any rows whose tabId
-     reference may have shifted. Gated on requireClaimsReady so the
-     cold-start window is not flooded. */
-  broadcast(SCOPE.LIVE_STATE, 'tab/replaced', { requireClaimsReady: true });
 }
 
 /**
@@ -211,11 +171,9 @@ export function registerTabEventListeners(readyPromise) {
     // H1: Only re-evaluate when URL is a non-empty string
     if ('url' in changeInfo && typeof changeInfo.url === 'string' && changeInfo.url !== '') {
       // H2: Per-tab debounce — collapse rapid URL changes into one evaluation
-      if (reevalTimers.has(tabId)) {
-        clearTimeout(reevalTimers.get(tabId));
-      }
-      reevalTimers.set(tabId, setTimeout(async () => {
-        reevalTimers.delete(tabId);
+      clearReevalTimer(tabId);
+      armReevalTimer(tabId, setTimeout(async () => {
+        clearReevalTimer(tabId);
         try {
           await readyPromise;
           const items = await listItems();
@@ -351,45 +309,26 @@ export function registerTabEventListeners(readyPromise) {
   });
 
   /**
-   * tabs.onRemoved: remove from LiveTabIndex, release claim.
-   *
-   * Origin (Fix A — pre-v1.35.0 hotfix bundle): also cascade-prune any
-   * `tj:floatingGroups` record whose `liveTabId` matches the closed tab.
-   * Without this prune, orphan records survive in storage and break
-   * subsequent floating-tab reorders via the `storageBucketSize` parity
-   * check at floating-groups.js:397-401 (returns ERR_RACE on every drag).
-   * B-141 self-application: R2 chapter 66 §66.1 claimed Issue 3 (race-toast
-   * on rapid floating reorder) was structurally eliminated by B-137; this
-   * fixes the orphan-record half that the original chapter scoped out.
-   * See `docs/findings/post-s41-pre-merge-triage.md` Issue A.
+   * tabs.onRemoved: fan a single closed tab out to every store that holds a
+   * reference to it (B-177 `releaseTabCascade` — see the canonical 7-subsystem
+   * store inventory in `tab-event-cascades.js`). The cascade releases the claim
+   * (and its session + durable + drift records) and prunes the openerMap,
+   * inheritedTabs marker (B-125), reevalTimer, LiveTabIndex entry, and any
+   * orphan `tj:floatingGroups` record (Fix A — pre-v1.35.0 hotfix bundle;
+   * without this prune, orphan records break subsequent floating-tab reorders
+   * via the `storageBucketSize` parity check). The handler chains the single
+   * `tab/removed` broadcast onto the returned claim-release promise.
    */
   chrome.tabs.onRemoved.addListener((tabId) => {
-    pruneOpener(tabId);
-    // B-125 (§59.3): symmetric with pruneOpener — drop the inheritance
-    // marker so a recycled tabId cannot inherit a stale skip-auto-claim gate.
-    pruneInherited(tabId);
-    if (reevalTimers.has(tabId)) {
-      clearTimeout(reevalTimers.get(tabId));
-      reevalTimers.delete(tabId);
-    }
-    removeTabEntry(tabId);
-    releaseClaimByTab(tabId).then(async (releasedItemId) => {
-      if (releasedItemId) await clearDrift(releasedItemId);
+    releaseTabCascade(tabId).then(() => {
       broadcast(SCOPE.LIVE_STATE, 'tab/removed', { requireClaimsReady: true });
     }).catch((err) => {
       console.warn('[tab-junkie] releaseClaimByTab failed on tab removal', err);
     });
-    /* Fix A — orphan-record cascade-prune. Fire-and-forget with try/catch
-       on the helper itself; mirror the B-132 `preMarkInheritedFromFloatingGroups`
-       graceful-degradation pattern so a storage error here never throws past
-       the listener boundary and never blocks the broadcast above. */
-    pruneFloatingGroupsByLiveTabId(tabId).catch((err) => {
-      console.warn('[tab-junkie] pruneFloatingGroupsByLiveTabId failed on tab removal', err);
-    });
   });
 
   /**
-   * B-164 §69.3.1 — `chrome.tabs.onReplaced` 5-table remap.
+   * B-164 §69.3.1 / B-177 — `chrome.tabs.onReplaced` identity fan-out.
    *
    * Chrome rotates tabIds at discard/restore time (empirically verified in
    * the Test A probe — `docs/findings/sprint-45.md`); without this listener
@@ -398,40 +337,24 @@ export function registerTabEventListeners(readyPromise) {
    * closes is the discard write-API surface — `chrome.tabs.discard()` had
    * no corresponding listener pre-B-164.
    *
-   * Per R2 §69.3.1, the 5 tables remap as follows:
-   *   1. `claimsMirror`        — `remapTabIdInClaims` (tab-claims.js)
-   *   2. `inheritedTabs`       — `remapTabIdInClaims` (same helper)
-   *   3. `_faviconStampedItemIds` — NO-OP (itemId-keyed Set per R2 AC3
-   *                             clarification at `tab-events.js:49,67-68`;
-   *                             itemId is stable across tabId rotation, so
-   *                             no remap is needed for this table. Verified
-   *                             at R3 — `_maybePersistItemFavicon` adds the
-   *                             itemId from `getItemIdForTab(tabId)` at :68,
-   *                             not the tabId itself.)
-   *   4. `reevalTimers`        — `clearTimeout` + `delete` (R2 §69.3.4
-   *                             option (ii); no re-arm because the
-   *                             pending `setTimeout` callback captured
-   *                             `tabId = removedTabId` in its closure and
-   *                             cannot be re-keyed without re-arming a
-   *                             fresh closure; the on-wake `reconcileClaims`
-   *                             — fix (c) — is the safety net for any
-   *                             reevaluation lost to this branch.)
-   *   5. `tj:floatingGroups[].liveTabId` — `remapFloatingGroupsLiveTabId`
-   *                             (floating-groups.js); fire-and-forget per
-   *                             B-132 graceful-degradation precedent.
+   * The remap itself is `applyTabReplacement` in `tab-event-cascades.js` —
+   * see its canonical store inventory for the per-store sync/async contract
+   * (claimsMirror + inheritedTabs + session + durable via remapTabIdInClaims;
+   * reevalTimers via clearReevalTimer option (ii); floatingGroups.liveTabId
+   * via remapFloatingGroupsLiveTabId; _faviconStampedItemIds is an itemId-keyed
+   * NO-OP). The listener wrapper below is just the entry-guard + race-gate.
    *
    * AC contract (R1 LOCKED + R2 clarifications, `docs/findings/sprint-45.md`):
    *   AC1 — tab discard remap (saved-item claim survives)
-   *   AC3 — 5-table atomicity (tables 1+2+4 synchronous; table 3 N/A;
-   *         table 5 atomic via single `writeTransaction`)
-   *   AC4 — floating tab survives discard (via table 5)
-   *   AC5 — inherited-tab guard preserved (via table 2)
-   *   AC6 — reevalTimer race resolved gracefully (via table 4 option (ii))
+   *   AC3 — 5-table atomicity (in-memory swaps synchronous; favicon table N/A)
+   *   AC4 — floating tab survives discard (via floatingGroups.liveTabId remap)
+   *   AC5 — inherited-tab guard preserved (via inheritedTabs swap)
+   *   AC6 — reevalTimer race resolved gracefully (option (ii))
    */
   /* R4 M-2: wire the drain callback so the wake-reconcile in
      idle-reconciler.js can replay queued onReplaced events post-reconcile.
      Registration is idempotent; safe to call on every register pass. */
-  setReplacementDrainCallback(_applyTabReplacement);
+  setReplacementDrainCallback(applyTabReplacement);
 
   chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
     if (typeof addedTabId !== 'number' || typeof removedTabId !== 'number') return;
@@ -446,18 +369,19 @@ export function registerTabEventListeners(readyPromise) {
 
     /* R4 M-2: wake-reconcile race guard. If a wake-reconcile is between
        its first await (Phase 3 storage read) and its final commit
-       (writeClaims at tab-claims.js:310), an inline remap here would
-       persist to chrome.storage.session, then reconcileClaims would
-       overwrite it with its pre-await snapshot — silently erasing the
-       B-164 remap. Instead, enqueue and let the drain in idle-reconciler
-       apply the remap after reconcileClaims commits. The drain runs
-       BEFORE the flag clears, so events arriving mid-drain stay queued. */
+       (`claimsMirror = reconciled` in reconcileClaims), an inline remap here
+       would swap the live mirror, then reconcileClaims would overwrite the
+       mirror with its pre-await snapshot — silently erasing the B-164 remap
+       (and the durable W-5 it would have driven). Instead, enqueue and let the
+       drain in idle-reconciler apply the remap after reconcileClaims commits.
+       The drain runs BEFORE the flag clears, so events arriving mid-drain stay
+       queued. */
     if (isReconcileActive()) {
       enqueuePendingReplacement(addedTabId, removedTabId);
       return;
     }
 
-    _applyTabReplacement(addedTabId, removedTabId);
+    applyTabReplacement(addedTabId, removedTabId);
   });
 
   /**
@@ -510,29 +434,19 @@ export function registerTabEventListeners(readyPromise) {
    * surfaces need to hear about it immediately (§28.3.7).
    */
   chrome.windows.onRemoved.addListener((windowId) => {
+    /* B-177 — bulk version of the onRemoved cascade. `removeTabsByWindow`
+       both yields the closed tabIds AND prunes them from LiveTabIndex (the
+       window-granular #4); `pruneOpenersByWindow` prunes the openerMap (the
+       window-granular #1). `releaseTabsCascade` then runs the per-tab
+       ephemeral detach (reevalTimers / inheritedTabs / floatingGroups —
+       shared with the per-tab `releaseTabCascade`, belt-and-braces because
+       tabs.onRemoved fires per tab in a closing window first) and performs
+       the gated, batched claim release, returning a single promise so we
+       emit ONE `tab/removed` broadcast for the whole window (or null when
+       claims are not yet reconciled / the window held no tracked tabs). */
     const removedTabIds = removeTabsByWindow(windowId);
     pruneOpenersByWindow(removedTabIds);
-    for (const tabId of removedTabIds) {
-      if (reevalTimers.has(tabId)) {
-        clearTimeout(reevalTimers.get(tabId));
-        reevalTimers.delete(tabId);
-      }
-      // B-125 (§59.5): cascade-prune the inheritance marker for every tab
-      // closed by the window-removal event. Symmetric with the per-tab
-      // onRemoved handler above.
-      pruneInherited(tabId);
-      // Fix A (pre-v1.35.0 hotfix bundle): symmetric with the per-tab
-      // onRemoved handler above — cascade-prune any tj:floatingGroups
-      // record whose liveTabId matches a tab closed by the window-removal
-      // event. Per Chrome's contract, tabs.onRemoved fires for each tab in
-      // a closing window before windows.onRemoved, so the per-tab listener
-      // already handles the prune; this loop is belt-and-braces against
-      // any ordering edge case (matches the B-125 §59.5 pattern). See
-      // `docs/findings/post-s41-pre-merge-triage.md` Issue A.
-      pruneFloatingGroupsByLiveTabId(tabId).catch((err) => {
-        console.warn('[tab-junkie] pruneFloatingGroupsByLiveTabId failed on window removal', err);
-      });
-    }
+    const releasePromise = releaseTabsCascade(removedTabIds);
 
     /* B-014: drop the ordinal mapping regardless of claims readiness. The
        map change must be observable to any surface that already loaded
@@ -542,16 +456,13 @@ export function registerTabEventListeners(readyPromise) {
       broadcast(SCOPE.WINDOW_MAP, 'window/removed');
     }
 
-    if (removedTabIds.length === 0) return;
-    if (!isClaimsReady()) return;
-    Promise.allSettled(removedTabIds.map(async (tabId) => {
-      const releasedItemId = await releaseClaimByTab(tabId);
-      if (releasedItemId) await clearDrift(releasedItemId);
-    })).then(() => {
-      broadcast(SCOPE.LIVE_STATE, 'tab/removed', { requireClaimsReady: true });
-    }).catch((err) => {
-      console.warn('[tab-junkie] batch releaseClaimByTab failed on window removal', err);
-    });
+    if (releasePromise) {
+      releasePromise.then(() => {
+        broadcast(SCOPE.LIVE_STATE, 'tab/removed', { requireClaimsReady: true });
+      }).catch((err) => {
+        console.warn('[tab-junkie] batch releaseClaimByTab failed on window removal', err);
+      });
+    }
   });
 
   /**

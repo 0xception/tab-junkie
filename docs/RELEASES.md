@@ -4,6 +4,29 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.42.0 — Sprint 47: single-source-of-truth identity consolidation (2026-06-29)
+
+**Tagged on `release/v2`.**
+
+Sprint 47 anchor. The bookmark↔tab association was tracked across six independent stores, causing hard-to-diagnose claim-desync bugs (wrong tab highlighted, floating tab landing in Open Tabs after reload). This epic consolidates it to a single authoritative `tj:itemClaims` store (B-179), retires the session `tj:tabClaims` store, and demotes `floatingGroups.liveTabId` to a derived cache. The association now survives reload/restart/sleep more robustly with a single source of truth. Schema bumped v8 → v9 (eager normalization of `tj:floatingGroups` records — additive, idempotent). No new user-facing features.
+
+### Internal
+- **End-to-end cold-start reconciliation test (B-174)** — integration-test regression safety net covering the full cold-start claim flow; baseline for all subsequent B-173 sub-items.
+- **Shared tab↔item resolver (B-175)** — 10 duplicated, subtly-divergent matching sites replaced with a single canonical resolver in `shared/tab-item-resolver.js`.
+- **`floating-groups.js` split (B-176)** — 1,344-line monolith decomposed into `floating-store.js`, `floating-assoc.js`, `floating-prune.js`, `floating-render.js`, and a re-export barrel. No API or behavior change.
+- **Named event primitives (B-177)** — anonymous `onReplaced`/`onRemoved` fan-out handlers replaced with named functions + JSDoc contracts.
+- **`reconcileClaims` decomposed (B-178)** — 181-line function split into `phase1PreMark`, `phase2ClaimByUrl`, `phase3DriftFallback`, `phase4DropDrift`. No behavior change.
+- **Store cutover (B-179)** — `tj:itemClaims` is now the sole persisted claim store; `tj:tabClaims` (session) retired; `floatingGroups.liveTabId` demoted to a derived cache. One-cold-start compatibility shim migrates in-flight session claims to durable on first run after update; write failure never strands claims.
+- **Schema v8 → v9 eager `tj:floatingGroups` normalization (B-180)** — one-time `MIGRATION_STEPS` entry normalizes every `tj:floatingGroups` record to the canonical v4 STABLE-field shape. Additive + idempotent + no record dropped. Meta bump + floatingGroups rewrite commit atomically via `writeTransaction`.
+
+**SW cache flush**: After upgrade, toggle the extension OFF then ON once in `edge://extensions` to flush the SW module cache and apply schema v9. Additive — no bookmark, group, drift, claim, or recency data is touched.
+
+**Rollback**: Data-safe. v9-normalized `tj:floatingGroups` records are forward-readable by the v8 build; durable claims reconstruct on cold start. `tj:meta.schemaVersion = 9` puts the v8 build in read-only safe-mode on cold start. Recover by running `chrome.storage.local.set({ 'tj:meta': { schemaVersion: 8, createdAt: Date.now() } })` in the SW console, then reload.
+
+Tests: 2127 PASS (+28 over the 2099 v1.41.0 / S46 baseline).
+
+---
+
 ## v1.41.0 — Sprint 46: durable claim identity (2026-06-27)
 
 **Tagged on `release/v2`.**

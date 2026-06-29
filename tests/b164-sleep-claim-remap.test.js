@@ -53,8 +53,6 @@ import { dirname, join } from 'node:path';
 import {
   __resetMock,
   __setMockTabs,
-  __setSessionStore,
-  __getSessionStore,
   __getRawStore,
   __setRawStore,
   seedPartitions,
@@ -62,6 +60,7 @@ import {
   __triggerIdleState,
   __getIdleSetDetectionIntervalCalls,
   __getSessionSetCount,
+  __getLocalSetCount,
 } from './chrome-mock.js';
 import {
   buildLiveTabIndex,
@@ -74,6 +73,8 @@ import {
   getClaimsMirror,
   remapTabIdInClaims,
   __resetTabClaims,
+  __setClaimsMirror,
+  __setSessionTagForTest,
 } from '../background/tabs/tab-claims.js';
 import {
   remapFloatingGroupsLiveTabId,
@@ -84,6 +85,8 @@ import {
   __resetIdleReconciler,
   __getPendingReplacements,
 } from '../background/tabs/idle-reconciler.js';
+import { readPartition } from '../background/storage/partitions.js';
+import { PARTITION_ITEM_CLAIMS } from '../background/storage/shapes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -132,11 +135,11 @@ test('B-164 T1 (AC1): chrome.tabs.onReplaced re-binds the claim to the new tabId
      because we re-query at fixture-setup time). */
   __setMockTabs([tab(100, 'https://example.com/x'), tab(200, 'https://example.com/x')]);
   await buildLiveTabIndex();
-  __setSessionStore('tj:tabClaims', { 'item-X': 100 });
+  __setClaimsMirror({ 'item-X': 100 });
   seedPartitions({ items: [item('item-X', 'https://example.com/x')] });
   await reconcileClaims([item('item-X', 'https://example.com/x')]);
   /* Sanity: Phase 1 kept the claim against tabId 100. */
-  assert.equal(__getSessionStore('tj:tabClaims')['item-X'], 100);
+  assert.equal(getClaimsMirror()['item-X'], 100);
 
   /* Register the production listener and fire onReplaced. */
   registerTabEventListeners(Promise.resolve());
@@ -146,11 +149,12 @@ test('B-164 T1 (AC1): chrome.tabs.onReplaced re-binds the claim to the new tabId
   await new Promise((r) => setImmediate(r));
   await new Promise((r) => setImmediate(r));
 
-  /* In-memory mirror and persisted storage both reflect the new id. */
+  /* In-memory mirror and durable storage both reflect the new id. */
   assert.equal(getClaimsMirror()['item-X'], 200,
     'AC1: claimsMirror must rewrite item-X to addedTabId after onReplaced');
-  assert.equal(__getSessionStore('tj:tabClaims')['item-X'], 200,
-    'AC1: writeClaims must persist the new tabId to chrome.storage.session');
+  const durT1 = await readPartition(PARTITION_ITEM_CLAIMS);
+  assert.equal(durT1.entries['item-X'].tabId, 200,
+    'AC1 (B-179): the durable W-5 remap must persist the new tabId to tj:itemClaims');
 });
 
 /* =========================================================================
@@ -164,7 +168,7 @@ test('B-164 T2 (AC2): chrome.idle.onStateChanged(active) invokes reconcileClaims
      persisted yet. Phase 2 of reconcileClaims should bind them on wake. */
   __setMockTabs([tab(300, 'https://example.com/y')]);
   await buildLiveTabIndex();
-  __setSessionStore('tj:tabClaims', {});
+  __setClaimsMirror({});
   seedPartitions({ items: [item('item-Y', 'https://example.com/y')] });
 
   /* Register the idle reconciler and fire the wake event. */
@@ -180,7 +184,7 @@ test('B-164 T2 (AC2): chrome.idle.onStateChanged(active) invokes reconcileClaims
   await new Promise((r) => setImmediate(r));
 
   /* Reconcile must have bound item-Y → tab 300 via Phase 2. */
-  assert.equal(__getSessionStore('tj:tabClaims')['item-Y'], 300,
+  assert.equal(getClaimsMirror()['item-Y'], 300,
     'AC2: on-wake reconcile must run Phase 2 and bind item-Y to live tab 300');
 });
 
@@ -192,28 +196,33 @@ test('B-164 T2 (AC2): chrome.idle.onStateChanged(active) invokes reconcileClaims
 test('B-164 T3 (AC2 dedup): duplicate active transitions short-circuit the second reconcileClaims via _reconcileInFlight', async () => {
   __setMockTabs([tab(400, 'https://example.com/z')]);
   await buildLiveTabIndex();
-  __setSessionStore('tj:tabClaims', {});
+  __setClaimsMirror({});
+  /* Pre-settle the module sessionTag so `ensureSessionTag` is a no-op inside
+     reconcileClaims; then the durable W-1 full-replace is the SOLE durable
+     `tj:itemClaims` write per invocation (one set per completed reconcile). */
+  __setSessionTagForTest('z-dedup-tag');
   seedPartitions({ items: [item('item-Z', 'https://example.com/z')] });
 
-  /* R4 M-1: structural dedup proof. `reconcileClaims` calls `writeClaims`
-     exactly once per invocation (`tab-claims.js:310`), and `writeClaims`
-     calls `chrome.storage.session.set({ 'tj:tabClaims': ... })` exactly
-     once (`tab-claims.js:103-105`). Therefore the per-key counter
-     `__getSessionSetCount('tj:tabClaims')` reads the number of completed
-     reconcileClaims invocations. If `_reconcileInFlight` dedup is intact
-     the second 'active' fire short-circuits before the reconcile runs, so
-     the counter reads 1. If dedup is broken (the gate is removed or a
-     second reconcile slips through) the counter reads 2 — catching the
-     regression. */
+  /* R4 M-1 / B-179 §75.9.1 (class C): structural dedup proof re-targeted to
+     the durable claim store. Post-cutover the session store is retired, so the
+     proof counts the durable W-1 instead: `reconcileClaims` writes the
+     `tj:itemClaims` key exactly once per invocation (durableMirrorFullReplace,
+     with ensureSessionTag pre-settled above). Therefore
+     `__getLocalSetCount('tj:itemClaims')` reads the number of COMPLETED
+     reconcileClaims invocations (an invocation-count proof, not a final-state
+     proof — the B-164 R4 M-1 contract). Dedup intact ⇒ the second 'active'
+     fire short-circuits ⇒ count 1; a second reconcile slipping through ⇒ 2. */
   registerIdleReconciler(Promise.resolve());
   __triggerIdleState('active');
   __triggerIdleState('active'); // second fire — must short-circuit
   for (let i = 0; i < 5; i += 1) await new Promise((r) => setImmediate(r));
 
-  assert.equal(__getSessionStore('tj:tabClaims')['item-Z'], 400,
+  assert.equal(getClaimsMirror()['item-Z'], 400,
     'AC2 dedup: final state matches a single-reconcile result');
-  assert.equal(__getSessionSetCount('tj:tabClaims'), 1,
-    'AC2 dedup: writeClaims (chrome.storage.session.set on tj:tabClaims) must fire exactly once across two rapid active transitions');
+  assert.equal(__getLocalSetCount('tj:itemClaims'), 1,
+    'AC2 dedup: the durable W-1 (tj:itemClaims set) must fire exactly once across two rapid active transitions');
+  assert.equal(__getSessionSetCount('tj:tabClaims'), 0,
+    'B-179: the retired session store is never written during reconcile');
 });
 
 /* =========================================================================
@@ -226,7 +235,7 @@ test('B-164 T4 (AC3): chrome.tabs.onReplaced atomically remaps tables 1+2+4+5 (t
      reevalTimer here (T7 covers timer mechanics in isolation). */
   __setMockTabs([tab(100, 'https://example.com/x'), tab(200, 'https://example.com/x')]);
   await buildLiveTabIndex();
-  __setSessionStore('tj:tabClaims', { 'item-X': 100 });
+  __setClaimsMirror({ 'item-X': 100 });
   seedPartitions({
     items: [item('item-X', 'https://example.com/x')],
     floatingGroups: [floatingRecord({
@@ -242,9 +251,10 @@ test('B-164 T4 (AC3): chrome.tabs.onReplaced atomically remaps tables 1+2+4+5 (t
   /* Drain microtasks — both remap helpers await internally. */
   for (let i = 0; i < 5; i += 1) await new Promise((r) => setImmediate(r));
 
-  /* Table 1 — claimsMirror reflects the new id. */
+  /* Table 1 — claimsMirror reflects the new id; durable W-5 persisted it. */
   assert.equal(getClaimsMirror()['item-X'], 200, 'table 1: claimsMirror remapped');
-  assert.equal(__getSessionStore('tj:tabClaims')['item-X'], 200, 'table 1: persisted');
+  const durT4 = await readPartition(PARTITION_ITEM_CLAIMS);
+  assert.equal(durT4.entries['item-X'].tabId, 200, 'table 1: persisted to durable tj:itemClaims (B-179)');
   /* Table 2 — inheritedTabs Set swapped membership. */
   assert.equal(isInherited(200), true, 'table 2: inheritedTabs has addedTabId');
   assert.equal(isInherited(100), false, 'table 2: inheritedTabs lost removedTabId');
@@ -266,7 +276,7 @@ test('B-164 T5 (AC4): floating tab survives discard via table-5 atomic update', 
      liveTabId is the join key for buildFloatingMembers). */
   __setMockTabs([tab(500, 'https://example.com/f'), tab(600, 'https://example.com/f')]);
   await buildLiveTabIndex();
-  __setSessionStore('tj:tabClaims', {});
+  __setClaimsMirror({});
   seedPartitions({
     items: [item('parent-item', 'https://example.com/parent')],
     floatingGroups: [floatingRecord({
@@ -314,7 +324,7 @@ test('B-164 T7 (AC6): chrome.tabs.onReplaced clears the pending reevalTimer (R2 
      defers on cold-start). */
   __setMockTabs([tab(700, 'https://example.com/q'), tab(800, 'https://example.com/q')]);
   await buildLiveTabIndex();
-  __setSessionStore('tj:tabClaims', { 'item-Q': 700 });
+  __setClaimsMirror({ 'item-Q': 700 });
   seedPartitions({ items: [item('item-Q', 'https://example.com/q')] });
   await reconcileClaims([item('item-Q', 'https://example.com/q')]);
 
@@ -364,7 +374,7 @@ test('B-164 T9 (AC8): B-149 Phase-1 survival predicate unchanged by B-164 listen
      re-checked. */
   __setMockTabs([tab(900, 'https://saved.com/B')]); // drifted URL
   await buildLiveTabIndex();
-  __setSessionStore('tj:tabClaims', { 'item-X': 900 });
+  __setClaimsMirror({ 'item-X': 900 });
   seedPartitions({ items: [item('item-X', 'https://saved.com/A')] });
 
   /* Register B-164's listeners — they must not interfere with B-149's
@@ -374,7 +384,7 @@ test('B-164 T9 (AC8): B-149 Phase-1 survival predicate unchanged by B-164 listen
 
   await reconcileClaims([item('item-X', 'https://saved.com/A')]);
 
-  assert.equal(__getSessionStore('tj:tabClaims')['item-X'], 900,
+  assert.equal(getClaimsMirror()['item-X'], 900,
     'AC8: B-149 Phase-1 survival contract preserved (drifted-but-live claim kept)');
 });
 
@@ -395,7 +405,7 @@ test('B-164 T9 (AC8): B-149 Phase-1 survival predicate unchanged by B-164 listen
 test('B-164 T11 (R4 M-2): onReplaced during wake-reconcile is queued, then drained post-reconcile', async () => {
   __setMockTabs([tab(100, 'https://example.com/x'), tab(200, 'https://example.com/x')]);
   await buildLiveTabIndex();
-  __setSessionStore('tj:tabClaims', { 'item-X': 100 });
+  __setClaimsMirror({ 'item-X': 100 });
   seedPartitions({ items: [item('item-X', 'https://example.com/x')] });
   /* Seed an initial reconcile so isClaimsReady() returns true (the
      onReplaced listener defers on cold-start before reconcile completes). */
@@ -433,8 +443,9 @@ test('B-164 T11 (R4 M-2): onReplaced during wake-reconcile is queued, then drain
   assert.equal(__getPendingReplacements().length, 0, 'M-2: queue drained post-reconcile');
   assert.equal(getClaimsMirror()['item-X'], 200,
     'M-2: post-drain, claimsMirror reflects the rotated tabId (NEW, not OLD)');
-  assert.equal(__getSessionStore('tj:tabClaims')['item-X'], 200,
-    'M-2: writeClaims persisted the post-drain remap (race scenario resolved)');
+  const durM2 = await readPartition(PARTITION_ITEM_CLAIMS);
+  assert.equal(durM2.entries['item-X'].tabId, 200,
+    'M-2 (B-179): the durable W-5 persisted the post-drain remap (race scenario resolved)');
 });
 
 /* =========================================================================
@@ -453,7 +464,7 @@ test('B-164 T12 (R4 M-2): multiple onReplaced events drain in FIFO order', async
     tab(600, 'https://example.com/c'),
   ]);
   await buildLiveTabIndex();
-  __setSessionStore('tj:tabClaims', { 'item-A': 100, 'item-B': 300, 'item-C': 500 });
+  __setClaimsMirror({ 'item-A': 100, 'item-B': 300, 'item-C': 500 });
   seedPartitions({
     items: [
       item('item-A', 'https://example.com/a', 0),
@@ -503,7 +514,7 @@ test('B-164 T12 (R4 M-2): multiple onReplaced events drain in FIFO order', async
 test('B-164 T10 (AC1 defensive): chrome.tabs.onReplaced for a non-mirror tabId is a true no-op', async () => {
   __setMockTabs([tab(100, 'https://example.com/x')]);
   await buildLiveTabIndex();
-  __setSessionStore('tj:tabClaims', { 'item-X': 100 });
+  __setClaimsMirror({ 'item-X': 100 });
   seedPartitions({
     items: [item('item-X', 'https://example.com/x')],
     floatingGroups: [floatingRecord({
@@ -513,7 +524,7 @@ test('B-164 T10 (AC1 defensive): chrome.tabs.onReplaced for a non-mirror tabId i
   await reconcileClaims([item('item-X', 'https://example.com/x')]);
 
   /* Snapshot the pre-state. */
-  const preClaims = JSON.stringify(__getSessionStore('tj:tabClaims'));
+  const preClaims = JSON.stringify(getClaimsMirror());
   const preFloating = JSON.stringify(__getRawStore('tj:floatingGroups'));
 
   registerTabEventListeners(Promise.resolve());
@@ -523,7 +534,7 @@ test('B-164 T10 (AC1 defensive): chrome.tabs.onReplaced for a non-mirror tabId i
   for (let i = 0; i < 5; i += 1) await new Promise((r) => setImmediate(r));
 
   /* No mutation in either storage surface. */
-  assert.equal(JSON.stringify(__getSessionStore('tj:tabClaims')), preClaims,
+  assert.equal(JSON.stringify(getClaimsMirror()), preClaims,
     'AC1 defensive: writeClaims must NOT fire when no mirror entry matched');
   assert.equal(JSON.stringify(__getRawStore('tj:floatingGroups')), preFloating,
     'AC1 defensive: writeTransaction must NOT fire when no floating record matched');

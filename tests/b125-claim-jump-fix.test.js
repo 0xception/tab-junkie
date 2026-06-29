@@ -41,7 +41,6 @@ import { dirname, resolve } from 'node:path';
 import {
   __resetMock,
   __setMockTabs,
-  __getSessionStore,
 } from './chrome-mock.js';
 import {
   buildLiveTabIndex,
@@ -54,6 +53,7 @@ import {
   isInherited,
   pruneInherited,
   __resetTabClaims,
+  getClaimsMirror,
 } from '../background/tabs/tab-claims.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -82,7 +82,7 @@ test('B-125 T1: inherited tab does NOT auto-claim a URL-matching saved bookmark'
   await reconcileClaims(items);
 
   // Sanity: item-A is claimed by tab 100; item-B is unclaimed.
-  let claims = __getSessionStore('tj:tabClaims');
+  let claims = getClaimsMirror();
   assert.equal(claims['item-A'], 100, 'item-A must be claimed by tab 100 after reconcile');
   assert.equal(claims['item-B'], undefined, 'item-B must be unclaimed before the test action');
 
@@ -93,7 +93,7 @@ test('B-125 T1: inherited tab does NOT auto-claim a URL-matching saved bookmark'
 
   // Assert (B-125 fix): item-B must remain unclaimed — the inherited tab
   // does not steal the matching bookmark. item-A's claim is also untouched.
-  claims = __getSessionStore('tj:tabClaims');
+  claims = getClaimsMirror();
   assert.equal(claims['item-A'], 100, 'B-099 D-1: original claim must survive');
   assert.equal(claims['item-B'], undefined, 'B-125 fix: inherited tab must NOT auto-claim item-B');
 });
@@ -116,7 +116,7 @@ test('B-125 T2 (regression guard): a non-inherited tab DOES auto-claim a URL-mat
 
   // Sanity: claimsMirror is empty (no live tab matched any item URL at
   // reconcile time) and tab 102 is NOT marked inherited.
-  let claims = __getSessionStore('tj:tabClaims');
+  let claims = getClaimsMirror();
   assert.equal(claims['item-B'], undefined, 'item-B starts unclaimed');
   assert.equal(isInherited(102), false, 'tab 102 must NOT be marked inherited');
 
@@ -124,7 +124,7 @@ test('B-125 T2 (regression guard): a non-inherited tab DOES auto-claim a URL-mat
   await reevaluateTab(102, 'https://b.example', items);
 
   // Assert: pre-B-125 auto-claim path is intact for non-inherited tabs.
-  claims = __getSessionStore('tj:tabClaims');
+  claims = getClaimsMirror();
   assert.equal(claims['item-B'], 102, 'auto-claim must still fire for non-inherited tabs (regression guard)');
 });
 
@@ -158,7 +158,7 @@ test('B-125 T3: pruneInherited drops the marker; subsequent reevaluateTab is aut
   __resetTabClaims();
   await reevaluateTab(101, 'https://b.example', items);
 
-  const claims = __getSessionStore('tj:tabClaims');
+  const claims = getClaimsMirror();
   assert.equal(claims['item-B'], 101, 'after pruneInherited, auto-claim is eligible again');
 });
 
@@ -171,10 +171,17 @@ test('B-125 T4 (AC4 invariant): releaseClaimByTab has exactly 4 production call 
   // not docstrings, not comments) keeps R3 honest: any future PR that adds
   // an unsanctioned 5th call site will break this test and force an explicit
   // §10.7 / B-099 D-1 review.
+  //
+  // B-177 (§74 A3) relocated the onRemoved / windows.onRemoved cascades out of
+  // tab-events.js into the named primitives in tab-event-cascades.js
+  // (`releaseTabCascade` + `releaseTabsCascade`). The two sanctioned call sites
+  // moved with them — tab-events.js now holds ZERO. The total is unchanged at 4.
   const tabEventsPath = resolve(__dirname, '../background/tabs/tab-events.js');
+  const tabEventCascadesPath = resolve(__dirname, '../background/tabs/tab-event-cascades.js');
   const storageHandlersPath = resolve(__dirname, '../background/messages/storage-handlers.js');
 
   const tabEventsSrc = readFileSync(tabEventsPath, 'utf8');
+  const tabEventCascadesSrc = readFileSync(tabEventCascadesPath, 'utf8');
   const storageHandlersSrc = readFileSync(storageHandlersPath, 'utf8');
 
   // Match `releaseClaimByTab(` — the function-call form. Excludes the
@@ -184,15 +191,18 @@ test('B-125 T4 (AC4 invariant): releaseClaimByTab has exactly 4 production call 
   const callPattern = /releaseClaimByTab\(/g;
 
   const tabEventsCalls = (tabEventsSrc.match(callPattern) || []).length;
+  const tabEventCascadesCalls = (tabEventCascadesSrc.match(callPattern) || []).length;
   const storageHandlersCalls = (storageHandlersSrc.match(callPattern) || []).length;
-  const totalCalls = tabEventsCalls + storageHandlersCalls;
+  const totalCalls = tabEventsCalls + tabEventCascadesCalls + storageHandlersCalls;
 
-  // Expected per §59.2.2:
-  //   tab-events.js:  2 calls (tabs.onRemoved + windows.onRemoved cascade)
-  //   storage-handlers.js: 2 calls (MSG_DEMOTE_ITEM + MSG_NAVIGATE_TO_ITEM)
+  // Expected per §59.2.2 (as relocated by B-177 §74 A3):
+  //   tab-events.js:         0 calls (cascades delegated to tab-event-cascades.js)
+  //   tab-event-cascades.js: 2 calls (releaseTabCascade + releaseTabsCascade)
+  //   storage-handlers.js:   2 calls (MSG_DEMOTE_ITEM + MSG_NAVIGATE_TO_ITEM)
   //   ────────────────────────
   //   Total: 4
-  assert.equal(tabEventsCalls, 2, 'tab-events.js must hold exactly 2 releaseClaimByTab call sites');
+  assert.equal(tabEventsCalls, 0, 'tab-events.js must hold ZERO releaseClaimByTab call sites (delegated to tab-event-cascades.js after B-177)');
+  assert.equal(tabEventCascadesCalls, 2, 'tab-event-cascades.js must hold exactly 2 releaseClaimByTab call sites (releaseTabCascade + releaseTabsCascade)');
   assert.equal(storageHandlersCalls, 2, 'storage-handlers.js must hold exactly 2 releaseClaimByTab call sites');
   assert.equal(totalCalls, 4, 'B-099 D-1 invariant: exactly 4 sanctioned releaseClaimByTab call sites');
 });
@@ -217,7 +227,7 @@ test('B-125 T5 (user repro): xcelenergy claim survives, Workday tab does NOT ste
   await reconcileClaims(items);
 
   // Sanity: "The Source" is claimed by tab 200; "Home - Workday" is unclaimed.
-  let claims = __getSessionStore('tj:tabClaims');
+  let claims = getClaimsMirror();
   assert.equal(claims['the-source'], 200, 'the-source must be claimed by tab 200');
   assert.equal(claims['home-workday'], undefined, 'home-workday must start unclaimed');
 
@@ -239,7 +249,7 @@ test('B-125 T5 (user repro): xcelenergy claim survives, Workday tab does NOT ste
 
   // Assert: B-099 D-1 — original SharePoint claim survives. B-125 fix —
   // the spawned Workday tab did NOT auto-claim "home-workday".
-  claims = __getSessionStore('tj:tabClaims');
+  claims = getClaimsMirror();
   assert.equal(claims['the-source'], 200, 'B-099 D-1: original xcelenergy claim survives');
   assert.equal(claims['home-workday'], undefined, 'B-125 fix: inherited Workday tab must NOT steal home-workday claim');
 });
