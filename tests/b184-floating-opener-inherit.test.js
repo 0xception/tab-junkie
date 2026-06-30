@@ -15,7 +15,7 @@ import './_setup.js';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { __resetMock, __setMockTabs } from './chrome-mock.js';
+import { __resetMock, __setMockTabs, __getSendMessageCalls } from './chrome-mock.js';
 import {
   resolveFloatingOpener,
   __resetOpenerMap,
@@ -25,6 +25,8 @@ import { appendFloatingGroup } from '../background/tabs/floating-groups.js';
 import { readPartition, PARTITION_FLOATING_GROUPS } from '../background/storage/partitions.js';
 import { __resetLiveTabIndex, buildLiveTabIndex } from '../background/tabs/live-tab-index.js';
 import { __resetTabClaims } from '../background/tabs/tab-claims.js';
+import { MSG_STATE_CHANGED } from '../shared/messages.js';
+import { SCOPE } from '../shared/scopes.js';
 
 function makeFloatingRecord(overrides) {
   return {
@@ -119,4 +121,18 @@ test('B-184 T6 (handler integration — the actual bug): firing onCreated from a
   assert.ok(grandchild, 'B-184: tab opened from a floating opener must inherit (a new floating record), not fall through to Open Tabs');
   assert.equal(grandchild.groupId, 'group-A', 'inherits the opener floating record\'s group');
   assert.equal(grandchild.parentItemId, 'item-1', 'inherits under the same parent item');
+
+  /* B-184 positioning fix: the inheritance is a STRUCTURAL change (new floating
+     member + a renderOrder splice on the group). It must broadcast SCOPE.ITEMS
+     (which re-fetches groups+renderOrder and does a renderOrder-respecting full
+     render), NOT SCOPE.LIVE_STATE (which routes to the incremental
+     patchFloatingMembersSections that drops new rows at the bottom and never
+     re-fetches the updated renderOrder). Matches MSG_REORDER_FLOATING_MEMBERS /
+     MSG_MOVE_FLOATING_TAB (storage-handlers.js:144-145). */
+  const inheritBroadcast = __getSendMessageCalls()
+    .map((args) => args[0])
+    .find((m) => m && m.type === MSG_STATE_CHANGED && m.payload && m.payload.trigger === 'tab/opener-inherited');
+  assert.ok(inheritBroadcast, 'inheritance must broadcast tab/opener-inherited');
+  assert.equal(inheritBroadcast.payload.scope, SCOPE.ITEMS,
+    'B-184: opener-inheritance must broadcast SCOPE.ITEMS so the new tab renders at its renderOrder slot (under the opener), not appended at the bottom of the group');
 });
