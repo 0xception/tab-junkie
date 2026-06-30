@@ -27,7 +27,9 @@ import { broadcast, SCOPE } from '../broadcast.js';
 import { recordOpener, pruneOpenersByWindow, walkOpenerChain, resolveFloatingOpener } from './opener-chain.js';
 import { appendFloatingGroup } from './floating-groups.js';
 import { readPartition } from '../storage/partitions.js';
-import { PARTITION_FLOATING_GROUPS } from '../storage/shapes.js';
+import { PARTITION_FLOATING_GROUPS, PARTITION_GROUPS } from '../storage/shapes.js';
+/* [DIAG] temporary positioning investigation (B-184 bottom-of-group) — remove before fix ships. */
+import { recordTrace } from '../../shared/diag.js';
 /* B-177 (§74 A3) — onReplaced / onRemoved event fan-out primitives + the
    reevalTimers debounce-timer API (the map lives in the cascade module because
    every timer CLEAR is part of a removal/replacement cascade). */
@@ -279,6 +281,29 @@ export function registerTabEventListeners(readyPromise) {
               /* B-148 hotfix — see anchor comment above. */
               insertAfterRef,
             });
+            /* [DIAG] positioning investigation — why does the inherited tab
+               land at the BOTTOM of the group instead of under the opener?
+               Records insertAfterRef vs the group's ACTUAL renderOrder + the
+               group's floating records (liveTabId→floatingTabId), to detect a
+               stale-ref mismatch (the anchor not being present in renderOrder).
+               REMOVE before the fix ships. */
+            try {
+              const _groups = await readPartition(PARTITION_GROUPS);
+              const _g = Array.isArray(_groups) ? _groups.find((x) => x && x.id === result.groupId) : null;
+              const _ro = _g && Array.isArray(_g.renderOrder) ? _g.renderOrder : null;
+              recordTrace('append_pos', {
+                newTabId: tab.id,
+                openerTabId: tab.openerTabId,
+                insertAfterRef,
+                anchorInRenderOrder: _ro ? _ro.includes(insertAfterRef) : null,
+                renderOrderAfter: _ro,
+                groupFloatingRecords: Array.isArray(floatingRecords)
+                  ? floatingRecords
+                    .filter((r) => r && r.groupId === result.groupId)
+                    .map((r) => ({ liveTabId: r.liveTabId, floatingTabId: r.floatingTabId }))
+                  : null,
+              }).catch(() => {});
+            } catch { /* swallow */ }
             // B-125 (§59.3): mark the inherited tab so reevaluateTab will
             // skip the auto-claim branch. Placed strictly AFTER the
             // appendFloatingGroup await resolves — if the write throws,
