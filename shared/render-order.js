@@ -72,3 +72,47 @@ export function resolveRenderOrder(group, groupItems, groupFloatingMembers) {
   }
   return out;
 }
+
+/**
+ * B-188 §77 (RP-B fix) — pure insert-index decision for the INCREMENTAL
+ * sidepanel floating-row patch path (patchFloatingMembersSections).
+ *
+ * The full render path lays rows out by `resolveRenderOrder`. When a NEW
+ * floating row arrives via the incremental path, it must land at the SAME
+ * slot that path would give it — its position in `Group.renderOrder` —
+ * instead of the bottom `staticAnchor` (the B-184 defect). This helper
+ * answers "which currently-present ref must the new row be inserted BEFORE"
+ * so the incremental DOM can never disagree with the full render.
+ *
+ * Algorithm: find `newRef` in `renderOrder`, then return the FIRST ref after
+ * it that is currently present (the new row goes immediately before that
+ * node). Successors that aren't present yet are skipped — the new row lands
+ * before the nearest later sibling that actually exists. Returns `null` when:
+ *   - `renderOrder` is missing/empty (the bootstrap path owns ordering),
+ *   - `newRef` isn't in `renderOrder` (legacy / unsynced record), or
+ *   - no later ref is present (append at the static anchor).
+ * `null` means "append at the static anchor" — never worse than the old
+ * unconditional-bottom behavior.
+ *
+ * `presentRefs` is any object exposing `.has(ref)` — a Set OR a Map keyed by
+ * ref (the sidepanel passes a Map<ref, DOMNode> so it can map the result back
+ * to a node without a second query). The decision is pure and order-of-arrival
+ * independent: inserting multiple new rows one at a time converges to
+ * `renderOrder` regardless of processing order.
+ *
+ * @param {string[]|null|undefined} renderOrder — the group's canonical ref list
+ * @param {string} newRef — `floating:<floatingTabId>` (or `item:<id>`) to place
+ * @param {{ has: (ref: string) => boolean }} presentRefs — refs currently rendered
+ * @returns {string|null} the ref to insert BEFORE, or null to append
+ */
+export function resolveInsertBeforeRef(renderOrder, newRef, presentRefs) {
+  if (!Array.isArray(renderOrder) || renderOrder.length === 0) return null;
+  if (!presentRefs || typeof presentRefs.has !== 'function') return null;
+  const k = renderOrder.indexOf(newRef);
+  if (k === -1) return null;
+  for (let i = k + 1; i < renderOrder.length; i++) {
+    const ref = renderOrder[i];
+    if (presentRefs.has(ref)) return ref;
+  }
+  return null;
+}

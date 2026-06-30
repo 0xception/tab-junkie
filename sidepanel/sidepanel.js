@@ -75,7 +75,7 @@ import { SCOPE } from '../shared/scopes.js';
 /* B-148 §3.7: resolver-produced row sequence for interleaved saved + floating
    render order. Falls back to saved-then-floating bootstrap when renderOrder
    is missing/empty. */
-import { resolveRenderOrder } from '../shared/render-order.js';
+import { resolveRenderOrder, resolveInsertBeforeRef } from '../shared/render-order.js';
 /* B-007 */
 import {
   filterGroupParentCandidates,
@@ -3213,14 +3213,51 @@ function _onFloatingSaveCtaClick(ev) {
 }
 
 /**
+ * B-188 §77 (RP-B fix): resolve the DOM node a NEW floating row must be
+ * inserted BEFORE so it lands at its `Group.renderOrder` slot — matching the
+ * full render path (resolveRenderOrder). The pure index decision lives in
+ * shared/render-order.js (resolveInsertBeforeRef); this wrapper only builds
+ * the ref→node membership map from the container's DIRECT children and maps
+ * the resolved ref back to a node. Returns `fallbackAnchor` (the legacy
+ * staticAnchor / append) when the member has no usable renderOrder slot
+ * (no floatingTabId, ref absent from renderOrder, or no later present
+ * sibling) — never worse than the pre-fix bottom-append behavior.
+ *
+ * Only DIRECT children are considered (a Map built from `itemsContainer.children`)
+ * so a same-id row inside a nested child-group section can't be mistaken for
+ * the anchor.
+ */
+function _resolveFloatingRowAnchor(itemsContainer, renderOrder, member, fallbackAnchor) {
+  if (typeof member.floatingTabId !== 'string' || member.floatingTabId.length === 0) {
+    return fallbackAnchor;
+  }
+  const newRef = 'floating:' + member.floatingTabId;
+  const refToNode = new Map();
+  for (const child of itemsContainer.children) {
+    if (!child.matches) continue;
+    if (child.matches('.item-row[data-floating="true"]')) {
+      const ftid = child.dataset.floatingTabId;
+      if (ftid) refToNode.set('floating:' + ftid, child);
+    } else if (child.matches('.item-row[data-item-id]:not([data-floating])')) {
+      refToNode.set('item:' + child.dataset.itemId, child);
+    }
+  }
+  const beforeRef = resolveInsertBeforeRef(renderOrder, newRef, refToNode);
+  if (!beforeRef) return fallbackAnchor;
+  return refToNode.get(beforeRef) || fallbackAnchor;
+}
+
+/**
  * B-121 §60.6.1(c): targeted DOM diff for floating-tab synthetic rows.
  *
  * Mirrors patchOpenTabsSection: index existing `[data-floating="true"]`
  * rows by tabId across all group sections, walk the new map, insert new
  * rows / patch existing ones / drop stale ones. Synthetic rows always
- * mount inside the parent group's `.group-items` container, AFTER the
- * last saved-item row (data-item-id) and BEFORE the first nested
- * `.group-section--child` so the visual hierarchy reads top-down.
+ * mount inside the parent group's `.group-items` container, at their
+ * `Group.renderOrder` slot (B-188 §77) — or, when the group has no
+ * renderOrder, AFTER the last saved-item row (data-item-id) and BEFORE the
+ * first nested `.group-section--child` so the bootstrap hierarchy reads
+ * top-down.
  */
 function patchFloatingMembersSections(nextFloatingMembers) {
   const next = (nextFloatingMembers && typeof nextFloatingMembers === 'object'
@@ -3362,9 +3399,20 @@ function patchFloatingMembersSections(nextFloatingMembers) {
          static anchor (insertBefore with a null anchor appends).
          B-148 §3.7 hotfix: when this group has a renderOrder, leave
          already-positioned rows alone (renderAll has placed them in
-         interleave order). Only cross-container or new rows insert. */
+         interleave order). Only cross-container or new rows insert.
+         B-188 §77 (RP-B fix): a NEW or cross-container row no longer lands
+         unconditionally at the bottom staticAnchor — when the group has a
+         renderOrder it is inserted at its renderOrder slot so the
+         incremental path can't disagree with the full render
+         (resolveRenderOrder). This generalizes the B-184 broadcast-scope
+         workaround: a structural floating change routed through this
+         incremental path now positions correctly regardless of the
+         broadcast SCOPE that triggered it. */
       if (row.parentNode !== itemsContainer) {
-        itemsContainer.insertBefore(row, staticAnchor);
+        const anchor = groupHasRenderOrder
+          ? _resolveFloatingRowAnchor(itemsContainer, groupRecord.renderOrder, member, staticAnchor)
+          : staticAnchor;
+        itemsContainer.insertBefore(row, anchor);
       } else if (!groupHasRenderOrder
           && row.nextSibling !== staticAnchor) {
         itemsContainer.insertBefore(row, staticAnchor);
