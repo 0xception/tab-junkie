@@ -3234,7 +3234,6 @@ function _resolveFloatingRowAnchor(itemsContainer, renderOrder, member, fallback
   const newRef = 'floating:' + member.floatingTabId;
   const refToNode = new Map();
   for (const child of itemsContainer.children) {
-    if (!child.matches) continue;
     if (child.matches('.item-row[data-floating="true"]')) {
       const ftid = child.dataset.floatingTabId;
       if (ftid) refToNode.set('floating:' + ftid, child);
