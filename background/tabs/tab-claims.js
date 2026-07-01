@@ -102,6 +102,21 @@ export function getClaimsMirror() {
 }
 
 /**
+ * B-189 §77.6.2 — the "which tabIds are claimed by a saved item" predicate,
+ * shared by the two live-tab classifier surfaces: `buildOpenTabs`
+ * (open-tab exclusion) and `buildFloatingMembers` (floating-record exclusion).
+ * Both previously wrote `new Set(Object.values(getClaimsMirror()))` inline —
+ * this names the shared atom of the 3-way item/floating/open classification
+ * once (the two build passes themselves stay separate per the §77.6.1
+ * keep-separate boundary). Returns a FRESH snapshot Set each call; the caller
+ * may mutate it freely (it does not alias the module state).
+ * @returns {Set<number>}
+ */
+export function getClaimedTabIds() {
+  return new Set(Object.values(claimsMirror));
+}
+
+/**
  * Test hatch: reset internal state. Only used by test suites.
  */
 export function __resetTabClaims() {
