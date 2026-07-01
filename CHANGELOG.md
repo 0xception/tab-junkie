@@ -2,6 +2,20 @@
 
 All notable changes to Tab Junkie are documented in this file.
 
+## [1.42.1] — 2026-06-30 (render-path hardening + floating-opener inheritance)
+
+Post-Sprint-47 follow-on bundle. Fixes the reported bug where a tab opened from a link (Ctrl/Alt-click or right-click → open in new tab) landed in Open Tabs instead of floating under the item that opened it, and hardens the sidepanel render layer against a class of "row jumps to the wrong place" bugs. No schema change (`KNOWN_VERSION` stays 9), no new permissions, no new user-facing features.
+
+### Fixed
+- **Floating-opener inheritance + positioning (B-184)** — a tab opened from a link now floats **directly under the bookmark/item that opened it**, including links opened from an *already-floating* tab (previously these fell through to Open Tabs, because floating tabs aren't claimed and the opener-chain to the bookmark ancestor is wiped on service-worker restart). New floating tabs also render at their **correct position** (their `renderOrder` slot, directly under the opener) rather than being appended at the bottom of the group. New pure helper `resolveFloatingOpener` (`background/tabs/opener-chain.js`) resolves a floating opener directly from the floating records by `liveTabId`; the opener-inherited broadcast now uses the structural `SCOPE.ITEMS` so the new row renders in place.
+
+### Internal (no user-facing behavior change)
+- **Render-order parity test net (B-187)** — 16 integration tests asserting the full render (`resolveRenderOrder`, RP-A) and the incremental render paths (`patchFloatingMembersSections` RP-B, `patchOpenTabsSection` RP-C) produce identical DOM row order for a given `renderOrder`. Guards the Tier-A render-path fixes against regression.
+- **Incremental floating render is renderOrder-respecting (B-188)** — new pure `resolveInsertBeforeRef` (`shared/render-order.js`); `patchFloatingMembersSections` now inserts NEW floating rows at their `renderOrder` slot instead of a static anchor/bottom. The robust general fix behind B-184's positioning symptom; the B-148 existing-row interleave invariant is preserved.
+- **Unified live-tab descriptor + classifier atom (B-189)** — pure refactor extracting `liveTabDescriptor(tabId, entry)` (`background/tabs/live-tab-descriptor.js`), the eight common live-tab fields projected identically for open tabs and floating members, plus a named `getClaimedTabIds()` classifier atom. Anti-drift; the two data/persistence/ordering models remain deliberately separate.
+- **Broadcast-scope audit (B-190)** — verified every `renderOrder`/membership-mutating op routes to a structural scope (`ITEMS`/`GROUPS`); no mutation can be mis-tagged `LIVE_STATE` (the implicit-authority defect class behind B-184). `tests/b190-broadcast-scope-audit.test.js` (behavioral spy + source-text pins).
+- **Test count**: 2127 (v1.42.0) → 2158 PASS (+31). Zero regressions.
+
 ## [1.42.0] — 2026-06-29 (Sprint 47 close — single-source-of-truth identity consolidation)
 
 Sprint 47 anchor. The bookmark↔tab association used to be tracked across six independent stores, causing hard-to-diagnose claim-desync bugs (wrong tab highlighted, floating tab landing in Open Tabs after reload). This epic consolidates it to a single authoritative `tj:itemClaims` store (B-179), retires the session `tj:tabClaims` store, and demotes `floatingGroups.liveTabId` to a derived cache. The association now survives reload/restart/sleep more robustly with a single source of truth. Schema bumped v8 → v9 (eager normalization of `tj:floatingGroups` records — additive, idempotent). No new user-facing features.
