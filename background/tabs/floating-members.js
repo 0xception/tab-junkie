@@ -18,9 +18,10 @@
 
 import { readPartition, PARTITION_FLOATING_GROUPS } from '../storage/partitions.js';
 import { getLiveTabIndex } from './live-tab-index.js';
-import { getClaimsMirror } from './tab-claims.js';
+import { getClaimedTabIds } from './tab-claims.js';
 import { getParentItemId } from './floating-groups.js';
 import { resolveRecordToTab } from './tab-item-resolver.js';
+import { liveTabDescriptor } from './live-tab-descriptor.js';
 
 /**
  * @typedef {Object} FloatingMember
@@ -67,8 +68,7 @@ export async function buildFloatingMembers(items) {
   const liveIndex = getLiveTabIndex();
   if (liveIndex.size === 0) return out;
 
-  const claimsMirror = getClaimsMirror();
-  const claimedTabIds = new Set(Object.values(claimsMirror));
+  const claimedTabIds = getClaimedTabIds();
 
   // itemId → item map for parent lookup
   const itemsById = new Map();
@@ -114,17 +114,13 @@ export async function buildFloatingMembers(items) {
     const liveEntry = liveIndex.get(matchedTabId);
     if (!liveEntry) continue;
 
-    const descriptor = {
-      tabId: matchedTabId,
-      windowId: liveEntry.windowId,
-      tabIndex: typeof liveEntry.index === 'number' ? liveEntry.index : 0,
-      url: liveEntry.url || '',
-      parentItemId,
-      title: liveEntry.title || '',
-      favIconUrl: liveEntry.favIconUrl ? liveEntry.favIconUrl : null,
-      audible: !!liveEntry.audible,
-      active: !!liveEntry.active,
-    };
+    /* B-189 §77.6.2 — the eight common live-tab fields come from the shared
+       LiveTabDescriptor base (identical projection to buildOpenTabs); the
+       floating descriptor EXTENDS it with parentItemId here (+ optional
+       sortOrder / floatingTabId below). Only the projection is shared — the
+       resolve/sort/exclusion logic stays floating-specific per §77.6.1. */
+    const descriptor = liveTabDescriptor(matchedTabId, liveEntry);
+    descriptor.parentItemId = parentItemId;
     /* B-134 §63.8.4 — propagate explicit sortOrder when the source record
        carries one (v3+). Legacy v2 records (no sortOrder) flow through
        without the field; the comparator below handles both shapes. */

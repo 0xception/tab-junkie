@@ -24,7 +24,7 @@ import { detectDriftForTab } from './drift.js';
 import { listItems, getItem, updateItem } from '../storage/items.js';
 import { isSafeFaviconUrl } from '../../shared/favicon.js';
 import { broadcast, SCOPE } from '../broadcast.js';
-import { recordOpener, pruneOpenersByWindow, walkOpenerChain } from './opener-chain.js';
+import { recordOpener, pruneOpenersByWindow, walkOpenerChain, resolveFloatingOpener } from './opener-chain.js';
 import { appendFloatingGroup } from './floating-groups.js';
 import { readPartition } from '../storage/partitions.js';
 import { PARTITION_FLOATING_GROUPS } from '../storage/shapes.js';
@@ -215,7 +215,24 @@ export function registerTabEventListeners(readyPromise) {
           await readyPromise;
           const items = await listItems();
           const claimsMirror = getClaimsMirror();
-          const result = walkOpenerChain(tab.id, claimsMirror, items);
+          let result = walkOpenerChain(tab.id, claimsMirror, items);
+          /* B-184: read floating records ONCE — reused for the floating-opener
+             fallback (next) and the insertAfterRef anchor (below). */
+          let floatingRecords = null;
+          try {
+            floatingRecords = await readPartition(PARTITION_FLOATING_GROUPS);
+          } catch { /* swallow — fall back to no floating context */ }
+          /* B-184 Part 1 — floating-opener re-inheritance. When the opener is
+             itself a FLOATING tab (a child previously inherited under a
+             bookmark), it is NOT in claimsMirror (floating tabs aren't claimed,
+             B-125), so walkOpenerChain misses it and the new tab would fall
+             through to Open Tabs. Resolve the opener directly from the floating
+             records so chained opens stay in the family. Robust against the
+             ephemeral openerMap (wiped on MV3 SW restart) for the single-hop
+             case (the dominant real-world pattern per the 2026-06-29 diag). */
+          if (!result && Array.isArray(floatingRecords)) {
+            result = resolveFloatingOpener(tab.openerTabId, floatingRecords);
+          }
           if (result) {
             // H-4/H-5: re-read live state after async gap; bail if tab was removed
             const liveEntry = getLiveTabIndex().get(tab.id);
@@ -234,23 +251,18 @@ export function registerTabEventListeners(readyPromise) {
                anchor+1, not at end. Falls back to append-at-end when no
                anchor resolves (e.g., legacy v6 group with no renderOrder). */
             let insertAfterRef = 'item:' + result.itemId;
-            try {
-              const floatingRecords = await readPartition(PARTITION_FLOATING_GROUPS);
-              if (Array.isArray(floatingRecords)) {
-                const openerFloating = floatingRecords.find(
-                  (r) => r
-                    && typeof r === 'object'
-                    && r.groupId === result.groupId
-                    && r.liveTabId === tab.openerTabId
-                    && typeof r.floatingTabId === 'string'
-                    && r.floatingTabId.length > 0,
-                );
-                if (openerFloating) {
-                  insertAfterRef = 'floating:' + openerFloating.floatingTabId;
-                }
+            if (Array.isArray(floatingRecords)) {
+              const openerFloating = floatingRecords.find(
+                (r) => r
+                  && typeof r === 'object'
+                  && r.groupId === result.groupId
+                  && r.liveTabId === tab.openerTabId
+                  && typeof r.floatingTabId === 'string'
+                  && r.floatingTabId.length > 0,
+              );
+              if (openerFloating) {
+                insertAfterRef = 'floating:' + openerFloating.floatingTabId;
               }
-            } catch {
-              /* swallow — fallback to item-anchor is correct on read failure */
             }
             await appendFloatingGroup({
               groupId: result.groupId,
@@ -280,8 +292,17 @@ export function registerTabEventListeners(readyPromise) {
             // coupling — a faster reevaluateTab path would re-introduce
             // B-125 under storage-write contention.
             markInherited(tab.id);
-            // H-6: remove requireClaimsReady so broadcast always fires
-            broadcast(SCOPE.LIVE_STATE, 'tab/opener-inherited');
+            /* B-184: SCOPE.ITEMS (not LIVE_STATE) — opener-inheritance is a
+               STRUCTURAL change (a new floating member + a renderOrder splice on
+               the group), so the sidepanel must re-fetch groups+floatingMembers
+               and do a renderOrder-respecting full render, which places the new
+               tab UNDER its opener. LIVE_STATE routed to the incremental
+               patchFloatingMembersSections, which dropped new rows at the bottom
+               of the floating zone and never re-fetched the updated renderOrder.
+               SCOPE.ITEMS matches the other renderOrder-changing floating ops
+               (MSG_REORDER_FLOATING_MEMBERS / MSG_MOVE_FLOATING_TAB,
+               storage-handlers.js:144-145). No requireClaimsReady — always fires. */
+            broadcast(SCOPE.ITEMS, 'tab/opener-inherited');
           }
         } catch (err) {
           console.warn('[tab-junkie] opener-chain inheritance failed', err);

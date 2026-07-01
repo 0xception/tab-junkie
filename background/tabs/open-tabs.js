@@ -11,7 +11,8 @@
  */
 
 import { getLiveTabIndex } from './live-tab-index.js';
-import { getClaimsMirror, isClaimsReady } from './tab-claims.js';
+import { getClaimedTabIds, isClaimsReady } from './tab-claims.js';
+import { liveTabDescriptor } from './live-tab-descriptor.js';
 
 /**
  * Build the `openTabs` array for the enriched MSG_LIST_ITEMS response.
@@ -35,22 +36,15 @@ export function buildOpenTabs(floatingTabIds = new Set()) {
   if (!isClaimsReady()) return [];
 
   const index = getLiveTabIndex();
-  const claimedTabIds = new Set(Object.values(getClaimsMirror()));
+  const claimedTabIds = getClaimedTabIds();
 
   const tabs = [];
   for (const [tabId, entry] of index) {
     if (claimedTabIds.has(tabId)) continue;
     if (floatingTabIds.has(tabId)) continue;
-    tabs.push({
-      tabId,
-      windowId: entry.windowId,
-      title: entry.title || '',
-      url: entry.url || '',
-      favIconUrl: entry.favIconUrl ? entry.favIconUrl : null,
-      audible: !!entry.audible,
-      active: !!entry.active,
-      tabIndex: typeof entry.index === 'number' ? entry.index : 0,
-    });
+    /* B-189 §77.6.2 — open-tab descriptor uses the shared LiveTabDescriptor
+       base VERBATIM (no parentItemId/sortOrder/floatingTabId extension). */
+    tabs.push(liveTabDescriptor(tabId, entry));
   }
 
   // AC9 sort: windowId asc, tabIndex asc.

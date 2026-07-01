@@ -4,6 +4,21 @@ Local reference copy. Source of truth: GitHub Releases.
 
 ---
 
+## v1.42.1 — Render-path hardening + floating-opener inheritance (2026-06-30)
+
+**Tagged on `release/v2`.** Post-Sprint-47 follow-on bundle. No schema change (`KNOWN_VERSION` stays 9), no new permissions.
+
+**Fixed**
+- **Floating-opener inheritance + positioning (B-184)** — a tab opened from a link now floats directly under the item that opened it, including links opened from an already-floating tab (previously fell through to Open Tabs). New floating tabs render at their correct `renderOrder` slot, not the bottom of the group.
+
+**Internal (no user-facing change)**
+- Render-order parity test net (B-187, 16 tests) · incremental floating render made renderOrder-respecting (B-188, `resolveInsertBeforeRef`) · unified live-tab descriptor + classifier atom (B-189, pure refactor) · broadcast-scope audit (B-190).
+- Test count 2127 → 2158 PASS (+31). Zero regressions.
+
+**Rollback:** `git revert` is clean for every item — all render-path/refactor changes, no persisted-shape change. Prior version download: v1.42.0.
+
+---
+
 ## v1.42.0 — Sprint 47: single-source-of-truth identity consolidation (2026-06-29)
 
 **Tagged on `release/v2`.**
