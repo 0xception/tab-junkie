@@ -18,6 +18,7 @@ import {
   updateTabEntry,
   removeTabsByWindow,
   getLiveTabIndex,
+  renumberAfterRemoval,
 } from './live-tab-index.js';
 import { reevaluateTab, isClaimsReady, getClaimsMirror, markInherited, getItemIdForTab } from './tab-claims.js';
 import { detectDriftForTab } from './drift.js';
@@ -340,7 +341,24 @@ export function registerTabEventListeners(readyPromise) {
    * via the `storageBucketSize` parity check). The handler chains the single
    * `tab/removed` broadcast onto the returned claim-release promise.
    */
-  chrome.tabs.onRemoved.addListener((tabId) => {
+  chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+    /* B-186: capture the closed tab's strip slot BEFORE releaseTabCascade
+       deletes its LiveTabIndex entry (removeTabEntry runs synchronously inside
+       the cascade, ahead of its first await). Chrome shifts every survivor to
+       the RIGHT of the closed tab down by one but fires NO onMoved for that
+       implicit shift, so we mirror it here — otherwise buildOpenTabs keeps
+       sorting by stale indices and the Open Tabs rows jump on the next
+       re-render (the activate-scramble bug). Skipped when isWindowClosing is
+       set: a whole window's entries are dropped en masse by removeTabsByWindow
+       in the windows.onRemoved handler (Chrome fires per-tab onRemoved with
+       isWindowClosing:true BEFORE windows.onRemoved), so a per-survivor
+       renumber here would be pure churn. renumberAfterRemoval only touches
+       entries with index > removedIndex, so running it before the cascade's
+       delete never mutates the closed tab's own (equal-index) entry. */
+    const removedSlot = getLiveTabIndex().get(tabId);
+    if (removedSlot && !(removeInfo && removeInfo.isWindowClosing)) {
+      renumberAfterRemoval(removedSlot.windowId, removedSlot.index);
+    }
     releaseTabCascade(tabId).then(() => {
       broadcast(SCOPE.LIVE_STATE, 'tab/removed', { requireClaimsReady: true });
     }).catch((err) => {
