@@ -39,7 +39,7 @@
 
 ### [B-196] Render merge — single top-level catch-all (sidepanel + newtab)
 - **Tier**: Full (L) — **REHOME item** (moves Open Tabs + `__ungrouped__` DOM into one region → R1 selector-audit subsection MANDATORY)
-- **Status**: R1 ✅ · **R2 — BLOCKED on Q1 (visual variant) + Q2 (region placement), product-owner decisions.** R1 selector-audit found **12 test files** (R2 confirms/extends as fix-scope).
+- **Status**: R1 ✅ · **R2 IN PROGRESS** — Q1 **fully-merged (no divider)** + Q2 **below the named groups** LOCKED by product-owner 2026-07-01. R2 resolves Q4 (empty-state under no-divider) + the mandatory fix-scope test enumeration (R1 found 12 test files).
 - **Assigned To**: [solution-architect] (R2)
 - **Blockers**: depends on B-195 (net) + B-186 (loose-tail correctness) — both in-sprint
 - **Feature Context**:
@@ -51,7 +51,7 @@
 
 ### [B-197] Top-level/ungrouped floating anchoring (absorbs B-185)
 - **Tier**: Full (M/L)
-- **Status**: R1 ✅ · **R2 — BLOCKED on Q3 (null-group `renderOrder` owner: sentinel `__toplevel__` vs per-item vs null-id Group), architect decision, B-191 forward-compat.** Also Q5 (sentinel key for `floatingMembers` payload).
+- **Status**: R1 ✅ · **R2 IN PROGRESS** — resolving Q3 (null-group `renderOrder` owner: sentinel `__toplevel__` vs per-item vs null-id Group; B-191 forward-compat) + Q5 (floatingMembers sentinel key). Q1/Q2 locked (see B-196).
 - **Assigned To**: [solution-architect] (R2)
 - **Blockers**: **Q3 — the null-group `renderOrder` owner is undesigned** (sentinel `__toplevel__` record vs per-item order). Design decision at R2, **forward-compatible with the deferred B-191** (renderOrder-sole-authority). B-191 itself is NOT a prerequisite — only the design must not paint B-191 into a corner. Owner: [solution-architect] at R2.
 - **Feature Context**:
