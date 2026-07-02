@@ -6,6 +6,7 @@
 **Storage decision:** **Option B — LOCKED** (keep `tj:floatingGroups` a distinct store; unify model + resolution + render only; loose tabs stay pure-live/zero-storage). **No schema bump this sprint** (semantics/render only; the one v9→v10 slim is deferred to B-199/Sprint B).
 **Baseline:** v1.42.1 on `release/v2` · tests **2158 PASS** · schema **v9**.
 **Sequence:** B-186 (prereq) → B-195 (safety net) → B-196 (render merge) → B-197 (=B-185).
+**R1 ✅ COMPLETE** (`docs/sprint-48-r1.md`) — B-186 + B-195 DoR-ready; B-196 at R2 (Q1/Q2 = product-owner UX decisions); B-197 at R2 (Q3 = architect, B-191 forward-compat).
 
 ---
 
@@ -13,8 +14,8 @@
 
 ### [B-186] Renumber `LiveTabIndex.index` survivors on tab close
 - **Tier**: Fast Track (S)
-- **Status**: requirements (R1)
-- **Assigned To**: [product-manager] (R1)
+- **Status**: R1 ✅ · **DoR-ready — cleared for R3 build** (Fast Track; R2 skipped — no schema/message/permission change)
+- **Assigned To**: [frontend-engineer] (R3, on go)
 - **Blockers**: none
 - **Feature Context**:
   - Prerequisite for the render merge — the loose (open-tab) tail orders by `(windowId, tabIndex)`, which reads stale indices today.
@@ -26,8 +27,8 @@
 
 ### [B-195] Safety-net integration test for the unified top-level region
 - **Tier**: Full (M) — test-only, no production behavior change
-- **Status**: requirements (R1)
-- **Assigned To**: [product-manager] (R1)
+- **Status**: R1 ✅ · **DoR-ready** (test-first net; R2 = one-pass fixture-contract check). 6 fixture states enumerated; T5/T6/T7 marked B-197-EXTEND.
+- **Assigned To**: [solution-architect] (R2 fixture check) → [test-engineer] (build)
 - **Blockers**: none
 - **Feature Context**:
   - The regression net that must exist and pass against current code BEFORE the B-196 render merge (mirrors B-174's role for B-173, and B-187 for the §77 Tier-A work).
@@ -38,8 +39,8 @@
 
 ### [B-196] Render merge — single top-level catch-all (sidepanel + newtab)
 - **Tier**: Full (L) — **REHOME item** (moves Open Tabs + `__ungrouped__` DOM into one region → R1 selector-audit subsection MANDATORY)
-- **Status**: requirements (R1)
-- **Assigned To**: [product-manager] (R1)
+- **Status**: R1 ✅ · **R2 — BLOCKED on Q1 (visual variant) + Q2 (region placement), product-owner decisions.** R1 selector-audit found **12 test files** (R2 confirms/extends as fix-scope).
+- **Assigned To**: [solution-architect] (R2)
 - **Blockers**: depends on B-195 (net) + B-186 (loose-tail correctness) — both in-sprint
 - **Feature Context**:
   - Replace the `__ungrouped__` synthetic section (`sidepanel.js:2285-2302`) + `buildOpenTabsSection` (`sidepanel.js:3455`) with ONE top-level catch-all region: renderOrder head (anchored/saved) + live-ordered tail (loose open tabs). Same content, one region. Applies to sidepanel AND newtab.
@@ -50,8 +51,8 @@
 
 ### [B-197] Top-level/ungrouped floating anchoring (absorbs B-185)
 - **Tier**: Full (M/L)
-- **Status**: requirements (R1)
-- **Assigned To**: [product-manager] (R1)
+- **Status**: R1 ✅ · **R2 — BLOCKED on Q3 (null-group `renderOrder` owner: sentinel `__toplevel__` vs per-item vs null-id Group), architect decision, B-191 forward-compat.** Also Q5 (sentinel key for `floatingMembers` payload).
+- **Assigned To**: [solution-architect] (R2)
 - **Blockers**: **Q3 — the null-group `renderOrder` owner is undesigned** (sentinel `__toplevel__` record vs per-item order). Design decision at R2, **forward-compatible with the deferred B-191** (renderOrder-sole-authority). B-191 itself is NOT a prerequisite — only the design must not paint B-191 into a corner. Owner: [solution-architect] at R2.
 - **Feature Context**:
   - Anchor = `parentItemId`; `groupId` becomes derived/nullable. `buildFloatingMembers` (`floating-members.js:35`) stops skipping ungrouped parents; `resolveFloatingOpener`/`walkOpenerChain` drop the non-empty-groupId requirement; `moveFloatingTab` gains ATTACH-to-top-level.
