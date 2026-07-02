@@ -167,6 +167,27 @@ test('B-186 guard: onRemoved with isWindowClosing does NOT renumber survivors (c
   await new Promise((r) => setTimeout(r, 20));
 });
 
+test('B-186 guard: onRemoved with NO removeInfo (bare fire) treats it as a single close and renumbers', async () => {
+  __setMockTabs([
+    { id: 10, url: 'https://a.com', windowId: 1, active: false, audible: false, index: 0 },
+    { id: 11, url: 'https://b.com', windowId: 1, active: false, audible: false, index: 1 },
+    { id: 12, url: 'https://c.com', windowId: 1, active: false, audible: false, index: 2 },
+  ]);
+  await buildLiveTabIndex();
+  await reconcileClaims([]);
+  registerTabEventListeners(Promise.resolve());
+
+  // No second arg: the handler guard `!(removeInfo && removeInfo.isWindowClosing)`
+  // short-circuits on `undefined && …` → true, so renumber runs (single close).
+  chrome.tabs.onRemoved.__fire(11);
+
+  const idx = getLiveTabIndex();
+  assert.equal(idx.has(11), false, 'closed entry removed');
+  assert.equal(idx.get(12).index, 1, 'survivor above slot renumbered on bare onRemoved fire');
+
+  await new Promise((r) => setTimeout(r, 20));
+});
+
 test('B-186 guard: full window-close sequence (per-tab isWindowClosing + windows.onRemoved) clears the window without error', async () => {
   __setMockTabs([
     { id: 10, url: 'https://a.com', windowId: 5, active: false, audible: false, index: 0 },

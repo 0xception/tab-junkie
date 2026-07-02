@@ -89,6 +89,11 @@ export function removeTabEntry(tabId) {
  * strictly greater than `removedIndex`. Entries at or below the closed slot,
  * and every entry in any other window, are left untouched.
  *
+ * Complexity: one O(N) pass over ALL live entries (N = total open tabs across
+ * every window), decrementing only the same-window survivors via the
+ * `entry.windowId === windowId` guard — negligible at the extension's typical
+ * ≤200-tab domain, same cost class as the `onMoved`/`onActivated` scans.
+ *
  * Deliberately NOT folded into `removeTabEntry`: that primitive is a pure
  * single-key delete shared by the onRemoved cascade, the window-close teardown,
  * and tests, and it cannot see the `removeInfo.isWindowClosing` signal needed to

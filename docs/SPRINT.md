@@ -14,15 +14,15 @@
 
 ### [B-186] Renumber `LiveTabIndex.index` survivors on tab close
 - **Tier**: Fast Track (S)
-- **Status**: R1 ✅ · **DoR-ready — cleared for R3 build** (Fast Track; R2 skipped — no schema/message/permission change)
-- **Assigned To**: [frontend-engineer] (R3, on go)
+- **Status**: **✅ DONE** 2026-07-01 — R3 ✅ (test-first) · R4 ✅ [code-reviewer] + [security-reviewer] clean (contract-diff clean, 0 CRIT/HIGH, 2 LOW fixed) · suite 2168 PASS
+- **Assigned To**: — (complete)
 - **Blockers**: none
 - **Feature Context**:
   - Prerequisite for the render merge — the loose (open-tab) tail orders by `(windowId, tabIndex)`, which reads stale indices today.
   - Root cause CONFIRMED in code: `removeTabEntry` (`background/tabs/live-tab-index.js:74`) deletes without renumbering survivors; Chrome emits no `onMoved` for the implicit shift-down (`tab-events.js:343` cascade also skips it).
   - Fix: on single-tab close, decrement `index` for surviving same-window entries above the removed slot (or recompute).
 - **Handoff Notes**: Well-understood; Fast Track pipeline (R1 → R3 → R4 code+security → done). Regression test required (test-first per the confirmed root cause).
-- **Files Changed**: _(pending)_
+- **Files Changed**: `background/tabs/live-tab-index.js` (`renumberAfterRemoval`), `background/tabs/tab-events.js` (`onRemoved` wiring), `tests/b186-livetab-index-renumber.test.js` (new, 10 tests)
 - **Parallel Opportunity**: S item — can run alongside B-195 per P-2.
 
 ### [B-195] Safety-net integration test for the unified top-level region
@@ -76,7 +76,9 @@
 
 ## Completed This Sprint
 
-_None yet._
+| Item | Name | Tier | Status |
+|------|------|------|--------|
+| B-186 | Renumber `LiveTabIndex.index` survivors on tab close | Fast Track (S) | ✅ DONE 2026-07-01 — R4 clean (0 CRIT/HIGH, 2 LOW fixed); suite 2168 PASS |
 
 ---
 
