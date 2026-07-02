@@ -97,3 +97,4 @@
 - [§76 — B-173 EPIC — Single-Source-of-Truth Tab↔Item Identity Consolidation (R6 As-Built)](design/76-b-173-epic-as-built.md)
 - [§77 — Display-Order / Floating-Tab-Model Consolidation (R0 Spike)](design/77-display-order-consolidation-r0-spike.md)
 - [§78 — B-194 — Unified Item Model: bookmark × floating × open → one entity (R0 Spike)](design/78-unified-item-model-r0-spike.md)
+- [§79 — B-194 — Unified Top-Level Region: Render-Merge (B-196) + Top-Level Floating Anchoring (B-197) (R2)](design/79-b-194-render-merge-r2.md)
