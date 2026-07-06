@@ -27,14 +27,14 @@
 
 ### [B-195] Safety-net integration test for the unified top-level region
 - **Tier**: Full (M) — test-only, no production behavior change
-- **Status**: R1 ✅ · **DoR-ready** (test-first net; R2 = one-pass fixture-contract check). 6 fixture states enumerated; T5/T6/T7 marked B-197-EXTEND.
-- **Assigned To**: [solution-architect] (R2 fixture check) → [test-engineer] (build)
+- **Status**: **✅ DONE** 2026-07-02 — 11-test safety net GREEN against current code (6 stable invariants incl. the single-source partition + 4 B-197-EXTEND + 1 B-186-GATE); suite 2179 PASS. [scrum-master]-reviewed: real net, no illusory asserts.
+- **Assigned To**: — (complete)
 - **Blockers**: none
 - **Feature Context**:
   - The regression net that must exist and pass against current code BEFORE the B-196 render merge (mirrors B-174's role for B-173, and B-187 for the §77 Tier-A work).
   - Seeds saved-ungrouped + floating-under-ungrouped + loose + claimed/dormant; asserts the unified top-level region renders in correct head (renderOrder) + tail (live-ordered) order AND floating resolution is single-sourced. Folds the mock-reproducible B-185 subset.
-- **Handoff Notes**: Written by [test-engineer] at R5 normally, but as an A0 safety net it is defined at R1 and BUILT before B-196 — test-first discipline. Uses `tests/chrome-mock.js` only.
-- **Files Changed**: _(pending)_
+- **Handoff Notes**: A0 net BUILT before B-196 (test-first). **B-196 must keep all 11 green; B-197 must flip the 4 B-197-EXTEND tests** (it touches `buildFloatingMembers`/opener resolution). Uses `tests/chrome-mock.js` only.
+- **Files Changed**: `tests/b195-unified-top-level-net.test.js` (new, 11 tests)
 - **Parallel Opportunity**: Can interleave with B-186.
 
 ### [B-196] Render merge — single top-level catch-all (sidepanel + newtab)
@@ -79,6 +79,7 @@
 | Item | Name | Tier | Status |
 |------|------|------|--------|
 | B-186 | Renumber `LiveTabIndex.index` survivors on tab close | Fast Track (S) | ✅ DONE 2026-07-01 — R4 clean (0 CRIT/HIGH, 2 LOW fixed); suite 2168 PASS |
+| B-195 | Safety-net test for the unified top-level region | Full (M, test-only) | ✅ DONE 2026-07-02 — 11-test net GREEN (single-source partition invariant + 4 B-197-EXTEND); suite 2179 PASS |
 
 ---
 
