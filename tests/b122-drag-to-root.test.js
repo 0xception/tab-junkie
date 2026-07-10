@@ -276,15 +276,15 @@ test('B-122 T6 (§62.2.4): _buildGroupDragRectCache extension — `topLevelOrder
 });
 
 /* =========================================================================
-   T7 (Wave 3a M-4 / qa M-2 fix-round) — Open Tabs section reject-guard.
-   `_computeGroupPromoteTarget` must explicitly reject the `.open-tabs-section`
-   as a promote target so a sub-group dropped over Open Tabs does NOT promote
-   to "after last top-level group". The guard mirrors the existing
-   `_computeGroupDropTarget` Open-Tabs guard (sidepanel.js:5462) and uses
-   `document.elementFromPoint(x, y).closest('.open-tabs-section')`.
+   T7 (Wave 3a M-4 / qa M-2 fix-round / B-196 §79.5.4) — top-level region
+   reject-guard. `_computeGroupPromoteTarget` must explicitly reject the merged
+   `.top-level-section` (formerly `.open-tabs-section`) as a promote target so a
+   sub-group dropped over the region does NOT promote to "after last top-level
+   group". The guard uses
+   `document.elementFromPoint(x, y).closest('.top-level-section')`.
    ========================================================================= */
 
-test('B-122 T7 (Wave 3a fix): _computeGroupPromoteTarget rejects pointer over .open-tabs-section', () => {
+test('B-122 T7 (B-196 merge): _computeGroupPromoteTarget rejects pointer over .top-level-section', () => {
   const sidepanelJs = readFile('sidepanel/sidepanel.js');
 
   /* Locate the helper body. */
@@ -292,7 +292,7 @@ test('B-122 T7 (Wave 3a fix): _computeGroupPromoteTarget rejects pointer over .o
   assert.ok(helperMatch, '_computeGroupPromoteTarget must exist');
   const helperBody = helperMatch[1];
 
-  /* The guard MUST call elementFromPoint and check for .open-tabs-section. */
+  /* The guard MUST call elementFromPoint and check for .top-level-section. */
   assert.match(
     helperBody,
     /document\.elementFromPoint\(x,\s*y\)/,
@@ -300,15 +300,15 @@ test('B-122 T7 (Wave 3a fix): _computeGroupPromoteTarget rejects pointer over .o
   );
   assert.match(
     helperBody,
-    /\.closest\?\.\(['"]\.open-tabs-section['"]\)/,
-    '_computeGroupPromoteTarget must `.closest("." + open-tabs-section)` reject-guard',
+    /\.closest\?\.\(['"]\.top-level-section['"]\)/,
+    '_computeGroupPromoteTarget must `.closest("." + top-level-section)` reject-guard',
   );
 
   /* The reject-guard must return null (no promote) when the closest match
-     is the Open Tabs section. */
+     is the merged top-level region. */
   assert.match(
     helperBody,
-    /closest\?\.\(['"]\.open-tabs-section['"]\)\)\s*return\s+null/,
-    'Open-Tabs reject-guard must `return null` when pointer is over the Open Tabs section',
+    /closest\?\.\(['"]\.top-level-section['"]\)\)\s*return\s+null/,
+    'top-level reject-guard must `return null` when pointer is over the region',
   );
 });

@@ -186,20 +186,20 @@ test('B-031 T-6: bulkReorderGroups rejects circular parentId with ERR_CIRCULAR_R
 });
 
 /* =========================================================================
-   T-7 — rejects drag into Ungrouped pseudo-id with ERR_NOT_FOUND
+   T-7 — rejects drag into the top-level pseudo-id with ERR_NOT_FOUND
    ========================================================================= */
 
-test('B-031 T-7: bulkReorderGroups rejects NEST into __ungrouped__ pseudo-id (ERR_NOT_FOUND)', async () => {
+test('B-031 T-7 (B-196 §79.2.3): bulkReorderGroups rejects NEST into __toplevel__ pseudo-id (ERR_NOT_FOUND)', async () => {
   const { sibling } = await seedWithNesting();
 
-  /* The UI uses the string '__ungrouped__' as the Ungrouped section's
-     pseudo-id; it is NEVER a real group record. A drag handler bug that
-     dispatched a parentId=__ungrouped__ update must be rejected at the
-     storage layer — `assertDepthAndCycle` cannot resolve the id to a
-     group record and surfaces ERR_NOT_FOUND. */
+  /* The UI uses the string '__toplevel__' as the merged top-level region's
+     pseudo-id (formerly '__ungrouped__'); it is NEVER a real group record. A
+     drag handler bug that dispatched a parentId=__toplevel__ update must be
+     rejected at the storage layer — `assertDepthAndCycle` cannot resolve the
+     id to a group record and surfaces ERR_NOT_FOUND. */
   await assert.rejects(
     async () => bulkReorderGroups([
-      { id: sibling.id, sortOrder: 0, parentId: '__ungrouped__' },
+      { id: sibling.id, sortOrder: 0, parentId: '__toplevel__' },
     ]),
     (err) => err instanceof StorageError && err.code === ERR_NOT_FOUND,
   );

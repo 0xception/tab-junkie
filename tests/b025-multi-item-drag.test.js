@@ -478,7 +478,7 @@ function computeDropTarget(deps, x, y) {
   if (!hit) return null;
 
   /* B-033 — Open Tabs demote target. */
-  if (hit.closest('.open-tabs-section')) {
+  if (hit.closest('.top-level-section')) {
     /* B-025 AC9 / B-025-H3 — multi-drag onto Open Tabs is a no-op. */
     if (itemDragState.isMulti) return null;
     const liveState = cachedLiveStates[itemDragState.itemId];
@@ -503,7 +503,7 @@ function computeDropTarget(deps, x, y) {
   if (groupItemsEl && groupItemsEl.querySelector('.item-row') === null) {
     const section = groupItemsEl.closest('.group-section[data-group-id]');
     if (section && section.dataset && section.dataset.groupId) {
-      if (section.closest('.open-tabs-section')) return null;
+      if (section.closest('.top-level-section')) return null;
       return { type: 'emptyGroup', destGroupId: section.dataset.groupId };
     }
   }
@@ -513,8 +513,8 @@ function computeDropTarget(deps, x, y) {
 
 test('B-025 T-8 (B-025-H3): multi-drag hit-test on Open Tabs section returns null (no partial demote)', () => {
   /* Build a shim DOM ancestry: hit element is `div.open-tab-row` inside
-     `section.open-tabs-section`. `.closest('.open-tabs-section')` matches. */
-  const openTabsSection = new ShimEl('open-tabs-section');
+     `section.top-level-section`. `.closest('.top-level-section')` matches. */
+  const openTabsSection = new ShimEl('top-level-section');
   const tabRow = new ShimEl('open-tab-row', { tabId: '123' }, openTabsSection);
 
   /* Multi-drag in flight: payloadSet has 3 ids; initiator itemId is in it.
@@ -540,7 +540,7 @@ test('B-025 T-8 (B-025-H3): multi-drag hit-test on Open Tabs section returns nul
 test('B-025 T-8 (B-030 AC7): solo-drag onto Open Tabs with saved+live initiator returns {type:openTabs}', () => {
   /* Control case: same hit-test but single-item drag — solo demote flow
      (B-033) must still activate so B-025-H3 fix does not over-reach. */
-  const openTabsSection = new ShimEl('open-tabs-section');
+  const openTabsSection = new ShimEl('top-level-section');
   const tabRow = new ShimEl('open-tab-row', { tabId: '123' }, openTabsSection);
   const itemDragState = {
     itemId: 'initiator-id',
@@ -561,10 +561,10 @@ test('B-025 T-8 (B-030 AC7): solo-drag onto Open Tabs with saved+live initiator 
 
 test('B-025 T-8 (regression): multi-drag onto item-row within Open Tabs section → still null', () => {
   /* Even if the hit-test lands on an item-row (the open-tab-row class is
-     different) but the ancestor chain still reaches .open-tabs-section,
+     different) but the ancestor chain still reaches .top-level-section,
      the handler must short-circuit on the section match BEFORE falling
      through to the item-row path. */
-  const openTabsSection = new ShimEl('open-tabs-section');
+  const openTabsSection = new ShimEl('top-level-section');
   const tabRow = new ShimEl('item-row', { itemId: 'other-item' }, openTabsSection);
   const itemDragState = {
     itemId: 'initiator-id',
@@ -578,7 +578,7 @@ test('B-025 T-8 (regression): multi-drag onto item-row within Open Tabs section 
     { itemDragState, elementFromPoint: () => tabRow, cachedLiveStates, dragRectCache },
     10, 10,
   );
-  assert.equal(target, null, 'open-tabs-section match short-circuits multi-drag regardless of inner row class');
+  assert.equal(target, null, 'top-level-section match short-circuits multi-drag regardless of inner row class');
 });
 
 test('B-025 T-8 (self-exclusion): multi-drag hit on payload member returns null', () => {
@@ -698,12 +698,12 @@ test('B-025 T-9 (UAT-3 negative): `.group-items` WITH an item-row child is NOT a
     'Group with an item-row child is not empty — empty-group branch must not match');
 });
 
-test('B-025 T-9 (UAT-3 edge): `.group-items` nested inside `.open-tabs-section` is rejected (defensive)', () => {
+test('B-025 T-9 (UAT-3 edge): `.group-items` nested inside `.top-level-section` is rejected (defensive)', () => {
   /* Open Tabs must NEVER become an emptyGroup drop target — it has its own
      drop semantics (B-033 demote). If a future DOM layout nests a
-     `.group-items` inside `.open-tabs-section`, the defensive guard keeps
+     `.group-items` inside `.top-level-section`, the defensive guard keeps
      AC9 intact (multi-drag onto Open Tabs → null). */
-  const openTabs = new ShimEl('open-tabs-section');
+  const openTabs = new ShimEl('top-level-section');
   const section = new ShimEl('group-section', { groupId: 'defensive' }, openTabs);
   const groupItems = new ShimEl('group-items', {}, section);
   new ShimEl('group-items-empty', {}, groupItems);
@@ -718,11 +718,11 @@ test('B-025 T-9 (UAT-3 edge): `.group-items` nested inside `.open-tabs-section` 
     50, 50,
   );
   /* The Open Tabs short-circuit at the top of _computeDropTarget fires
-     FIRST (since hit.closest('.open-tabs-section') matches via the
+     FIRST (since hit.closest('.top-level-section') matches via the
      ancestor chain); the multi-drag guard then returns null. Either path
      yields null — the point is: never emptyGroup. */
   assert.equal(target, null,
-    'emptyGroup target must never reach through a .open-tabs-section ancestor');
+    'emptyGroup target must never reach through a .top-level-section ancestor');
 });
 
 /* =========================================================================

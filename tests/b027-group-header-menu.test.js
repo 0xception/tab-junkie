@@ -25,7 +25,7 @@
  *   AC-class     — destructive actions carry context-menu-item--destructive class
  *   AC-clamp     — viewport clamping mirrors B-026 / B-028 pattern
  *   AC-escape    — menu closes on Escape (contextMenuEl hidden)
- *   AC-ungrouped — right-click on __ungrouped__ header does NOT open a group menu
+ *   AC-toplevel — right-click on __toplevel__ header does NOT open a group menu
  */
 
 // B-065 deferral: extracting this helper requires consumer refactor (DOM + _pendingConfirm state); filed as future tech-debt, not in scope for B-065.
@@ -142,7 +142,7 @@ function openGroupContextMenu(ctx, header, x, y) {
   ctx.contextMenuEl.replaceChildren();
 
   const groupId = header.dataset.groupId;
-  if (!groupId || groupId === '__ungrouped__') return 'early-return:ungrouped';
+  if (!groupId || groupId === '__toplevel__') return 'early-return:toplevel';
 
   const group = ctx._cachedGroups.find((g) => g.id === groupId);
   if (!group) return 'early-return:no-group';
@@ -321,10 +321,14 @@ function openGroupContextMenu(ctx, header, x, y) {
 }
 
 /* Reproduced dispatch logic for contextmenu event handler — mirrors the
-   branch added in sidepanel.js document.addEventListener('contextmenu'). */
+   branch in sidepanel.js document.addEventListener('contextmenu').
+   B-196 §79.2.3: the retired `.open-tabs-header` class guard is gone; the
+   merged top-level region header (`__toplevel__`) bails to the native menu,
+   every other group header opens the group menu. */
 function dispatchContextMenu(ctx, target) {
   const header = target.closest ? target.closest('.group-header') : null;
-  if (header && !header.classList.split(' ').includes('open-tabs-header')) {
+  if (header) {
+    if (header.dataset.groupId === '__toplevel__') return 'none';
     return 'group';
   }
   const row = target.closest ? target.closest('.item-row') : null;
@@ -412,11 +416,11 @@ test('B-027 AC-dispatch: right-click on group header dispatches to group menu', 
   assert.equal(dispatchContextMenu(ctx, header), 'group');
 });
 
-test('B-027 AC-dispatch: right-click on __ungrouped__ header does NOT open group menu', () => {
+test('B-027 AC-dispatch (B-196 §79.2.3): right-click on __toplevel__ header does NOT open group menu', () => {
   const ctx = makeCtx();
-  const header = makeHeader('__ungrouped__');
+  const header = makeHeader('__toplevel__');
   const result = openGroupContextMenu(ctx, header, 10, 10);
-  assert.equal(result, 'early-return:ungrouped', '__ungrouped__ must bail early');
+  assert.equal(result, 'early-return:toplevel', '__toplevel__ must bail early');
   /* contextMenuEl should still be empty */
   assert.equal(ctx.contextMenuEl.childNodes.length, 0);
 });
@@ -427,13 +431,15 @@ test('B-027 AC-dispatch: right-click on item-row (not in selection) dispatches t
   assert.equal(dispatchContextMenu(ctx, row), 'single-item');
 });
 
-test('B-027 AC-dispatch: open-tabs-header is excluded from group menu', () => {
+test('B-027 AC-dispatch (B-196 §79.2.3): merged top-level header is excluded from the group menu', () => {
+  /* The retired Open Tabs section had a separate `.open-tabs-header` that the
+     dispatcher excluded by class. Post-B-196 the merged region reuses the plain
+     `.group-header`; the single bail predicate is the `__toplevel__` id, which
+     routes to the native menu (not the group menu). */
   const ctx = makeCtx();
-  const header = makeHeader('g1', 'open-tabs-header');
-  /* This header has open-tabs-header class, so the branch guard prevents dispatch */
-  /* In the real handler: !header.classList.contains('open-tabs-header') */
-  const classList = header.className.split(' ');
-  assert.ok(classList.includes('open-tabs-header'), 'open-tabs-header class present');
+  const header = makeHeader('__toplevel__');
+  assert.equal(dispatchContextMenu(ctx, header), 'none',
+    'top-level header must not dispatch to the group menu');
 });
 
 /* =========================================================================

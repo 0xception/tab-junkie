@@ -346,7 +346,7 @@ test('B-187 open-PARITY-2: buildOpenTabs orders strictly by (windowId, tabIndex)
 });
 
 test('B-187 open-PARITY-3 (full vs incremental input parity): both render paths consume the SAME (windowId, tabIndex)-sorted array', () => {
-  /* The full path (buildOpenTabsSection) appends rows in array order; the
+  /* The full path (buildTopLevelSection tail) appends rows in array order; the
      incremental path (patchOpenTabsSection) reconciles the DOM to the SAME
      array index order (sidepanel.js:3508-3521). Both consume buildOpenTabs'
      output verbatim, so for identical input they cannot disagree. We pin the
@@ -378,7 +378,7 @@ test('B-187 wiring-1: patchFloatingMembersSections imports + uses resolveInsertB
   /* Guard against a regression to "always staticAnchor for new rows": the
      new-row branch must reference the computed anchor, not only staticAnchor. */
   const fn = src.slice(src.indexOf('function patchFloatingMembersSections'),
-    src.indexOf('function buildOpenTabsSection'));
+    src.indexOf('function _deriveTopLevelRenderOrder'));
   assert.match(fn, /_resolveFloatingRowAnchor\(/,
     'new floating rows resolve their renderOrder anchor (not unconditional staticAnchor)');
 });

@@ -338,11 +338,11 @@ html, body {
   position: relative; /* enables absolute positioning of .drop-indicator--item */
 }
 
-/* B-033 — Open Tabs section as drop-target highlight. Applied when a
-   saved+live item is dragged over the section. Subtle background tint
-   so the user sees the section is a valid drop zone without it becoming
-   visually dominant. */
-.open-tabs-section--drop-target {
+/* B-033 / B-196 §79.5.4 — loose-tail demote drop-target highlight. Applied to
+   the merged top-level region's tail sub-list when a saved+live item is
+   dragged over it. Subtle background tint so the user sees the tail is a valid
+   drop zone without it becoming visually dominant. */
+.top-level-tail-list--drop-target {
   background-color: var(--bg-hover, rgba(0, 0, 0, 0.04));
   outline: 2px dashed var(--accent);
   outline-offset: -2px;
@@ -1682,26 +1682,19 @@ mark {
   background: #fef2f2;
 }
 
-/* --- Open Tabs section (B-055) ---------------------------------------- */
+/* --- Top-level catch-all region: loose tail (B-196 §79.5.4) ------------ */
 
-.open-tabs-section {
-  display: block;
-  border-top: 1px solid var(--border-primary);
-  margin-top: 4px;
-}
-
-.open-tabs-header {
-  /* Inherits .group-header layout; no collapse toggle, no drag handle. */
-  cursor: default;
-}
-
-.open-tabs-list {
+/* Variant A: visually one continuous list. The head reuses the shared
+   `.group-section` / `.group-items` styling; the loose tail is a distinct
+   sibling `<ul>` (for patch isolation) rendered with NO divider element so
+   head and tail read as one flow. */
+.top-level-tail-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.open-tabs-list[hidden] {
+.top-level-tail-list[hidden] {
   display: none;
 }
 
@@ -1825,21 +1818,6 @@ mark {
   color: var(--on-accent);
 }
 
-/* AC10: empty-state block — matches B-049 pattern. */
-.open-tabs-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 16px 12px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  text-align: center;
-}
-
-.open-tabs-empty[hidden] {
-  display: none;
-}
 
 /* =========================================================================
    B-025 — multi-item drag ghost (§37 D-3)
