@@ -74,6 +74,53 @@ export function resolveRenderOrder(group, groupItems, groupFloatingMembers) {
 }
 
 /**
+ * B-196 §79.3.3 — derive the runtime `__toplevel__` renderOrder owner (pure).
+ *
+ * The top-level catch-all region is NOT a persisted group record, so it has no
+ * stored `Group.renderOrder`. This builder produces one at render time: walk the
+ * saved-ungrouped head items in `sortOrder` order and, after each item, splice
+ * its top-level floating children (matched by `parentItemId`, ordered by their
+ * own `sortOrder`) immediately after it. The resulting `item:`/`floating:` ref
+ * list is fed VERBATIM to `resolveRenderOrder` (non-empty-renderOrder branch) so
+ * the region participates in the SAME render contract as named groups — no new
+ * storage, no schema bump. Before B-197 lands the floating bucket is always
+ * empty, so the derived order is exactly the head items by `sortOrder`
+ * (byte-for-byte the former `__ungrouped__` ordering).
+ *
+ * Shared (B-196 fix-round F-1) so the sidepanel full-render path, the sidepanel
+ * incremental floating-patch path, AND the newtab head render all resolve the
+ * sentinel owner from a single source (§79.5.2 R-4 / code M-2 / qa M-1).
+ *
+ * Pure: no DOM, no chrome.* calls, no side effects.
+ *
+ * @param {Array<{ id: string, sortOrder?: number }>} headItems
+ * @param {Array<{ floatingTabId: string, parentItemId?: string, sortOrder?: number }>} headFloating
+ * @returns {string[]} ordered `item:`/`floating:` ref list
+ */
+export function deriveTopLevelRenderOrder(headItems, headFloating) {
+  const items = Array.isArray(headItems) ? headItems : [];
+  const floating = Array.isArray(headFloating) ? headFloating : [];
+  const sortedItems = [...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  const childrenByParent = new Map();
+  for (const fm of floating) {
+    if (!fm || typeof fm.floatingTabId !== 'string') continue;
+    const pid = typeof fm.parentItemId === 'string' ? fm.parentItemId : '';
+    if (!childrenByParent.has(pid)) childrenByParent.set(pid, []);
+    childrenByParent.get(pid).push(fm);
+  }
+  for (const arr of childrenByParent.values()) {
+    arr.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  }
+  const refs = [];
+  for (const it of sortedItems) {
+    refs.push(PREFIX_ITEM + it.id);
+    const kids = childrenByParent.get(it.id);
+    if (kids) for (const fm of kids) refs.push(PREFIX_FLOATING + fm.floatingTabId);
+  }
+  return refs;
+}
+
+/**
  * B-188 §77 (RP-B fix) — pure insert-index decision for the INCREMENTAL
  * sidepanel floating-row patch path (patchFloatingMembersSections).
  *

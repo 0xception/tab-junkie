@@ -21,7 +21,7 @@ Merge the split Ungrouped-vs-Open-Tabs pipelines into ONE top-level catch-all + 
 | B-194 | Unified item model (EPIC anchor) | Spike-First | XL | 🔄 R0 done |
 | B-186 | Renumber `LiveTabIndex.index` on tab close (prereq) | Fast Track | S | ✅ DONE (R4 clean; 2168 PASS) |
 | B-195 | Safety-net test for the unified top-level region (A0) | Full | M | ✅ DONE (11-test net; 2179 PASS) |
-| B-196 | Render merge — single top-level catch-all (A1, rehome) | Full | L | 🔄 R1 |
+| B-196 | Render merge — single top-level catch-all (A1, rehome) | Full | L | ✅ DONE (R4 3-reviewer; 2197 PASS) |
 | B-197 | Top-level floating anchoring — absorbs B-185 (A2) | Full | M/L | 🔄 R1 |
 
 _Note: v1.42.1 (B-184 + §77 Tier-A B-187/188/189/190) shipped as a post-S47 follow-on bundle (no formal sprint). B-193 doc-refresh + B-181/B-182 open-tab window-filter bugs remain backlog._

@@ -33,7 +33,10 @@
  * Sub-groups render inline with a "Parent / Child" breadcrumb (AC2).
  * Counts are computed in a single O(n) pass over items (AC10).
  * The row whose id matches `sourceGroupId` is excluded (AC5). Pass the
- * sentinel `'__ungrouped__'` to exclude the Ungrouped pinned row.
+ * sentinel `'__toplevel__'` to exclude the Ungrouped pinned row (B-196 fix-round
+ * F-4: aligned to the merged top-level region's sentinel; this is only the
+ * internal SOURCE-exclusion / count-bucket key — the DESTINATION row is still
+ * keyed by `null`).
  *
  * @param {Object} opts
  * @param {Array<Object>} opts.groups - `_cachedGroups` snapshot
@@ -52,7 +55,7 @@ export function buildGroupPickerRows({ groups, items, liveStates, sourceGroupId 
   const savedByGroup = new Map();
   const openByGroup = new Map();
   for (const it of items) {
-    const key = it.groupId || '__ungrouped__';
+    const key = it.groupId || '__toplevel__';
     savedByGroup.set(key, (savedByGroup.get(key) || 0) + 1);
     const ls = liveStates[it.id];
     if (ls && ls.live) {
@@ -62,16 +65,19 @@ export function buildGroupPickerRows({ groups, items, liveStates, sourceGroupId 
 
   const rows = [];
 
-  /* Ungrouped pinned first (AC2). Source exclusion allows '__ungrouped__' as
-     a sentinel — '__ungrouped__' is never a real group id so this is safe. */
-  if (sourceGroupId !== '__ungrouped__') {
+  /* Ungrouped pinned first (AC2). Source exclusion allows '__toplevel__' as
+     a sentinel — '__toplevel__' is never a real group id so this is safe.
+     B-196 fix-round F-4: the DESTINATION row stays keyed by `null` (the
+     "move to top level" concept); the sentinel is only the SOURCE-exclusion +
+     count-bucket key, aligned to the merged top-level region's id. */
+  if (sourceGroupId !== '__toplevel__') {
     rows.push({
       id: null,
       name: 'Ungrouped',
       color: null,
       breadcrumb: '',
-      savedCount: savedByGroup.get('__ungrouped__') || 0,
-      openCount: openByGroup.get('__ungrouped__') || 0,
+      savedCount: savedByGroup.get('__toplevel__') || 0,
+      openCount: openByGroup.get('__toplevel__') || 0,
       searchKey: 'ungrouped',
     });
   }

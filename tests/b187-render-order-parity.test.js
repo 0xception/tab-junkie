@@ -377,8 +377,10 @@ test('B-187 wiring-1: patchFloatingMembersSections imports + uses resolveInsertB
     'sidepanel calls resolveInsertBeforeRef');
   /* Guard against a regression to "always staticAnchor for new rows": the
      new-row branch must reference the computed anchor, not only staticAnchor. */
+  /* B-196 fix-round F-1: _deriveTopLevelRenderOrder moved to the shared module;
+     the patch function's immediate successor is now _topLevelTailCount. */
   const fn = src.slice(src.indexOf('function patchFloatingMembersSections'),
-    src.indexOf('function _deriveTopLevelRenderOrder'));
+    src.indexOf('function _topLevelTailCount'));
   assert.match(fn, /_resolveFloatingRowAnchor\(/,
     'new floating rows resolve their renderOrder anchor (not unconditional staticAnchor)');
 });

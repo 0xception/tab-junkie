@@ -239,7 +239,7 @@ test('B-104 T6 (R4 H-2 regression / B-196 §79.2.3): synthetic top-level group h
           name: 'Top Level',
           color: null,
           collapsed: collapsedGroups.has(TOP_LEVEL_ID),
-          renderOrder: _deriveTopLevelRenderOrder(headItems, floatingArr),
+          renderOrder: deriveTopLevelRenderOrder(headItems, floatingArr),
         };
      The `color: null` slot keeps GROUP_COLORS.includes(null) === false so the
      header tint guard skips the region (AC12). */

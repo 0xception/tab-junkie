@@ -580,7 +580,11 @@ async function _activateRow(row) {
 }
 
 function _enterUngroupedDrillIn() {
-  _drilledGroupId = '__ungrouped__';
+  /* B-196 fix-round F-4: aligned to the merged top-level region's sentinel.
+     `_drilledGroupId` is used purely as a truthy "in ungrouped drill-in" flag
+     (never compared to a real group id after this point), so the string value
+     is behavior-neutral — the rename is for cross-surface sentinel consistency. */
+  _drilledGroupId = '__toplevel__';
   _drillChildGroups = [];
   _drillItems = _items
     .filter((it) => !it.groupId)

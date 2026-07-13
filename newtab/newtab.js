@@ -47,7 +47,7 @@ import { isSafeFaviconUrl } from '../shared/favicon.js';
 import { buildIndex, search, diffAndPatch } from '../sidepanel/search-index.js';
 /* B-088 fix #1 — shared theme + dense-layout appliers. */
 import { applyTheme as _applyTheme, applyDenseLayout as _applyDenseLayout } from '../shared/surface-prefs.js';
-import { resolveRenderOrder } from '../shared/render-order.js';
+import { resolveRenderOrder, deriveTopLevelRenderOrder } from '../shared/render-order.js';
 
 /* =========================================================================
    Tunables
@@ -993,7 +993,20 @@ function _buildGroupSection(group, groupKey, items, isChild = false) {
      filtered silently by the resolver. The Ungrouped section passes
      `group === null/undefined` → the resolver hits its bootstrap path
      which only references items + floating. */
-  const renderRows = resolveRenderOrder(group, items, floatingForGroup);
+  /* B-196 fix-round F-1 (code M-2 / qa M-1): the top-level head is not a
+     persisted group record (`group === null`), so passing it straight to
+     resolveRenderOrder would hit the bootstrap fallback (saved-then-floating),
+     NOT the interleaved order. Build the SAME synthetic `__toplevel__` owner
+     the sidepanel uses — a runtime-derived `renderOrder` off the head items +
+     floating members (shared deriveTopLevelRenderOrder) — so a top-level
+     floating member lands directly below its parent (B-197 AC13). Named groups
+     keep their persisted `group`. Behavior-preserving today: the head floating
+     bucket is empty pre-B-197, so the derived order is exactly the head items
+     by sortOrder — byte-for-byte the prior Ungrouped ordering. */
+  const renderOwner = (groupKey === UNGROUPED_KEY)
+    ? { id: UNGROUPED_KEY, renderOrder: deriveTopLevelRenderOrder(items, floatingForGroup) }
+    : group;
+  const renderRows = resolveRenderOrder(renderOwner, items, floatingForGroup);
   for (const row of renderRows) {
     if (row.kind === 'item') {
       const rowEl = _buildItemRow(row.item, loweredQuery);

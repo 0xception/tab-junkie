@@ -75,7 +75,7 @@ import { SCOPE } from '../shared/scopes.js';
 /* B-148 §3.7: resolver-produced row sequence for interleaved saved + floating
    render order. Falls back to saved-then-floating bootstrap when renderOrder
    is missing/empty. */
-import { resolveRenderOrder, resolveInsertBeforeRef } from '../shared/render-order.js';
+import { resolveRenderOrder, resolveInsertBeforeRef, deriveTopLevelRenderOrder } from '../shared/render-order.js';
 /* B-007 */
 import {
   filterGroupParentCandidates,
@@ -3339,10 +3339,26 @@ function patchFloatingMembersSections(nextFloatingMembers) {
        them back into the legacy saved-then-floating zone). Cross-
        container moves (row currently in another group) and new rows
        (just built) still insert at staticAnchor as before. */
-    const groupRecord = (Array.isArray(_cachedGroups) ? _cachedGroups : []).find((g) => g.id === groupId);
-    const groupHasRenderOrder = groupRecord
-      && Array.isArray(groupRecord.renderOrder)
-      && groupRecord.renderOrder.length > 0;
+    /* B-196 fix-round H-1 (§79.5.2 R-4): the `__toplevel__` region is NOT a
+       real `_cachedGroups` record, so `find(...)` returns undefined and the
+       sentinel would fall through to `staticAnchor` (bottom-append) — a
+       B-184-class bottom-drop scoped to the top-level head. Derive the owner's
+       renderOrder at runtime from the SAME builder the full-render path uses
+       (deriveTopLevelRenderOrder), sourced from the saved-ungrouped items +
+       this bucket's floating members. Named groups keep reading the persisted
+       `Group.renderOrder`. */
+    let renderOrder;
+    if (groupId === TOP_LEVEL_ID) {
+      const headItems = (Array.isArray(_cachedItems) ? _cachedItems : [])
+        .filter((it) => it.groupId == null);
+      renderOrder = deriveTopLevelRenderOrder(headItems, members);
+    } else {
+      const groupRecord = (Array.isArray(_cachedGroups) ? _cachedGroups : []).find((g) => g.id === groupId);
+      renderOrder = groupRecord && Array.isArray(groupRecord.renderOrder)
+        ? groupRecord.renderOrder
+        : null;
+    }
+    const groupHasRenderOrder = Array.isArray(renderOrder) && renderOrder.length > 0;
 
     /* B-121 R4 code-reviewer M-1: capture the insertion anchor ONCE before
        the members loop. The anchor is the first child that is NEITHER a
@@ -3441,7 +3457,7 @@ function patchFloatingMembersSections(nextFloatingMembers) {
          broadcast SCOPE that triggered it. */
       if (row.parentNode !== itemsContainer) {
         const anchor = groupHasRenderOrder
-          ? _resolveFloatingRowAnchor(itemsContainer, groupRecord.renderOrder, member, staticAnchor)
+          ? _resolveFloatingRowAnchor(itemsContainer, renderOrder, member, staticAnchor)
           : staticAnchor;
         itemsContainer.insertBefore(row, anchor);
       } else if (!groupHasRenderOrder
@@ -3450,13 +3466,20 @@ function patchFloatingMembersSections(nextFloatingMembers) {
       }
     }
 
-    /* Update the header count to reflect saved-rows + floating-rows. */
+    /* Update the header count to reflect saved-rows + floating-rows. B-196
+       fix-round F-2 (qa M-2): the merged `__toplevel__` region owns ONE count
+       badge spanning head (saved + floating) AND the loose tail — the floating
+       patch must fold in the tail count or it clobbers the badge the tail
+       patcher set (dropping the loose-tab contribution). Named groups have no
+       tail so the addend is 0 for them. */
     const savedCount = itemsContainer.querySelectorAll(
       '.item-row[data-item-id]:not([data-floating])',
     ).length;
+    const tailCount = groupId === TOP_LEVEL_ID ? _topLevelTailCount() : 0;
+    const total = savedCount + members.length + tailCount;
     const countBadge = section.querySelector('.group-header-count');
-    if (countBadge) countBadge.textContent = String(savedCount + members.length);
-    if (section.dataset) section.dataset.itemCount = String(savedCount + members.length);
+    if (countBadge) countBadge.textContent = String(total);
+    if (section.dataset) section.dataset.itemCount = String(total);
   }
 
   /* For groups that USED to have floating members but no longer do, drop
@@ -3470,50 +3493,27 @@ function patchFloatingMembersSections(nextFloatingMembers) {
     const savedCount = itemsContainer.querySelectorAll(
       '.item-row[data-item-id]:not([data-floating])',
     ).length;
+    /* B-196 fix-round F-2: the merged region still owns its loose tail even
+       when it carries zero floating members — fold the tail count back in so
+       the badge doesn't drop to head-only. */
+    const tailCount = gid === TOP_LEVEL_ID ? _topLevelTailCount() : 0;
+    const total = savedCount + tailCount;
     const countBadge = section.querySelector('.group-header-count');
-    if (countBadge) countBadge.textContent = String(savedCount);
-    if (section.dataset) section.dataset.itemCount = String(savedCount);
+    if (countBadge) countBadge.textContent = String(total);
+    if (section.dataset) section.dataset.itemCount = String(total);
   }
 }
 
 /**
- * B-196 §79.3.3: derive the runtime `__toplevel__` renderOrder owner. Walk the
- * saved-ungrouped items in `sortOrder` order and, after each item, splice its
- * top-level floating children (matched by `parentItemId`, ordered by their
- * `sortOrder`) immediately after it. The resulting ref list is fed VERBATIM to
- * the existing `resolveRenderOrder` (non-empty-renderOrder branch), so the
- * top-level region participates in the SAME render contract as named groups —
- * no new storage, no schema bump. Before B-197 lands the floating bucket is
- * always empty, so the derived order is exactly the saved items by sortOrder
- * (byte-for-byte the former `__ungrouped__` ordering). Callable from both the
- * full render and the incremental floating patch so the sentinel owner is a
- * single source (§79.5.2 R-4).
+ * B-196 fix-round F-2: count of loose-tail rows in the merged top-level
+ * region (the distinct `#top-level-tail-list` sub-list). Zero when the region
+ * or its tail is absent (render-when-nonempty).
  *
- * @param {Array<{ id: string, sortOrder?: number }>} headItems
- * @param {Array<{ floatingTabId: string, parentItemId?: string, sortOrder?: number }>} headFloating
- * @returns {string[]} ordered `item:`/`floating:` ref list
+ * @returns {number}
  */
-function _deriveTopLevelRenderOrder(headItems, headFloating) {
-  const items = Array.isArray(headItems) ? headItems : [];
-  const floating = Array.isArray(headFloating) ? headFloating : [];
-  const sortedItems = [...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-  const childrenByParent = new Map();
-  for (const fm of floating) {
-    if (!fm || typeof fm.floatingTabId !== 'string') continue;
-    const pid = typeof fm.parentItemId === 'string' ? fm.parentItemId : '';
-    if (!childrenByParent.has(pid)) childrenByParent.set(pid, []);
-    childrenByParent.get(pid).push(fm);
-  }
-  for (const arr of childrenByParent.values()) {
-    arr.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-  }
-  const refs = [];
-  for (const it of sortedItems) {
-    refs.push('item:' + it.id);
-    const kids = childrenByParent.get(it.id);
-    if (kids) for (const fm of kids) refs.push('floating:' + fm.floatingTabId);
-  }
-  return refs;
+function _topLevelTailCount() {
+  const tailList = document.getElementById(TOP_LEVEL_TAIL_LIST_ID);
+  return tailList ? tailList.querySelectorAll('[data-tab-id]').length : 0;
 }
 
 /**
@@ -3552,7 +3552,7 @@ function buildTopLevelSection(headItems, byGroup, liveStates, driftRecords, head
     name: 'Top Level',
     color: null,
     collapsed: collapsedGroups.has(TOP_LEVEL_ID),
-    renderOrder: _deriveTopLevelRenderOrder(headItems, floatingArr),
+    renderOrder: deriveTopLevelRenderOrder(headItems, floatingArr),
   };
   byGroup.set(TOP_LEVEL_ID, Array.isArray(headItems) ? headItems : []);
   const section = buildGroupSection(syntheticGroup, byGroup, liveStates, driftRecords, false, floatingArr);
@@ -3571,6 +3571,12 @@ function buildTopLevelSection(headItems, byGroup, liveStates, driftRecords, head
   tailList.id = TOP_LEVEL_TAIL_LIST_ID;
   tailList.className = TOP_LEVEL_TAIL_LIST_CLASS;
   tailList.setAttribute('role', 'list');
+  /* B-196 fix-round H-2: the head container inherits the collapsed `hidden`
+     from buildGroupSection, but the loose tail is a DISTINCT sibling <ul> that
+     buildGroupSection never sees. Seed its initial hidden state to match the
+     head so a collapsed region hides BOTH sub-lists on first paint (ARIA: a
+     collapsed header must not leave the tail rows disclosed). */
+  tailList.hidden = syntheticGroup.collapsed;
   for (const t of tail) tailList.appendChild(buildOpenTabRow(t));
   section.appendChild(tailList);
 
@@ -4494,6 +4500,12 @@ function toggleGroup(header) {
      return BEFORE the MSG_UPDATE_GROUP write (same guard the retired
      `__ungrouped__` section used). */
   if (groupId === TOP_LEVEL_ID) {
+    /* B-196 fix-round H-2: `itemsContainer` above is only the head sub-list.
+       The loose tail is a distinct sibling <ul>, so mirror its `hidden` to the
+       head's new state. `expanded` is the PRE-toggle state — collapsing means
+       `expanded === true`, so the tail's new hidden === expanded. */
+    const tailList = document.getElementById(TOP_LEVEL_TAIL_LIST_ID);
+    if (tailList) tailList.hidden = expanded;
     sessionStorage.setItem('tj-toplevel-collapsed', String(!expanded));
     return;
   }
@@ -8733,6 +8745,18 @@ window.addEventListener('blur', () => {
    ========================================================================= */
 
 document.addEventListener('DOMContentLoaded', async () => {
+  /* B-196 fix-round F-3 (qa M-3) — one-time migration of the pre-merge
+     Ungrouped-section collapse preference. A user who had the old Ungrouped
+     section collapsed carries `tj-ungrouped-collapsed='true'`, but the merged
+     region reads only `tj-toplevel-collapsed`. Copy the value across when the
+     new key is absent (don't clobber a fresh choice the user already made on
+     the merged region), then evict the retired key so the migration runs once. */
+  if (sessionStorage.getItem('tj-toplevel-collapsed') === null
+      && sessionStorage.getItem('tj-ungrouped-collapsed') === 'true') {
+    sessionStorage.setItem('tj-toplevel-collapsed', 'true');
+  }
+  sessionStorage.removeItem('tj-ungrouped-collapsed');
+
   /* W1 / B-196 §79.2.3 — restore the top-level region collapse from sessionStorage */
   if (sessionStorage.getItem('tj-toplevel-collapsed') === 'true') {
     collapsedGroups.add(TOP_LEVEL_ID);

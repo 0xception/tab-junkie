@@ -39,14 +39,14 @@
 
 ### [B-196] Render merge — single top-level catch-all (sidepanel + newtab)
 - **Tier**: Full (L) — **REHOME item** (moves Open Tabs + `__ungrouped__` DOM into one region → R1 selector-audit subsection MANDATORY)
-- **Status**: R1 ✅ · **R2 IN PROGRESS** — Q1 **fully-merged (no divider)** + Q2 **below the named groups** LOCKED by product-owner 2026-07-01. R2 resolves Q4 (empty-state under no-divider) + the mandatory fix-scope test enumeration (R1 found 12 test files).
-- **Assigned To**: [solution-architect] (R2)
-- **Blockers**: depends on B-195 (net) + B-186 (loose-tail correctness) — both in-sprint
+- **Status**: **✅ DONE** 2026-07-10 — R3 ✅ (`bf55cfe`) · R4 ✅ (security CLEAN; code+qa found H-1 + H-2) · R4 fix-round ✅ resolved H-1 (incremental `__toplevel__` renderOrder) + H-2 (collapse-tail) + folded M-1..M-4; `deriveTopLevelRenderOrder` extracted to `shared/render-order.js`. Suite 2197 PASS (+18). [scrum-master] verified both HIGH fixes.
+- **Assigned To**: — (complete)
+- **Blockers**: none (B-195 ✅ + B-186 ✅ both done)
 - **Feature Context**:
   - Replace the `__ungrouped__` synthetic section (`sidepanel.js:2285-2302`) + `buildOpenTabsSection` (`sidepanel.js:3455`) with ONE top-level catch-all region: renderOrder head (anchored/saved) + live-ordered tail (loose open tabs). Same content, one region. Applies to sidepanel AND newtab.
   - Visual variant (Q1: fully-merged vs subtle saved/unsaved divider) → decide at R2, confirm at UAT. Region placement (Q2: above/below groups) → R2.
 - **Handoff Notes**: Largest item; sequence AFTER B-186 + B-195. Cross-surface diff self-check (sidepanel vs newtab) required at R3.
-- **Files Changed**: _(pending)_
+- **Files Changed**: `sidepanel/sidepanel.js` (buildTopLevelSection, patch paths, toggle, migration), `newtab/newtab.js` (head-only + derived owner), `shared/render-order.js` (new `deriveTopLevelRenderOrder`), `shared/group-picker-core.js` + `popup/group-jump-popup.js` (sentinel align), `sidepanel/sidepanel.css`; tests `b196-toplevel-region` (new, 18) + b025/b027/b031/b036/b102/b104/b122/b187/b148/b029/b023 (rehome/contract updates)
 - **Parallel Opportunity**: None — the L item; runs solo per P-1.
 
 ### [B-197] Top-level/ungrouped floating anchoring (absorbs B-185)
@@ -80,6 +80,7 @@
 |------|------|------|--------|
 | B-186 | Renumber `LiveTabIndex.index` survivors on tab close | Fast Track (S) | ✅ DONE 2026-07-01 — R4 clean (0 CRIT/HIGH, 2 LOW fixed); suite 2168 PASS |
 | B-195 | Safety-net test for the unified top-level region | Full (M, test-only) | ✅ DONE 2026-07-02 — 11-test net GREEN (single-source partition invariant + 4 B-197-EXTEND); suite 2179 PASS |
+| B-196 | Render merge — single top-level catch-all | Full (L, rehome) | ✅ DONE 2026-07-10 — R4 3-reviewer gate; H-1/H-2 + M-1..M-4 fixed; suite 2197 PASS (+18) |
 
 ---
 
