@@ -51,7 +51,7 @@
 
 ### [B-197] Top-level/ungrouped floating anchoring (absorbs B-185)
 - **Tier**: Full (M/L)
-- **Status**: R1 ✅ · **R2 IN PROGRESS** — resolving Q3 (null-group `renderOrder` owner: sentinel `__toplevel__` vs per-item vs null-id Group; B-191 forward-compat) + Q5 (floatingMembers sentinel key). Q1/Q2 locked (see B-196).
+- **Status**: R1 ✅ · R2 ✅ · R3 ✅ (build `1c1106a`; opener-inherit B-185 fully wired; suite 2200; no schema bump) · AC15 drag-under-top-level UI hit-test **DEFERRED → B-200** (product-owner 2026-07-13; backend built + unit-tested) · **R4 REVIEW in progress** ([code-reviewer] + [security-reviewer] + [qa-reviewer])
 - **Assigned To**: [solution-architect] (R2)
 - **Blockers**: **Q3 — the null-group `renderOrder` owner is undesigned** (sentinel `__toplevel__` record vs per-item order). Design decision at R2, **forward-compatible with the deferred B-191** (renderOrder-sole-authority). B-191 itself is NOT a prerequisite — only the design must not paint B-191 into a corner. Owner: [solution-architect] at R2.
 - **Feature Context**:
