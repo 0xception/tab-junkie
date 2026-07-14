@@ -388,10 +388,14 @@ export const MSG_STATE_CHANGED = 'tj/stateChanged';
  * @property {Record<string, FloatingMember[]>} [floatingMembers]
  *   B-121 — per-group runtime list of opener-chain-spawned tabs that have a
  *   tj:floatingGroups record but are not yet claimed by any saved item.
- *   Key = parent bookmark's groupId. Empty/missing key = no floating members
- *   for that group. The whole field is OPTIONAL on the response: pre-S38
- *   callers see `undefined`; post-S38 callers see a (possibly empty) Record.
- *   Renderers MUST treat `undefined` identically to `{}` (no floating members).
+ *   Key = parent bookmark's `groupId` for grouped parents, OR the sentinel
+ *   `'__toplevel__'` for top-level (ungrouped) parents (B-197 §79.4). The
+ *   `'__toplevel__'` key never collides with a real groupId (ULIDs). Empty/
+ *   missing key = no floating members for that group. The whole field is
+ *   OPTIONAL on the response: pre-S38 callers see `undefined`; post-S38 callers
+ *   see a (possibly empty) Record. The `'__toplevel__'` key is ADDITIVE — named-
+ *   group keys are unchanged (AC19) and pre-B-197 readers simply never look it
+ *   up (no shim). Renderers MUST treat `undefined` identically to `{}`.
  */
 
 /**

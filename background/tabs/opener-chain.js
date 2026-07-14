@@ -53,7 +53,7 @@ export function pruneOpenersByWindow(tabIds) {
  * @param {Record<string, number>} claimsMirror — itemId -> tabId
  * @param {Array<{id: string, groupId: string|null}>} items
  * @param {number} [maxHops=3]
- * @returns {{groupId: string, itemId: string}|null}
+ * @returns {{groupId: string|null, itemId: string}|null}
  */
 export function walkOpenerChain(tabId, claimsMirror, items, maxHops = 3) {
   // H-1: guard against cycles in openerMap
@@ -65,8 +65,13 @@ export function walkOpenerChain(tabId, claimsMirror, items, maxHops = 3) {
     for (const [itemId, claimedTabId] of Object.entries(claimsMirror)) {
       if (claimedTabId === currentTabId) {
         const item = items.find((i) => i.id === itemId);
-        if (item && item.groupId !== null) {
-          return { groupId: item.groupId, itemId: item.id };
+        if (item) {
+          /* B-197 §79.4 (AC8) — a claimed ancestor now resolves whether or not
+             it is grouped. An ungrouped ancestor (`groupId === null`) returns a
+             top-level anchor `{ groupId: null, itemId }` so the new tab floats
+             under that bookmark, instead of being skipped. Grouped ancestors
+             resolve to their groupId exactly as before. */
+          return { groupId: item.groupId ?? null, itemId: item.id };
         }
       }
     }
@@ -89,12 +94,16 @@ export function walkOpenerChain(tabId, claimsMirror, items, maxHops = 3) {
  * parent item — robust against the ephemeral openerMap for the common
  * single-hop case (open a link from a floating child).
  *
- * Returns the same `{groupId, itemId}` shape as `walkOpenerChain`. Requires a
- * non-empty groupId (floating-under-ungrouped support is B-184 Part 2).
+ * Returns the same `{groupId, itemId}` shape as `walkOpenerChain`. B-197 §79.4:
+ * a record whose parent is TOP-LEVEL (the record's own groupId is the
+ * `'__toplevel__'` sentinel — §79.9) resolves to `{ groupId: null, itemId }`
+ * (AC6), mirroring `walkOpenerChain`'s null-group result so the caller
+ * re-inherits under the ungrouped parent. A genuinely empty/absent-groupId
+ * record stays unusable → null.
  *
  * @param {number} openerTabId — the tab the new tab was opened from
  * @param {Array<{liveTabId?: number, groupId?: string, parentItemId?: string, itemId?: string}>} floatingRecords
- * @returns {{groupId: string, itemId: string}|null}
+ * @returns {{groupId: string|null, itemId: string}|null}
  */
 export function resolveFloatingOpener(openerTabId, floatingRecords) {
   if (typeof openerTabId !== 'number' || !Array.isArray(floatingRecords)) return null;
@@ -104,11 +113,14 @@ export function resolveFloatingOpener(openerTabId, floatingRecords) {
     const parentItemId = (typeof r.parentItemId === 'string' && r.parentItemId.length > 0)
       ? r.parentItemId
       : r.itemId;
-    if (typeof r.groupId === 'string' && r.groupId.length > 0
-      && typeof parentItemId === 'string' && parentItemId.length > 0) {
-      return { groupId: r.groupId, itemId: parentItemId };
+    if (typeof parentItemId !== 'string' || parentItemId.length === 0) return null;
+    if (typeof r.groupId !== 'string' || r.groupId.length === 0) {
+      return null; // matched the opener tab, but the record's groupId is empty/absent — unusable
     }
-    return null; // matched the opener tab, but the record is unusable (e.g. ungrouped — Part 2)
+    /* B-197 AC6 — map the top-level sentinel back to a null-group anchor; a
+       named-group record returns its groupId verbatim (unchanged). */
+    const groupId = r.groupId === '__toplevel__' ? null : r.groupId;
+    return { groupId, itemId: parentItemId };
   }
   return null;
 }

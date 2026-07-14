@@ -72,9 +72,17 @@ test('B-184 T3: resolveFloatingOpener tolerates legacy itemId-only records (pre-
   assert.equal(result.itemId, 'item-legacy');
 });
 
-test('B-184 T4: resolveFloatingOpener returns null for a record missing groupId (ungrouped — Part 2 territory, not Part 1)', () => {
-  const records = [makeFloatingRecord({ liveTabId: 30, groupId: '', parentItemId: 'item-1' })];
-  assert.equal(resolveFloatingOpener(30, records), null);
+test('B-184 T4 (B-197 invert): resolveFloatingOpener maps a top-level (__toplevel__) record to a null-group anchor', () => {
+  // B-197 §79.8.2 — a floating record whose parent is TOP-LEVEL (ungrouped) is
+  // persisted with the '__toplevel__' sentinel groupId (§79.9). It now resolves
+  // to { groupId: null, itemId } so the caller re-inherits under the ungrouped
+  // parent item, instead of the pre-B-197 "unusable → null" behavior.
+  const records = [makeFloatingRecord({ liveTabId: 30, groupId: '__toplevel__', parentItemId: 'item-1' })];
+  assert.deepEqual(resolveFloatingOpener(30, records), { groupId: null, itemId: 'item-1' });
+
+  // A genuinely empty/absent-groupId record stays unusable (null).
+  const emptyRecords = [makeFloatingRecord({ liveTabId: 31, groupId: '', parentItemId: 'item-1' })];
+  assert.equal(resolveFloatingOpener(31, emptyRecords), null);
 });
 
 test('B-184 T5: resolveFloatingOpener guards bad input (non-array, non-number)', () => {

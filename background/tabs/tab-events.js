@@ -241,6 +241,14 @@ export function registerTabEventListeners(readyPromise) {
             const liveUrl = liveEntry.url || '';
             const liveIndex = liveEntry.index ?? tab.index;
             const liveWindowId = liveEntry.windowId ?? tab.windowId;
+            /* B-197 §79.4 — a top-level opener (an ungrouped bookmark via
+               walkOpenerChain, or a top-level floating child via
+               resolveFloatingOpener) resolves with `groupId === null`. Persist
+               the floating record under the `'__toplevel__'` sentinel: the
+               validator REQUIRES a non-empty string groupId (§79.1.3), and the
+               runtime-derived `__toplevel__` renderOrder owner (§79.3) places
+               it under its parent at render time. Named groups pass through. */
+            const recordGroupId = result.groupId === null ? '__toplevel__' : result.groupId;
             /* B-148 hotfix (S44 polish) — anchor the new floating tab DIRECTLY
                UNDER the opener page in renderOrder so it appears next to the
                page the user just clicked from. Two cases:
@@ -256,7 +264,7 @@ export function registerTabEventListeners(readyPromise) {
               const openerFloating = floatingRecords.find(
                 (r) => r
                   && typeof r === 'object'
-                  && r.groupId === result.groupId
+                  && r.groupId === recordGroupId
                   && r.liveTabId === tab.openerTabId
                   && typeof r.floatingTabId === 'string'
                   && r.floatingTabId.length > 0,
@@ -266,7 +274,7 @@ export function registerTabEventListeners(readyPromise) {
               }
             }
             await appendFloatingGroup({
-              groupId: result.groupId,
+              groupId: recordGroupId,
               parentItemId: result.itemId,
               windowId: liveWindowId,
               tabIndex: typeof liveIndex === 'number' ? liveIndex : 0,

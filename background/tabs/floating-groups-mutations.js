@@ -362,18 +362,30 @@ export async function reorderFloatingMembers(groupId, orderedTabIds) {
  * The handler resolves the new record's `parentItemId` (for ATTACH and
  * MOVE_FLOATING) BEFORE the writeTransaction and threads it into the
  * mutator via closure — `writeTransaction` does not allow async I/O inside
- * mutators. ATTACH or MOVE_FLOATING into a group with zero saved items
+ * mutators. ATTACH or MOVE_FLOATING into a NAMED group with zero saved items
  * fails (the new record needs a parent bookmark to anchor under, §63.15).
+ *
+ * B-197 §79.4 — ATTACH/MOVE to the TOP-LEVEL region: `targetGroupId ===
+ * '__toplevel__'`. There is no group to derive a single parent from (many
+ * ungrouped bookmarks may exist), so the caller supplies the specific
+ * top-level bookmark to anchor under via `targetParentItemId`. The written
+ * record carries `groupId: '__toplevel__'` (the §79.1.3 sentinel) + that
+ * parent. This loose→anchored / re-anchor transition is non-destructive and
+ * reversible via DETACH — no confirmation dialog (§79.9 Q4).
  *
  * @param {number} tabId
  * @param {string|null} sourceGroupId
  * @param {string|null} targetGroupId
  * @param {number} insertIndex
+ * @param {string} [targetParentItemId]  REQUIRED when `targetGroupId ===
+ *   '__toplevel__'`: the id of the ungrouped saved item to anchor under.
+ *   Ignored for named-group targets (parent derived from the group).
  * @returns {Promise<boolean>}  true on success; false on race conditions:
- *   live tab closed mid-call, source record missing, or ATTACH/MOVE_FLOATING
- *   to a group with no saved items.
+ *   live tab closed mid-call, source record missing, ATTACH/MOVE_FLOATING
+ *   to a named group with no saved items, or a top-level ATTACH whose
+ *   `targetParentItemId` does not resolve to an existing ungrouped item.
  */
-export async function moveFloatingTab(tabId, sourceGroupId, targetGroupId, insertIndex) {
+export async function moveFloatingTab(tabId, sourceGroupId, targetGroupId, insertIndex, targetParentItemId) {
   if (typeof tabId !== 'number' || !Number.isFinite(tabId)) return false;
   if (sourceGroupId === null && targetGroupId === null) return false;
   if (sourceGroupId === targetGroupId) return false;
@@ -408,11 +420,25 @@ export async function moveFloatingTab(tabId, sourceGroupId, targetGroupId, inser
   let newParentItemId = null;
   if (targetGroupId !== null) {
     const items = await readPartition(PARTITION_ITEMS);
-    const candidates = (Array.isArray(items) ? items : [])
-      .filter((it) => it && it.groupId === targetGroupId);
-    if (candidates.length === 0) return false; // ATTACH/MOVE to empty group rejected
-    candidates.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-    newParentItemId = candidates[0].id;
+    const arr = Array.isArray(items) ? items : [];
+    if (targetGroupId === '__toplevel__') {
+      /* B-197 §79.4 — top-level target: there is no group bucket to derive a
+         single parent from, so the caller MUST name the specific ungrouped
+         bookmark via `targetParentItemId`. Validate it exists AND is ungrouped
+         (`groupId === null`); a grouped or missing id is rejected. */
+      if (typeof targetParentItemId !== 'string' || targetParentItemId.length === 0) {
+        return false;
+      }
+      const parent = arr.find((it) => it && it.id === targetParentItemId
+        && (it.groupId === null || it.groupId === undefined));
+      if (!parent) return false; // top-level parent must exist and be ungrouped
+      newParentItemId = parent.id;
+    } else {
+      const candidates = arr.filter((it) => it && it.groupId === targetGroupId);
+      if (candidates.length === 0) return false; // ATTACH/MOVE to empty named group rejected
+      candidates.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+      newParentItemId = candidates[0].id;
+    }
   }
 
   let ok = true;

@@ -23,12 +23,15 @@
  *      floatingTabIds set (mutual exclusion), and a NAMED-group floating member
  *      keys under its parent groupId through the one resolver path.
  *
- * WHAT IS DEFERRED (only true AFTER the merge → marked, never asserted RED):
- *   - B-197-EXTEND: floating-under-ungrouped (F3). TODAY buildFloatingMembers
- *     skips a floating record whose PARENT is ungrouped (floating-members.js:94),
- *     so F3's tab leaks into the loose tail and resolveFloatingOpener /
- *     walkOpenerChain do not anchor it at the top level. These tests assert the
- *     TODAY baseline with an explicit B-197-EXTEND comment describing the flip.
+ * B-197-EXTEND (NOW LANDED — flipped from baseline to post-B-197 behavior):
+ *   floating-under-ungrouped (F3). buildFloatingMembers now keys an
+ *   ungrouped-parent floating record under the '__toplevel__' sentinel (F3's
+ *   tab moves loose → floating), and resolveFloatingOpener / walkOpenerChain
+ *   resolve a top-level/ungrouped ancestor to { groupId: null, itemId }. The
+ *   four B-197-EXTEND tests (T1b, T3, T5, T6) + the INV bucket assertion now
+ *   assert this post-B-197 behavior; the partition property is preserved.
+ *
+ * WHAT IS GATED:
  *   - B-186-GATE: the loose-tail survivor-renumber on single-tab close. B-186
  *     (renumberAfterRemoval, live-tab-index.js:112) HAS landed this sprint, so
  *     the gate is satisfied and the test asserts green.
@@ -215,19 +218,18 @@ test('B-195 T1: buildOpenTabs excludes claimed + resolved-floating tabs; the loo
   assert.equal(new Set(ids).size, ids.length, 'no duplicate tabIds in the loose tail');
 });
 
-test('B-197-EXTEND B-195 T1b: floating-under-ungrouped F3 currently LEAKS into the loose tail (buildFloatingMembers skips ungrouped parents, floating-members.js:94)', async () => {
+test('B-197-EXTEND B-195 T1b: floating-under-ungrouped F3 is EXCLUDED from the loose tail (buildFloatingMembers now keys ungrouped parents under __toplevel__)', async () => {
   await seedScenario();
 
   const fm = await buildFloatingMembers(ITEMS);
   const floatingTabIds = collectFloatingTabIds(fm);
   const open = buildOpenTabs(floatingTabIds).map((t) => t.tabId);
 
-  // TODAY baseline: F3's tab is neither claimed nor a resolved floating member
-  // (its parent F1 is ungrouped → skipped), so it falls through to the loose
-  // tail. This is the behaviour B-197 fixes.
-  assert.ok(open.includes(2003),
-    'B-197-EXTEND: today F3 (floating-under-ungrouped) leaks into the loose tail. '
-    + 'After B-197, F3 resolves as a floating member and is EXCLUDED here — flip this to assert !open.includes(2003).');
+  // POST-B-197: F3 resolves as a top-level floating member (parent F1 is
+  // ungrouped → '__toplevel__' bucket), so its tab is in `floatingTabIds` and
+  // buildOpenTabs excludes it from the loose tail. It moved loose → floating.
+  assert.ok(!open.includes(2003),
+    'B-197: F3 (floating-under-ungrouped) now resolves as a floating member and is EXCLUDED from the loose tail.');
 });
 
 /* =========================================================================
@@ -256,7 +258,7 @@ test('B-195 T2: buildOpenTabs orders the loose tail by (windowId asc, tabIndex a
    + single-sourced named-group resolution (STABLE).
    ========================================================================= */
 
-test('B-197-EXTEND B-195 T3: buildFloatingMembers keys named-group floating under its groupId and does NOT emit a top-level key today', async () => {
+test('B-197-EXTEND B-195 T3: buildFloatingMembers keys named-group floating under its groupId AND emits F3 under the __toplevel__ sentinel', async () => {
   await seedScenario();
 
   const fm = await buildFloatingMembers(ITEMS);
@@ -268,11 +270,13 @@ test('B-197-EXTEND B-195 T3: buildFloatingMembers keys named-group floating unde
   assert.equal(fm.g1[0].tabId, 2007, 'F7 resolves to its live tab');
   assert.equal(fm.g1[0].parentItemId, 'item-F5', 'F7 carries its parent itemId');
 
-  // B-197-EXTEND baseline: the floating-under-ungrouped record F3 is skipped
-  // today (parent F1 is ungrouped, floating-members.js:94), so no top-level key
-  // is emitted. After B-197 this asserts fm['__toplevel__'] contains F3.
-  assert.ok(!('__toplevel__' in fm),
-    'B-197-EXTEND: today no "__toplevel__" bucket exists. After B-197, assert fm["__toplevel__"] contains F3\'s descriptor.');
+  // POST-B-197: the floating-under-ungrouped record F3 (parent F1 ungrouped)
+  // now emits under the '__toplevel__' sentinel bucket with its descriptor.
+  assert.ok(Object.prototype.hasOwnProperty.call(fm, '__toplevel__'),
+    'B-197: the "__toplevel__" bucket now exists for ungrouped-parent floating members');
+  assert.equal(fm.__toplevel__.length, 1, 'exactly one top-level floating member (F3)');
+  assert.equal(fm.__toplevel__[0].tabId, 2003, 'F3 resolves to its live tab');
+  assert.equal(fm.__toplevel__[0].parentItemId, 'item-F1', 'F3 carries its ungrouped parent itemId');
   assert.ok(!(null in fm), 'no null key ever (the record is validator-consistent with a string groupId)');
 });
 
@@ -293,22 +297,20 @@ test('B-195 T4: the loose tab F4 is NOT in the floatingTabIds set (never resolve
    T5 — resolveFloatingOpener ungrouped baseline (AC7, B-197-EXTEND).
    ========================================================================= */
 
-test('B-197-EXTEND B-195 T5: resolveFloatingOpener returns the record\'s groupId for a matched opener; an empty-groupId record is unusable (null)', async () => {
-  // TODAY baseline with the §79.9-consistent F3 record (groupId:'__toplevel__').
-  // resolveFloatingOpener keys off the RECORD's groupId (opener-chain.js:107);
-  // '__toplevel__' is a non-empty string, so the opener resolves to it verbatim.
-  // (The R1 AC7 "returns null" wording assumed a groupId:null record, which the
-  // validator forbids post-§79.9.)
+test('B-197-EXTEND B-195 T5: resolveFloatingOpener maps a __toplevel__ record to a null-group anchor; an empty-groupId record is unusable (null)', async () => {
+  // POST-B-197 with the §79.9-consistent F3 record (groupId:'__toplevel__').
+  // resolveFloatingOpener maps the top-level sentinel back to a null-group
+  // anchor so the caller (tab-events.js) re-inherits under the ungrouped parent
+  // item — mirroring walkOpenerChain's null-group result (AC6).
   const f3Rec = { ...F3_REC, liveTabId: 2003 };
   assert.deepEqual(
     resolveFloatingOpener(2003, [f3Rec]),
-    { groupId: '__toplevel__', itemId: 'item-F1' },
-    'B-197-EXTEND: today the "__toplevel__" record resolves verbatim. After B-197 the caller '
-    + '(tab-events.js) anchors a top-level/null-group result under the parent item instead of a named group.',
+    { groupId: null, itemId: 'item-F1' },
+    'B-197: the "__toplevel__" record resolves to { groupId: null, itemId } so the caller anchors under the top-level parent item.',
   );
 
   // STABLE guard (green today AND after B-197): an EMPTY-groupId record is
-  // "matched but unusable" → null (opener-chain.js:111). Mirrors b184 T4.
+  // "matched but unusable" → null (opener-chain.js). Mirrors b184's empty-guard.
   const emptyRec = { ...F3_REC, groupId: '', liveTabId: 2003 };
   assert.equal(resolveFloatingOpener(2003, [emptyRec]), null,
     'an empty-groupId record is unusable regardless of merge phase');
@@ -318,15 +320,16 @@ test('B-197-EXTEND B-195 T5: resolveFloatingOpener returns the record\'s groupId
    T6 — walkOpenerChain ungrouped baseline (AC8, B-197-EXTEND).
    ========================================================================= */
 
-test('B-197-EXTEND B-195 T6: walkOpenerChain returns null for an ungrouped claimed ancestor today; a named-group ancestor resolves', () => {
-  // TODAY baseline: the only claimed opener-chain ancestor is F2 (ungrouped,
-  // groupId:null). walkOpenerChain skips it (opener-chain.js:68, `groupId !== null`)
-  // and, with no further hop, returns null.
+test('B-197-EXTEND B-195 T6: walkOpenerChain resolves an ungrouped claimed ancestor to a null-group anchor; a named-group ancestor resolves', () => {
+  // POST-B-197: the only claimed opener-chain ancestor is F2 (ungrouped,
+  // groupId:null). walkOpenerChain now resolves it (the `groupId !== null` skip
+  // was dropped) to { groupId: null, itemId } so the new tab floats under it.
   recordOpener(3001, 2002); // new tab 3001 opened from F2's live tab 2002
-  const nullResult = walkOpenerChain(3001, { 'item-F2': 2002 }, [F2]);
-  assert.equal(nullResult, null,
-    'B-197-EXTEND: today an ungrouped claimed ancestor yields null. '
-    + 'After B-197, assert it returns { groupId: null, itemId: "item-F2" }.');
+  assert.deepEqual(
+    walkOpenerChain(3001, { 'item-F2': 2002 }, [F2]),
+    { groupId: null, itemId: 'item-F2' },
+    'B-197: an ungrouped claimed ancestor now yields { groupId: null, itemId } (top-level anchor).',
+  );
 
   // STABLE guard (green today AND after B-197): a NAMED-group claimed ancestor
   // (F5) resolves through the same walk unchanged.
@@ -397,8 +400,8 @@ test('B-195 INV: every live tab is classified into exactly one of {claimed, floa
   await seedScenario();
 
   const claimed = getClaimedTabIds();                       // {2002, 2005}
-  const floating = collectFloatingTabIds(await buildFloatingMembers(ITEMS)); // {2007}
-  const loose = new Set(buildOpenTabs(floating).map((t) => t.tabId));        // {2003, 2004} today
+  const floating = collectFloatingTabIds(await buildFloatingMembers(ITEMS)); // {2007, 2003} post-B-197
+  const loose = new Set(buildOpenTabs(floating).map((t) => t.tabId));        // {2004} post-B-197
 
   // Pairwise disjoint — a tab cannot be in two buckets (single-sourcing).
   const disjoint = (a, b) => [...a].every((x) => !b.has(x));
@@ -415,7 +418,8 @@ test('B-195 INV: every live tab is classified into exactly one of {claimed, floa
     'the three buckets partition the LiveTabIndex — every live tab is accounted for exactly once',
   );
 
-  // Document today's bucket for F3 (the B-197 flip target).
-  assert.ok(loose.has(2003),
-    'B-197-EXTEND: F3 is in the LOOSE bucket today; after B-197 it moves to the FLOATING bucket (the partition property is preserved either way).');
+  // Document F3's bucket after the B-197 flip: it moved loose → floating; the
+  // partition property (disjoint + full-cover) holds either way.
+  assert.ok(floating.has(2003),
+    'B-197: F3 is now in the FLOATING bucket (moved out of the loose tail); the partition property is preserved.');
 });

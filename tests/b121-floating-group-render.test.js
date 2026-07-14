@@ -142,6 +142,54 @@ test('T-121-A: MSG_LIST_ITEMS response includes floatingMembers keyed by parent.
 });
 
 /* ---------------------------------------------------------------------------
+   T-121-A2 (B-197 §79.8.2) — a floating record whose parent is TOP-LEVEL
+   (ungrouped) emits under the '__toplevel__' sentinel key; named-group keying
+   is preserved (AC19).
+   --------------------------------------------------------------------------- */
+
+test('T-121-A2 (B-197): buildFloatingMembers keys an ungrouped-parent floating member under __toplevel__', async () => {
+  /* Ungrouped parent P (groupId:null) + a top-level floating record whose own
+     groupId is the '__toplevel__' sentinel (§79.9 — the validator requires a
+     non-empty string groupId). */
+  const parent = {
+    id: 'item-TL',
+    title: 'Top-level Parent',
+    url: 'https://parent.example/tl',
+    groupId: null,
+    sortOrder: 0,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  seedPartitions({
+    items: [parent],
+    floatingGroups: [{
+      floatingTabId: 'ft-TL',
+      groupId: '__toplevel__',
+      parentItemId: 'item-TL',
+      windowId: 1,
+      tabIndex: 1,
+      url: 'https://child.example/tl',
+      savedAt: 1000,
+    }],
+  });
+  __setMockTabs([
+    { id: 100, url: parent.url, windowId: 1, active: false, audible: false, index: 0 },
+    { id: 200, url: 'https://child.example/tl', windowId: 1, active: false, audible: false, index: 1 },
+  ]);
+  await buildLiveTabIndex();
+  await reconcileClaims([{ id: 'item-TL', url: parent.url, sortOrder: 0 }]);
+
+  const fm = await buildFloatingMembers([parent]);
+
+  assert.ok(Array.isArray(fm['__toplevel__']), 'ungrouped-parent floating member keys under the __toplevel__ sentinel');
+  assert.equal(fm['__toplevel__'].length, 1);
+  assert.equal(fm['__toplevel__'][0].tabId, 200);
+  assert.equal(fm['__toplevel__'][0].parentItemId, 'item-TL', 'descriptor carries the ungrouped parent itemId');
+  assert.equal(fm['group-G'], undefined, 'no named-group key fabricated for a top-level parent');
+  assert.ok(!(null in fm), 'never a null key — the record uses the string sentinel');
+});
+
+/* ---------------------------------------------------------------------------
    T-121-B — buildOpenTabs excludes the floating-tab tabId
    --------------------------------------------------------------------------- */
 

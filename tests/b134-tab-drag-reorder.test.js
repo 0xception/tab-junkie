@@ -1165,6 +1165,51 @@ test('B-137 §66.8.4: ATTACH (Open Tab → floating area) seeds liveTabId from c
     'B-137 §66.8.4 ATTACH path: liveTabId seeded from caller-supplied tabId');
 });
 
+test('B-197 §79.4: ATTACH-to-top-level anchors a loose tab under an ungrouped bookmark (groupId __toplevel__)', async () => {
+  /* An ungrouped saved bookmark (groupId null) + a loose open tab. */
+  const parent = await createItem({ title: 'TL parent', url: 'https://tl.example', groupId: null });
+  assert.equal(parent.groupId, null, 'precondition: parent is ungrouped');
+
+  __setMockTabs([
+    { id: 1700, url: 'https://loose.example', windowId: 1, active: false, audible: false, index: 3 },
+  ]);
+  await buildLiveTabIndex();
+
+  /* ATTACH to the top-level region: sourceGroupId null, targetGroupId the
+     '__toplevel__' sentinel, and the specific ungrouped bookmark named via the
+     5th targetParentItemId arg (there is no group to derive a parent from). */
+  const ok = await moveFloatingTab(1700, null, '__toplevel__', 0, parent.id);
+  assert.equal(ok, true, 'ATTACH-to-top-level succeeds');
+
+  const records = __getRawStore('tj:floatingGroups');
+  assert.equal(records.length, 1);
+  assert.equal(records[0].groupId, '__toplevel__', 'record persists the __toplevel__ sentinel groupId (§79.1.3)');
+  assert.equal(records[0].parentItemId, parent.id, 'record anchors under the named ungrouped bookmark');
+  assert.equal(records[0].liveTabId, 1700, 'liveTabId seeded from the caller-supplied tabId');
+});
+
+test('B-197 §79.4: ATTACH-to-top-level is rejected without a valid ungrouped targetParentItemId', async () => {
+  const grouped = await createGroup({ name: 'G', color: COLOR, parentId: null, sortOrder: 0 });
+  const groupedItem = await createItem({ title: 'grouped', url: 'https://g.example', groupId: grouped.id });
+
+  __setMockTabs([
+    { id: 1800, url: 'https://loose.example', windowId: 1, active: false, audible: false, index: 2 },
+  ]);
+  await buildLiveTabIndex();
+
+  /* Missing targetParentItemId → reject. */
+  assert.equal(await moveFloatingTab(1800, null, '__toplevel__', 0), false,
+    'top-level ATTACH without a targetParentItemId is rejected');
+  /* Unknown id → reject. */
+  assert.equal(await moveFloatingTab(1800, null, '__toplevel__', 0, 'does-not-exist'), false,
+    'top-level ATTACH with an unknown parent id is rejected');
+  /* A GROUPED item is not a valid top-level parent → reject. */
+  assert.equal(await moveFloatingTab(1800, null, '__toplevel__', 0, groupedItem.id), false,
+    'top-level ATTACH with a grouped item as parent is rejected');
+
+  assert.equal((__getRawStore('tj:floatingGroups') || []).length, 0, 'no record written on any rejected ATTACH');
+});
+
 /* =========================================================================
    FIX A (pre-v1.35.0 hotfix bundle) — cascade-prune `tj:floatingGroups` on
    chrome.tabs.onRemoved.

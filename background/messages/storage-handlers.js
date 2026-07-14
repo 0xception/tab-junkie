@@ -817,8 +817,17 @@ async function dispatch(type, payload) {
         || p.insertIndex < 0) {
         return { moved: false, reason: 'ERR_VALIDATION' };
       }
+      /* B-197 §79.4 — a top-level target (`targetGroupId === '__toplevel__'`)
+         MUST carry a non-empty `targetParentItemId` naming the ungrouped
+         bookmark to anchor under (there is no group bucket to derive it from). */
+      if (p.targetGroupId === '__toplevel__'
+        && (typeof p.targetParentItemId !== 'string' || p.targetParentItemId.length === 0)) {
+        return { moved: false, reason: 'ERR_VALIDATION' };
+      }
 
-      const ok = await moveFloatingTab(p.tabId, p.sourceGroupId, p.targetGroupId, p.insertIndex);
+      const ok = await moveFloatingTab(
+        p.tabId, p.sourceGroupId, p.targetGroupId, p.insertIndex, p.targetParentItemId,
+      );
       if (!ok) return { moved: false, reason: 'ERR_RACE' };
 
       /* B-134 §63.9.1 inheritedTabs invariants. Op 5 (MOVE_FLOATING) is a
