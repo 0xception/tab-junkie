@@ -51,14 +51,14 @@
 
 ### [B-197] Top-level/ungrouped floating anchoring (absorbs B-185)
 - **Tier**: Full (M/L)
-- **Status**: R1 ✅ · R2 ✅ · R3 ✅ (build `1c1106a`; opener-inherit B-185 fully wired; suite 2200; no schema bump) · AC15 drag-under-top-level UI hit-test **DEFERRED → B-200** (product-owner 2026-07-13; backend built + unit-tested) · **R4 REVIEW in progress** ([code-reviewer] + [security-reviewer] + [qa-reviewer])
-- **Assigned To**: [solution-architect] (R2)
-- **Blockers**: **Q3 — the null-group `renderOrder` owner is undesigned** (sentinel `__toplevel__` record vs per-item order). Design decision at R2, **forward-compatible with the deferred B-191** (renderOrder-sole-authority). B-191 itself is NOT a prerequisite — only the design must not paint B-191 into a corner. Owner: [solution-architect] at R2.
+- **Status**: **✅ DONE** 2026-07-14 — R3 ✅ (`1c1106a`) · R4 ✅ all three reviewers CLEAN at HIGH+ (contract-diff clean; every opener-inherit edge case PASS; ATTACH double-gated) · fix-round ✅ (M-1 + 4 LOW: 2 comments + `targetParentItemId` typedef + 2 coverage tests). Opener-inherit B-185 wired end-to-end; suite 2202; no schema bump. AC15 → B-200.
+- **Assigned To**: — (complete)
+- **Blockers**: none (Q3 resolved at R2 — `__toplevel__` runtime-derived owner, B-191-forward-compatible)
 - **Feature Context**:
   - Anchor = `parentItemId`; `groupId` becomes derived/nullable. `buildFloatingMembers` (`floating-members.js:35`) stops skipping ungrouped parents; `resolveFloatingOpener`/`walkOpenerChain` drop the non-empty-groupId requirement; `moveFloatingTab` gains ATTACH-to-top-level.
   - **B-185 is fully subsumed here** — "float under a top-level bookmark" is the direct outcome.
 - **Handoff Notes**: Depends on B-196's merged region existing. R2 must resolve Q3 before R3.
-- **Files Changed**: _(pending)_
+- **Files Changed**: `background/tabs/floating-members.js` (`__toplevel__` keying), `opener-chain.js` (null-group resolution), `tab-events.js` (record mapping), `floating-groups-mutations.js` (ATTACH-to-top-level), `background/messages/storage-handlers.js` + `shared/messages.js` (`targetParentItemId` contract); tests b195 (4 EXTEND flipped) + b013/b184/b121/b134
 - **Parallel Opportunity**: Runs after B-196.
 
 ---
@@ -81,6 +81,7 @@
 | B-186 | Renumber `LiveTabIndex.index` survivors on tab close | Fast Track (S) | ✅ DONE 2026-07-01 — R4 clean (0 CRIT/HIGH, 2 LOW fixed); suite 2168 PASS |
 | B-195 | Safety-net test for the unified top-level region | Full (M, test-only) | ✅ DONE 2026-07-02 — 11-test net GREEN (single-source partition invariant + 4 B-197-EXTEND); suite 2179 PASS |
 | B-196 | Render merge — single top-level catch-all | Full (L, rehome) | ✅ DONE 2026-07-10 — R4 3-reviewer gate; H-1/H-2 + M-1..M-4 fixed; suite 2197 PASS (+18) |
+| B-197 | Top-level floating anchoring (absorbs B-185) | Full (M/L) | ✅ DONE 2026-07-14 — R4 all-clean at HIGH+; opener-inherit B-185 wired; suite 2202 PASS; AC15→B-200 |
 
 ---
 

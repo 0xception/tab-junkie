@@ -285,7 +285,10 @@ export function registerTabEventListeners(readyPromise) {
                  the `liveEntry` re-validation above (line 151-152) ensures
                  the tab is still alive at write time. */
               liveTabId: tab.id,
-              /* B-148 hotfix — see anchor comment above. */
+              /* B-148 hotfix — see anchor comment above. Note: insertAfterRef is a
+                 no-op for '__toplevel__' records (no persisted renderOrder; the
+                 PARTITION_GROUPS mutator skips at idx < 0) — top-level ordering
+                 is governed by sortOrder / runtime-derived renderOrder (§79.3.3). */
               insertAfterRef,
             });
             // B-125 (§59.3): mark the inherited tab so reevaluateTab will

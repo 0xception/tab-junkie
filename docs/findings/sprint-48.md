@@ -67,3 +67,30 @@ _None_
 
 ### Fix-round resolution (2026-07-10)
 All HIGH + MEDIUM + LOW resolved in one [frontend-engineer] fix-round: H-1 (sentinel `__toplevel__` renderOrder in the incremental patch), H-2 (collapse-tail a11y + regression test), M-1 (`deriveTopLevelRenderOrder` extracted to `shared/render-order.js`, used by both sidepanel + newtab), M-2 (count-badge tail), M-3 (collapse-state migration + test), M-4 (sentinel align in group-picker + popup, null-keyed destination semantics verified). Optional reserved-id guard skipped (ULID invariant → unreachable; would be dead code). `sidepanel/search-index.js` `__ungrouped__` bucket-key deliberately kept per §79.2.3 (R3's call, no behavior change). +18 tests (`tests/b196-toplevel-region.test.js`) + 3 pre-existing contract updates (b148/b187/b104). Suite 2179 → 2197 PASS. [scrum-master] independently verified the H-1 derivation and H-2 collapse polarity.
+
+## B-197 — Top-level/ungrouped floating anchoring, absorbs B-185 (Full — M/L)
+
+Reviewed at commit `1c1106a`. [code-reviewer] + [security-reviewer] + [qa-reviewer]. **All three CLEAN at CRITICAL/HIGH** — contract-diff clean across every predicate (key derivation §79.4.2, `walkOpenerChain` null resolution, `resolveFloatingOpener` sentinel mapping, the 4 B-195 EXTEND inversions); partition invariant preserved (`open-tabs.js` untouched); `null ↔ '__toplevel__'` mapping consistent at all 5 boundaries; every opener-inherit edge case PASS (chained-from-floating-child, dormant parent, deleted/renamed parent, SW cold-start re-association); ATTACH validation double-gated (handler + mutation, exists + ungrouped); `targetParentItemId` safe against hostile payloads; sentinel-in-storage degrades benignly; no new permissions/CSP/message-type.
+
+### CRITICAL / HIGH
+_None_
+
+### MEDIUM (fixed in the B-197 fix-round)
+| # | File | Finding | Fix |
+|---|------|---------|-----|
+| M-1 | `background/tabs/floating-groups-mutations.js:192` (qa) | The `appendFloatingGroup` PARTITION_GROUPS `idx<0` skip is intentional for `'__toplevel__'` (no persisted group record; renderOrder runtime-derived §79.3), but the comment only describes the "group deleted mid-write" race — would mislead a B-191 dev. | One-line comment noting the intentional sentinel no-op. |
+
+### LOW (fixed in the fix-round)
+| # | File | Finding | Fix |
+|---|------|---------|-----|
+| L-1 | `background/tabs/tab-events.js:276` (code L-1 + qa L-2) | `insertAfterRef` computed but inert for `'__toplevel__'` records (sortOrder governs). | Clarifying comment. |
+| L-2 | `shared/messages.js` `MoveFloatingTabRequest` (security L-2) | Typedef not extended with the new optional `targetParentItemId` — contract-doc gap. | Add `@property {string} [targetParentItemId]`. |
+| L-3 | `background/messages/storage-handlers.js:820-826` (qa L-3) | Handler-level `ERR_VALIDATION` for the `MSG_MOVE_FLOATING_TAB` top-level missing-parent path untested (mutation-level covered). | Add handler-level integration test. |
+| L-4 | `background/tabs/floating-groups-mutations.js` (qa L-4) | `moveFloatingTab` DETACH-from-`'__toplevel__'` path untested (reachable via B-200). | Add b134 DETACH-from-top-level test. |
+
+### Informational (no action)
+- [security] L-1 TOCTOU on the parent exists+ungrouped check (benign — render keys off current parent; identical to pre-existing named-group path). L-3 pre-existing (B-134/B-184) ATTACH-doesn't-verify-unclaimed + unvalidated `parentItemId` — both degrade benignly, not widened by B-197.
+- [qa] the as-built test filename is `tests/b195-unified-top-level-net.test.js` (B-195 AC1 wrote `b195-unified-toplevel-net`) — noted in `docs/sprint-48-r1.md`; no rename (all tests green).
+
+### Scope
+- **AC15 (manual drag-under-top-level UI hit-test) DEFERRED → B-200** by product-owner. Backend ATTACH + `MSG_MOVE_FLOATING_TAB` `targetParentItemId` built + unit-tested; only the `_computeTabDropTarget` top-level-head hit-test remains.

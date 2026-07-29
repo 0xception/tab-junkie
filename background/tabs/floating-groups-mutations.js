@@ -190,6 +190,10 @@ export async function appendFloatingGroup(entry) {
       mutator: (groups) => {
         if (!didAppend) return groups;
         const idx = groups.findIndex((g) => g.id === stamped.groupId);
+        /* Intentional for the '__toplevel__' sentinel: there is NO tj:groups record
+           by design — renderOrder is runtime-derived (§79.3) — so idx < 0 here is
+           correct and expected for the sentinel, not only the "group deleted mid-write"
+           race the block comment above describes. */
         if (idx < 0) return groups;
         const g = groups[idx];
         const ref = 'floating:' + stamped.floatingTabId;

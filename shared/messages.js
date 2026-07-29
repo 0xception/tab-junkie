@@ -238,6 +238,7 @@ export const MSG_REORDER_FLOATING_MEMBERS = 'tj/reorderFloatingMembers';
  * @property {string|null} sourceGroupId
  * @property {string|null} targetGroupId
  * @property {number}      insertIndex
+ * @property {string}      [targetParentItemId]  the ungrouped bookmark to anchor under when targetGroupId is '__toplevel__'
  *
  * @typedef {Object} MoveFloatingTabResponse
  * @property {boolean}  moved
