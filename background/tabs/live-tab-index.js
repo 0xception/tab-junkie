@@ -76,6 +76,49 @@ export function removeTabEntry(tabId) {
 }
 
 /**
+ * B-186: Renumber surviving same-window entries after ONE tab is removed.
+ *
+ * Chrome shifts every tab to the right of a closed tab down by one strip
+ * position, but fires NO `chrome.tabs.onMoved` for that implicit shift. Left
+ * unhandled, `LiveTabIndex.index` keeps its pre-close value for every survivor
+ * above the closed slot; `buildOpenTabs` sorts by `(windowId, index)`, so the
+ * stale indices scramble the Open Tabs rows on the next re-render (the
+ * activate-jumps-up bug).
+ *
+ * Decrement `index` by one for every entry in `windowId` whose `index` is
+ * strictly greater than `removedIndex`. Entries at or below the closed slot,
+ * and every entry in any other window, are left untouched.
+ *
+ * Complexity: one O(N) pass over ALL live entries (N = total open tabs across
+ * every window), decrementing only the same-window survivors via the
+ * `entry.windowId === windowId` guard — negligible at the extension's typical
+ * ≤200-tab domain, same cost class as the `onMoved`/`onActivated` scans.
+ *
+ * Deliberately NOT folded into `removeTabEntry`: that primitive is a pure
+ * single-key delete shared by the onRemoved cascade, the window-close teardown,
+ * and tests, and it cannot see the `removeInfo.isWindowClosing` signal needed to
+ * skip the churn a whole-window close would cause (every window-close tab
+ * fires `chrome.tabs.onRemoved` per-tab before `chrome.windows.onRemoved`).
+ * The sole caller is the `chrome.tabs.onRemoved` handler in tab-events.js,
+ * which owns that signal and passes the closed tab's ORIGINAL `{windowId,
+ * index}` captured BEFORE the cascade deletes the entry. A whole-window close
+ * is handled en masse by `removeTabsByWindow`, so no per-survivor renumber is
+ * needed (or wanted) there.
+ *
+ * @param {number} windowId  the closed tab's window
+ * @param {number} removedIndex  the closed tab's strip index
+ * @returns {void}
+ */
+export function renumberAfterRemoval(windowId, removedIndex) {
+  if (typeof windowId !== 'number' || typeof removedIndex !== 'number') return;
+  for (const entry of liveTabIndex.values()) {
+    if (entry.windowId === windowId && entry.index > removedIndex) {
+      entry.index -= 1;
+    }
+  }
+}
+
+/**
  * Test hatch: clear the entire index. Only used by test suites to reset
  * module-level state between test cases.
  */

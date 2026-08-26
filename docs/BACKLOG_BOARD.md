@@ -1,14 +1,30 @@
 # Tab Junkie — Product Board
 
-**Updated:** 2026-06-27 · **Version:** 2.47.opened · **Total Items:** 170 · **Sprint 47 CLOSED 2026-06-29 (v1.42.0 tagged on release/v2).** EPIC: single-source-of-truth tab↔item identity consolidation (B-173 anchor + B-174..B-180, all done; UAT B-179 core + B-180 migration PASS). 3 follow-ups filed (B-181/B-182 pre-existing non-regressions found in UAT; B-183 deferred tier/validator deletion). **Sprint 46 CLOSED 2026-06-27 (v1.41.0 tagged on release/v2).** Anchor: Durable claim identity (B-167, P2/XL Spike-First — replaces session-storage-based bookmark↔tab inference with a persistent partition + Chrome sessions API for restart). Piggyback small feature: Jump to active window (B-168, P2/S — toolbar icon + keyboard shortcut to scroll sidepanel to currently-focused window's tab section). Plus three XS Fast Track housekeeping items: Ways-of-working human-name discipline (B-169) + R4 contract-vs-implementation diff gate (B-170) + Reusable diagnostic-trace helper (B-171). Sprint 45 closed 2026-06-02 with v1.40.0 tagged on release/v2 at merge commit `3286227` (PR #55): 3 items shipped (B-163/B-164/B-166) + sibling B-132 fix + B-167 filed as P2/XL backlog; tests 1930 → 2052 PASS; `"idle"` permission added.
+**Updated:** 2026-07-01 · **Version:** 2.48.opened · **Total Items:** ~175 (pre-existing 170/167 drift — full census scheduled at S48 close) · **Sprint 48 OPEN — B-194 unified-item-model render bundle (B-186/B-195/B-196/B-197); Storage Option B locked; no schema bump.** **v1.42.1 shipped on release/v2 (B-184 floating-opener + §77 Tier-A B-187/188/189/190).** **Sprint 47 CLOSED 2026-06-29 (v1.42.0 tagged on release/v2).** EPIC: single-source-of-truth tab↔item identity consolidation (B-173 anchor + B-174..B-180, all done; UAT B-179 core + B-180 migration PASS). 3 follow-ups filed (B-181/B-182 pre-existing non-regressions found in UAT; B-183 deferred tier/validator deletion). **Sprint 46 CLOSED 2026-06-27 (v1.41.0 tagged on release/v2).** Anchor: Durable claim identity (B-167, P2/XL Spike-First — replaces session-storage-based bookmark↔tab inference with a persistent partition + Chrome sessions API for restart). Piggyback small feature: Jump to active window (B-168, P2/S — toolbar icon + keyboard shortcut to scroll sidepanel to currently-focused window's tab section). Plus three XS Fast Track housekeeping items: Ways-of-working human-name discipline (B-169) + R4 contract-vs-implementation diff gate (B-170) + Reusable diagnostic-trace helper (B-171). Sprint 45 closed 2026-06-02 with v1.40.0 tagged on release/v2 at merge commit `3286227` (PR #55): 3 items shipped (B-163/B-164/B-166) + sibling B-132 fix + B-167 filed as P2/XL backlog; tests 1930 → 2052 PASS; `"idle"` permission added.
 
 ---
 
 ## Progress Dashboard
 
 ```
-Overall Progress    ███████████████████░  94% (160/170)  [S47 CLOSED · B-173 epic done (8/8) · v1.42.0 on release/v2 · 0 in-progress]
+Overall Progress    ███████████████████░  94% (165/175)  [v1.42.1 on release/v2 · Sprint 48 OPEN (B-194 render bundle) · 5 in-progress]
 ```
+
+---
+
+## Sprint 48 — Unified Item Model: Render Bundle (B-194 Sprint A) — ACTIVE
+
+Merge the split Ungrouped-vs-Open-Tabs pipelines into ONE top-level catch-all + enable floating under top-level bookmarks (B-185 falls out). Render-layer half of the B-194 epic; identity cutover (B-198/B-199) deferred to Sprint B. **Storage Option B locked; no schema bump.** R0 spike: `docs/design/78-unified-item-model-r0-spike.md`.
+
+| Item | Name | Tier | Effort | Status |
+|------|------|------|:---:|:---:|
+| B-194 | Unified item model (EPIC anchor) | Spike-First | XL | 🔄 R0 done |
+| B-186 | Renumber `LiveTabIndex.index` on tab close (prereq) | Fast Track | S | ✅ DONE (R4 clean; 2168 PASS) |
+| B-195 | Safety-net test for the unified top-level region (A0) | Full | M | ✅ DONE (11-test net; 2179 PASS) |
+| B-196 | Render merge — single top-level catch-all (A1, rehome) | Full | L | ✅ DONE (R4 3-reviewer; 2197 PASS) |
+| B-197 | Top-level floating anchoring — absorbs B-185 (A2) | Full | M/L | ✅ DONE (R4 all-clean; 2202 PASS; AC15→B-200) |
+
+_Note: v1.42.1 (B-184 + §77 Tier-A B-187/188/189/190) shipped as a post-S47 follow-on bundle (no formal sprint). B-193 doc-refresh + B-181/B-182 open-tab window-filter bugs remain backlog._
 
 ### Legend
 
@@ -322,10 +338,12 @@ Overall Progress    ███████████████████░
 
 | Status | Count | % |
 |--------|-------|---|
-| ✅ Done | 160 | 94% |
-| 🔄 In Progress | 0 | 0% |
-| ⬜ To Do | 7 | 4% |
-| 🧊 Icebox | 3 | 2% |
+| ✅ Done | 165 | — |
+| 🔄 In Progress | 5 | — |
+| ⬜ To Do | 7 | — |
+| 🧊 Icebox | 3 | — |
+
+_In Progress = Sprint 48 (B-194 epic + B-186 + B-195 + B-196 + B-197; B-185 subsumed by B-197, not double-counted). Percentages omitted pending the S48-close census — the historical total carries a known 170/167 drift that predates this sprint._
 
 (Sprint 47 opened 2026-06-27 — EPIC B-173 single-source-of-truth tab↔item identity consolidation (P2/XL Spike-First) R0 ✅, split into 7 sub-items B-174..B-180 (all in-progress, whole program in S47 per product-owner / P-1 override); Total Items 159 → 167. Done count: 147 → 152 (+5). Sprint 46 closed 2026-06-27 (v1.41.0 tagged on release/v2) on branch `feature/sprint-46-claim-identity` (off `release/v2` at v1.40.0 / `56a4a7c`). Five items shipped: Durable claim identity (B-167, P2/XL anchor — replaces session-storage `tj:tabClaims` with durable partition + Chrome sessions API), Jump to active window (B-168, P2/S small feature), and three XS Fast Track housekeeping items (B-169 ways-of-working human names in discussion, B-170 R4 contract-vs-implementation diff gate, B-171 reusable diagnostic-trace helper). Sprint 45 closed 2026-06-02 with v1.40.0 tagged on release/v2 at merge commit `3286227` (PR #55); shipped B-163/B-164/B-166 + sibling B-132 fix + B-167 filed as backlog.)
 

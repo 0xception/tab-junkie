@@ -1,10 +1,13 @@
 /**
- * Sprint 21 polish bundle — B-077 + B-078 + B-079 + B-080 smoke tests.
+ * Sprint 21 polish bundle — B-078 + B-079 + B-080 smoke tests.
  *
- * These four items are Fast Track XS polish; the tests below pin each item's
+ * These items are small polish changes; the tests below pin each one's
  * contract without duplicating the broader test suites they live inside.
  *
- * B-077 — DoR Gate 7 check subsection in CLAUDE.md R1 section
+ * B-077's two assertions were dropped when the SDLC process framework was
+ * retired — they pinned the shape of CLAUDE.md's pipeline sections, not code.
+ * See docs/archive/sdlc/.
+ *
  * B-078 — breakCycles adversarial-input depth cap
  * B-079 — filter-input maxlength cap
  * B-080 — post-import toast plain-language repair breakdown
@@ -15,30 +18,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { parseAndValidate } from '../background/import/json-validator.js';
-
-/* =========================================================================
-   B-077 — DoR Gate 7 check subsection present in CLAUDE.md R1 section
-   ========================================================================= */
-
-const claudeMd = readFileSync(new URL('../CLAUDE.md', import.meta.url), 'utf8');
-
-test('B-077: CLAUDE.md Round 1 Definition section gains a DoR Gate 7 check subsection', () => {
-  assert.match(claudeMd, /DoR Gate 7 check/,
-    'The subsection heading must be present in CLAUDE.md.');
-  assert.match(claudeMd, /\*\*Destructive-action confirmation \(DoR item 7\)\*\*: retained \| waived \| N\/A/,
-    'The subsection must include the retained|waived|N/A template line.');
-});
-
-test('B-077: DoR Gate 7 subsection sits after Round 1 and before Round 2', () => {
-  const round1Idx = claudeMd.indexOf('### Round 1: Definition');
-  const dorGate7Idx = claudeMd.indexOf('DoR Gate 7 check');
-  const round2Idx = claudeMd.indexOf('### Round 2: Architecture');
-  assert.ok(round1Idx > 0, 'Round 1 heading must exist');
-  assert.ok(dorGate7Idx > round1Idx,
-    'DoR Gate 7 subsection must appear after Round 1 heading');
-  assert.ok(round2Idx > dorGate7Idx,
-    'DoR Gate 7 subsection must appear before Round 2 heading');
-});
 
 /* =========================================================================
    B-078 — breakCycles adversarial-input depth cap

@@ -253,8 +253,8 @@ function makePatcher(section) {
 
   function patchOpenTabsSection(nextOpenTabs) {
     if (!section) return;
-    const list = section.querySelector('.open-tabs-list');
-    const countBadge = section.querySelector('#open-tabs-count');
+    const list = section.querySelector('.top-level-tail-list');
+    const countBadge = section.querySelector('#top-level-count');
     if (!list) return;
 
     const existing = new Map();
@@ -312,11 +312,11 @@ function buildSidepanelShape(initialOpenTabs, initialItemRows) {
   const root = createElement('div');
 
   const openTabsSection = createElement('section');
-  openTabsSection.id = 'open-tabs-section';
+  openTabsSection.id = 'top-level-section';
   const list = createElement('div');
-  list.className = 'open-tabs-list';
+  list.className = 'top-level-tail-list';
   const count = createElement('span');
-  count.id = 'open-tabs-count';
+  count.id = 'top-level-count';
   count.textContent = String(initialOpenTabs.length);
   openTabsSection.appendChild(count);
   openTabsSection.appendChild(list);

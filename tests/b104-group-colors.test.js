@@ -229,29 +229,31 @@ test('B-104 T5 (AC1 popup, D-2 Option C): popup chip uses `[data-color="<slot>"]
 /* =========================================================================
    T6 — R4 H-2 regression guard (Ungrouped no-tint).
    ========================================================================= */
-test('B-104 T6 (R4 H-2 regression): synthetic __ungrouped__ group has `color: null` and the inline-style guard skips it', () => {
+test('B-104 T6 (R4 H-2 regression / B-196 §79.2.3): synthetic top-level group has `color: null` and the inline-style guard skips it', () => {
   const sidepanelSrc = readFile('sidepanel/sidepanel.js');
 
-  /* Source-invariant grep: confirm the post-R3-fix object literal shape.
-     Production code at sidepanel.js:2093-2098 is:
+  /* Source-invariant grep: confirm the post-B-196 synthetic owner shape.
+     Production code in buildTopLevelSection is:
         const syntheticGroup = {
-          id: '__ungrouped__',
-          name: 'Ungrouped',
+          id: TOP_LEVEL_ID,
+          name: 'Top Level',
           color: null,
-          collapsed: collapsedGroups.has('__ungrouped__'),
+          collapsed: collapsedGroups.has(TOP_LEVEL_ID),
+          renderOrder: deriveTopLevelRenderOrder(headItems, floatingArr),
         };
-  */
+     The `color: null` slot keeps GROUP_COLORS.includes(null) === false so the
+     header tint guard skips the region (AC12). */
   assert.match(
     sidepanelSrc,
-    /const\s+syntheticGroup\s*=\s*\{[^}]*id:\s*['"]__ungrouped__['"][^}]*color:\s*null/,
-    'synthetic Ungrouped group must declare `color: null` (NOT `color: "slate"` per R4 H-2)',
+    /const\s+syntheticGroup\s*=\s*\{[^}]*id:\s*TOP_LEVEL_ID[^}]*color:\s*null/,
+    'synthetic top-level group must declare `color: null` (NOT `color: "slate"` per R4 H-2)',
   );
 
   /* The pre-fix slate hardcode must be GONE from the synthetic group. */
   assert.doesNotMatch(
     sidepanelSrc,
-    /id:\s*['"]__ungrouped__['"][^}]*color:\s*['"]slate['"]/,
-    'synthetic Ungrouped group must NOT carry color: "slate" (closed latent slate-tint leak per R4 H-2)',
+    /id:\s*TOP_LEVEL_ID[^}]*color:\s*['"]slate['"]/,
+    'synthetic top-level group must NOT carry color: "slate" (closed latent slate-tint leak per R4 H-2)',
   );
 
   /* Behavioral simulation: GROUP_COLORS.includes(null) === false → the

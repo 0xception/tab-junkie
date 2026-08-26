@@ -165,15 +165,19 @@ test('AC5: walkOpenerChain returns null when opener is not in any claim', () => 
   assert.equal(result, null);
 });
 
-// ── AC6: opener claimed but groupId is null → null ───────────────────────────
+// ── AC6 (B-197 invert): claimed ancestor with groupId=null → top-level anchor ─
 
-test('AC6: walkOpenerChain returns null when claimed ancestor has groupId=null', () => {
+test('AC6 (B-197): walkOpenerChain resolves an ungrouped claimed ancestor to { groupId: null, itemId }', () => {
+  // B-197 §79.8.2 (AC8) — the `item.groupId !== null` skip was dropped so an
+  // ungrouped claimed ancestor now anchors the new tab under that bookmark in
+  // the top-level region, instead of yielding null.
   recordOpener(60, 59);
   const items = [makeItem('item-2', null)]; // ungrouped
   const claimsMirror = { 'item-2': 59 };
 
   const result = walkOpenerChain(60, claimsMirror, items);
-  assert.equal(result, null, 'ungrouped item should not trigger inheritance');
+  assert.deepEqual(result, { groupId: null, itemId: 'item-2' },
+    'ungrouped ancestor now triggers top-level inheritance');
 });
 
 // ── AC7: pruneOpener and pruneOpenersByWindow ─────────────────────────────────

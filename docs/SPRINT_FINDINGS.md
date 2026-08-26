@@ -27,3 +27,4 @@
 - [Sprint 45 — Findings (R0 + R4)](findings/sprint-45.md) — _R0 joint spike for B-164 + B-163 landed 2026-05-21; R4 to be appended_
 - [Sprint 46 — Findings (R0 + R1)](findings/sprint-46.md) — _R0 spike for Durable claim identity (B-167) + R1 LOCKED for B-168 / B-169 / B-170 / B-171 landed 2026-06-02_
 - [Sprint 47 — R4 Findings (Deduplicated)](findings/sprint-47.md) — _B-173 epic (single-source-of-truth identity consolidation); B-175 resolver R4 — contract-diff clean, 0 CRIT/HIGH_
+- [Sprint 48 — R4 Findings (Deduplicated)](findings/sprint-48.md) — _B-194 unified-item-model render bundle; B-186 R4 — contract-diff clean, 0 CRIT/HIGH, 2 LOW fixed_

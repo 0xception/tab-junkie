@@ -2,7 +2,8 @@
  * Floating-member runtime resolver — B-121 §60.3.
  *
  * Builds the `floatingMembers` map carried by every MSG_LIST_ITEMS
- * response. The map keys parent bookmark groupIds to arrays of
+ * response. The map keys parent bookmark groupIds (or the `'__toplevel__'`
+ * sentinel for top-level / ungrouped parents — B-197 §79.4.2) to arrays of
  * synthetic-row descriptors for live tabs that have a tj:floatingGroups
  * record but are NOT yet promoted to a saved item.
  *
@@ -91,7 +92,14 @@ export async function buildFloatingMembers(items) {
 
     const parent = itemsById.get(parentItemId);
     if (!parent) continue; // parent deleted — skip (AC8(ii))
-    if (typeof parent.groupId !== 'string' || parent.groupId.length === 0) continue;
+    /* B-197 §79.4.2 — a floating record whose parent is a TOP-LEVEL (ungrouped)
+       bookmark (`parent.groupId === null`) is no longer skipped. It emits under
+       the `'__toplevel__'` sentinel key; grouped parents key under
+       `parent.groupId` exactly as before (AC19). The sentinel never collides
+       with a real groupId (ULIDs). */
+    const outKey = (typeof parent.groupId === 'string' && parent.groupId.length > 0)
+      ? parent.groupId
+      : '__toplevel__';
 
     /* B-137 §66.6 — 3-tier join (a: direct liveTabId · b: position · c: URL),
        now via the shared resolver (B-175 §74). No URL-corroboration on the
@@ -137,8 +145,8 @@ export async function buildFloatingMembers(items) {
       descriptor.floatingTabId = record.floatingTabId;
     }
 
-    if (!out[parent.groupId]) out[parent.groupId] = [];
-    out[parent.groupId].push(descriptor);
+    if (!out[outKey]) out[outKey] = [];
+    out[outKey].push(descriptor);
   }
 
   /* B-134 §63.8.4 — sort each group's members by `sortOrder` (ascending)

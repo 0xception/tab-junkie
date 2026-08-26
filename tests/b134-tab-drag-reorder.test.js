@@ -1165,6 +1165,117 @@ test('B-137 §66.8.4: ATTACH (Open Tab → floating area) seeds liveTabId from c
     'B-137 §66.8.4 ATTACH path: liveTabId seeded from caller-supplied tabId');
 });
 
+test('B-197 §79.4: ATTACH-to-top-level anchors a loose tab under an ungrouped bookmark (groupId __toplevel__)', async () => {
+  /* An ungrouped saved bookmark (groupId null) + a loose open tab. */
+  const parent = await createItem({ title: 'TL parent', url: 'https://tl.example', groupId: null });
+  assert.equal(parent.groupId, null, 'precondition: parent is ungrouped');
+
+  __setMockTabs([
+    { id: 1700, url: 'https://loose.example', windowId: 1, active: false, audible: false, index: 3 },
+  ]);
+  await buildLiveTabIndex();
+
+  /* ATTACH to the top-level region: sourceGroupId null, targetGroupId the
+     '__toplevel__' sentinel, and the specific ungrouped bookmark named via the
+     5th targetParentItemId arg (there is no group to derive a parent from). */
+  const ok = await moveFloatingTab(1700, null, '__toplevel__', 0, parent.id);
+  assert.equal(ok, true, 'ATTACH-to-top-level succeeds');
+
+  const records = __getRawStore('tj:floatingGroups');
+  assert.equal(records.length, 1);
+  assert.equal(records[0].groupId, '__toplevel__', 'record persists the __toplevel__ sentinel groupId (§79.1.3)');
+  assert.equal(records[0].parentItemId, parent.id, 'record anchors under the named ungrouped bookmark');
+  assert.equal(records[0].liveTabId, 1700, 'liveTabId seeded from the caller-supplied tabId');
+});
+
+test('B-197 §79.4: ATTACH-to-top-level is rejected without a valid ungrouped targetParentItemId', async () => {
+  const grouped = await createGroup({ name: 'G', color: COLOR, parentId: null, sortOrder: 0 });
+  const groupedItem = await createItem({ title: 'grouped', url: 'https://g.example', groupId: grouped.id });
+
+  __setMockTabs([
+    { id: 1800, url: 'https://loose.example', windowId: 1, active: false, audible: false, index: 2 },
+  ]);
+  await buildLiveTabIndex();
+
+  /* Missing targetParentItemId → reject. */
+  assert.equal(await moveFloatingTab(1800, null, '__toplevel__', 0), false,
+    'top-level ATTACH without a targetParentItemId is rejected');
+  /* Unknown id → reject. */
+  assert.equal(await moveFloatingTab(1800, null, '__toplevel__', 0, 'does-not-exist'), false,
+    'top-level ATTACH with an unknown parent id is rejected');
+  /* A GROUPED item is not a valid top-level parent → reject. */
+  assert.equal(await moveFloatingTab(1800, null, '__toplevel__', 0, groupedItem.id), false,
+    'top-level ATTACH with a grouped item as parent is rejected');
+
+  assert.equal((__getRawStore('tj:floatingGroups') || []).length, 0, 'no record written on any rejected ATTACH');
+});
+
+/* =========================================================================
+   FR-4 (B-197 R4 fix-round, qa L-3) — handler-level validation: missing
+   targetParentItemId on __toplevel__ target triggers ERR_VALIDATION at the
+   storage-handlers dispatcher level (storage-handlers.js:820-826).
+   The mutation-level rejection is already covered above (b134:1201-1208).
+   ========================================================================= */
+
+test('B-197 FR-4: MSG_MOVE_FLOATING_TAB handler rejects __toplevel__ target with missing targetParentItemId (ERR_VALIDATION — handler level)', async () => {
+  const dispatch = setupHandlers();
+  /* All basic payload fields are valid; targetParentItemId intentionally
+     omitted — the B-197 §79.4 handler check fires before moveFloatingTab. */
+  const resp = await dispatch(MSG_MOVE_FLOATING_TAB, {
+    tabId: 1900,
+    sourceGroupId: null,
+    targetGroupId: '__toplevel__',
+    insertIndex: 0,
+  });
+  assert.equal(resp.ok, true);
+  assert.equal(resp.data.moved, false);
+  assert.equal(resp.data.reason, 'ERR_VALIDATION');
+});
+
+/* =========================================================================
+   FR-5 (B-197 R4 fix-round, qa L-4) — DETACH from __toplevel__: record
+   removed, source bucket renumbered, PARTITION_GROUPS is a no-op.
+   ========================================================================= */
+
+test('B-197 FR-5: DETACH from __toplevel__ removes the record, renumbers source bucket, and PARTITION_GROUPS is a no-op (no tj:groups record by design — §79.3)', async () => {
+  /* An ungrouped saved bookmark to serve as the floating record's parentItemId. */
+  const parent = await createItem({ title: 'TL detach parent', url: 'https://tl-detach.example', groupId: null });
+
+  __setMockTabs([
+    { id: 1901, url: 'https://detach-from-toplevel.example', windowId: 1, active: false, audible: false, index: 0 },
+  ]);
+  await buildLiveTabIndex();
+
+  /* Seed a __toplevel__ floating record via appendFloatingGroup (same entry
+     point the opener-chain and moveFloatingTab ATTACH path both use). */
+  await appendFloatingGroup({
+    groupId: '__toplevel__',
+    parentItemId: parent.id,
+    windowId: 1,
+    tabIndex: 0,
+    url: 'https://detach-from-toplevel.example',
+    savedAt: 1000,
+    liveTabId: 1901,
+  });
+  const before = __getRawStore('tj:floatingGroups');
+  assert.equal(before.length, 1, 'precondition: one __toplevel__ floating record seeded');
+
+  /* DETACH: sourceGroupId = '__toplevel__', targetGroupId = null (op 4). */
+  const ok = await moveFloatingTab(1901, '__toplevel__', null, 0);
+  assert.equal(ok, true, 'DETACH from __toplevel__ succeeds');
+
+  /* Record removed — source bucket renumbered to empty. */
+  const after = __getRawStore('tj:floatingGroups') || [];
+  assert.equal(after.length, 0, 'floating record removed from tj:floatingGroups after DETACH');
+
+  /* PARTITION_GROUPS mutator is a no-op: there is no tj:groups record for the
+     '__toplevel__' sentinel by design (renderOrder is runtime-derived — §79.3).
+     findIndex returns -1 and the mutator returns groups unchanged. */
+  const groups = __getRawStore('tj:groups') || [];
+  assert.equal(groups.some((g) => g && g.id === '__toplevel__'), false,
+    'no __toplevel__ entry in tj:groups — PARTITION_GROUPS skip is correct (§79.3)');
+});
+
 /* =========================================================================
    FIX A (pre-v1.35.0 hotfix bundle) — cascade-prune `tj:floatingGroups` on
    chrome.tabs.onRemoved.

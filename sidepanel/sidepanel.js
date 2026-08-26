@@ -75,7 +75,7 @@ import { SCOPE } from '../shared/scopes.js';
 /* B-148 §3.7: resolver-produced row sequence for interleaved saved + floating
    render order. Falls back to saved-then-floating bootstrap when renderOrder
    is missing/empty. */
-import { resolveRenderOrder, resolveInsertBeforeRef } from '../shared/render-order.js';
+import { resolveRenderOrder, resolveInsertBeforeRef, deriveTopLevelRenderOrder } from '../shared/render-order.js';
 /* B-007 */
 import {
   filterGroupParentCandidates,
@@ -1633,14 +1633,22 @@ function applyFilter() {
       }
     }
 
+    /* B-196 §79.6: the merged top-level region's count + hide decision must
+       fold in the loose tail (data-tab-id rows the group loop above does not
+       filter). Defer both to the dedicated tail block below; still add this
+       section's head-visible count to totalVisible here. */
+    const isTopLevel = section.dataset.groupId === TOP_LEVEL_ID;
+
     /* Update group count badge to reflect filtered count */
-    const countBadge = section.querySelector('.group-header-count');
-    if (countBadge) {
-      if (query) {
-        countBadge.textContent = visibleInGroup;
-      } else {
-        const total = section.dataset.itemCount;
-        if (total !== undefined) countBadge.textContent = total;
+    if (!isTopLevel) {
+      const countBadge = section.querySelector('.group-header-count');
+      if (countBadge) {
+        if (query) {
+          countBadge.textContent = visibleInGroup;
+        } else {
+          const total = section.dataset.itemCount;
+          if (total !== undefined) countBadge.textContent = total;
+        }
       }
     }
 
@@ -1651,75 +1659,85 @@ function applyFilter() {
     }
 
     /* Hide group section entirely if no visible items */
-    if (!query) {
-      section.hidden = false;
-    } else {
-      section.hidden = visibleInGroup === 0;
+    if (!isTopLevel) {
+      if (!query) {
+        section.hidden = false;
+      } else {
+        section.hidden = visibleInGroup === 0;
+      }
     }
 
     totalVisible += visibleInGroup;
   }
 
-  /* B-055 AC11: filter Open Tabs rows by title OR url (case-insensitive). */
-  const openTabsSection = document.getElementById(OPEN_TABS_SECTION_ID);
-  if (openTabsSection) {
-    const rows = openTabsSection.querySelectorAll('[data-tab-id]');
+  /* B-055 AC11 / B-196 §79.6: filter the merged region's LOOSE TAIL rows by
+     title OR url, then make the region's combined count + hide decision
+     (head-visible + tail-visible). The head saved rows were already filtered
+     by the group loop above; here we only handle the tail and reconcile the
+     single count badge + region visibility. */
+  const topLevelSection = document.getElementById(TOP_LEVEL_SECTION_ID);
+  if (topLevelSection) {
+    const tailList = document.getElementById(TOP_LEVEL_TAIL_LIST_ID);
     let visibleTabs = 0;
-    for (const row of rows) {
-      const tabId = Number(row.dataset.tabId);
-      /* B-055 M-1: O(1) lookup via pre-built map. */
-      const tab = _cachedOpenTabsById.get(tabId);
-      if (!query) {
-        row.hidden = false;
-        /* Restore original title/url text (no highlight on non-matching cases) */
-        if (tab) {
+    if (tailList) {
+      for (const row of tailList.querySelectorAll('[data-tab-id]')) {
+        const tabId = Number(row.dataset.tabId);
+        /* B-055 M-1: O(1) lookup via pre-built map. */
+        const tab = _cachedOpenTabsById.get(tabId);
+        if (!query) {
+          row.hidden = false;
+          /* Restore original title/url text (no highlight on non-matching cases) */
+          if (tab) {
+            const titleEl = row.querySelector('.item-title');
+            const urlEl = row.querySelector('.item-url');
+            if (titleEl) titleEl.textContent = tab.title || tab.url || 'Untitled tab';
+            if (urlEl) urlEl.textContent = tab.url || '';
+          }
+          visibleTabs++;
+          continue;
+        }
+        if (!tab) { row.hidden = true; continue; }
+        const titleMatch = (tab.title || '').toLowerCase().includes(query);
+        const urlMatch = (tab.url || '').toLowerCase().includes(query);
+        if (titleMatch || urlMatch) {
+          row.hidden = false;
+          visibleTabs++;
           const titleEl = row.querySelector('.item-title');
           const urlEl = row.querySelector('.item-url');
-          if (titleEl) titleEl.textContent = tab.title || tab.url || 'Untitled tab';
-          if (urlEl) urlEl.textContent = tab.url || '';
+          if (titleEl) {
+            titleEl.textContent = '';
+            titleEl.appendChild(buildHighlightedText(tab.title || tab.url || 'Untitled tab', query));
+          }
+          if (urlEl) {
+            urlEl.textContent = '';
+            urlEl.appendChild(buildHighlightedText(tab.url || '', query));
+          }
+        } else {
+          row.hidden = true;
         }
-        visibleTabs++;
-        continue;
-      }
-      if (!tab) { row.hidden = true; continue; }
-      const titleMatch = (tab.title || '').toLowerCase().includes(query);
-      const urlMatch = (tab.url || '').toLowerCase().includes(query);
-      if (titleMatch || urlMatch) {
-        row.hidden = false;
-        visibleTabs++;
-        const titleEl = row.querySelector('.item-title');
-        const urlEl = row.querySelector('.item-url');
-        if (titleEl) {
-          titleEl.textContent = '';
-          titleEl.appendChild(buildHighlightedText(tab.title || tab.url || 'Untitled tab', query));
-        }
-        if (urlEl) {
-          urlEl.textContent = '';
-          urlEl.appendChild(buildHighlightedText(tab.url || '', query));
-        }
-      } else {
-        row.hidden = true;
       }
     }
 
-    const countBadge = openTabsSection.querySelector('#' + OPEN_TABS_COUNT_ID);
-    if (countBadge) {
-      countBadge.textContent = String(query ? visibleTabs : _cachedOpenTabs.length);
-    }
+    /* Head-visible saved rows within the region (post group-loop filter). */
+    const headEl = document.getElementById('group-items-' + TOP_LEVEL_ID);
+    const headVisible = headEl
+      ? headEl.querySelectorAll(':scope > .item-row[data-item-id]:not([hidden])').length
+      : 0;
 
-    /* AC11: hide section entirely when filter hides every row. Show again on clear. */
+    const countBadge = document.getElementById(TOP_LEVEL_COUNT_ID);
+    if (countBadge) countBadge.textContent = String(headVisible + visibleTabs);
+
+    /* Region visibility: shown on clear; hidden only when head AND tail are
+       both filtered to zero (§79.6 render-when-nonempty parity under filter). */
     if (!query) {
-      openTabsSection.hidden = false;
-      /* Empty-state only re-appears when there are no tabs at all. */
-      _toggleOpenTabsEmpty(openTabsSection, _cachedOpenTabs.length === 0);
+      topLevelSection.hidden = false;
     } else {
-      openTabsSection.hidden = visibleTabs === 0;
-      /* Hide empty-state during filter — it's reserved for "no tabs at all". */
-      const empty = openTabsSection.querySelector('.open-tabs-empty');
-      if (empty) empty.hidden = true;
+      topLevelSection.hidden = (headVisible + visibleTabs) === 0;
     }
 
-    totalVisible += (query ? visibleTabs : _cachedOpenTabs.length);
+    /* Head-visible already added to totalVisible by the group loop; only add
+       the tail contribution here. */
+    totalVisible += visibleTabs;
   }
 
   /* B-014 AC11: window-filter constraint. Layered on top of the text filter —
@@ -1744,11 +1762,11 @@ function applyFilter() {
       }
     }
 
-    /* Open-tab rows. */
-    const openTabsSectionEl = document.getElementById(OPEN_TABS_SECTION_ID);
-    if (openTabsSectionEl) {
+    /* Loose-tail rows (B-196 §79.5.4: the merged region's tail sub-list). */
+    const tailListEl = document.getElementById(TOP_LEVEL_TAIL_LIST_ID);
+    if (tailListEl) {
       let openTabsVisible = 0;
-      for (const row of openTabsSectionEl.querySelectorAll('[data-tab-id]')) {
+      for (const row of tailListEl.querySelectorAll('[data-tab-id]')) {
         if (row.hidden) continue;
         if (row.dataset.windowId !== wanted) {
           row.hidden = true;
@@ -1757,14 +1775,22 @@ function applyFilter() {
           windowVisible++;
         }
       }
-      const countBadge = openTabsSectionEl.querySelector('#' + OPEN_TABS_COUNT_ID);
-      if (countBadge) countBadge.textContent = String(openTabsVisible);
-      if (openTabsVisible === 0) openTabsSectionEl.hidden = true;
+      /* Merged count = region head window-visible + tail window-visible. */
+      const headEl = document.getElementById('group-items-' + TOP_LEVEL_ID);
+      const headVisible = headEl
+        ? headEl.querySelectorAll(':scope > .item-row[data-item-id]:not([hidden])').length
+        : 0;
+      const countBadge = document.getElementById(TOP_LEVEL_COUNT_ID);
+      if (countBadge) countBadge.textContent = String(headVisible + openTabsVisible);
     }
 
-    /* Hide group sections that now have zero visible items. */
+    /* Hide group sections that now have zero visible items. B-196 §79.6: the
+       merged region also counts loose-tail rows (data-tab-id), so it stays
+       visible when only its tail matches the window filter. */
     for (const section of itemListEl.querySelectorAll('.group-section')) {
-      const anyVisible = section.querySelector('[data-item-id]:not([hidden])');
+      const anyVisible = section.querySelector(
+        '[data-item-id]:not([hidden]), [data-tab-id]:not([hidden])',
+      );
       if (!anyVisible) section.hidden = true;
     }
 
@@ -2282,32 +2308,21 @@ function renderAll(items, groups, liveStates, driftRecords, openTabs, floatingMe
     fragment.appendChild(section);
   }
 
-  /* Ungrouped items (W2 — uses unified buildGroupSection) */
-  const ungrouped = byGroup.get(null);
-  if (ungrouped && ungrouped.length) {
-    /* B-104 R4 H-2: synthetic Ungrouped group MUST NOT carry a `color` slot.
-       Per §47.5 C-9(c), the Ungrouped section has no group record → no
-       `--group-header-color` injection → header renders untinted via the
-       `transparent` fallback in the `.group-header` `color-mix` recipe.
-       The injection guard at line ~2188 (`GROUP_COLORS.includes(group.color)`)
-       evaluates `false` for `null`/`undefined` and skips the inline style. */
-    const syntheticGroup = {
-      id: '__ungrouped__',
-      name: 'Ungrouped',
-      color: null,
-      collapsed: collapsedGroups.has('__ungrouped__'),
-    };
-    /* Temporarily place ungrouped items under the synthetic id for buildGroupSection */
-    byGroup.set('__ungrouped__', ungrouped);
-    /* B-121: ungrouped section never carries floating members — opener-chain
-       inheritance always resolves to a parent saved item with a non-null
-       groupId. Pass an empty array for parity with the grouped path. */
-    const section = buildGroupSection(syntheticGroup, byGroup, liveStates, driftRecords, false, []);
-    fragment.appendChild(section);
+  /* B-196 §79: single top-level catch-all region. The former synthetic
+     `__ungrouped__` section and the separate Open Tabs section collapse into
+     ONE region placed BELOW all named groups: a renderOrder-ordered head
+     (saved-ungrouped items + top-level floating members) and a live-ordered
+     loose tail (`buildOpenTabs` output). Variant A — visually one continuous
+     list, structurally head-container + tail-container (§79.5.4). Renders
+     only when it has ≥1 row (§79.6); the whole-empty case is covered by the
+     global empty-state guard above. */
+  const headItems = byGroup.get(null) || [];
+  const headFloating = _cachedFloatingMembers[TOP_LEVEL_ID] || [];
+  if (headItems.length || headFloating.length || _cachedOpenTabs.length) {
+    fragment.appendChild(
+      buildTopLevelSection(headItems, byGroup, liveStates, driftRecords, headFloating, _cachedOpenTabs),
+    );
   }
-
-  /* B-055 AC4: Open Tabs section is always last, always mounted. */
-  fragment.appendChild(buildOpenTabsSection(_cachedOpenTabs));
 
   itemListEl.replaceChildren(fragment);
   itemListEl.appendChild(dropIndicatorEl);
@@ -2371,8 +2386,11 @@ function buildGroupSection(group, byGroup, liveStates, driftRecords, isChild, fl
   header.setAttribute('aria-controls', 'group-items-' + group.id);
   header.dataset.groupId = group.id;
 
-  /* B-008: Drag handle + draggable for real groups only */
-  if (group.id !== '__ungrouped__') {
+  /* B-008: Drag handle + draggable for real groups only. B-196 §79.2.3: the
+     synthetic top-level region (`__toplevel__`) gets no drag handle and does
+     not participate in group-drag reorder (AC13), same as the retired
+     `__ungrouped__` section. */
+  if (group.id !== TOP_LEVEL_ID) {
     const handle = document.createElement('div');
     handle.className = 'group-drag-handle';
     handle.tabIndex = 0;
@@ -2442,8 +2460,13 @@ function buildGroupSection(group, byGroup, liveStates, driftRecords, isChild, fl
 
   /* B-049: Inline empty state for groups with zero items.
      B-121: a group with floating members but zero saved items is NOT empty —
-     skip the empty-state placeholder when synthetic rows exist. */
-  if (groupItems.length === 0 && floatingArr.length === 0 && !_filterQuery) {
+     skip the empty-state placeholder when synthetic rows exist.
+     B-196 §79.6: the top-level region never shows the group empty-state — a
+     head-empty / tail-present region (E3) would otherwise render a spurious
+     "No bookmarks in this group yet" above the loose tail. Whole-region
+     emptiness is handled by render-when-nonempty in renderAll. */
+  if (groupItems.length === 0 && floatingArr.length === 0 && !_filterQuery
+      && group.id !== TOP_LEVEL_ID) {
     const emptyEl = document.createElement('div');
     emptyEl.className = 'group-items-empty';
     emptyEl.setAttribute('role', 'status');
@@ -2768,7 +2791,9 @@ function buildItemRow(item, liveStates, driftRecords) {
  * @returns {HTMLElement|null}
  */
 function _findGroupItemsContainer(groupId) {
-  const id = groupId == null ? '__ungrouped__' : groupId;
+  /* B-196 §79.2.3: null-group (ungrouped) saved items live in the merged
+     top-level region's head container, keyed by the `__toplevel__` sentinel. */
+  const id = groupId == null ? TOP_LEVEL_ID : groupId;
   return itemListEl.querySelector('#group-items-' + CSS.escape(id));
 }
 
@@ -2859,10 +2884,17 @@ function _patchSingleRow(change) {
    Open Tabs section (B-055)
    ========================================================================= */
 
-const OPEN_TABS_SECTION_ID = 'open-tabs-section';
-const OPEN_TABS_LIST_ID = 'open-tabs-list';
-const OPEN_TABS_COUNT_ID = 'open-tabs-count';
-const OPEN_TABS_EMPTY_ID = 'open-tabs-empty';
+/* B-196 §79.2.3: the retired OPEN_TABS_* section id constants are replaced by
+   the merged top-level region's identity. The head reuses the group-section
+   machinery (`#group-items-__toplevel__`); the loose tail is a distinct child
+   `<ul>` so the three patch paths never collide (§79.5.4). */
+const TOP_LEVEL_ID = '__toplevel__';
+const TOP_LEVEL_SECTION_ID = 'top-level-section';
+const TOP_LEVEL_SECTION_CLASS = 'top-level-section';
+const TOP_LEVEL_COUNT_ID = 'top-level-count';
+const TOP_LEVEL_TAIL_LIST_ID = 'top-level-tail-list';
+const TOP_LEVEL_TAIL_LIST_CLASS = 'top-level-tail-list';
+const TOP_LEVEL_TAIL_DROP_TARGET_CLASS = 'top-level-tail-list--drop-target';
 
 function _buildOpenTabFavicon(tab) {
   if (isSafeFaviconUrl(tab.favIconUrl)) {
@@ -3307,10 +3339,26 @@ function patchFloatingMembersSections(nextFloatingMembers) {
        them back into the legacy saved-then-floating zone). Cross-
        container moves (row currently in another group) and new rows
        (just built) still insert at staticAnchor as before. */
-    const groupRecord = (Array.isArray(_cachedGroups) ? _cachedGroups : []).find((g) => g.id === groupId);
-    const groupHasRenderOrder = groupRecord
-      && Array.isArray(groupRecord.renderOrder)
-      && groupRecord.renderOrder.length > 0;
+    /* B-196 fix-round H-1 (§79.5.2 R-4): the `__toplevel__` region is NOT a
+       real `_cachedGroups` record, so `find(...)` returns undefined and the
+       sentinel would fall through to `staticAnchor` (bottom-append) — a
+       B-184-class bottom-drop scoped to the top-level head. Derive the owner's
+       renderOrder at runtime from the SAME builder the full-render path uses
+       (deriveTopLevelRenderOrder), sourced from the saved-ungrouped items +
+       this bucket's floating members. Named groups keep reading the persisted
+       `Group.renderOrder`. */
+    let renderOrder;
+    if (groupId === TOP_LEVEL_ID) {
+      const headItems = (Array.isArray(_cachedItems) ? _cachedItems : [])
+        .filter((it) => it.groupId == null);
+      renderOrder = deriveTopLevelRenderOrder(headItems, members);
+    } else {
+      const groupRecord = (Array.isArray(_cachedGroups) ? _cachedGroups : []).find((g) => g.id === groupId);
+      renderOrder = groupRecord && Array.isArray(groupRecord.renderOrder)
+        ? groupRecord.renderOrder
+        : null;
+    }
+    const groupHasRenderOrder = Array.isArray(renderOrder) && renderOrder.length > 0;
 
     /* B-121 R4 code-reviewer M-1: capture the insertion anchor ONCE before
        the members loop. The anchor is the first child that is NEITHER a
@@ -3409,7 +3457,7 @@ function patchFloatingMembersSections(nextFloatingMembers) {
          broadcast SCOPE that triggered it. */
       if (row.parentNode !== itemsContainer) {
         const anchor = groupHasRenderOrder
-          ? _resolveFloatingRowAnchor(itemsContainer, groupRecord.renderOrder, member, staticAnchor)
+          ? _resolveFloatingRowAnchor(itemsContainer, renderOrder, member, staticAnchor)
           : staticAnchor;
         itemsContainer.insertBefore(row, anchor);
       } else if (!groupHasRenderOrder
@@ -3418,13 +3466,20 @@ function patchFloatingMembersSections(nextFloatingMembers) {
       }
     }
 
-    /* Update the header count to reflect saved-rows + floating-rows. */
+    /* Update the header count to reflect saved-rows + floating-rows. B-196
+       fix-round F-2 (qa M-2): the merged `__toplevel__` region owns ONE count
+       badge spanning head (saved + floating) AND the loose tail — the floating
+       patch must fold in the tail count or it clobbers the badge the tail
+       patcher set (dropping the loose-tab contribution). Named groups have no
+       tail so the addend is 0 for them. */
     const savedCount = itemsContainer.querySelectorAll(
       '.item-row[data-item-id]:not([data-floating])',
     ).length;
+    const tailCount = groupId === TOP_LEVEL_ID ? _topLevelTailCount() : 0;
+    const total = savedCount + members.length + tailCount;
     const countBadge = section.querySelector('.group-header-count');
-    if (countBadge) countBadge.textContent = String(savedCount + members.length);
-    if (section.dataset) section.dataset.itemCount = String(savedCount + members.length);
+    if (countBadge) countBadge.textContent = String(total);
+    if (section.dataset) section.dataset.itemCount = String(total);
   }
 
   /* For groups that USED to have floating members but no longer do, drop
@@ -3438,99 +3493,115 @@ function patchFloatingMembersSections(nextFloatingMembers) {
     const savedCount = itemsContainer.querySelectorAll(
       '.item-row[data-item-id]:not([data-floating])',
     ).length;
+    /* B-196 fix-round F-2: the merged region still owns its loose tail even
+       when it carries zero floating members — fold the tail count back in so
+       the badge doesn't drop to head-only. */
+    const tailCount = gid === TOP_LEVEL_ID ? _topLevelTailCount() : 0;
+    const total = savedCount + tailCount;
     const countBadge = section.querySelector('.group-header-count');
-    if (countBadge) countBadge.textContent = String(savedCount);
-    if (section.dataset) section.dataset.itemCount = String(savedCount);
+    if (countBadge) countBadge.textContent = String(total);
+    if (section.dataset) section.dataset.itemCount = String(total);
   }
 }
 
 /**
- * Build the Open Tabs section — always mounted (AC4).
- * Uses a <section> for the region role (AC15).
- * B-055 H-2 fix: the parent `#item-list` carries `role="list"`, whose children
- * must be `role="listitem"`. Wrap the `<section>` in a listitem div so the
- * outer wrapper satisfies the list-membership contract while the inner
- * section remains the ARIA landmark.
+ * B-196 fix-round F-2: count of loose-tail rows in the merged top-level
+ * region (the distinct `#top-level-tail-list` sub-list). Zero when the region
+ * or its tail is absent (render-when-nonempty).
+ *
+ * @returns {number}
  */
-function buildOpenTabsSection(openTabs) {
-  const wrapper = document.createElement('div');
-  wrapper.setAttribute('role', 'listitem');
-  wrapper.className = 'open-tabs-wrapper';
-
-  const section = document.createElement('section');
-  section.id = OPEN_TABS_SECTION_ID;
-  section.className = 'open-tabs-section';
-  section.setAttribute('role', 'region');
-  section.setAttribute('aria-label', 'Open Tabs');
-
-  const header = document.createElement('div');
-  header.className = 'group-header open-tabs-header';
-  header.setAttribute('role', 'heading');
-  header.setAttribute('aria-level', '2');
-
-  const name = document.createElement('span');
-  name.className = 'group-header-name';
-  name.textContent = 'Open Tabs';
-
-  const count = document.createElement('span');
-  count.id = OPEN_TABS_COUNT_ID;
-  count.className = 'group-header-count';
-  count.textContent = String(openTabs.length);
-  count.setAttribute('aria-live', 'polite');
-
-  header.appendChild(name);
-  header.appendChild(count);
-  section.appendChild(header);
-
-  const list = document.createElement('ul');
-  list.id = OPEN_TABS_LIST_ID;
-  list.className = 'open-tabs-list';
-  list.setAttribute('role', 'list');
-
-  /* B-014: window badge visibility is now a per-row function of
-     `_panelWindowId` (resolved inside `_renderWindowBadge`). No need to
-     compute a section-level `multiWindow` flag. */
-  for (const tab of openTabs) {
-    list.appendChild(buildOpenTabRow(tab));
-  }
-  section.appendChild(list);
-
-  /* AC10 empty state */
-  const empty = document.createElement('div');
-  empty.id = OPEN_TABS_EMPTY_ID;
-  empty.className = 'open-tabs-empty';
-  empty.setAttribute('role', 'status');
-  empty.setAttribute('aria-live', 'polite');
-  const emptyMsg = document.createElement('span');
-  emptyMsg.textContent = 'No untracked tabs — all open tabs are saved or grouped';
-  empty.appendChild(emptyMsg);
-  section.appendChild(empty);
-
-  _toggleOpenTabsEmpty(section, openTabs.length === 0);
-
-  wrapper.appendChild(section);
-  return wrapper;
-}
-
-function _toggleOpenTabsEmpty(sectionEl, isEmpty) {
-  if (!sectionEl) return;
-  const list = sectionEl.querySelector('.open-tabs-list');
-  const empty = sectionEl.querySelector('.open-tabs-empty');
-  if (list) list.hidden = isEmpty;
-  if (empty) empty.hidden = !isEmpty;
+function _topLevelTailCount() {
+  const tailList = document.getElementById(TOP_LEVEL_TAIL_LIST_ID);
+  return tailList ? tailList.querySelectorAll('[data-tab-id]').length : 0;
 }
 
 /**
- * Targeted DOM diff for the Open Tabs section (AC8 / AC16).
+ * B-196 §79.2.2 / §79.5.4: build the single top-level catch-all region.
+ *
+ * The HEAD (saved-ungrouped items + top-level floating members, interleaved
+ * by the runtime-derived `__toplevel__` renderOrder owner) reuses the shared
+ * `buildGroupSection` machinery — inheriting the collapsible header, the
+ * `.group-items` container (`#group-items-__toplevel__`), the no-tint guard
+ * (AC12), the no-drag-handle guard (AC13) and every row builder. The LOOSE
+ * TAIL (`buildOpenTabs` output, `(windowId, tabIndex)` order) is a DISTINCT
+ * sibling `<ul>` so the tail patcher, the floating patcher and the saved-item
+ * live-state loop never fight over the same nodes. Variant A: visually one
+ * continuous list (no divider element); saved / floating / loose status is
+ * purely a per-row visual concern (live dot, save CTA, `data-live-only`).
+ *
+ * @param {Array<Object>} headItems      saved items with `groupId === null`
+ * @param {Map} byGroup                  the renderAll grouping map (mutated to seed the head)
+ * @param {Object} liveStates
+ * @param {Object} driftRecords
+ * @param {Array<Object>} headFloating   `__toplevel__` floating members (empty pre-B-197)
+ * @param {Array<Object>} looseTail      `buildOpenTabs` result
+ * @returns {HTMLElement} the merged region (`.group-section.top-level-section`)
+ */
+function buildTopLevelSection(headItems, byGroup, liveStates, driftRecords, headFloating, looseTail) {
+  const floatingArr = Array.isArray(headFloating) ? headFloating : [];
+  const tail = Array.isArray(looseTail) ? looseTail : [];
+
+  /* Head — reuse buildGroupSection with the synthetic `__toplevel__` owner.
+     `color: null` keeps the header untinted (AC12); the renderOrder owner is
+     runtime-derived (§79.3.3) so a top-level floating member lands directly
+     below its parent (B-197 AC13) via the same resolveRenderOrder branch
+     named groups use. */
+  const syntheticGroup = {
+    id: TOP_LEVEL_ID,
+    name: 'Top Level',
+    color: null,
+    collapsed: collapsedGroups.has(TOP_LEVEL_ID),
+    renderOrder: deriveTopLevelRenderOrder(headItems, floatingArr),
+  };
+  byGroup.set(TOP_LEVEL_ID, Array.isArray(headItems) ? headItems : []);
+  const section = buildGroupSection(syntheticGroup, byGroup, liveStates, driftRecords, false, floatingArr);
+  section.id = TOP_LEVEL_SECTION_ID;
+  section.classList.add(TOP_LEVEL_SECTION_CLASS);
+  section.setAttribute('aria-label', 'Top Level');
+
+  /* Stable id on the single count badge so the tail patcher can retarget it. */
+  const countBadge = section.querySelector('.group-header-count');
+  if (countBadge) countBadge.id = TOP_LEVEL_COUNT_ID;
+
+  /* Tail — loose open tabs in a distinct sibling <ul> after the head
+     container. `buildOpenTabRow` is reused verbatim (B-188 unified
+     descriptor). No divider element between head and tail (Variant A). */
+  const tailList = document.createElement('ul');
+  tailList.id = TOP_LEVEL_TAIL_LIST_ID;
+  tailList.className = TOP_LEVEL_TAIL_LIST_CLASS;
+  tailList.setAttribute('role', 'list');
+  /* B-196 fix-round H-2: the head container inherits the collapsed `hidden`
+     from buildGroupSection, but the loose tail is a DISTINCT sibling <ul> that
+     buildGroupSection never sees. Seed its initial hidden state to match the
+     head so a collapsed region hides BOTH sub-lists on first paint (ARIA: a
+     collapsed header must not leave the tail rows disclosed). */
+  tailList.hidden = syntheticGroup.collapsed;
+  for (const t of tail) tailList.appendChild(buildOpenTabRow(t));
+  section.appendChild(tailList);
+
+  /* One count badge = head rows (saved + floating) + tail rows. */
+  const headCount = (Array.isArray(headItems) ? headItems.length : 0) + floatingArr.length;
+  const total = headCount + tail.length;
+  if (countBadge) countBadge.textContent = String(total);
+  section.dataset.itemCount = String(total);
+
+  return section;
+}
+
+/**
+ * Targeted DOM diff for the merged region's LOOSE TAIL (B-196 §79.5.2, AC18).
  * Full re-renders on every liveState broadcast would be expensive at 50 rows.
- * This keyed diff removes, inserts, and patches individual rows only.
+ * This keyed diff removes, inserts, and patches individual rows only, scoped
+ * to the tail `<ul>` so it never collides with the head (saved + floating)
+ * patch paths. The single count badge reflects head rows + tail rows.
  */
 function patchOpenTabsSection(nextOpenTabs) {
-  const section = document.getElementById(OPEN_TABS_SECTION_ID);
+  const section = document.getElementById(TOP_LEVEL_SECTION_ID);
   if (!section) return;
 
-  const list = section.querySelector('.open-tabs-list');
-  const countBadge = section.querySelector('#' + OPEN_TABS_COUNT_ID);
+  const list = document.getElementById(TOP_LEVEL_TAIL_LIST_ID);
+  const countBadge = document.getElementById(TOP_LEVEL_COUNT_ID);
   if (!list) return;
 
   /* Index existing rows by tabId */
@@ -3572,8 +3643,14 @@ function patchOpenTabsSection(nextOpenTabs) {
     list.lastElementChild.remove();
   }
 
-  if (countBadge) countBadge.textContent = String(nextOpenTabs.length);
-  _toggleOpenTabsEmpty(section, nextOpenTabs.length === 0);
+  /* B-196 §79.6: one count badge = head rows (saved + floating) + tail rows.
+     The head container's direct `.item-row` children cover both saved
+     (data-item-id) and top-level floating (data-floating) rows. */
+  const headEl = document.getElementById('group-items-' + TOP_LEVEL_ID);
+  const headCount = headEl
+    ? headEl.querySelectorAll(':scope > .item-row').length
+    : 0;
+  if (countBadge) countBadge.textContent = String(headCount + nextOpenTabs.length);
 
   /* Re-apply selection on any freshly-inserted rows. */
   for (const tab of nextOpenTabs) {
@@ -3582,6 +3659,19 @@ function patchOpenTabsSection(nextOpenTabs) {
       const row = list.querySelector(`[data-tab-id="${CSS.escape(String(tab.tabId))}"]`);
       _setRowSelected(row, true);
     }
+  }
+
+  /* B-196 §79.6: render-when-nonempty on the incremental path — when the
+     region has no head rows AND no tail rows (and no incoming top-level
+     floating members), remove the empty region rather than leave a lone
+     "Top Level" header. A later loose tab re-mounts it via the readiness
+     fallback in _refetchAndPatchLiveState. The floating-bucket guard keeps
+     the section alive when patchFloatingMembersSections (which runs after
+     this) still has top-level members to place. */
+  const topLevelFloating = _cachedFloatingMembers[TOP_LEVEL_ID];
+  const hasIncomingFloating = Array.isArray(topLevelFloating) && topLevelFloating.length > 0;
+  if (headCount === 0 && nextOpenTabs.length === 0 && !hasIncomingFloating) {
+    section.remove();
   }
 }
 
@@ -3716,12 +3806,19 @@ async function refetchAndPatchLiveState() {
   _refreshPanelWindowId();
   _applyWindowMapToUI();
 
-  /* B-055: if the panel was previously showing the empty state (no DOM list)
-     and a tab now qualifies, a targeted patch cannot mount the section — fall
-     back to a full renderAll so the section appears. Same escape hatch if the
-     Open Tabs section is missing from the DOM for any other reason. */
+  /* B-055 / B-196 §79.5.4: if the panel was previously showing the empty
+     state (no DOM list) and a tab now qualifies, a targeted patch cannot
+     mount the section — fall back to a full renderAll so the region appears.
+     Under render-when-nonempty (§79.6) the top-level region is legitimately
+     ABSENT when there is no head/tail content, so its absence alone is NOT a
+     "not ready" signal (that would force a full render on every broadcast
+     when only named groups exist). Full-render only when there is loose-tail
+     or top-level-floating content to show but the region isn't mounted. */
+  const topLevelFloating = _cachedFloatingMembers[TOP_LEVEL_ID];
+  const topLevelWouldRender = _cachedOpenTabs.length > 0
+    || (Array.isArray(topLevelFloating) && topLevelFloating.length > 0);
   const needsFullRender = itemListEl.hidden
-    || !document.getElementById(OPEN_TABS_SECTION_ID);
+    || (topLevelWouldRender && !document.getElementById(TOP_LEVEL_SECTION_ID));
   if (needsFullRender) {
     try {
       const groupsResp = await sendMessage(MSG_LIST_GROUPS);
@@ -4398,9 +4495,18 @@ function toggleGroup(header) {
     collapsedGroups.delete(groupId);
   }
 
-  /* W1 — Persist ungrouped collapse to sessionStorage */
-  if (groupId === '__ungrouped__') {
-    sessionStorage.setItem('tj-ungrouped-collapsed', String(!expanded));
+  /* W1 / B-196 §79.2.3 — persist the top-level region collapse to
+     sessionStorage. `__toplevel__` is not a real group record, so it must
+     return BEFORE the MSG_UPDATE_GROUP write (same guard the retired
+     `__ungrouped__` section used). */
+  if (groupId === TOP_LEVEL_ID) {
+    /* B-196 fix-round H-2: `itemsContainer` above is only the head sub-list.
+       The loose tail is a distinct sibling <ul>, so mirror its `hidden` to the
+       head's new state. `expanded` is the PRE-toggle state — collapsing means
+       `expanded === true`, so the tail's new hidden === expanded. */
+    const tailList = document.getElementById(TOP_LEVEL_TAIL_LIST_ID);
+    if (tailList) tailList.hidden = expanded;
+    sessionStorage.setItem('tj-toplevel-collapsed', String(!expanded));
     return;
   }
 
@@ -4565,7 +4671,7 @@ itemListEl.addEventListener('dragstart', (e) => {
       sourceMode = 'FLOATING';
       const section = tabRow.closest('.group-section[data-group-id]');
       sourceGroupId = section ? section.dataset.groupId : null;
-      if (!sourceGroupId || sourceGroupId === '__ungrouped__') {
+      if (!sourceGroupId || sourceGroupId === TOP_LEVEL_ID) {
         e.preventDefault();
         return;
       }
@@ -5755,24 +5861,25 @@ function _dragTick() {
     _clearB009Hover();
   }
 
-  /* B-033 — Open Tabs demote target. Distinct drop type; indicator is
-     hidden (the section-level highlight class is the affordance). */
+  /* B-033 — loose-tail demote target. Distinct drop type; indicator is
+     hidden (the tail-level highlight class is the affordance). B-196 §79.5.4:
+     the highlight now applies to the merged region's loose-tail `<ul>` so the
+     head (saved rows) is not tinted. */
   if (target && target.type === 'openTabs') {
     _itemDragState.pendingDropType = 'openTabs';
     _itemDragState.pendingTargetRowId = null;
     _itemDragState.pendingInsertPosition = null;
     _itemDragState.pendingDestGroupId = null;
-    /* Section highlight — applied via class for simple, non-conflicting UX. */
-    const openTabsEl = document.getElementById('open-tabs-section');
-    if (openTabsEl) openTabsEl.classList.add('open-tabs-section--drop-target');
+    const tailEl = document.getElementById(TOP_LEVEL_TAIL_LIST_ID);
+    if (tailEl) tailEl.classList.add(TOP_LEVEL_TAIL_DROP_TARGET_CLASS);
     itemDragIndicatorEl.style.opacity = '0';
     itemDragIndicatorEl.style.transform = 'translateY(-9999px)';
     return;
   }
 
-  /* Exiting openTabs target — remove highlight. */
-  const openTabsEl = document.getElementById('open-tabs-section');
-  if (openTabsEl) openTabsEl.classList.remove('open-tabs-section--drop-target');
+  /* Exiting the loose-tail target — remove highlight. */
+  const tailEl = document.getElementById(TOP_LEVEL_TAIL_LIST_ID);
+  if (tailEl) tailEl.classList.remove(TOP_LEVEL_TAIL_DROP_TARGET_CLASS);
 
   /* B-025 UAT-3 fix — empty-group drop target. Position indicator at the
      top edge of the empty group's `.group-items` container so the user gets
@@ -5864,10 +5971,12 @@ function _computeDropTarget(x, y) {
   const hit = document.elementFromPoint(x, y);
   if (!hit) return null;
 
-  /* B-033 — Open Tabs demote target. Only accept if dragged item is
+  /* B-033 — loose-tail demote target. Only accept if dragged item is
      saved+live (has a matching live tab). Saved-only drags rejected
-     per AC3: handler returns null → indicator hides, no drop. */
-  if (hit.closest('.open-tabs-section')) {
+     per AC3: handler returns null → indicator hides, no drop. B-196
+     §79.5.4: scoped to the merged region's loose tail (NOT the head), so
+     dropping a saved item onto a saved head row is not a demote. */
+  if (hit.closest('.' + TOP_LEVEL_TAIL_LIST_CLASS)) {
     /* B-025 AC9 (fix B-025-H3) — multi-drag onto Open Tabs is a no-op:
        return null so no indicator renders and drop handler receives no
        valid target. Prevents silent partial demote of just the initiator. */
@@ -5925,11 +6034,13 @@ function _computeDropTarget(x, y) {
   if (groupItemsEl && groupItemsEl.querySelector('.item-row') === null) {
     const section = groupItemsEl.closest('.group-section[data-group-id]');
     if (section && section.dataset && section.dataset.groupId) {
-      /* Filter out matches inside Open Tabs — defensive. Open Tabs uses its
-         own section class; a `.group-items` ancestor should never sit inside
-         `.open-tabs-section`, but if the DOM evolves, an explicit guard keeps
-         AC9 (multi-drag onto Open Tabs → null) intact. */
-      if (section.closest('.open-tabs-section')) return null;
+      /* B-196 §79.5.4: reject the merged top-level region as an empty-group
+         drop target — `__toplevel__` is not a real group, so an item cannot be
+         moved "into" it as a group (demote-to-ungrouped goes via the loose-tail
+         / drag-to-root paths). The head `.group-items` sits inside
+         `.top-level-section`; guard against it here (parity with the retired
+         `.open-tabs-section` guard that kept AC9 intact). */
+      if (section.classList.contains(TOP_LEVEL_SECTION_CLASS)) return null;
       return { type: 'emptyGroup', destGroupId: section.dataset.groupId };
     }
   }
@@ -5944,8 +6055,10 @@ function _hoveredCollapsedGroup(x, y) {
   if (!hit) return null;
   const header = hit.closest('.group-header');
   if (!header) return null;
-  /* Skip Open Tabs header — "Open Tabs" doesn't collapse in the same way. */
-  if (header.closest('.open-tabs-section')) return null;
+  /* B-196 §79.5.4: skip the merged top-level region header — it is not a real
+     group record (`_cachedGroups` lookup below already returns null for it,
+     but this keeps the hover-hold logic from probing the sentinel). */
+  if (header.closest('.' + TOP_LEVEL_SECTION_CLASS)) return null;
   const section = header.closest('.group-section');
   if (!section || !section.dataset || !section.dataset.groupId) return null;
   const groupId = section.dataset.groupId;
@@ -6085,9 +6198,9 @@ function _cleanupItemDragDom() {
   _dragRectCache = null;
   /* B-009 cleanup. */
   _clearB009Hover();
-  /* B-033 cleanup. */
-  const openTabsEl = document.getElementById('open-tabs-section');
-  if (openTabsEl) openTabsEl.classList.remove('open-tabs-section--drop-target');
+  /* B-033 cleanup — clear the loose-tail demote highlight (B-196 §79.5.4). */
+  const tailEl = document.getElementById(TOP_LEVEL_TAIL_LIST_ID);
+  if (tailEl) tailEl.classList.remove(TOP_LEVEL_TAIL_DROP_TARGET_CLASS);
 }
 
 /* =========================================================================
@@ -6341,7 +6454,8 @@ function _computeGroupDropTarget(x, y) {
      group-drag target. */
   const header = hit.closest('.group-section > .group-header[data-group-id]');
   if (!header) return null;
-  if (header.closest('.open-tabs-section')) return null;
+  /* B-196 §79.5.4: the merged top-level region is not a group-drag target. */
+  if (header.closest('.' + TOP_LEVEL_SECTION_CLASS)) return null;
 
   const targetGroupId = header.dataset.groupId;
   if (!targetGroupId) return null;
@@ -6385,12 +6499,12 @@ function _computeGroupDropTarget(x, y) {
      poisons this value. */
   _groupDragState.pendingProposedMode = proposedMode;
 
-  /* `__ungrouped__` pseudo-group handling (B-031 H-4):
+  /* `__toplevel__` pseudo-group handling (B-031 H-4 / B-196 §79.2.3):
      - NEST zone: return REJECT so the rejection class paints on the header
-       (UAT-10 feedback — user tried to nest INTO Ungrouped).
+       (UAT-10 feedback — user tried to nest INTO the top-level region).
      - REORDER zones: return null so adjacent real-group headers on either
        side can take over the REORDER hit-test naturally (AC15d). */
-  if (targetGroupId === '__ungrouped__') {
+  if (targetGroupId === TOP_LEVEL_ID) {
     if (proposedMode === 'NEST') return { targetGroupId, mode: 'REJECT' };
     return null;
   }
@@ -6455,18 +6569,16 @@ function _computeGroupPromoteTarget(x, y) {
   /* Defensive: pointer X must be inside the item list horizontally. */
   if (x < containerRect.left || x > containerRect.right) return null;
 
-  /* B-122 R4 fix-round (M-4 / qa M-2): explicitly reject the Open Tabs
-     section as a promote target. The Open Tabs section sits below all
-     `.group-section` elements in DOM order, so without this guard the
+  /* B-122 R4 fix-round (M-4 / qa M-2) / B-196 §79.5.4: explicitly reject the
+     merged top-level region as a promote target. The region sits below all
+     named `.group-section` elements in DOM order, so without this guard the
      "below last sectionBottom" branch silently returns
      `{mode:'PROMOTE', insertAfterGroupId: lastTopLevelId}` whenever the
-     pointer is released over Open Tabs — the indicator anchors at the
+     pointer is released over the region — the indicator anchors at the
      last top-level group's bottom (far above the actual pointer) and the
-     drop produces an unintended promotion. R2 §62.9 F-1 deferred this
-     UX risk to UAT; pre-emptive fix mirrors the
-     `_computeGroupDropTarget` Open-Tabs guard at line 5462. */
+     drop produces an unintended promotion. */
   const hit = document.elementFromPoint(x, y);
-  if (hit?.closest?.('.open-tabs-section')) return null;
+  if (hit?.closest?.('.top-level-section')) return null;
 
   /* Defensive: no top-level groups (shouldn't be reachable from a
      sub-group drag, but guard regardless). */
@@ -6576,11 +6688,12 @@ function _buildTabDragRectCache() {
   /** @type {Map<number, {rowMidlines: number[], rowTabIds: number[]}>} */
   const openTabsByWindow = new Map();
 
-  /* Per-group floating zones. Iterate every `.group-section` (skip
-     synthetic Ungrouped — floating rows can't anchor there per §60.4). */
+  /* Per-group floating zones. Iterate every `.group-section` (skip the merged
+     top-level region — B-196 keeps floating rows out of the head; B-197 opens
+     that up separately). */
   for (const section of itemListEl.querySelectorAll('.group-section')) {
     const groupId = section.dataset.groupId;
-    if (!groupId || groupId === '__ungrouped__') continue;
+    if (!groupId || groupId === TOP_LEVEL_ID) continue;
     const itemsContainer = section.querySelector(':scope > .group-items');
     if (!itemsContainer) continue;
     /* B-148 §3.7 / §3.8 D-1 (S44, v6→v7) — enumerate ALL :scope > .item-row
@@ -6658,11 +6771,12 @@ function _buildTabDragRectCache() {
     floatingZoneRects.set(groupId, { top, bottom, rowMidlines, rowTabIds, rowRefs });
   }
 
-  /* Open Tabs section per-window clusters. */
-  const openTabsSection = document.getElementById('open-tabs-section');
-  const openTabsRect = openTabsSection ? openTabsSection.getBoundingClientRect() : null;
-  if (openTabsSection) {
-    const list = openTabsSection.querySelector('.open-tabs-list');
+  /* Loose-tail per-window clusters (B-196 §79.5.4: the tail sub-list of the
+     merged top-level region). */
+  const openTabsList = document.getElementById(TOP_LEVEL_TAIL_LIST_ID);
+  const openTabsRect = openTabsList ? openTabsList.getBoundingClientRect() : null;
+  if (openTabsList) {
+    const list = openTabsList;
     if (list) {
       for (const row of list.querySelectorAll(':scope > .item-row[data-tab-id]')) {
         const wid = Number(row.dataset.windowId);
@@ -6917,13 +7031,14 @@ function _computeTabDropTarget(x, y) {
     /* Determine which window cluster the pointer is in via elementFromPoint
        (cheap — no layout). */
     const hit = document.elementFromPoint(x, y);
-    /* Skip header rows. */
-    if (hit && hit.closest('.open-tabs-header')) return null;
+    /* Skip the merged region header (B-196 §79.5.4). The loose-tail rect above
+       excludes the header, so this is defense-in-depth. */
+    if (hit && hit.closest('#' + TOP_LEVEL_SECTION_ID + ' > .group-header')) return null;
 
     let targetWindowId = null;
     /* If the pointer is over a specific row, use that row's windowId. */
     const rowUnderPointer = hit ? hit.closest('.item-row[data-tab-id]') : null;
-    if (rowUnderPointer && rowUnderPointer.closest('.open-tabs-section')) {
+    if (rowUnderPointer && rowUnderPointer.closest('.' + TOP_LEVEL_TAIL_LIST_CLASS)) {
       targetWindowId = Number(rowUnderPointer.dataset.windowId);
     } else if (_tabDragRectCache.openTabsByWindow.size > 0) {
       /* Pointer is in section dead-space — pick the cluster whose midlines
@@ -7807,7 +7922,7 @@ function _openGroupContextMenu(header, x, y) {
   _contextMenuTriggerRow = header;
 
   const groupId = header.dataset.groupId;
-  if (!groupId || groupId === '__ungrouped__') return;
+  if (!groupId || groupId === TOP_LEVEL_ID) return;
 
   const group = _cachedGroups.find((g) => g.id === groupId);
   if (!group) return;
@@ -8536,10 +8651,14 @@ document.addEventListener('contextmenu', (e) => {
      inside a group header that is ALSO inside a row container is handled
      by the group branch, not the single-item branch. */
   const header = e.target.closest('.group-header');
-  if (header && !header.classList.contains('open-tabs-header')) {
-    /* H-1 fix: don't swallow the native menu for Ungrouped — that header has
-       no group-level actions, so preventDefault would leave a dead zone. */
-    if (header.dataset.groupId === '__ungrouped__') return;
+  if (header) {
+    /* H-1 fix / B-196 §79.2.3: don't swallow the native menu for the merged
+       top-level region — its header has no group-level actions, so
+       preventDefault would leave a dead zone. (The retired Open Tabs section
+       had a separate `.open-tabs-header`; the merged region reuses the plain
+       `.group-header`, so the class guard is no longer needed — the
+       `__toplevel__` id check is the single bail predicate.) */
+    if (header.dataset.groupId === TOP_LEVEL_ID) return;
     e.preventDefault();
     _openGroupContextMenu(header, e.clientX, e.clientY);
     return;
@@ -8626,9 +8745,21 @@ window.addEventListener('blur', () => {
    ========================================================================= */
 
 document.addEventListener('DOMContentLoaded', async () => {
-  /* W1 — Restore ungrouped collapse from sessionStorage */
-  if (sessionStorage.getItem('tj-ungrouped-collapsed') === 'true') {
-    collapsedGroups.add('__ungrouped__');
+  /* B-196 fix-round F-3 (qa M-3) — one-time migration of the pre-merge
+     Ungrouped-section collapse preference. A user who had the old Ungrouped
+     section collapsed carries `tj-ungrouped-collapsed='true'`, but the merged
+     region reads only `tj-toplevel-collapsed`. Copy the value across when the
+     new key is absent (don't clobber a fresh choice the user already made on
+     the merged region), then evict the retired key so the migration runs once. */
+  if (sessionStorage.getItem('tj-toplevel-collapsed') === null
+      && sessionStorage.getItem('tj-ungrouped-collapsed') === 'true') {
+    sessionStorage.setItem('tj-toplevel-collapsed', 'true');
+  }
+  sessionStorage.removeItem('tj-ungrouped-collapsed');
+
+  /* W1 / B-196 §79.2.3 — restore the top-level region collapse from sessionStorage */
+  if (sessionStorage.getItem('tj-toplevel-collapsed') === 'true') {
+    collapsedGroups.add(TOP_LEVEL_ID);
   }
 
   /* B-014: start the panel-window-id lookup early — concurrent with the rest

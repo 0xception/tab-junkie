@@ -18,6 +18,7 @@ import {
   updateTabEntry,
   removeTabsByWindow,
   getLiveTabIndex,
+  renumberAfterRemoval,
 } from './live-tab-index.js';
 import { reevaluateTab, isClaimsReady, getClaimsMirror, markInherited, getItemIdForTab } from './tab-claims.js';
 import { detectDriftForTab } from './drift.js';
@@ -240,6 +241,14 @@ export function registerTabEventListeners(readyPromise) {
             const liveUrl = liveEntry.url || '';
             const liveIndex = liveEntry.index ?? tab.index;
             const liveWindowId = liveEntry.windowId ?? tab.windowId;
+            /* B-197 §79.4 — a top-level opener (an ungrouped bookmark via
+               walkOpenerChain, or a top-level floating child via
+               resolveFloatingOpener) resolves with `groupId === null`. Persist
+               the floating record under the `'__toplevel__'` sentinel: the
+               validator REQUIRES a non-empty string groupId (§79.1.3), and the
+               runtime-derived `__toplevel__` renderOrder owner (§79.3) places
+               it under its parent at render time. Named groups pass through. */
+            const recordGroupId = result.groupId === null ? '__toplevel__' : result.groupId;
             /* B-148 hotfix (S44 polish) — anchor the new floating tab DIRECTLY
                UNDER the opener page in renderOrder so it appears next to the
                page the user just clicked from. Two cases:
@@ -255,7 +264,7 @@ export function registerTabEventListeners(readyPromise) {
               const openerFloating = floatingRecords.find(
                 (r) => r
                   && typeof r === 'object'
-                  && r.groupId === result.groupId
+                  && r.groupId === recordGroupId
                   && r.liveTabId === tab.openerTabId
                   && typeof r.floatingTabId === 'string'
                   && r.floatingTabId.length > 0,
@@ -265,7 +274,7 @@ export function registerTabEventListeners(readyPromise) {
               }
             }
             await appendFloatingGroup({
-              groupId: result.groupId,
+              groupId: recordGroupId,
               parentItemId: result.itemId,
               windowId: liveWindowId,
               tabIndex: typeof liveIndex === 'number' ? liveIndex : 0,
@@ -276,7 +285,10 @@ export function registerTabEventListeners(readyPromise) {
                  the `liveEntry` re-validation above (line 151-152) ensures
                  the tab is still alive at write time. */
               liveTabId: tab.id,
-              /* B-148 hotfix — see anchor comment above. */
+              /* B-148 hotfix — see anchor comment above. Note: insertAfterRef is a
+                 no-op for '__toplevel__' records (no persisted renderOrder; the
+                 PARTITION_GROUPS mutator skips at idx < 0) — top-level ordering
+                 is governed by sortOrder / runtime-derived renderOrder (§79.3.3). */
               insertAfterRef,
             });
             // B-125 (§59.3): mark the inherited tab so reevaluateTab will
@@ -340,7 +352,24 @@ export function registerTabEventListeners(readyPromise) {
    * via the `storageBucketSize` parity check). The handler chains the single
    * `tab/removed` broadcast onto the returned claim-release promise.
    */
-  chrome.tabs.onRemoved.addListener((tabId) => {
+  chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+    /* B-186: capture the closed tab's strip slot BEFORE releaseTabCascade
+       deletes its LiveTabIndex entry (removeTabEntry runs synchronously inside
+       the cascade, ahead of its first await). Chrome shifts every survivor to
+       the RIGHT of the closed tab down by one but fires NO onMoved for that
+       implicit shift, so we mirror it here — otherwise buildOpenTabs keeps
+       sorting by stale indices and the Open Tabs rows jump on the next
+       re-render (the activate-scramble bug). Skipped when isWindowClosing is
+       set: a whole window's entries are dropped en masse by removeTabsByWindow
+       in the windows.onRemoved handler (Chrome fires per-tab onRemoved with
+       isWindowClosing:true BEFORE windows.onRemoved), so a per-survivor
+       renumber here would be pure churn. renumberAfterRemoval only touches
+       entries with index > removedIndex, so running it before the cascade's
+       delete never mutates the closed tab's own (equal-index) entry. */
+    const removedSlot = getLiveTabIndex().get(tabId);
+    if (removedSlot && !(removeInfo && removeInfo.isWindowClosing)) {
+      renumberAfterRemoval(removedSlot.windowId, removedSlot.index);
+    }
     releaseTabCascade(tabId).then(() => {
       broadcast(SCOPE.LIVE_STATE, 'tab/removed', { requireClaimsReady: true });
     }).catch((err) => {

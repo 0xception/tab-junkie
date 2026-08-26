@@ -764,7 +764,7 @@ test('B-036 AC6: group sections render in stored sortOrder with correct items', 
   assert.match(alphaRows[1].textContent, /Three/);
 });
 
-test('B-036 AC13: ungrouped items render under an implicit "Ungrouped" section', async () => {
+test('B-036 AC13 (B-196 §79.2.4): ungrouped items render under the top-level catch-all head section', async () => {
   const spy = globalThis._spy;
   const items = [
     { id: 'u1', title: 'Untitled-grouped', url: 'https://u/1', groupId: null, sortOrder: 1 },
@@ -779,7 +779,7 @@ test('B-036 AC13: ungrouped items render under an implicit "Ungrouped" section',
   await fireBootAndFlush();
   const sections = document.querySelectorAll('.newtab-group');
   assert.equal(sections.length, 1, 'ungrouped items collapse into one section');
-  assert.match(sections[0].textContent, /Ungrouped/, 'section header reads "Ungrouped"');
+  assert.match(sections[0].textContent, /Top Level/, 'section header reads "Top Level" (B-196 merge)');
   const rows = sections[0].querySelectorAll('.newtab-item-row');
   assert.equal(rows.length, 2);
 });

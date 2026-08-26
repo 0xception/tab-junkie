@@ -47,7 +47,7 @@ import { isSafeFaviconUrl } from '../shared/favicon.js';
 import { buildIndex, search, diffAndPatch } from '../sidepanel/search-index.js';
 /* B-088 fix #1 — shared theme + dense-layout appliers. */
 import { applyTheme as _applyTheme, applyDenseLayout as _applyDenseLayout } from '../shared/surface-prefs.js';
-import { resolveRenderOrder } from '../shared/render-order.js';
+import { resolveRenderOrder, deriveTopLevelRenderOrder } from '../shared/render-order.js';
 
 /* =========================================================================
    Tunables
@@ -60,8 +60,12 @@ const FILTER_DEBOUNCE_MS = 200;
 const SKELETON_GROUP_COUNT = 3;
 /** §42.6.2: skeleton-row count per skeleton group. */
 const SKELETON_ROW_COUNT = 5;
-/** Ungrouped section id key (mirrors search-index.js `__ungrouped__`). */
-const UNGROUPED_KEY = '__ungrouped__';
+/** B-196 §79.2.4: the top-level catch-all head bucket key. Ungrouped saved
+    items (and, post-B-197, top-level floating members) render under this
+    sentinel with the label "Top Level". Newtab is HEAD-ONLY — it has never
+    rendered loose open tabs, so there is no loose tail here (adding one would
+    be net-new functionality, a separate item). */
+const UNGROUPED_KEY = '__toplevel__';
 
 /* =========================================================================
    Module-scope state
@@ -800,8 +804,8 @@ function _renderGrid() {
     return;
   }
 
-  /* §42.5.1 (b): ungrouped items render inside an implicit "Ungrouped"
-     section. Group order = stored sort.
+  /* §42.5.1 (b) / B-196 §79.2.4: ungrouped items render inside the top-level
+     catch-all head section (labelled "Top Level"). Group order = stored sort.
      UAT-2 (S29): preserve parent→child hierarchy. The previous flat order
      (real groups by sortOrder, ungrouped last) put sub-groups at top-level
      because parentId was ignored. Mirror sidepanel's pattern (sidepanel.js
@@ -951,16 +955,17 @@ function _buildGroupSection(group, groupKey, items, isChild = false) {
   }
 
   /* B-121: surface synthetic rows below the saved-item rows. Pulled from
-     the module-level cache for the current groupId; empty for the
-     Ungrouped section since opener-chain inheritance always resolves to a
-     parent with a non-null groupId. */
+     the module-level cache for the current groupId. B-196 §79.2.4: the
+     top-level head (`groupKey === '__toplevel__'`) reads the `'__toplevel__'`
+     floating bucket — empty until B-197 lands, then populated with top-level
+     floating members (head-only; newtab has no loose tail). */
   const floatingForGroup = (groupKey && _floatingMembers && Array.isArray(_floatingMembers[groupKey]))
     ? _floatingMembers[groupKey]
     : [];
 
   const nameSpan = document.createElement('span');
   nameSpan.className = 'newtab-group-name';
-  nameSpan.textContent = group ? (group.name || 'Untitled group') : 'Ungrouped';
+  nameSpan.textContent = group ? (group.name || 'Untitled group') : 'Top Level';
   header.appendChild(nameSpan);
 
   const countSpan = document.createElement('span');
@@ -988,7 +993,20 @@ function _buildGroupSection(group, groupKey, items, isChild = false) {
      filtered silently by the resolver. The Ungrouped section passes
      `group === null/undefined` → the resolver hits its bootstrap path
      which only references items + floating. */
-  const renderRows = resolveRenderOrder(group, items, floatingForGroup);
+  /* B-196 fix-round F-1 (code M-2 / qa M-1): the top-level head is not a
+     persisted group record (`group === null`), so passing it straight to
+     resolveRenderOrder would hit the bootstrap fallback (saved-then-floating),
+     NOT the interleaved order. Build the SAME synthetic `__toplevel__` owner
+     the sidepanel uses — a runtime-derived `renderOrder` off the head items +
+     floating members (shared deriveTopLevelRenderOrder) — so a top-level
+     floating member lands directly below its parent (B-197 AC13). Named groups
+     keep their persisted `group`. Behavior-preserving today: the head floating
+     bucket is empty pre-B-197, so the derived order is exactly the head items
+     by sortOrder — byte-for-byte the prior Ungrouped ordering. */
+  const renderOwner = (groupKey === UNGROUPED_KEY)
+    ? { id: UNGROUPED_KEY, renderOrder: deriveTopLevelRenderOrder(items, floatingForGroup) }
+    : group;
+  const renderRows = resolveRenderOrder(renderOwner, items, floatingForGroup);
   for (const row of renderRows) {
     if (row.kind === 'item') {
       const rowEl = _buildItemRow(row.item, loweredQuery);

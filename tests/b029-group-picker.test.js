@@ -531,7 +531,7 @@ test('B-029 AC5: sourceGroupId is omitted from the rendered list', () => {
   assert.ok(ids.includes('g1'));
   assert.ok(ids.includes('g3'));
   assert.ok(!ids.includes('g2'), 'source g2 must be excluded');
-  assert.ok(ids.includes(null), 'Ungrouped always present when sourceGroupId !== "__ungrouped__"');
+  assert.ok(ids.includes(null), 'Ungrouped always present when sourceGroupId !== "__toplevel__"');
 });
 
 test('B-029 AC5: sourceGroupId === null shows all groups (no exclusion)', () => {
@@ -629,8 +629,8 @@ test('B-029 AC8: highlighted row has aria-selected="true"; others "false"', () =
 
 test('B-029 AC9: when rows are empty the empty-state is visible with a create-group CTA', () => {
   const ctx = makeCtx({ groups: [], items: [] });
-  /* Excluding '__ungrouped__' yields a zero-row list. */
-  const rows = buildGroupPickerRows(ctx, '__ungrouped__');
+  /* Excluding '__toplevel__' yields a zero-row list (B-196 F-4 sentinel). */
+  const rows = buildGroupPickerRows(ctx, '__toplevel__');
   assert.equal(rows.length, 0);
 
   /* The sidepanel toggles #group-picker-empty visible when rows.length === 0.

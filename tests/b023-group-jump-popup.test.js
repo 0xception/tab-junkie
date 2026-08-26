@@ -641,7 +641,7 @@ test('B-023 AC19(a): zero groups → empty-no-groups', () => {
      the entire allRows array is empty, i.e. when sourceGroupId excludes
      Ungrouped AND there are zero real groups. */
   const withoutUngrouped = buildGroupPickerRows({
-    groups: [], items: [], liveStates: {}, sourceGroupId: '__ungrouped__',
+    groups: [], items: [], liveStates: {}, sourceGroupId: '__toplevel__',
   });
   assert.equal(withoutUngrouped.length, 0);
   const res = applyGroupListFilter(withoutUngrouped, '');
